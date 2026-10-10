@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import preview from "#.storybook/preview";
-import { expect, within } from "storybook/test";
+import { expect, waitFor, within } from "storybook/test";
 import { TurnError } from "../../../ui-react/src/components/chat/turn-error.js";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
 import { createBrainUiRoot } from "../../../ui-react/src/root.js";
@@ -22,8 +22,8 @@ export const Copy = meta.story({
     await userEvent.click(opener);
     const body = within(canvasElement.ownerDocument.body);
     const dialog = body.getByRole("dialog", { name: "What will be copied" });
-    await expect(within(dialog).getByRole("textbox", { name: "Exact outgoing text" })).toBeVisible();
-    await expect(within(dialog).getByRole("button", { name: "Copy" }).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "Exact outgoing text" })).toBeVisible());
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Copy" }).getBoundingClientRect().height).toBeGreaterThanOrEqual(44));
   },
 });
 export const Report = meta.story({
@@ -32,6 +32,6 @@ export const Report = meta.story({
     await userEvent.click(canvas.getByRole("button", { name: "Report a bug" }));
     const dialog = within(canvasElement.ownerDocument.body).getByRole("dialog", { name: "What will be sent" });
     await expect(dialog.textContent).toContain("Opening the issue sends this text to GitHub before you submit");
-    await expect(within(dialog).getByRole("textbox", { name: "Exact outgoing text" })).toBeVisible();
+    await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "Exact outgoing text" })).toBeVisible());
   },
 });

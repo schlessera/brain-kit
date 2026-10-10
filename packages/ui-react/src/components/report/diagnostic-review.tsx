@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BottomSheet, Button } from "@schlessera/brain-ui-kit";
+import { Overlay, Button } from "@schlessera/brain-ui-kit";
 
 /** The public tracker every report goes to (D51). */
 export const REPORT_ISSUE_URL = "https://github.com/schlessera/brain-kit/issues/new";
@@ -89,7 +89,7 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
   const generated = useRef(p.initialBody);
   const bodyRef = useRef(body);
   bodyRef.current = body;
-  const dialog = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLElement | null>(typeof document === "undefined" ? null : document.activeElement as HTMLElement | null);
   const heading = useRef<HTMLHeadingElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fieldId = useId();
@@ -100,19 +100,6 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
   onLateBody.current = p.onLateBody;
   const headingText = p.heading ?? (p.mode === "report" ? "What will be sent" : "What will be copied");
   const finalTitle = p.title ? issueTitle : p.defaultIssueTitle;
-
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    const node = dialog.current!;
-    if (typeof node.showModal === "function") node.showModal();
-    else node.setAttribute("open", "");
-    heading.current?.focus();
-    return () => {
-      node.close?.();
-      if (opener?.isConnected && opener !== document.body) opener.focus();
-      else returnFocus.current?.();
-    };
-  }, []);
 
   // A late generated body replaces only an untouched field.
   // Both this and an inclusion update from the current value, so a fetch that
@@ -169,53 +156,46 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
   const available = (p.inclusions ?? []).filter(i => i.build() !== null);
 
   return createPortal(
-    <dialog ref={dialog} aria-label={headingText} className="turn-diagnostic-dialog" onCancel={e => { e.preventDefault(); p.onClose(); }}
-      onClick={e => { if (e.target === e.currentTarget) p.onClose(); }}
-      onKeyDown={e => {
-        if (e.key !== "Tab") return;
-        const controls = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, input:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')]
-          .filter(node => node.getClientRects().length > 0);
-        const first = controls[0], last = controls.at(-1);
-        if (!first || !last) { e.preventDefault(); heading.current?.focus(); return; }
-        if (e.shiftKey && (document.activeElement === first || document.activeElement === heading.current)) {
-          e.preventDefault(); last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault(); first.focus();
-        }
+    <Overlay open variant="dialog" size="lg" title={headingText}
+      subtitle={p.mode === "report" ? copyText.reportSubtitle : copyText.copySubtitle}
+      data-diagnostic-review="" initialFocus={heading} onClose={p.onClose}
+      returnFocus={() => {
+        const target = opener.current;
+        if (target?.isConnected && target !== document.body && !target.matches(":disabled") && !target.closest("[inert]")) return target;
+        returnFocus.current?.();
+        return null;
       }}>
       <h2 ref={heading} tabIndex={-1} className="bk-sr-only">{headingText}</h2>
-      <BottomSheet title={headingText} icon="scope" subtitle={p.mode === "report" ? copyText.reportSubtitle : copyText.copySubtitle}>
-        {p.title ? (
-          <>
-            <label className="block text-xs text-muted-foreground" htmlFor={titleId}>Title</label>
-            <input id={titleId} value={issueTitle} onChange={e => setIssueTitle(e.target.value)}
-              className="mb-3 mt-2 w-full min-h-11 rounded-lg border border-border bg-surface-raised px-3 font-mono text-xs text-foreground" />
-          </>
-        ) : null}
-        <label className="block text-xs text-muted-foreground" htmlFor={fieldId}>Exact outgoing text</label>
-        <textarea ref={textarea} id={fieldId} value={body} onChange={e => setBody(e.target.value)}
-          className={p.meter
-            ? "mt-2 w-full min-h-72 max-h-[60vh] rounded-lg border border-border bg-surface-raised p-3 font-mono text-xs text-foreground [overflow-wrap:anywhere] desktop:min-h-96"
-            : "mt-2 w-full min-h-48 rounded-lg border border-border bg-surface-raised p-3 font-mono text-xs text-foreground"} />
-        {p.meter ? (
-          <p data-report-meter="" className={tooLong ? "mt-1 font-mono text-xs text-destructive" : "mt-1 font-mono text-xs text-muted-foreground"}>
-            {tooLong
-              ? `Too long for the issue link by ${(url.length - REPORT_URL_LIMIT).toLocaleString("en-US")} — copy instead, or shorten it`
-              : `${url.length.toLocaleString("en-US")} / ${REPORT_URL_LIMIT.toLocaleString("en-US")} characters in the URL`}
-          </p>
-        ) : null}
-        <div className="my-3 text-xs text-muted-foreground">{copyText.footnote}</div>
-        {p.note ? <p className="mb-3 text-xs text-muted-foreground">{p.note}</p> : null}
-        <div className="flex flex-col gap-2">
-          {available.map(i => (
-            <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} style={{ minHeight: 44 }} />
-          ))}
-          {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} style={{ minHeight: 44 }} /> : null}
-          <Button label="Copy" onClick={() => void copy()} style={{ minHeight: 44 }} />
-          <Button label="Close review" tone="ghost" onClick={p.onClose} style={{ minHeight: 44 }} />
-        </div>
-        {notice ? <p role="status" className="mt-3 text-xs text-muted-foreground">{notice}</p> : null}
-      </BottomSheet>
-    </dialog>, document.body,
+      {p.title ? (
+        <>
+          <label className="block text-xs text-muted-foreground" htmlFor={titleId}>Title</label>
+          <input id={titleId} value={issueTitle} onChange={e => setIssueTitle(e.target.value)}
+            className="mb-3 mt-2 w-full min-h-11 rounded-lg border border-border bg-surface-raised px-3 font-mono text-xs text-foreground" />
+        </>
+      ) : null}
+      <label className="block text-xs text-muted-foreground" htmlFor={fieldId}>Exact outgoing text</label>
+      <textarea ref={textarea} id={fieldId} value={body} onChange={e => setBody(e.target.value)}
+        className={p.meter
+          ? "mt-2 w-full min-h-72 max-h-[60vh] rounded-lg border border-border bg-surface-raised p-3 font-mono text-xs text-foreground [overflow-wrap:anywhere] desktop:min-h-96"
+          : "mt-2 w-full min-h-48 rounded-lg border border-border bg-surface-raised p-3 font-mono text-xs text-foreground"} />
+      {p.meter ? (
+        <p data-report-meter="" className={tooLong ? "mt-1 font-mono text-xs text-destructive" : "mt-1 font-mono text-xs text-muted-foreground"}>
+          {tooLong
+            ? `Too long for the issue link by ${(url.length - REPORT_URL_LIMIT).toLocaleString("en-US")} — copy instead, or shorten it`
+            : `${url.length.toLocaleString("en-US")} / ${REPORT_URL_LIMIT.toLocaleString("en-US")} characters in the URL`}
+        </p>
+      ) : null}
+      <div className="my-3 text-xs text-muted-foreground">{copyText.footnote}</div>
+      {p.note ? <p className="mb-3 text-xs text-muted-foreground">{p.note}</p> : null}
+      <div className="flex flex-col gap-2">
+        {available.map(i => (
+          <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} style={{ minHeight: 44 }} />
+        ))}
+        {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} style={{ minHeight: 44 }} /> : null}
+        <Button label="Copy" onClick={() => void copy()} style={{ minHeight: 44 }} />
+        <Button label="Close review" tone="ghost" onClick={p.onClose} style={{ minHeight: 44 }} />
+      </div>
+      {notice ? <p role="status" className="mt-3 text-xs text-muted-foreground">{notice}</p> : null}
+    </Overlay>, document.body,
   );
 }

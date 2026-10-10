@@ -5,6 +5,7 @@
 // a real URL or creates an issue. Queries come from `render()`, never
 // `screen` — see tests/render/dom.ts for why.
 import { unregisterActivityReportDom } from "./activity-report-dom.js";
+import { overlayGeometry } from "./overlay-geometry.js";
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render as renderDom, waitFor } from "@testing-library/react";
@@ -14,6 +15,7 @@ import type { ActivityRunDetail, ActivityRunSummary, ActivitySpan } from "@schle
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
+const restoreGeometry = overlayGeometry();
 let root: BrainUiRoot;
 let useActivityStore: BrainUiRoot["stores"]["activity"];
 let useChatStore: BrainUiRoot["stores"]["chat"];
@@ -24,6 +26,7 @@ const render = (node: ReactNode) => renderDom(<BrainUiProvider root={root}>{node
 afterEach(cleanup);
 afterAll(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
+  restoreGeometry();
   unregisterActivityReportDom();
 });
 
@@ -126,7 +129,7 @@ async function mount() {
 
 const reportButtons = (page: ReturnType<typeof render>) =>
   [...page.container.querySelectorAll<HTMLButtonElement>("button[data-report-run]")];
-const dialog = () => document.body.querySelector<HTMLDialogElement>("dialog.turn-diagnostic-dialog");
+const dialog = () => document.body.querySelector<HTMLDialogElement>("dialog[data-diagnostic-review]");
 const field = (label: string) => {
   const d = dialog()!;
   const node = [...d.querySelectorAll("label")].find((l) => l.textContent === label)!;
