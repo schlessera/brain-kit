@@ -160,6 +160,21 @@ const lockup = `${BRAND_ASSET_SPECIFIER}lockup-on-paper.svg`;
 
 `-on-dark` and `-on-paper` name the flat ground each file's colours are for.
 
+`BRAND_RASTERS` are rendered from those masters by `bun run brand:generate`
+(`tools/brand/generate.ts`): `favicon.ico` (16, 32 and 48px),
+`apple-touch-icon.png` (180px, opaque), `icon-192.png`, `icon-512.png`,
+`icon-maskable-512.png` (mark inside the central 80% circle) and the 1200x630
+`social-card.png`. A host copies the brand files it serves and declares them
+from the same entry, rather than typing the values:
+
+```ts
+import { HTML_ICON_LINKS, WEB_APP_COLORS, WEB_APP_MANIFEST_ICONS } from "@schlessera/brain-ui-kit/brand";
+const manifest = { name: "brain", icons: WEB_APP_MANIFEST_ICONS, ...WEB_APP_COLORS };
+```
+
+`src` and `href` are bare file names, relative to wherever the host serves
+the brand files.
+
 ## Styles
 
 Two forms, both generated from `src/styles.css`:

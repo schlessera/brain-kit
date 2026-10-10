@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BRAND_ASSET_SPECIFIER, BRAND_MASTERS } from "../src/brand.js";
+import { BRAND_ASSET_SPECIFIER, BRAND_MASTERS, BRAND_RASTERS } from "../src/brand.js";
 
 const PACKAGE = join(import.meta.dir, "..");
 const ASSETS = join(PACKAGE, "assets", "brand");
@@ -29,12 +29,12 @@ const ACCEPTED: Record<string, string> = {
   "social-card.svg": "fde7f4b6faef0ca4e1e5628218a601563dd640ca2c0cbf79ffb5ac858b2f0f74",
 };
 
-const SHIPPED: readonly string[] = [...BRAND_MASTERS];
+const SHIPPED: readonly string[] = [...BRAND_MASTERS, ...BRAND_RASTERS];
 
 describe("brand masters", () => {
   test("the committed masters are exactly the accepted files", () => {
     expect(Object.keys(ACCEPTED).length).toBe(14);
-    expect([...SHIPPED].sort()).toEqual(Object.keys(ACCEPTED).sort());
+    expect([...BRAND_MASTERS].sort() as string[]).toEqual(Object.keys(ACCEPTED).sort());
     for (const [file, sha] of Object.entries(ACCEPTED)) {
       const got = createHash("sha256").update(readFileSync(join(ASSETS, file))).digest("hex");
       expect(got, file).toBe(sha);
