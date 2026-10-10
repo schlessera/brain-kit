@@ -4,7 +4,7 @@ import os, pathlib, subprocess, sys
 def main():
     source = pathlib.Path(__file__).resolve().parents[3]
     mode = sys.argv[1] if len(sys.argv) > 1 else 'read'
-    if mode not in ['read', 'generation', 'hybrid', 'custom-inbox', 'write-denial', 'review']:
+    if mode not in ['read', 'generation', 'hybrid', 'custom-inbox', 'write-denial', 'review', 'paid-extra', 'paid-inactive', 'paid-rejected', 'paid-http402', 'paid-http429', 'paid-missing', 'paid-wrong-model', 'paid-partial']:
         raise RuntimeError('This launcher admits only bounded offline controls')
     bun = pathlib.Path(subprocess.run(['bun', '-e', 'console.log(process.execPath)'], capture_output=True, text=True, check=True).stdout.strip())
     args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-all']
@@ -14,7 +14,7 @@ def main():
         if pathlib.Path(system).exists():
             args += ['--ro-bind', system, system]
     args += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', str(source), str(source), '--ro-bind', str(bun), str(bun), '--chdir', str(source)]
-    script = source / 'scripts/evals/import-enrichment/offline-probe.ts'
+    script = source / ('scripts/evals/import-enrichment/paid-offline-probe.ts' if mode.startswith('paid-') else 'scripts/evals/import-enrichment/offline-probe.ts')
     env = {'PATH': '/usr/bin:/bin:' + str(bun.parent), 'HOME': '/tmp/isolated-home', 'BRAIN_IMPORT_ENRICHMENT_OFFLINE': '1', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
     command = [str(script), mode]
     if len(sys.argv) > 2:
