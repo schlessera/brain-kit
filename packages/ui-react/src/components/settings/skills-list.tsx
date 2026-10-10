@@ -1,5 +1,5 @@
-import { Button, Placeholder } from "@schlessera/brain-ui-kit";
-import { Loader2, Pencil, Power, Trash2, Upload } from "lucide-react";
+import { Button, IconButton, Toggle, Placeholder } from "@schlessera/brain-ui-kit";
+import { Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import type { SkillEntry, SkillInstallOutcome } from "../../lib/api-client.js";
 import { cn } from "../../lib/utils.js";
 
@@ -12,8 +12,8 @@ import { cn } from "../../lib/utils.js";
  *
  * Text fields stay native (the kit has no text input); the create, install,
  * save and close buttons are the kit's `Button`. The per-row edit / enable /
- * delete controls stay native icon buttons: they are titled, and the kit has
- * no icon-only button. The zip picker is a native file input behind a label.
+ * delete controls use kit IconButton, and enable is a kit Toggle. The zip
+ * picker is a native file input behind a label.
  *
  * `busy` names the skill whose mutation is in flight, or `"*"` for none in
  * particular — the container passes the skill name it is working on, and
@@ -164,42 +164,12 @@ export function SkillsList(p: SkillsListProps) {
                   {skill.warning ? `⚠ ${skill.warning}` : skill.description}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => p.onOpen(skill)}
-                disabled={locked}
-                title="Edit SKILL.md"
-                className="rounded-md border border-border-subtle p-1.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => p.onToggle(skill)}
-                disabled={locked}
-                title={skill.enabled ? "Disable (all backends)" : "Enable"}
-                className={cn(
-                  "rounded-md border border-border-subtle p-1.5 transition-colors disabled:opacity-50",
-                  skill.enabled
-                    ? "text-primary hover:border-primary"
-                    : "text-muted-foreground hover:border-primary hover:text-primary",
-                )}
-              >
-                {p.busy === skill.name ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Power className="h-3.5 w-3.5" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => p.onRemove(skill)}
-                disabled={locked}
-                title="Delete permanently"
-                className="rounded-md border border-border-subtle p-1.5 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <IconButton size="sm" name={`Edit ${skill.name} SKILL.md`} glyph={<Pencil />} disabled={locked} onClick={() => p.onOpen(skill)} />
+              <span className="relative flex shrink-0 items-center px-1 py-3">
+                <Toggle on={skill.enabled} label={`Enable ${skill.name} on all backends`} disabled={locked || p.busy === skill.name} onClick={() => p.onToggle(skill)} />
+                {p.busy === skill.name && <Loader2 aria-hidden className="absolute -top-1 left-1/2 h-3.5 w-3.5 -translate-x-1/2 animate-spin text-muted-foreground" />}
+              </span>
+              <IconButton size="sm" tone="danger" name={`Delete ${skill.name} permanently`} glyph={<Trash2 />} disabled={locked} onClick={() => p.onRemove(skill)} />
             </div>
           </li>
         ))}

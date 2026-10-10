@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
-import { Overlay } from "@schlessera/brain-ui-kit";
-import { Check, Copy } from "lucide-react";
+import { Button, Overlay } from "@schlessera/brain-ui-kit";
 import type { MintedAgent } from "../../lib/api-client.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 
@@ -30,7 +29,7 @@ function OneTimeCredential({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copyError, setCopyError] = useState(false);
-  const copyRef = useRef<HTMLButtonElement>(null);
+  const copyRef = useRef<HTMLElement>(null);
   const shell = useRef<Document | null>(null);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -72,15 +71,9 @@ function OneTimeCredential({
         <div className="mt-4 rounded-lg border border-border-subtle bg-background p-3">
           <code className="block break-all text-xs text-foreground">{credential.cookie}</code>
         </div>
-        <button
-          ref={copyRef}
-          type="button"
-          onClick={() => void copyCredential()}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary"
-        >
-          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          {copied ? "Copied" : "Copy credential"}
-        </button>
+        <div className="mt-3" ref={node => { copyRef.current = node?.querySelector<HTMLElement>('[role="button"]') ?? null; }}>
+          <Button label={copied ? "Copied" : "Copy credential"} tone="ghost" size="md" center block={false} icon={copied ? "confirm" : "copy"} style={{ minHeight: 44, width: "100%" }} onClick={() => void copyCredential()} />
+        </div>
         {copyError ? (
           <p role="alert" className="mt-2 text-xs text-destructive">
             Copy failed. Select the value above and copy it manually.
@@ -95,14 +88,7 @@ function OneTimeCredential({
           />
           I have saved this credential somewhere safe.
         </label>
-        <button
-          type="button"
-          disabled={!saved}
-          onClick={onDone}
-          className="mt-3 w-full rounded-lg bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
-        >
-          Done
-        </button>
+        <div className="mt-3"><Button label="Done" tone="primary" size="md" center block={false} disabled={!saved} style={{ minHeight: 44, width: "100%" }} onClick={onDone} /></div>
       </div>
     </Overlay>
   );

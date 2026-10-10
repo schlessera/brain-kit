@@ -2482,7 +2482,7 @@ describe("DevicesAgentsTab", () => {
     expect(page.getByRole("alertdialog")).toBeTruthy();
     expect(page.getByText("This is the only time you will see this value.")).toBeTruthy();
     expect(page.getByText("one-time-secret-value")).toBeTruthy();
-    expect(page.getByRole("button", { name: "Done" }).hasAttribute("disabled")).toBe(true);
+    expect(page.getByRole("button", { name: "Done" }).getAttribute("aria-disabled")).toBe("true");
     const escape = new KeyboardEvent("keydown", {
       key: "Escape",
       bubbles: true,
@@ -3163,7 +3163,7 @@ describe("skill and web-search root ownership", () => {
       });
       expect(view.getByText("beta-skill")).toBeTruthy();
       expect(view.queryByText("obsolete-skill")).toBeNull();
-      fireEvent.click(view.getByTitle("Edit SKILL.md"));
+      fireEvent.click(view.getByRole("button", { name: "Edit beta-skill SKILL.md" }));
       expect(b.requests[1].url).toBe("https://beta.example/api/skills/beta-skill");
       view.rerender(skillsPanel(a.root));
       createDraft(view, "alpha-draft");
@@ -3207,7 +3207,7 @@ describe("skill and web-search root ownership", () => {
       expect(view.queryByText("obsolete warning")).toBeNull();
       expect(a.requests).toHaveLength(2);
       await reply(b.requests[0], { skills: [skill("beta-skill")] });
-      fireEvent.click(view.getByTitle("Disable (all backends)"));
+      fireEvent.click(view.getByRole("switch", { name: "Enable beta-skill on all backends" }));
       expect(b.requests[1].url).toBe("https://beta.example/api/skills/beta-skill/enabled");
       view.rerender(skillsPanel(b.root, false));
       view.rerender(skillsPanel(b.root));
@@ -3295,13 +3295,13 @@ describe("model and pi account root ownership", () => {
     try {
       await act(flushPromises);
       await reply(a.matching("/models")[0], catalog("Alpha"));
-      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
-      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
+      await act(async () => { fireEvent.click(view.getAllByRole("switch", { name: /^Show .* in picker$/, checked: true })[0]); await flushPromises(); });
+      await act(async () => { fireEvent.click(view.getAllByRole("switch", { name: /^Show .* in picker$/, checked: true })[0]); await flushPromises(); });
       expect(a.matching("/models/hidden", "PUT")).toHaveLength(1);
       view.rerender(modelsPanel(b.root));
       await act(flushPromises);
       await reply(b.matching("/models")[0], catalog("Beta"));
-      await act(async () => { fireEvent.click(view.getAllByTitle("Hide from picker")[0]); await flushPromises(); });
+      await act(async () => { fireEvent.click(view.getAllByRole("switch", { name: /^Show .* in picker$/, checked: true })[0]); await flushPromises(); });
       expect(b.matching("/models/hidden", "PUT")).toHaveLength(1);
       expect(b.matching("/models/hidden", "PUT")[0].url).toBe("https://beta.example/api/models/hidden");
       await reply(a.matching("/models/hidden", "PUT")[0], catalog("Alpha", ["one"]));
@@ -3315,13 +3315,13 @@ describe("model and pi account root ownership", () => {
       await reply(a.matching("/models/hidden", "PUT")[1], catalog("Alpha", ["one", "two"]));
       expect(a.matching("/models")).toHaveLength(2);
       await reply(a.matching("/models")[1], catalog("Alpha", ["one", "two"]));
-      expect(view.getAllByTitle("Show in picker")).toHaveLength(2);
+      expect(view.queryAllByRole("switch", { name: /^Show Alpha .* in picker$/, checked: false })).toHaveLength(2);
       await act(async () => {
         b.matching("/models/hidden", "PUT")[0].response.resolve(Response.json({ error: "obsolete rollback" }, { status: 500 }));
         await flushPromises();
       });
       expect(view.queryByText("obsolete rollback")).toBeNull();
-      expect(view.getAllByTitle("Show in picker")).toHaveLength(2);
+      expect(view.queryAllByRole("switch", { name: /^Show Alpha .* in picker$/, checked: false })).toHaveLength(2);
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 
@@ -3602,10 +3602,10 @@ describe("authentication and passkey root ownership", () => {
     const view = render(security(a.root));
     try {
       await reply(a.requests[0], keys("Alpha key"));
-      fireEvent.click(view.getByTitle("Rename"));
+      fireEvent.click(view.getByRole("button", { name: "Rename Alpha key" }));
       changeControlledInput(view.getByRole("textbox") as HTMLInputElement, "Obsolete name");
-      fireEvent.click(view.getByTitle("Save"));
-      fireEvent.click(view.getByTitle("Remove"));
+      fireEvent.click(view.getByRole("button", { name: "Save name" }));
+      fireEvent.click(view.getByRole("button", { name: "Remove Alpha key" }));
       fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
       await act(async () => { await flushPromises(); });
       expect(a.matching("/auth/logout", "POST")).toHaveLength(1);
@@ -3851,11 +3851,11 @@ describe("remaining media and lookup root ownership", () => {
     const panel = (root: BrainUiRoot, result: Promise<boolean>) => <BrainUiProvider root={root}><ShareMenu options={[{ id: "test", label: "Test", run: () => result }]} /></BrainUiProvider>;
     const view = render(panel(a.root, old.promise));
     try {
-      fireEvent.click(view.getByTitle("Share")); view.rerender(panel(b.root, next.promise)); fireEvent.click(view.getByTitle("Share"));
+      fireEvent.click(view.getByRole("button", { name: "Share" })); view.rerender(panel(b.root, next.promise)); fireEvent.click(view.getByRole("button", { name: "Share" }));
       await act(async () => { old.resolve(true); await flushPromises(); });
-      expect((view.getByTitle("Share") as HTMLButtonElement).disabled).toBe(true);
+      expect((view.getByRole("button", { name: "Share" }) as HTMLButtonElement).disabled).toBe(true);
       await act(async () => { next.resolve(false); await flushPromises(); });
-      expect((view.getByTitle("Share") as HTMLButtonElement).disabled).toBe(false);
+      expect((view.getByRole("button", { name: "Share" }) as HTMLButtonElement).disabled).toBe(false);
     } finally { view.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 });
@@ -4988,11 +4988,11 @@ describe("PasskeyList", () => {
     expect(view.getByText("other.example")).toBeTruthy();
     expect(view.getByText("synced")).toBeTruthy();
     expect(view.queryByText("brain.local")).toBeNull();
-    fireEvent.click(view.getAllByTitle("Remove")[1]);
+    fireEvent.click(view.getByRole("button", { name: "Remove Phone" }));
     expect(h.onDelete).toHaveBeenCalledWith("k2");
-    fireEvent.click(view.getAllByTitle("Rename")[0]);
+    fireEvent.click(view.getByRole("button", { name: "Rename Laptop" }));
     changeControlledInput(view.getByLabelText("Passkey name") as HTMLInputElement, "Desk");
-    fireEvent.click(view.getByTitle("Save"));
+    fireEvent.click(view.getByRole("button", { name: "Save name" }));
     expect(h.onRename).toHaveBeenCalledWith("k1", "Desk");
     view.unmount();
   });
@@ -5022,11 +5022,11 @@ describe("SkillsList and SkillEditor", () => {
     expect(h.onCreate).toHaveBeenCalledTimes(1);
     // Install needs a source: the button is inert until one is typed.
     expect(view.getByRole("button", { name: "Install" }).getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(view.getAllByTitle("Edit SKILL.md")[1]);
+    fireEvent.click(view.getByRole("button", { name: "Edit beta SKILL.md" }));
     expect(h.onOpen).toHaveBeenLastCalledWith(skills[1]);
-    fireEvent.click(view.getByTitle("Enable"));
+    fireEvent.click(view.getByRole("switch", { name: "Enable beta on all backends" }));
     expect(h.onToggle).toHaveBeenLastCalledWith(skills[1]);
-    fireEvent.click(view.getAllByTitle("Delete permanently")[0]);
+    fireEvent.click(view.getByRole("button", { name: "Delete alpha permanently" }));
     expect(h.onRemove).toHaveBeenLastCalledWith(skills[0]);
     fireEvent.click(view.getByRole("button", { name: "View" }));
     expect(h.onOpen).toHaveBeenLastCalledWith(skills[2]);
@@ -5038,7 +5038,7 @@ describe("SkillsList and SkillEditor", () => {
     );
     expect(busy.getByText("failed")).toBeTruthy();
     expect(busy.getByText("careful")).toBeTruthy();
-    expect((busy.getByTitle("Edit SKILL.md") as HTMLButtonElement).disabled).toBe(true);
+    expect((busy.getByRole("button", { name: "Edit alpha SKILL.md" }) as HTMLButtonElement).disabled).toBe(true);
     expect(busy.getByRole("button", { name: "Install" }).getAttribute("aria-disabled")).toBe("true");
     expect(busy.getByRole("button", { name: "Create" }).getAttribute("aria-disabled")).toBe("true");
     busy.unmount();
@@ -5966,7 +5966,7 @@ describe("ModelsCatalogView", () => {
     expect(view.getByText(/Last refresh failed \(rate limited\)/)).toBeTruthy();
     expect(view.getByText(/1 in picker · never refreshed/)).toBeTruthy();
     expect(view.getByText("sections here")).toBeTruthy();
-    fireEvent.click(view.getByTitle("Show in picker"));
+    fireEvent.click(view.getByRole("switch", { name: "Show Model two in picker" }));
     expect(h.onToggleHidden).toHaveBeenCalledWith(catalog!.models[1]);
     fireEvent.click(view.getByRole("button", { name: "Refresh" }));
     expect(h.onRefresh).toHaveBeenCalledTimes(1);

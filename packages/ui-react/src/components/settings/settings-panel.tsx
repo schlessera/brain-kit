@@ -1,4 +1,4 @@
-import { Suspense, useMemo, useRef, type RefObject } from "react";
+import { Suspense, useMemo, useRef, type CSSProperties, type RefObject } from "react";
 import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel, type SlidePanelClosedBy } from "../layout/slide-panel.js";
@@ -133,13 +133,15 @@ export function SettingsPanel({
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: TabIcon }) => (
             <button
+              // raw-button: select — underline settings tab; the kit has no matching tab control
+              style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
               key={id}
               onClick={() => select(id)}
               disabled={credentialProtected && stripTab !== id}
               aria-selected={stripTab === id}
               role="tab"
               className={cn(
-                "flex min-h-11 shrink-0 items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                "bk-row flex min-h-11 shrink-0 items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 stripTab === id
                   ? "border-b-2 border-primary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -224,6 +226,8 @@ function SettingsPane({
               const selected = tab === id;
               return (
                 <button
+                  // raw-button: select — composite vertical tab with icon, label and meta
+                  style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties}
                   key={id}
                   type="button"
                   role="tab"
@@ -235,8 +239,8 @@ function SettingsPane({
                   disabled={credentialProtected && !selected}
                   onClick={() => onSelect(id)}
                   className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                    selected ? "bg-surface-raised" : "hover:bg-surface-raised"
+                    "bk-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    selected && "bg-surface-raised"
                   )}
                 >
                   <Icon icon={icon} size={16} color={selected ? "var(--bk-amber-ink)" : "var(--bk-color-ink-mute)"} />

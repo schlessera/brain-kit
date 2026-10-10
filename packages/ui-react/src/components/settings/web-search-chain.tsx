@@ -1,7 +1,6 @@
-import { Button, Toggle } from "@schlessera/brain-ui-kit";
+import { Button, TextButton, Toggle } from "@schlessera/brain-ui-kit";
 import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import type { WebSearchConfig, WebSearchProvider } from "../../lib/api-client.js";
-import { cn } from "../../lib/utils.js";
 
 /**
  * The web-search provider chain, rendered from props (S6). `WebSearchSection`
@@ -18,9 +17,8 @@ import { cn } from "../../lib/utils.js";
  * off, so only turning one on without a credential is refused.
  *
  * The switch is the kit's `Toggle`, named "Enable <provider> for web search",
- * and the buttons are the kit's. The key-chip that opens the editor stays a
- * native button: the kit's `Chip` is a mark, not a control, and this chip is
- * a disclosure with `aria-expanded`. The key field stays a native input for
+ * and the actions are the kit's. A meta TextButton discloses the key editor
+ * with `aria-expanded`. The key field stays a native input for
  * the same reason the login form's does — the kit has no text input.
  *
  * Key values never come back from the server; the view only ever learns "a
@@ -194,21 +192,7 @@ function ProviderRow({
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm text-foreground">{provider.label}</p>
             {provider.hasKeyField && (
-              <button
-                type="button"
-                onClick={onToggleKey}
-                aria-expanded={keyOpen}
-                className={cn(
-                  "shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors",
-                  provider.keyConfigured
-                    ? "border-border-subtle text-primary hover:border-primary"
-                    : hasCredential
-                      ? "border-border-subtle text-muted-foreground hover:border-primary hover:text-foreground"
-                      : "border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
-                )}
-              >
-                {provider.keyConfigured ? "Key stored" : provider.keyFromEnv ? "Key from env" : "Needs key"}
-              </button>
+              <TextButton tone="meta" expanded={keyOpen} onClick={onToggleKey} label={provider.keyConfigured ? "Key stored" : provider.keyFromEnv ? "Key from env" : "Needs key"} style={{ flexShrink: 0 }} />
             )}
           </div>
           {/* Not truncated: in a narrow settings panel a clipped "Paid —

@@ -1,5 +1,5 @@
-import { Button, Callout, Chip, Placeholder } from "@schlessera/brain-ui-kit";
-import { Eye, EyeOff, X } from "lucide-react";
+import { Button, Callout, Chip, IconButton, Placeholder, Toggle } from "@schlessera/brain-ui-kit";
+import { X } from "lucide-react";
 import {
   type BillingMode,
   type ModelCatalogEntry,
@@ -15,8 +15,7 @@ import { useState, type ReactNode } from "react";
  * this draws the roster.
  *
  * The per-row choices stay native `<select>`s with the accessible names the
- * tests read — the kit has no select — and the hide toggle stays a native,
- * titled icon button. A hidden model is no longer faded (design-feedback
+ * tests read — the kit has no select — and visibility uses a kit Toggle. A hidden model is no longer faded (design-feedback
  * §4, "no opacity de-emphasis"): it reads as hidden from its chip, at full
  * contrast. Refresh, Add and the section errors are the kit's.
  */
@@ -178,15 +177,7 @@ export function OpenRouterSection({ models, onChange }: { models: string[]; onCh
           {models.map((model) => (
             <li key={model} className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2">
               <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-foreground">{model}</span>
-              <button
-                type="button"
-                onClick={() => onChange(models.filter((m) => m !== model))}
-                title={`Remove ${model}`}
-                aria-label={`Remove ${model}`}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-raised hover:text-destructive"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <IconButton size="sm" name={`Remove ${model}`} glyph={<X />} onClick={() => onChange(models.filter((m) => m !== model))} />
             </li>
           ))}
         </ul>
@@ -223,7 +214,6 @@ function ModelRow({
   onBilling: (next: BillingMode | "auto") => void;
   onThinking: (next: ThinkingLevel | "auto") => void;
 }) {
-  const Icon = entry.hidden ? EyeOff : Eye;
   return (
     <li className="flex flex-wrap items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3">
       <div className="min-w-[min(100%,12rem)] flex-1">
@@ -274,16 +264,7 @@ function ModelRow({
         <option value="subscription">Subscription</option>
         <option value="api">API</option>
       </select>
-      <button
-        type="button"
-        onClick={onToggle}
-        title={entry.hidden ? "Show in picker" : "Hide from picker"}
-        aria-label={entry.hidden ? "Show in picker" : "Hide from picker"}
-        aria-pressed={!entry.hidden}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      >
-        <Icon className="h-4 w-4" />
-      </button>
+      <span className="flex shrink-0 items-center px-1 py-3"><Toggle on={!entry.hidden} label={`Show ${entry.label} in picker`} onClick={onToggle} /></span>
     </li>
   );
 }
