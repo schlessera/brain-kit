@@ -7,7 +7,7 @@
  * nothing broke — but an audit that trusted the prefix undercounted, and after
  * 1.0 the same omission on a breaking change ships a break in a minor.
  *
- * The canonical index and every Markdown component directly under
+ * The canonical index and every Markdown component under
  * docs/integration-contract/ are authoritative parts; the gate keys on all of
  * them. A pull request that changes any part must be titled `CONTRACT:` and
  * carry the `contract` label; a pull request titled `CONTRACT:` or labelled
@@ -41,7 +41,7 @@ export interface ContractVerdict {
 
 export function judge(title: string, labels: string[], changed: string[]): ContractVerdict {
   const changedContract = changed.find((file) => file === CONTRACT_DOC
-    || /^docs\/integration-contract\/[^/]+\.md$/.test(file));
+    || /^docs\/integration-contract\/.+\.md$/.test(file));
   const touchesDoc = changedContract !== undefined;
   const titled = title.trimStart().startsWith(CONTRACT_PREFIX);
   const labelled = labels.includes(CONTRACT_LABEL);

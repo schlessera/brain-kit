@@ -20,7 +20,7 @@ const docAndCode = [CONTRACT_DOC, "packages/core/src/cli/stats.ts"];
 const codeOnly = ["packages/core/src/cli/stats.ts"];
 
 describe("contract gate", () => {
-  for (const component of ["cli", "mcp", "http", "wire", "frontmatter", "package-api"]) {
+  for (const component of ["cli", "mcp", "http", "wire", "frontmatter", "package-api", "wire/session"]) {
     const path = `docs/integration-contract/${component}.md`;
     test(`${component}-only contract edits require title and label`, () => {
       expect(judge(plainTitle, [], [path]).touchesDoc).toBe(true);
@@ -107,10 +107,10 @@ describe("contract gate diff", () => {
     const repo = mkdtempSync(join(tmpdir(), "contract-component-"));
     try {
       mkdirSync(join(repo, "scripts"));
-      mkdirSync(join(repo, "docs/integration-contract"), { recursive: true });
+      mkdirSync(join(repo, "docs/integration-contract/wire"), { recursive: true });
       writeFileSync(join(repo, "scripts/check-contract-pr.ts"), readFileSync(join(import.meta.dir, "../scripts/check-contract-pr.ts")));
       writeFileSync(join(repo, CONTRACT_DOC), "Canonical index\n");
-      const component = "docs/integration-contract/wire.md";
+      const component = "docs/integration-contract/wire/session.md";
       writeFileSync(join(repo, component), "Original wire contract\n");
       git(repo, "init", "-q", "-b", "main");
       git(repo, "config", "user.email", "odysseus@example.com");
