@@ -45,3 +45,9 @@ changed paths, output hashes, model judgments and a held-out summary. Exactness
 uses whole source file maps; vetoes cover ineligible files, lost metadata/body
 and unsupported rows. A successful repeat means the complete scored map is
 unchanged, independently of whether its first repair was correct.
+
+Offline scoring proof lives in the experiment tier:
+
+```sh
+bun run test experiments/lean-mechanical-hygiene-scoring.test.ts
+```

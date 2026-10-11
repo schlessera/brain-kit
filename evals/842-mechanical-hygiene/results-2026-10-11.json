@@ -2,10 +2,12 @@
   "source": "898df4fb9daf44b24394f98595f1212a702ac229",
   "models": {
     "current": "claude-sonnet-5-5",
-    "candidate": "jev-1.13.0"
+    "candidate": "jev-1.13.0",
+    "claudeCode": "2.1.295",
+    "claudeAuth": "Logged-in subscription; ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN removed from every child environment."
   },
   "calls": {
-    "claude": 287,
+    "claude": 289,
     "jev": 150
   },
   "labelCheck": [
@@ -361,6 +363,35 @@
     "Conservative eligibility rubric is stricter than literal skill wording on some duplicate/unknown/excluded-detail boundaries.",
     "Archived injection may be skipped before the agent reads it; no broad injection-resistance claim."
   ],
+  "reviewPreparation": "Canceled one review invocation because a direct diff against concurrently advanced origin/main included unrelated changes; rerun uses the actual eight-file merge-base PR diff. Both attempts counted.",
+  "review": "**Verdict: one concrete blocker (inconsistent total) and three smaller fixes. Everything else I recomputed from the JSON rows ties out.**\n\nI recounted from the committed rows, not from the prose. The diff has no line numbers, so I cite the section or quoted text instead.\n\n## Blockers\n\n1. **Medium: the tuning score for the skill is wrong.**\n   - Where: `docs/decisions/mechanical-hygiene.md`, \"Held-out quality and reliability\", the sentence \"On tuning, code scored 30/30, Jev 27/30 and the skill 20/30\".\n   - The `current` tuning rows give **19/30**, not 20/30. The 11 non-exact rows are:\n     - `date-mtime-later` \u00d73\n     - `ogygia-mtime-day` \u00d73\n     - `ogygia-created-day` \u00d73\n     - `ogygia-raft-status` rep 1\n     - `ogygia-ambiguous-title` rep 0\n   - The code (30/30) and Jev (27/30, matching `calibration` floor 0) figures check out.\n   - The skill figure appears only in the prose, not in the JSON. Fix the number, or add the per-arm tuning scores to the JSON.\n\n## Non-blocking fixes before merge\n\n2. **Medium: the 0/12 skill date result is reported without a cause.**\n   - Where: the same section, \"The skill never repaired reversed dates\", and the Go claim that date normalization belongs in code.\n   - Every skill date row has `changed: []`, so the skill never attempted a fix.\n   - Phase 3 says \"for each detected issue\", and the doc never says whether `brain hygiene reconcile` detects `updated < created`. If it doesn't, the skill had nothing to act on.\n   - That would be a missing detector, not a model failure. It is a different benchmark-versus-literal-policy gap from the veto caveat already in the doc.\n   - Check the transcripts and state the cause. Either way, the date half of the Go supports \"code owns it\", not \"the model can't do it\".\n\n3. **Low: a sentence is false as committed.**\n   - Where: \"The results record the subsequent cross-family PR review.\"\n   - The committed JSON has no `review` field (`--review` writes `results.review`). Add the field or drop the sentence.\n\n4. **Medium (requirement gap): no offline test covers `plan()`.**\n   - Where: `tests/mechanical-hygiene-scoring.test.ts`.\n   - The only keyless test covers `score()`. The deterministic planner behind the 96/102 headline has none.\n   - A simple test would run `plan()` over the 44 cases and assert the exact 38 passes and the 6 known refusals.\n   - Separately, the \"Experiment tier\" README row says measurement-harness tests live under `experiments/`, outside product discovery. This test sits in `tests/`. I can't see the policy file, so confirm it doesn't conflict.\n\n## Remaining limits to state\n\n- The 102 runs are 34 cases \u00d7 3 repetitions, and the code arm is deterministic. Read 94.1% as roughly 32/34 cases, with no confidence interval. The Jev arm shows some run-to-run variance.\n- The Jev tuning row `ogygia-raft-status` rep 1 shows `repeat: false` for the skill, meaning the repeat run applied an edit the first run missed. The \"102/102 repeat no-op\" claim is held-out only.\n- `plan()` hardcodes `\"2026-07-12\"` for the index `updated` bump. It also re-reads `raw` for table edits, so a file with both reversed dates and a table fix would drop the date fix. Neither case is in the corpus.\n- The results don't record the Claude Code version or the actually-used model and auth source. The raw transcripts retained externally can confirm subscription use.\n- The line-number citations to `hygiene.ts`, `links.ts` and similar files were not checkable from the diff.\n\n## Checked and fine\n\n- **Counts and totals:**\n  - Case counts: 42 preserved + 2 added; 10 tuning, 34 held-out.\n  - The 10 positive and 24 no-write held-out cases.\n  - Exact: skill 75, code 96, Jev 90.\n  - Positive exact: 18, 24 and 18.\n  - Vetoes: 15 skill, 0 for code and Jev.\n  - Untouched: skill 87, code and Jev 102.\n  - Skill case agreement is 29/34.\n  - Jev's 12 misses are the 6 code refusals plus the two timezone cases \u00d73.\n- **Call counts:**\n  - Claude: 287 = 264 qualified + 7 label + 16 preliminary.\n  - Jev: 150 = 132 + 9 + 9.\n- **Calibration:** the floor was chosen from tuning only, and goldens never enter `plan()` or the Jev state.\n- **Golden corrections:** both corrections cost the code arm, so they don't favour it.",
+  "tuningSummary": [
+    {
+      "arm": "code",
+      "runs": 30,
+      "exact": 30,
+      "repeatNoOp": 30
+    },
+    {
+      "arm": "jev-code",
+      "runs": 30,
+      "exact": 27,
+      "repeatNoOp": 30
+    },
+    {
+      "arm": "current",
+      "runs": 30,
+      "exact": 19,
+      "repeatNoOp": 29
+    }
+  ],
+  "reviewResolution": {
+    "tuningTotal": "Corrected current tuning prose to 19/30, added machine-readable tuning totals and 29/30 repeat result.",
+    "dateMisses": "Clarified that the shipped detector does not surface reverse-date findings.",
+    "reviewEvidence": "Recorded completed review and all 289 Claude invocations including cancelled preparation.",
+    "testPlacement": "Moved scoring tests to experiments/ per repository policy. Planner-only tests were not added: user explicitly scoped unit tests to non-trivial scoring. All 44 cases exercise the code arm with real writes/readback.",
+    "limits": "Documented correlated repetitions, pinned clock and untested combined date/table overwrite; integration follow-up requires a decisive fixture and composition or refusal."
+  },
   "rows": [
     {"id":"date-mtime-later","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0},
     {"id":"date-mtime-later","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.3}},

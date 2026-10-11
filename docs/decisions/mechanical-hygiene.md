@@ -59,15 +59,19 @@ Agreement means identical complete source maps across all three repetitions.
 An unchanged repeat can preserve an incorrect first edit: idempotence alone
 is not correctness.
 
-The skill never repaired reversed dates. Its vetoes include edits to fenced
+The skill never repaired reversed dates: the shipped detector emitted no date-order
+finding, so the workflow never reached a date repair. This measures the complete
+current path, not the model's ability to edit dates when explicitly asked. Its vetoes include edits to fenced
 example tables, duplicate/unknown-column or target boundaries, multiple-column
 disagreements and indexes whose linked detail is excluded. It correctly repaired
 the two corrected-label cases the code refuses. Code's six misses are precisely
 those wiki-link and mixed-row cases. Jev additionally declined both timezone
 date repairs in every repetition. On tuning, code scored 30/30, Jev 27/30 and
-the skill 20/30. The confidence floor was selected only on tuning from
+the skill 19/30. The confidence floor was selected only on tuning from
 0, 0.4, 0.7 and 0.9, breaking ties toward the lowest value: **0**, frozen before
-held-out judgments. Raising it did not recover Jev's `leave` decisions.
+held-out judgments. Raising it did not recover Jev's `leave` decisions. Tuning
+repeat no-op was 29/30 for the skill and 30/30 for each other arm; the one
+changing repeat was `ogygia-raft-status`.
 
 ## Label review and isolation
 
@@ -94,14 +98,17 @@ All **264 qualified stdout JSON transcripts** were searched for evaluation,
 case and result paths: **zero hits**. One optional filtered-list command was
 denied; that workflow completed. No unexpected non-Markdown writes were requested.
 
-Counts before PR review: **287 Claude invocations and 150 Jev client calls**.
+Total including PR review: **289 Claude invocations and 150 Jev client calls**.
 They include three unnecessary successful retries caused by initially treating
 allowed rate-limit telemetry as an error; the first label verdicts were retained.
 Sixteen preliminary current-path calls were excluded because shell scratch writes
 blocked Phase 4. Qualified runs pre-created scratch and explicitly used Write for
 the arrays. Nine shortened-question Jev repeat checks were excluded and repeated
 with the exact initial question/state; all corrected checks were no-ops. Every
-attempt remains counted. The results record the subsequent cross-family PR review.
+attempt remains counted. Two PR-review invocations include one cancelled review
+prepared with an incorrect diff against concurrently advancing main. The completed
+cross-family review and resolutions are in the results. It caught the tuning
+transcription error above; the held-out totals matched its independent recount.
 
 ## Limits and smallest integration
 
@@ -111,9 +118,19 @@ The planner received fixture mtime metadata. Offset boundary inputs were tested,
 not a separate worker timezone matrix. No scale, stale-input race, concurrent
 editor, crash recovery or hygiene-log fidelity claim follows. The archived
 injection can be skipped before reading; it is not a broad injection defence.
-Costs and latency were not evaluated.
+Costs and latency were not evaluated. Three repetitions of a deterministic planner
+are agreement evidence, not 102 independent cases; no confidence interval is claimed.
 
-The smallest integration is one explicit providerless CLI planner/apply operation
+An uncovered prototype defect remains: if the same index needs both a date repair
+and a table repair, table editing starts from the original bytes and can overwrite
+the date proposal. The corpus has no such combined case. Production integration
+must compose both patches or explicitly refuse the combined input. The pinned
+index date must also become an explicit clock input. These are follow-up criteria,
+not measured prototype guarantees.
+
+The bounded integration is filed as
+[#1573](https://github.com/schlessera/brain-kit/issues/1573). The smallest change is
+one explicit providerless CLI planner/apply operation
 for this supported grammar, with `--json` and dry-run output, followed by the
 existing reconciliation. Re-read every consulted input and use the existing
 unchanged-source writer (`replaceIfUnchanged`,
