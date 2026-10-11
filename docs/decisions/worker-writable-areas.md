@@ -166,11 +166,12 @@ message says nothing written now is kept. The `read_only_brain` code and its
 scratch path, and a scratch listing omits links
 (`const scratchRequest`, `packages/ui-server/src/files/walker.ts:115`).
 Elsewhere in the brain an in-brain link resolves as before. Those checks
-run before the open, so a scratch file is then read once through descriptors
-that never follow a link (each directory from the brain root opened with
+run before the open, so a file whose requested or resolved path lies in
+`.brain/scratch/` or `workspaces/` is then read once, from its resolved
+path, through descriptors that never follow a link (each directory from the brain root opened with
 `O_NOFOLLOW | O_DIRECTORY` through the previous one, the file with
 `O_NOFOLLOW`), and the route serves that snapshot; the size cap bounds it
-(`export function readScratchSnapshot`, `packages/ui-server/src/files/walker.ts:157-192`).
+(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:157-192`).
 Core's prune reads every entry with `lstat`, and on Linux removes each file
 and emptied directory through its parent's descriptor in the same way
 (`function anchored`, `packages/core/src/lib/scratch.ts:440-464`), because a
@@ -249,6 +250,11 @@ Measured 2026-10-11.
 - **A busy scratch** that another turn keeps changing during the pre-turn
   walk can come out unverified after three tries, leaving scratch read-only
   for that one turn.
+- **Timestamp granularity.** The walk's change check compares directory
+  change and modification times. On kernels before 6.13, and on filesystems
+  such as NFS or ZFS, those move once per clock tick, so a rename in the
+  same tick as the listing can go unseen. It still needs an outside link
+  made on the host first.
 - **The pre-turn resolution is synchronous** on the server: a walk of up to
   200 000 entries per area, one `git` call and one overlay probe per turn.
 - **Overlay size.** The overlay's upper layer is an unbounded tmpfs, like

@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
+import * as fsp from "node:fs/promises";
 import { mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ import {
   classifyKind,
   safeResolve,
   PathEscapeError,
-  readScratchSnapshot,
+  readAnchoredSnapshot,
   NotFoundError,
   TooLargeError,
 } from "../src/files/walker";
@@ -138,9 +139,9 @@ describe("safeResolve", () => {
     await symlink(join(root, "notes"), join(scratch, "swapped"));
     await symlink(join(root, "notes/foo.md"), join(scratch, "swapped.md"));
     try {
-      expect(new TextDecoder().decode(readScratchSnapshot(join(scratch, "real/report.html"), root, "x")!.bytes)).toBe("<p>Ithaca</p>");
-      expect(() => readScratchSnapshot(join(scratch, "swapped/foo.md"), root, "x"), "SNAPSHOT_DIR_LINK").toThrow(PathEscapeError);
-      expect(() => readScratchSnapshot(join(scratch, "swapped.md"), root, "x"), "SNAPSHOT_FILE_LINK").toThrow(PathEscapeError);
+      expect(new TextDecoder().decode(readAnchoredSnapshot(join(scratch, "real/report.html"), root, "x")!.bytes)).toBe("<p>Ithaca</p>");
+      expect(() => readAnchoredSnapshot(join(scratch, "swapped/foo.md"), root, "x"), "SNAPSHOT_DIR_LINK").toThrow(PathEscapeError);
+      expect(() => readAnchoredSnapshot(join(scratch, "swapped.md"), root, "x"), "SNAPSHOT_FILE_LINK").toThrow(PathEscapeError);
       // The routes serve the snapshot: whole, ranged and as an HTML preview.
       const app = createFilesRoutes({ brainRoot: root });
       const whole = await app.request("/files/content?path=.brain/scratch/real/report.html&raw=1");
@@ -156,6 +157,43 @@ describe("safeResolve", () => {
       await rm(join(root, ".brain"), { recursive: true, force: true });
     }
   });
+
+  // The agent swaps a file in an area it writes for a link right after the
+  // route's last check by path (safeResolve's realpath of the file itself).
+  // Served by path, the response would carry the link's target.
+  test.skipIf(process.platform !== "linux").each([".brain/scratch/report.txt", "workspaces/ithaca/report.txt"])(
+    "%s swapped for a link after the checks is never served through it (#1626)", async (rel) => {
+      const outside = await Bun.$`mktemp -d`.text().then((t) => t.trim());
+      await writeFile(join(outside, "secret.txt"), "PENELOPE-SECRET");
+      const target = join(root, rel);
+      await mkdir(join(target, ".."), { recursive: true });
+      const original = fsp.realpath;
+      const spy = spyOn(fsp, "realpath");
+      try {
+        const app = createFilesRoutes({ brainRoot: root });
+        for (const url of [`/files/content?path=${rel}&raw=1`, `/files/content?path=${rel}`]) {
+          await writeFile(target, "Ithaca");
+          let swapped = false;
+          spy.mockImplementation((async (path: string, ...rest: unknown[]) => {
+            const result = await (original as (...args: unknown[]) => Promise<string>)(path, ...rest);
+            if (!swapped && String(path) === target) {
+              swapped = true;
+              await rm(target);
+              await symlink(join(outside, "secret.txt"), target);
+            }
+            return result;
+          }) as typeof fsp.realpath);
+          const response = await app.request(url);
+          expect(swapped, "ROUTE_SWAP_HAPPENED").toBe(true);
+          expect(await response.text(), `ROUTE_SWAP_FOLLOWED ${url}`).not.toContain("PENELOPE-SECRET");
+          await rm(target, { force: true });
+        }
+      } finally {
+        spy.mockRestore();
+        await rm(outside, { recursive: true, force: true });
+        await rm(join(root, rel.split("/")[0]!), { recursive: true, force: true });
+      }
+    });
 });
 
 describe("listDirectory", () => {
