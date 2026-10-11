@@ -7,7 +7,6 @@ import {
   useFileStore,
 } from "../../stores/file-store.js";
 import { ShareBlock } from "./share-block.js";
-import { ZoomableImage } from "../images/zoomable-image.js";
 import { MarkdownPre, MarkdownTable } from "./brain-markdown-code.js";
 import {
   processChildText,
@@ -16,7 +15,7 @@ import {
 import {
   DirLink,
   FileLink,
-  repoImageSrc,
+  MarkdownImage,
 } from "./brain-markdown-links.js";
 import { splitShareBlocks } from "./brain-markdown-share.js";
 import { InsideProseLink, ProseLink } from "./prose-link.js";
@@ -144,20 +143,13 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
        * appears. `data:` URIs and absolute URLs are left alone.
        */
       img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<"img">) => {
-        const resolved = typeof src === "string" ? repoImageSrc(src, root) : src;
         // Inline, an image is only as wide as the viewport. Tapping it opens the
-        // zoom viewer, the same way a mermaid diagram does.
-        if (typeof resolved !== "string") {
+        // zoom viewer, the same way a mermaid diagram does. A scratch image
+        // whose file is gone shows as expired (#1657).
+        if (typeof src !== "string") {
           return <img {...props} alt={alt ?? ""} loading="lazy" className="my-2 max-w-full rounded" />;
         }
-        return (
-          <ZoomableImage
-            src={resolved}
-            alt={alt}
-            className="my-2 max-w-full cursor-zoom-in rounded"
-            imgProps={{ ...props, loading: "lazy" }}
-          />
-        );
+        return <MarkdownImage src={src} alt={alt} imgProps={props} root={root} />;
       },
       /**
        * Repo paths open in the file viewer and never leave the app. Every

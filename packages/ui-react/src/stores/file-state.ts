@@ -21,6 +21,11 @@ export interface FileState {
   currentContent: FileContentResponse | null;
   contentLoading: boolean;
   contentError: string | null;
+  /**
+   * The open file is a scratch file that is gone (#1657). The viewer shows it
+   * as expired rather than as an error.
+   */
+  contentExpired: boolean;
   viewMode: ViewMode;
   treeExpanded: boolean;
   /**
@@ -41,6 +46,12 @@ export interface FileState {
   wikilinkMap: Record<string, string>;
   wikilinkLoaded: boolean;
   wikilinkLoading: boolean;
+  /**
+   * What a scratch link's target was found to be (#1657), keyed by
+   * `scratchPath`. Absent means unchecked, or a check that failed for a
+   * reason other than not-found; both keep the ordinary link.
+   */
+  scratchFiles: Record<string, "present" | "expired">;
 
   // Actions
   loadDir: (path: string) => Promise<void>;
@@ -54,6 +65,8 @@ export interface FileState {
   toggleFrontmatter: () => void;
   setHighlightedDir: (path: string | null) => void;
   ensureWikilinks: () => Promise<void>;
+  /** Ask the server once whether a scratch file still exists (#1657). */
+  checkScratchFile: (path: string, options?: { revalidate?: boolean }) => Promise<void>;
   reset: () => void;
 }
 
@@ -121,6 +134,23 @@ export function createFileStore(env: StoreEnvironment) {
     return res.json();
   }
 
+  /** HEAD on the raw route: the bytes stay on the server, the status says enough. */
+  async function scratchFileStatus(path: string): Promise<"present" | "expired" | null> {
+    const res = await fetch(`${apiBase()}/files/content?path=${encodeURIComponent(path)}&raw=1`, { method: "HEAD" });
+    if (res.status === 404) return "expired";
+    // A file over the size cap still exists.
+    if (res.ok || res.status === 413) return "present";
+    return null;
+  }
+
+  const scratchChecks = new Map<string, Promise<void>>();
+  /** Per scratch file, which piece of evidence is the latest. */
+  const scratchTurns = new Map<string, number>();
+  const nextScratchTurn = (key: string) => {
+    const turn = (scratchTurns.get(key) ?? 0) + 1;
+    scratchTurns.set(key, turn);
+    return turn;
+  };
   let fileRequest: AbortController | null = null;
   let directoryRequest: AbortController | null = null;
   let cacheEpoch = 0;
@@ -135,6 +165,7 @@ export function createFileStore(env: StoreEnvironment) {
     currentContent: null,
     contentLoading: false,
     contentError: null,
+    contentExpired: false,
     viewMode: "preview",
     treeExpanded: true,
     frontmatterCollapsed: readFrontmatterCollapsed(),
@@ -142,6 +173,7 @@ export function createFileStore(env: StoreEnvironment) {
     wikilinkMap: {},
     wikilinkLoaded: false,
     wikilinkLoading: false,
+    scratchFiles: {},
 
     loadDir: async (path) => {
       const epoch = cacheEpoch;
@@ -207,7 +239,7 @@ export function createFileStore(env: StoreEnvironment) {
       fileRequest = request;
       const ownsRequest = () => fileRequest === request && !request.signal.aborted;
       const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
-      set({ currentPath: normalized, contentLoading: true, contentError: null, currentContent: null, treeExpanded: false });
+      set({ currentPath: normalized, contentLoading: true, contentError: null, contentExpired: false, currentContent: null, treeExpanded: false });
 
       // Fire-and-await: load ancestor chain then content in parallel
       const ancestorsPromise = (async () => {
@@ -252,6 +284,12 @@ export function createFileStore(env: StoreEnvironment) {
         // Same guard: a failure for a file the user already left must not
         // replace the file they are now looking at with an error.
         if (!ownsRequest()) return;
+        const scratch = e.status === 404 ? scratchPath(normalized) : null;
+        if (scratch) {
+          nextScratchTurn(scratch);
+          set((s) => ({ contentExpired: true, contentLoading: false, scratchFiles: { ...s.scratchFiles, [scratch]: "expired" } }));
+          return;
+        }
         set({ contentError: msg, contentLoading: false });
       } finally {
         await ancestorsPromise;
@@ -261,7 +299,7 @@ export function createFileStore(env: StoreEnvironment) {
     closeFile: () => {
       fileRequest?.abort();
       fileRequest = null;
-      set({ currentPath: null, currentContent: null, contentError: null, contentLoading: false, treeExpanded: true });
+      set({ currentPath: null, currentContent: null, contentError: null, contentExpired: false, contentLoading: false, treeExpanded: true });
     },
 
     openDir: async (path) => {
@@ -321,6 +359,35 @@ export function createFileStore(env: StoreEnvironment) {
       }
     },
 
+    checkScratchFile: (path, options) => {
+      const key = scratchPath(path);
+      if (!key) return Promise.resolve();
+      // Expired is final. Present is final too, unless the caller has just
+      // seen the file fail to load and asks again.
+      const known = get().scratchFiles[key];
+      if (known === "expired" || (known === "present" && !options?.revalidate)) return Promise.resolve();
+      const pending = scratchChecks.get(key);
+      if (pending) return pending;
+      const epoch = cacheEpoch;
+      const turn = nextScratchTurn(key);
+      const check = scratchFileStatus(key)
+        .then((status) => {
+          // A newer answer for this file (a later check, or a 404 from
+          // opening it) wins over this one.
+          if (status && epoch === cacheEpoch && scratchTurns.get(key) === turn) {
+            set((s) => ({ scratchFiles: { ...s.scratchFiles, [key]: status } }));
+          }
+        })
+        // Offline, signed out or a server fault: not evidence that the file
+        // is gone, so the link stays as it is and a later render asks again.
+        .catch(() => {})
+        .finally(() => {
+          if (scratchChecks.get(key) === check) scratchChecks.delete(key);
+        });
+      scratchChecks.set(key, check);
+      return check;
+    },
+
     toggleFrontmatter: () =>
       set((s) => {
         const next = !s.frontmatterCollapsed;
@@ -337,6 +404,8 @@ export function createFileStore(env: StoreEnvironment) {
       fileRequest = null;
       directoryRequest = null;
       cacheEpoch++;
+      scratchChecks.clear();
+      scratchTurns.clear();
       set({
         dirCache: {}, loadingDirs: new Set(), dirErrors: {}, expandedDirs: new Set([""]),
         highlightedDir: null, wikilinkMap: {}, wikilinkLoaded: false, wikilinkLoading: false,
@@ -344,6 +413,8 @@ export function createFileStore(env: StoreEnvironment) {
         currentContent: null,
         contentLoading: false,
         contentError: null,
+        contentExpired: false,
+        scratchFiles: {},
         viewMode: "preview",
         treeExpanded: true,
       });
@@ -391,6 +462,24 @@ export function classifyRepoPath(
   if (isInternalRepoPath(href)) return "file";
   if (isInternalRepoDir(href)) return "dir";
   return null;
+}
+
+/**
+ * The persistent scratch area (#1657). A file there is kept for a while and
+ * then pruned, so a link to one can outlive it.
+ */
+const SCRATCH_PREFIX = ".brain/scratch/";
+
+/**
+ * The repo-relative path of a scratch file reference, normalized, or null
+ * when the reference is not a file inside the scratch area.
+ */
+export function scratchPath(href: string | undefined): string | null {
+  if (!href) return null;
+  const rel = href.trim().replace(/^(?:\.\/)+/, "").replace(/^\/+/, "");
+  if (!rel.startsWith(SCRATCH_PREFIX) || rel.length === SCRATCH_PREFIX.length) return null;
+  if (rel.endsWith("/") || rel.split("/").some((segment) => segment === ".." || segment === ".")) return null;
+  return rel;
 }
 
 /** Normalize a directory ref by trimming the trailing slash. */
