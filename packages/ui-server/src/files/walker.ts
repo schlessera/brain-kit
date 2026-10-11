@@ -55,6 +55,16 @@ export class TooLargeError extends Error {
 }
 
 /**
+ * Whether a normalized repo-relative path names `.brain`, the scratch area
+ * (core's `SCRATCH_DIR`, `.brain/scratch`) or something in it. ui-server does
+ * not depend on core (tests/allowed-edges.ts).
+ */
+export function isScratchPath(rel: string): boolean {
+  const parts = rel.split("/").filter((part) => part && part !== ".");
+  return parts[0] === ".brain" && (parts.length === 1 || parts[1] === "scratch");
+}
+
+/**
  * Resolve a repo-relative path to an absolute path, rejecting any escape
  * outside the brain root (including via symlinks).
  */
@@ -98,13 +108,21 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
     candidates.push(candidate);
   }
 
+  // The scratch area is agent-writable in a hosted worker (#1626), so nothing
+  // under `.brain/` is followed through a link: a scratch symlink cannot make
+  // the server serve, preview or list another file under a scratch path.
+  const scratchRequest = isScratchPath(normalized);
   for (const existing of candidates) {
+    let entry;
     try {
-      await lstat(existing);
+      entry = await lstat(existing);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
       throw err;
+    }
+    if (scratchRequest && entry.isSymbolicLink() && existing.startsWith(join(absRoot, ".brain"))) {
+      throw new PathEscapeError(rel);
     }
 
     let real: string;
@@ -203,6 +221,8 @@ export async function listDirectory(rel: string, root: string): Promise<FileEntr
     // ignore expects trailing slash on dirs to match dir-only rules
     const matchPath = isDir ? `${relChild}/` : relChild;
     if (matcher.ignores(matchPath)) continue;
+    // A scratch listing shows no link: safeResolve would refuse to open it.
+    if (isSymlink && isScratchPath(relChild)) continue;
 
     let childStat;
     try {

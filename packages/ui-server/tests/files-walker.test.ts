@@ -104,6 +104,27 @@ describe("safeResolve", () => {
   test("accepts empty string (root)", async () => {
     await expect(safeResolve("", root)).resolves.toBeTruthy();
   });
+  test("never follows a link under the agent-writable scratch area (#1626)", async () => {
+    const scratch = join(root, ".brain/scratch");
+    await mkdir(join(scratch, "real"), { recursive: true });
+    await writeFile(join(scratch, "render.pdf"), "%PDF-1.4");
+    // Both stay inside the brain, so only the scratch rule refuses them.
+    await symlink(join(root, "notes/foo.md"), join(scratch, "foo.md"));
+    await symlink(join(root, "notes"), join(scratch, "notes-dir"));
+    try {
+      await expect(safeResolve(".brain/scratch/render.pdf", root)).resolves.toBe(join(scratch, "render.pdf"));
+      await expect(safeResolve(".brain/scratch/foo.md", root), "SCRATCH_LINK").rejects.toBeInstanceOf(PathEscapeError);
+      await expect(safeResolve(".brain/scratch/notes-dir/foo.md", root)).rejects.toBeInstanceOf(PathEscapeError);
+      await expect(resolveForRaw(".brain/scratch/foo.md", root)).rejects.toBeInstanceOf(PathEscapeError);
+      expect((await listDirectory(".brain/scratch", root)).map((e) => e.name), "SCRATCH_LISTING").toEqual(["real", "render.pdf"]);
+      // Outside scratch an in-brain link still resolves as before.
+      await symlink(join(root, "notes/foo.md"), join(root, "notes/foo-link.md"));
+      await expect(safeResolve("notes/foo-link.md", root)).resolves.toBeTruthy();
+    } finally {
+      await rm(join(root, ".brain"), { recursive: true, force: true });
+      await rm(join(root, "notes/foo-link.md"), { force: true });
+    }
+  });
 });
 
 describe("listDirectory", () => {
