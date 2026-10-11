@@ -275,6 +275,50 @@ behavior. Cache hits, TTL, credential scope and minimum prefix depend on the
 provider/runtime and need measurement; never pad a prefix to make a cache test
 pass. Cache optimization cannot weaken authority or budgets.
 
+## Uncertain continuation allowance — 2026-10-11
+
+The maintainer's [ruling on #1582](https://github.com/schlessera/brain-kit/issues/1582#issuecomment-6106721700)
+selects **keep the current rule for v1**. For a successful escalation or yield
+checkpoint, completed-response usage is an observed lower bound, not proof
+that all requests have finished. Once the backend has normally unwound,
+charge completed spend plus one frozen whole-operation estimate for an
+uncertain in-flight request. A still-completed tool-response boundary permits
+zero allowance. A tool result or new response start clears that boundary;
+absence of the next response's headers does not prove absence of a sent
+request. Known spend and larger reported overruns always remain fully charged
+(`settleInboxBudgetRun`, `packages/ui-server/src/inbox/budget.ts:281-350`).
+
+The evidence is the offline installed-runtime continuation fixture from
+#1578: Claude sends a second request after the checkpoint, held open before
+any usage arrives, while pi stops at the completed boundary in the same case
+(`test("an escalated API turn retains completed response usage without a final provider result"`,
+`tests/autonomous-dispatch.test.ts:62-73`). The assertions require Claude's
+$0.000008 completed spend plus a $0.062 allowance to settle at $0.062008,
+and pi to settle at $0.000008. The fixture can fail on insufficient allowance;
+it establishes the runtime race and the retained charge, not actual provider
+costs or a provider-enforced spend ceiling.
+
+Narrower per-request relay accounting is not selected for v1. The current
+observer reports method, path, outcome and status, with no trusted token or
+cost bound (`InferenceRelayEvent`,
+`packages/ui-sdk/src/server/inference-relay.ts:36-42`). Completed-response
+snapshots cannot bound a pre-header continuation's input, output, cache usage
+or hidden requests. A smaller fraction, historical average, guessed zero or
+clipping below known spend would invent evidence. Revisit narrower accounting
+once real usage data exists, with an explicit trusted request-bound evidence
+model and conservative missing-data fallback before changing this rule.
+
+The October 1 conservative-admission ruling still binds: estimates cover
+admission, not a hard provider invoice limit. Retaining the full estimate as
+one request's allowance means some Claude escalations still consume most of
+the configured day cap; daily-cap relief is not guaranteed. Admission pricing
+remains frozen, settlement waits for backend unwind, and genuine crashes,
+missing/incomplete receipts, failed checkpoints, external cancellation,
+revocation and unknown pricing/billing retain their conservative treatment.
+This ruling changes no code, relay containment, extension seam or contract.
+The reserved real-provider check on #1548 and the complete production
+enablement gates remain independent of the keyless fixture evidence.
+
 ## Surfaces, recovery and the scope that remains separate
 
 D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
