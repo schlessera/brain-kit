@@ -1,9 +1,12 @@
 import { constants, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { SHOW_BLOCK_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
 
+const BLOCK_NAMES = new Set([visibleToolName(SHOW_BLOCK_TOOL_NAME, "pi"), visibleToolName(SHOW_BLOCK_TOOL_NAME, "claude"),
+  visibleToolName(SHOW_BLOCK_TOOL_NAME, "claude").replace("mcp__brain-ui__", "mcp__brain_ui__")]);
 const PIN_FILE = ".brain/scratch-pins/pins.json";
 type Snapshot = { version: 1; ready: boolean; sessions: Record<string, string[]> };
 
@@ -28,7 +31,7 @@ export function scratchLinks(messages: SessionHistoryMessage[]): string[] {
     if (message.role !== "assistant") continue;
     // Structured inline blocks can also expose artifact links in the answer.
     const surfaces = [message.content, JSON.stringify(message.blocks ?? []),
-      ...message.toolCalls.filter(call => call.name === "render_block").map(call => JSON.stringify(call.input))];
+      ...message.toolCalls.filter(call => BLOCK_NAMES.has(call.name)).map(call => JSON.stringify(call.input))];
     const source = surfaces.join("\n");
     let text: string;
     try { text = decodeURIComponent(source); } catch { text = source; }

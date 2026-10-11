@@ -114,11 +114,13 @@ test("operational pin snapshots and the managed marker stay gitignored", async (
   }
 });
 
-test("structured inline supporting-file paths pin too", () => {
-  const message = answer("Here is the voyage log.");
-  message.toolCalls = [{ id: "voyage-files", name: "render_block", input: { kind: "files", files: [{ path: ".brain/scratch/voyage log.pdf" }] } }];
-  expect(scratchLinks([message])).toContain(".brain/scratch/voyage log.pdf");
-});
+for (const name of ["show_block", "mcp__brain-ui__show_block", "mcp__brain_ui__show_block"]) {
+  test(`structured inline supporting-file paths pin through ${name}`, () => {
+    const message = answer("Here is the voyage log.");
+    message.toolCalls = [{ id: "voyage-files", name, input: { block: { kind: "files", items: [{ path: ".brain/scratch/voyage log.pdf" }] } } }];
+    expect(scratchLinks([message])).toContain(".brain/scratch/voyage log.pdf");
+  });
+}
 
 test("a replaced pin parent cannot redirect host writes outside the brain", () => {
   const pins = createScratchPins(root, createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]));
