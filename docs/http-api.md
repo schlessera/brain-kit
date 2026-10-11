@@ -1016,7 +1016,9 @@ policy list that matched, the entry's position in it, its pattern and its
 reason. `policyHash` is the governing policy's hash, or `null` under the
 built-in defaults. `source` on a limit is `policy` or `default`. Tool inputs
 are capped at 8192 characters, and `inputTruncated` says whether the recorded
-`input` was cut.
+`input` was cut. Before an `input` is stored, anything in it shaped like a
+credential is replaced with `[redacted]`. Like session history, events can be
+read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
@@ -1036,5 +1038,5 @@ are capped at 8192 characters, and `inputTruncated` says whether the recorded
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write` or `outward_host_connect`; `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
 | `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command` or `unclassified_command`. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider it could not reach without a key. `degradedTo` names the fallback used, such as `keyword_search`, or is `null`. |
-| `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data` or `cpu`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
+| `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. Each failure is `{ toolCallId, signature, category }`, and `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` or `capability`. `waste` is `{ tokens, costUsd, ms }`; unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |

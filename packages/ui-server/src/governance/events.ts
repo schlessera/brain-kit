@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 
+import { redactCredentials } from "../activity/runtime-status.js";
+
 /**
  * Governance events (#1651): one machine-readable record for every sandbox or
  * governance intervention in a turn, kept in `brain-ui.db` with the session's
@@ -176,7 +178,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   /** A worker that hit an rlimit or cgroup limit (#1660). */
   resource_limit: kind(1, z.strictObject({
     limits: z.array(z.strictObject({
-      limit: z.enum(["processes", "memory", "pids", "file_size", "data", "cpu"]),
+      limit: z.enum(["processes", "memory", "pids", "file_size", "data", "cpu", "open_files"]),
       source: z.enum(["rlimit", "cgroup"]),
       value: amount,
       events: count.nullable(),
@@ -279,7 +281,10 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
   if (!meta.success) throw new GovernanceEventError(`Invalid governance event attribution: ${z.prettifyError(meta.error)}`);
   const payload = spec.payload.safeParse(rawPayload);
   if (!payload.success) throw new GovernanceEventError(`Invalid ${input.kind} payload: ${z.prettifyError(payload.error)}`);
-  const json = JSON.stringify(payload.data);
+  // Tool inputs outlive the 7-day span detail here, so anything shaped like a
+  // credential is replaced before it is stored, whatever the emitter did.
+  const data = payload.data as Record<string, unknown>;
+  const json = JSON.stringify(typeof data.input === "string" ? { ...data, input: redactCredentials(data.input) } : data);
   if (Buffer.byteLength(json, "utf8") > GOVERNANCE_PAYLOAD_MAX_BYTES) {
     throw new GovernanceEventError(`${input.kind} payload exceeds ${GOVERNANCE_PAYLOAD_MAX_BYTES} bytes`);
   }

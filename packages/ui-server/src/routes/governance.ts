@@ -9,9 +9,10 @@ export const GOVERNANCE_EVENTS_MAX_LIMIT = 500;
 const ID_MAX = 200;
 
 /**
- * The governance-event read API (#1651). Auth-guarded like every /api route.
- * Read-only and quiet: it renders nothing, and the records it returns describe
- * what the host did, never brain content.
+ * The governance-event read API (#1651). Auth-guarded like every /api route,
+ * and open to every authenticated principal, as session history is. Read-only
+ * and quiet: it renders nothing. Recorded tool inputs are credential-redacted
+ * by the writer.
  */
 export function createGovernanceRoutes(deps: { db: Database }): Hono<AppEnv> {
   const { db } = deps;

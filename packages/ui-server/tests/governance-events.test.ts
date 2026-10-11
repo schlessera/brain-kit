@@ -123,6 +123,15 @@ describe("governance event writer", () => {
     expect(count(d)).toBe(0);
   });
 
+  test("recorded tool inputs have credentials redacted before storage", () => {
+    const d = db();
+    const input = "curl -H 'Authorization: Bearer aeolus-bag-of-winds' -X POST https://ithaca.example/api";
+    recordGovernanceEvent(d, event("outward_action", { payload: { ...SAMPLE_PAYLOADS.outward_action, input } }));
+    const stored = (d.query("SELECT payload FROM governance_events").get() as { payload: string }).payload;
+    expect(stored).not.toContain("aeolus-bag-of-winds");
+    expect(JSON.parse(stored).input).toBe("curl -H 'Authorization: [redacted] -X POST https://ithaca.example/api");
+  });
+
   test("a dedupe key records one row per kind and key", () => {
     const d = db();
     session(d, "sess-ithaca");
