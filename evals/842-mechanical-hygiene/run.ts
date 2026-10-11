@@ -139,7 +139,7 @@ async function main() {
   // EVAL_CLAUDE_MODEL replaces only the measured current arm; label checks and reviews keep Sonnet.
   const model = process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5", baseline = join(import.meta.dir, "results-2026-10-11.json");
   const resultPath = process.env.LEAN_RESULTS ?? (model === "claude-sonnet-5-5" ? baseline : join(import.meta.dir, `results-${model.replace(/^claude-/, "")}-2026-10-11.json`));
-  if (resultPath !== baseline && !Bun.file(resultPath).size && Bun.file(baseline).size) {
+  if (model !== "claude-sonnet-5-5" && resultPath !== baseline && !Bun.file(resultPath).size && Bun.file(baseline).size) {
     // Replay frozen labels, floor and code/Jev rows; only the current arm is re-measured.
     const { summary: _s, review: _r, ...base } = await Bun.file(baseline).json();
     writeFileSync(resultPath, JSON.stringify({ ...base, source: Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim(),

@@ -27,7 +27,8 @@ const claudeModel = process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5", rerun 
 // EVAL_CLAUDE_EFFORT passes --effort to measured-arm Claude calls only, never the label check.
 const effort = process.env.EVAL_CLAUDE_EFFORT, effortSuffix = effort ? `-effort-${effort}` : "";
 const currentArm = rerun ? `${claudeModel.replace(/^claude-|-\d.*$/g, "")}${effort ? `-${effort}` : ""}-rerun` : "sonnet";
-const output = Bun.argv.includes("--output") ? resolve(Bun.argv[Bun.argv.indexOf("--output") + 1]) : join(import.meta.dir, rerun ? `results-haiku-5-5${effortSuffix}-2026-10-11.json` : `results${effortSuffix}-2026-10-11.json`);
+const output = Bun.argv.includes("--output") ? resolve(Bun.argv[Bun.argv.indexOf("--output") + 1]) : join(import.meta.dir, rerun ? `results-${claudeModel.replace(/^claude-/, "")}${effortSuffix}-2026-10-11.json` : `results${effortSuffix}-2026-10-11.json`);
+if (rerun && output === join(import.meta.dir, "results-2026-10-11.json")) throw Error(`Refusing to overwrite the stored Sonnet results with a ${claudeModel} rerun`);
 if (rerun) {
   const stored = await Bun.file(join(import.meta.dir, "results-2026-10-11.json")).json();
   Object.assign(results, { currentModel: claudeModel, currentArm, replayedFrom: "results-2026-10-11.json", storedCalls: stored.calls, labelCheck: stored.labelCheck,

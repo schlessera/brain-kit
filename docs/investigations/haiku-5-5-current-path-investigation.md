@@ -43,7 +43,7 @@ Held-out numbers, each scored the way its decision record reports it.
 | [1593 routing-only capture](../decisions/routing-only-capture.md) | type / target of 78 | 78 / 78 | 48 / 61 | No-go flips to go |
 | [845 opportunity lifecycle](../decisions/opportunity-lifecycle.md) | exact of 90 | 66 | 37 | Go for the command strengthens |
 | [842 mechanical hygiene](../decisions/mechanical-hygiene.md) | exact source maps of 102 | 75 | 71 | Go for code strengthens |
-| [850 import enrichment](../decisions/import-enrichment.md) | type of 57 | 56 | 45 | Lead narrows to a near tie; no flip |
+| [850 import enrichment](../decisions/import-enrichment.md) | type of 57 | 56 | 45 | Lead narrows; provisional until 119 summaries are judged |
 | [843 canonical conflicts](../decisions/canonical-conflicts.md) | precision; false-report vetoes | 75%; 9 | 65.9%; 14 | Unchanged |
 | [844 tag aliases](../decisions/tag-aliases.md) | outcomes of 69; alias recall | 68; 30/30 | 64; 30/30 | Unchanged |
 | [846 speaking lifecycle](../decisions/speaking-lifecycle.md) | fully correct of 69 | 57 | 60 | Unchanged |
@@ -82,7 +82,7 @@ thinking tokens rise with the level.
 | 839 no-writes; wrong-target appends | 1; 0 | 6; 0 | 4; 0 | 0; 1 |
 | 839 agreement, of 19 | 15 | 13 | 14 | 11 |
 | 1416 fully correct, of 42 (Sonnet 36) | 35 | 22 | 15 | 12 |
-| 1416 failures only from mentioning the real date | 6 | 17 | 21 | 26 |
+| 1416 failing only the dates-and-counts check, of 42 | 5 | 17 | 24 | 25 |
 | Mean thinking tokens per session (839 / 1416) | 475 / 443 | 626 / 864 | 1257 / 1993 | 8645 / 9729 |
 | Mean wall time per session (839 / 1416) | 5.8 s / 6.3 s | 6.2 s / 8.3 s | 10.1 s / 13.2 s | 45.3 s / 44.9 s |
 
@@ -93,8 +93,10 @@ Higher effort did not make Haiku a viable current path:
   18× the thinking and 8× the wall time, had the lowest agreement, and made
   the only held-out wrong-target append.
 - **On 1416,** more thinking made Haiku mention the machine's real date
-  instead of the scenario's pinned date. With that forgiven, no level beat
-  default.
+  instead of the scenario's pinned date. The judge fails any such mention on
+  its dates-and-counts check. Even counting reports that fail only that check
+  as correct, no level beat default (40, 39, 39 and 37 of 42). These counts
+  are derived from the stored judgments.
 
 ## Fixes found while rerunning
 
@@ -118,8 +120,9 @@ Higher effort did not make Haiku a viable current path:
   - **Content-loss reviews:** 26 cells for 839 at default effort, plus each
     effort run, and 34 for 1593. A pending cell counts as possible content
     loss until reviewed.
-  - **Summary judgments:** 119 for 850, so its complete-case figure is an
-    upper bound.
+  - **Summary judgments:** 119 for 850. Pending summaries currently count as
+    incomplete, so its complete-case figures are provisional and could rise
+    once judged.
 
   These do not change the verdicts above.
   [#1608](https://github.com/schlessera/brain-kit/issues/1608) clears them.
