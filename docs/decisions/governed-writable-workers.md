@@ -964,31 +964,65 @@ helper the host provides:
 - **brain-kit owns the launcher seam** (#1677). An optional host-supplied
   identity helper sits in front of `bwrap`. It follows the exec wrapper's
   rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:39`):
-  an absolute path in argv position 0, the worker as its own process group,
-  and abort through the kill helper, because `kill(2)` across uids returns
-  `EPERM`. The kit also verifies the result from inside a real worker:
-  - the outside uid is not the server's and is not 0;
-  - the server's database directory, its `$HOME` and its credential
-    directories refuse to open.
-
-  If either check fails, `governed` and `strict` are refused, with a named
-  host-status reason. Areas the two uids share are reachable through a shared
-  group, with setgid directories:
-  - the brain, scratch and workspaces;
-  - turn temp and runtime state;
-  - the relay sockets and the launcher's FIFOs.
-
-  The server reads agent-written files for the journal and promotion through
-  group read. Nothing private to the server is group-readable.
+  an absolute path in argv position 0, and the worker as its own process
+  group. `kill(2)` across uids returns `EPERM`, so every signal goes through
+  the kill helper. The helper's protocol
+  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:53`)
+  gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
+  resumes the worker's process tree through them (see "Scope caps").
 - **The hosting template owns the packaging.** That means the two fixed uids,
-  the setuid helper and the kill helper, the ownership map, the volume
-  migration and the container proof. Its `docs/decisions/container-privilege.md`
+  the setuid identity helper, the kill helper with `STOP` and `CONT`, the
+  ownership map, the volume migration and the container proof. Its `docs/decisions/container-privilege.md`
   already designs a `brain` server uid, an `agent` uid in group `brain`, and
   `/data/db` at `0700`. That record predates the bubblewrap worker and is being
   reassessed:
   - the helper now wraps the one `bwrap` launch, not each agent subprocess;
   - its rule that the CLI runs as `agent` is already met by this record's
     maintenance workers.
+
+**Shared objects the kit creates.** The two uids share the brain, scratch,
+workspaces, turn temp, runtime state and the relay sockets through a common
+group, with setgid directories. Setgid sets only the group, though, and the kit
+creates its per-turn objects with private modes today. Runtime state
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:41`)
+and the inference relay
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
+both use `0700` directories and `0600` files or sockets. With a helper configured,
+the kit therefore creates these with explicit group ownership and group modes:
+
+- runtime state and turn temp: `0770` directories and `0660` files;
+- the relay directory: `0750`;
+- relay and proxy sockets: `0660`.
+
+The launcher's FIFOs stay as they are: already-open, unlinked descriptors with
+no path to share.
+
+**Files the worker makes private.** The worker owns what it creates and can
+`chmod` a file to `0600` or a directory to `0700`. Setgid and the umask cannot
+prevent that. So when the server's descriptor-anchored read for the journal,
+promotion or runtime-state persistence gets `EACCES`, it does not give up. It
+reads those bytes through an uncredentialed maintenance worker that runs under
+the worker uid and streams the raw bytes back. That worker evaluates nothing,
+so the rule that the journal runs no git and imports no repository code still
+holds.
+
+A file that stays unreadable is journaled by name and size only and is not
+revertible. It is recorded as a governance event and as a roadblock.
+
+**Verification from inside a real worker.** The probe checks:
+
+- the outside uid is not the server's and is not 0;
+- **the negative control:** a sentinel the server creates at boot, `0600` in
+  a `0700` directory beside its database and outside every mask, refuses to
+  open. Opening a masked path proves nothing: a masked directory opens empty,
+  and a hidden one is not proof of ownership;
+- **the positive controls:** the worker can write the brain, scratch and turn
+  temp, read and write its runtime state, and connect to the relay socket.
+
+If any check fails, `governed` and `strict` are refused, with a named
+host-status reason. Making the sentinel group-readable must make the probe
+refuse; that is the mutation proof. Nothing private to the server is
+group-readable.
 
 **Without a helper,** `governed` still runs. A laptop or a single-user server
 keeps working, with the masks as the only protection. The launcher also masks
