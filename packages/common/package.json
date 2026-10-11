@@ -1,7 +1,7 @@
 {
   "name": "@schlessera/brain-common",
   "version": "0.41.0",
-  "description": "Internal brain-kit helpers shared by the @schlessera/brain-* packages: the environment descriptor core and the cache-free frontmatter parser. No compatibility promise.",
+  "description": "Internal brain-kit helpers shared by the @schlessera/brain-* packages: the environment descriptor core, the cache-free frontmatter parser and the worker write-area rules. No compatibility promise.",
   "license": "MIT",
   "keywords": [
     "brain-kit",
@@ -35,6 +35,11 @@
       "bun": "./src/frontmatter-parse.ts",
       "types": "./dist/frontmatter-parse.d.ts",
       "default": "./dist/frontmatter-parse.js"
+    },
+    "./internal/worker-areas": {
+      "bun": "./src/worker-areas.ts",
+      "types": "./dist/worker-areas.d.ts",
+      "default": "./dist/worker-areas.js"
     }
   },
   "files": [

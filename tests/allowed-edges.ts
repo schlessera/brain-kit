@@ -23,7 +23,8 @@ export interface Edges {
 export const ALLOWED_EDGES: Record<string, Edges> = {
   // #1396 (maintainer ruling 2026-10-09): one internal-only leaf holding the
   // env descriptor core and the cache-free frontmatter parser, replacing the
-  // byte-identical copies each package carried. It depends on no internal
+  // byte-identical copies each package carried, plus the worker write-area
+  // rules core and the ui-sdk both state (#1693). It depends on no internal
   // package, and nothing else may join it without its own issue.
   "@schlessera/brain-common": { dependencies: [], optionalPeers: [] },
   // core owns the render template (the CLI's `brain render` uses it); the

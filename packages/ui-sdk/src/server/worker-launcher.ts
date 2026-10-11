@@ -189,11 +189,13 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
   if (sandbox.restricted && (sandbox.areas.length || sandbox.home)) {
     throw new WorkerHostError("a restricted worker has no writable areas or home");
   }
-  for (const { name, mount } of sandbox.areas) {
+  for (const { name, rel, mount } of sandbox.areas) {
+    // The note names each area by `rel`; it must be the area's own path.
+    if (rel !== WORKER_AREAS[name]) throw new WorkerHostError(`the ${name} area is not at ${WORKER_AREAS[name]}/`);
     if (!mount.writable) continue;
     const path = mount.path;
     const info = lstatSync(path, { throwIfNoEntry: false });
-    if (path !== join(brain, WORKER_AREAS[name]) || !info?.isDirectory() || realpathSync(path) !== path
+    if (path !== join(brain, rel) || !info?.isDirectory() || realpathSync(path) !== path
       || within(path, scratch) || within(scratch, path) || (state !== undefined && (within(path, state) || within(state, path)))) {
       throw new WorkerHostError(`the writable ${name} area must be a real directory at its own path inside the brain`);
     }
@@ -259,7 +261,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
     // Nothing to bind; the launch itself refuses a missing brain.
     const reason = "the brain directory does not exist";
     return { brain: brainPath, restricted: Boolean(options.restricted), scratchAliasesRemoved: [],
-      areas: options.restricted ? [] : (options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])).map(name => ({ name, mount: { writable: false, reason, missing: true } })),
+      areas: options.restricted ? [] : (options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])).map(name => ({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason, missing: true } })),
       ...(options.restricted ? {} : { home: { mode: "xdg", reason } }) };
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
@@ -272,11 +274,11 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
       if (name === "scratch") {
         const scratch = resolveScratchMount(brain, options.home);
         removed = scratch.removed;
-        areas.push({ name, mount: scratch.mount });
-      } else areas.push({ name, mount: resolveWorkspacesMount(brain) });
+        areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
+      } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain) });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
-      areas.push({ name, mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
+      areas.push({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
     }
   }
   let home: WorkerHome;
