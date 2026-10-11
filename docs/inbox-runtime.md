@@ -115,9 +115,10 @@ acceptance examples through the dispatcher: AE1–AE5, AE7–AE9 and AE11–AE15
 AE6 and AE10 are deferred to v2. An arrival that T1 cannot route, for
 example without a classification key, stays queued until it expires; the
 agent tier never runs unrouted work. Intake assigns stakes 1 and no deadline,
-which stays below the push cutoff of 12, so the dispatcher's own decisions
-reach the twice-daily digest rather than an immediate push
-(the ruling is requested on #1553).
+which stays below the push cutoff of 12. Under the 2026-10-11 ruling on #1553,
+the dispatcher marks decisions that block autonomous work as push-eligible
+regardless of score. They use the existing fixed window, quiet hours and
+aggregate payload; ordinary unmarked decisions remain digest-only below 12.
 
 ## Runtime token file
 
@@ -224,10 +225,12 @@ historical.
   selects. The current Claude API lineup is `claude-fable-5-1` ($10 / $50),
   `claude-opus-5-5` ($4 / $20, default effort `medium`), `claude-sonnet-5-5`
   ($2 / $10) and `claude-haiku-5-5` (from $0.10 / $0.50), all active. The
-  bundled price snapshot has no rate for any model newer than
-  `claude-opus-4-6`, `claude-sonnet-4-5` and `claude-haiku-4-5`. An API-billed
-  agent tier on a current model is therefore charged at the pessimistic
-  unpriced rate, with one suppressed pricing Action, unless the live price
-  catalog resolves it. Subscription billing counts turns and no dollars.
+  [bundled price snapshot](../packages/ui-server/data/README.md) includes these
+  models and `claude-sonnet-4-6` at provider base rates checked on 2026-10-11.
+  Before a remote catalog is cached, those rates resolve as offline estimates.
+  Haiku 5.5's base tier covers prompts up to 100,000 tokens; longer-context
+  tiers are outside v1 price resolution. An unresolved model still uses the
+  pessimistic unpriced rate and raises one suppressed pricing Action.
+  Subscription billing counts turns and no dollars.
 - **Cache.** Prompt-cache savings remain unclaimed (see the
   [prompt cache guide](hosting/autonomous-prompt-cache.md)).

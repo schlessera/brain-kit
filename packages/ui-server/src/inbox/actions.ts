@@ -29,7 +29,7 @@ export function inboxActionSuppressed(db: Database, context: InboxActionContext,
 }
 
 /** Caller owns the encompassing transaction, including any blocked transition. */
-export function insertInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], context = inboxActionContext(action), now = Date.now(), hygiene = false): void {
+export function insertInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], context = inboxActionContext(action), now = Date.now(), hygiene = false, blockingEscalation = false): void {
   if (!context.classKey || context.classKey.length > 256 || !context.evidenceBoundary ||
       !context.reraiseCondition || !Number.isSafeInteger(context.suppressionUntil) || context.suppressionUntil < 0)
     throw new Error("Invalid Action lifecycle context");
@@ -45,9 +45,10 @@ export function insertInboxAction(db: Database, action: InboxActionItem, allowed
   if (context.sourceItemId && store.getItem(context.sourceItemId)?.threadId !== action.threadId)
     throw new Error("Action source belongs to another thread");
   store.commit([{ kind: "item", item: action }]);
-  db.query("INSERT INTO inbox_action_contexts (item_id, source_item_id, class_key, evidence_boundary, suppression_until, reraise_condition, options_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+  // This fact is a server argument, never a property of the proposed Action.
+  db.query("INSERT INTO inbox_action_contexts (item_id, source_item_id, class_key, evidence_boundary, suppression_until, reraise_condition, options_json, blocking_escalation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .run(action.id, context.sourceItemId ?? null, context.classKey, context.evidenceBoundary,
-      context.suppressionUntil, context.reraiseCondition, JSON.stringify((store.getItem(action.id) as InboxActionItem).options));
+      context.suppressionUntil, context.reraiseCondition, JSON.stringify((store.getItem(action.id) as InboxActionItem).options), blockingEscalation ? 1 : 0);
 }
 
 /** Staging belongs to the thread until its last work/decision is terminal. */
