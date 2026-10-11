@@ -1,5 +1,6 @@
 /** Focused local preflight; repeatable full proof is authoritative in hosted CI. */
 import { resolve } from "node:path";
+import { accessSync, constants, statSync } from "node:fs";
 import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan";
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
@@ -50,7 +51,12 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
   if (!plan.local.fullTests) return undefined;
   const chrome = process.env.PUPPETEER_EXECUTABLE_PATH ??
     ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser"].map(name => Bun.which(name)).find(Boolean);
-  if (!chrome || !Bun.file(chrome).size) throw new Error("Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH");
+  try {
+    if (!chrome || !statSync(chrome).isFile()) throw new Error("Not a regular file");
+    accessSync(chrome, constants.X_OK);
+  } catch {
+    throw new Error(`Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH (rejected path: ${chrome ?? "not found"})`);
+  }
   if (process.platform !== "linux") throw new Error("Full local runtime proof requires the Linux namespace harness; use a Linux checkout/runner");
   for (const name of ["bwrap", "unshare", "ip", "setpriv"]) if (!Bun.which(name)) throw new Error(`Local runtime proof requires ${name}`);
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
