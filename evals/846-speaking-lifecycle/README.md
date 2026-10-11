@@ -24,7 +24,12 @@ bun run test experiments/lean-speaking-score.test.ts
 The harness installs the unchanged speaking skills in each disposable brain,
 provides the real core CLI for archiving, runs at most two Claude processes,
 and writes one results JSON. Raw CLI reports and changed Markdown stay in
-scratch. The explicit-owner arm receives the reviewed structured decision:
+scratch. Brain directory names are neutral numbers, with a unique suffix so
+a later invocation cannot expose an old transcript or modified tree.
+Semantic case IDs appear only in the result collector, outside the brain.
+`--current-only` replaces the current arm while retaining recorded candidate
+and owner runs, for the documented directory-cue correction.
+The explicit-owner arm receives the reviewed structured decision:
 it measures mechanical updates, not interpretation of a message. All arms
 see the same initial brain and source. Only the primary message is exercised;
 historical secondary messages and repeated workflow checkpoints are not run.

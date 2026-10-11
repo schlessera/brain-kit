@@ -71,7 +71,7 @@ export function score(c: Case, initial: Tree, after: Tree, answer: Answer | null
     }
     if (closing) {
       if (data(after[conference]).relevance !== "historical") failures.push("conference-relevance");
-      if (!/archived|past/i.test(row(after["conferences/_index.md"], c.assembly))) failures.push("archive-index");
+      if (!/archived|past|closed/i.test(row(after["conferences/_index.md"], c.assembly))) failures.push("archive-index");
       if (after["context/current-focus.md"].includes(c.talk) || after["context/current-focus.md"].includes(c.submission)) failures.push("closed-focus");
     } else {
       const name = c.target === "second" ? c.otherSubmission : c.submission;
@@ -82,8 +82,8 @@ export function score(c: Case, initial: Tree, after: Tree, answer: Answer | null
       if (outcome(row(after["talks/_proposals.md"], name, assembly)) !== expected) failures.push("proposals");
       const index = row(after["conferences/_index.md"], assembly).toLowerCase();
       const aliases: Record<string,string> = {rejected:"rejected|not selected",waitlisted:"waitlist|waiting list",backup:"backup|reserve|stand-in",accepted:"accepted",withdrawn:"withdrawn|withdrawal"};
-      if (!new RegExp(aliases[expected ?? ""] ?? "submitted|pending|undecided").test(index)) failures.push("conference-index");
-      if (c.target !== "shore" && !/submitted|pending|undecided/.test(index)) failures.push("mixed-index");
+      if (!new RegExp(aliases[expected ?? ""] ?? "submitted|pending|undecided|awaiting (?:its (?:own )?)?decision").test(index)) failures.push("conference-index");
+      if (c.target !== "shore" && !/submitted|pending|undecided|awaiting (?:its (?:own )?)?decision/.test(index)) failures.push("mixed-index");
       if (c.operation === "outcome" && !after[hub].includes("2026-07-11")) failures.push("timeline");
       if (c.expectedOutcome === "accepted") {
         const focus = after["context/current-focus.md"], names = [name,c.target === "second" ? `${c.talk}-other` : c.talk,c.title].filter(Boolean) as string[];

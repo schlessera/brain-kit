@@ -120,22 +120,26 @@ async function main() {
   await Bun.write(`${scratch}/bin/brain`, `#!/bin/sh\nexport BRAIN_ROOT="$PWD"\nexec bun '${repo}/packages/core/src/cli/brain.ts' "$@"\n`);
   await Bun.$`chmod +x ${scratch}/bin/brain`.quiet();
   const labelRaw = await Bun.file(`${process.env.TMPDIR}/labels.raw.json`).json();
-  claudeCalls = labelRaw.evalCalls ?? 1;
+  const currentOnly = process.argv.includes("--current-only"), prior = currentOnly ? await Bun.file(file).json() : null;
+  claudeCalls = prior?.calls.claude ?? labelRaw.evalCalls ?? 1;
+  jevCalls = prior?.calls.jev ?? 0;
   const labelCheck = JSON.parse(labelRaw.result.replace(/^```json\s*|\s*```$/g, ""));
   if (labelCheck.verdicts.length !== cases.length || labelCheck.verdicts.some((v: {verdict:string}) => v.verdict !== "ok")) throw new Error("Resolve label review before measurement");
-  const results: {id:string; split:string; arm:string; repetition:number; answer:Answer|null; score:ReturnType<typeof score>; [key:string]:unknown}[] = [];
+  const results: {id:string; split:string; arm:string; repetition:number; answer:Answer|null; score:ReturnType<typeof score>; [key:string]:unknown}[] = prior?.results.filter((r:{arm:string})=>r.arm!=="current") ?? [];
   const client = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY, timeoutMs: 60000 });
   if (!client.enabled) throw new Error("TYPESAFE_API_KEY missing");
-  const save = async () => Bun.write(file, JSON.stringify({ date:"2026-10-11", models:{current:"claude-sonnet-5-5",candidate:"jev-1.13.0"}, threshold:null, labelCheck, calls:{claude:claudeCalls,jev:jevCalls}, stopped, results }, null, 2) + "\n");
+  const discardedCurrent = prior ? {reason:"Semantic case ids were visible in Claude's working directory. Replaced by neutral-directory runs.",cliCalls:90,summary:prior.summary.current,review:prior.review} : null;
+  const save = async () => Bun.write(file, JSON.stringify({ date:"2026-10-11", models:{current:"claude-sonnet-5-5",candidate:"jev-1.13.0"}, threshold:null, labelCheck, calls:{claude:claudeCalls,jev:jevCalls}, discardedCurrent, stopped, results }, null, 2) + "\n");
   // No confidence floor: this experiment tests direct bounded Choices, not a calibrated gate.
   const jobs = cases.flatMap(c => Array.from({length:3}, (_, repetition) => ({c,repetition})));
   let next = 0;
   async function worker() {
     while (next < jobs.length && !stopped) {
       const {c,repetition} = jobs[next++], before = initial(c);
-      for (const arm of ["owner", "jev", "current"]) {
+      for (const arm of currentOnly ? ["current"] : ["owner", "jev", "current"]) {
         if (stopped) break;
-        const root = `${scratch}/${c.id}/${repetition}/${arm}`; await write(root, before);
+        const brainDirectory = `case-${String(cases.indexOf(c)).padStart(3,"0")}/${repetition}/${arm}-${crypto.randomUUID()}`;
+        const root = `${scratch}/${brainDirectory}`; await write(root, before);
         await Bun.write(`${root}/brain.config.ts`, 'export default { profile: { name: "Odysseus" }, taxonomy: { types: { conference: { dir: "conferences" }, talk: { dir: "talks" }, travel: { dir: "travel" } } } };\n');
         let answer: Answer | null = null, raw: unknown = null, error: string | null = null;
         try {
@@ -158,7 +162,7 @@ async function main() {
         const after = await read(root), scored = score(c,before,after,answer);
         // Compact exact changed Markdown is retained beside the disposable brains, outside git.
         await Bun.write(`${root}/changes.json`, JSON.stringify(Object.fromEntries(scored.changed.map(p => [p,after[p] ?? null])),null,2));
-        results.push({id:c.id,split:c.split,arm,repetition,answer,score:scored,error,
+        results.push({id:c.id,split:c.split,arm,repetition,brainDirectory,answer,score:scored,error,
           ...(arm === "jev" ? {provider:raw} : {})});
         await save(); console.log(`${arm} ${c.id} r${repetition}: ${scored.fieldsCorrect ? "exact" : scored.failures.join(",")} veto=${scored.vetoes.length}`);
       }
@@ -175,12 +179,14 @@ async function rescore() {
   const saved = await Bun.file(file).json();
   saved.threshold = null;
   saved.sourceCommit = "9f0df4959887b2b549d628010a8e2af1e5c1bfff";
-  saved.scoringNotes = "Rescored all saved trees after fixing status/history/negation parsing, selecting the Status column, tolerating formatting, and completing mixed-index/focus/date checks. Replayed 180 deterministic runs with unchanged model answers after fixing summary-history and prior acceptance-date preservation on delivery. No model reruns or golden changes.";
+  saved.callUnits = {claude:"CLI invocations, not individual agent turns",jev:"core ask invocations; internal HTTP retries are not observed"};
+  saved.scoringNotes = "Rescored all saved trees after fixing status/history/negation parsing, selecting the Status column, tolerating formatting (including closed index rows), and completing mixed-index/focus/date checks. Replayed 180 deterministic runs with unchanged model answers after fixing summary-history and prior acceptance-date preservation on delivery. No candidate reruns or golden changes. Separately replaced all 90 current-arm runs because their working directories exposed semantic case ids; retained runs use fresh neutral directories.";
   for (const r of saved.results) {
     const c = cases.find(c => c.id === r.id)!;
-    r.score = score(c,initial(c),await read(`${scratch}/${r.id}/${r.repetition}/${r.arm}`),r.answer);
+    const root = `${scratch}/${r.brainDirectory ?? `${r.id}/${r.repetition}/${r.arm}`}`;
+    r.score = score(c,initial(c),await read(root),r.answer);
     if (r.arm === "current") {
-      const raw = await Bun.file(`${scratch}/${r.id}/${r.repetition}/${r.arm}/claude-0.json`).json();
+      const raw = await Bun.file(`${root}/claude-0.json`).json();
       r.runtime = {models:Object.keys(raw.modelUsage ?? {}),turns:raw.num_turns,permissionDenials:raw.permission_denials?.length ?? 0};
     }
   }

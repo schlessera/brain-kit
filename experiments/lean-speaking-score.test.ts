@@ -70,4 +70,14 @@ describe("lean speaking field scoring", () => {
     expect(score(accepted,tree,after,{outcome:"accepted",target:"first"}).failures).not.toContain("focus");
     expect(score(accepted,tree,{...after,"context/current-focus.md":"oar-cadence at athena-hall"},{outcome:"accepted",target:"first"}).failures).toContain("focus");
   });
+  test("an awaiting-decision index phrase preserves the pending submission", () => {
+    const accepted = {...c,expectedOutcome:"accepted",target:"first"}, tree = initial(accepted);
+    const after = {...tree,"conferences/_index.md":tree["conferences/_index.md"].replace("submitted, submitted","accepted, awaiting its own decision")};
+    expect(score(accepted,tree,after,{outcome:"accepted",target:"first"}).failures).not.toContain("mixed-index");
+  });
+  test("a closed index row expresses a past assembly", () => {
+    const closing = {...c,operation:"close",target:"conference",before:"accepted"}, tree = initial(closing);
+    const after = {...tree,"conferences/_index.md":tree["conferences/_index.md"].replace("accepted, submitted","closed (rowing delivered; keel-care submitted)")};
+    expect(score(closing,tree,after,{outcome:"unclear",target:"conference"}).failures).not.toContain("archive-index");
+  });
 });
