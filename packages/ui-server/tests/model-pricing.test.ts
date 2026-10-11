@@ -379,7 +379,7 @@ describe("createModelPricing snapshot fallback", () => {
     model, input, output, cacheRead, cacheWrite
   ) => {
     const pricing = createModelPricing({ brainPath, enabled: true, fetchImpl: failingFetch });
-    const expected = { input, output, cacheRead, cacheWrite, source: "snapshot", estimate: true };
+    const expected = { input, output, cacheRead, cacheWrite, source: "snapshot", estimate: true } as const;
 
     // Cold construction resolves synchronously without a cache or fetch.
     expect(pricing.resolve(model)).toEqual(expected);
