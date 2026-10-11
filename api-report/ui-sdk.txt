@@ -781,6 +781,9 @@ export "./internal" (./src/internal.ts)
   type WorkerHostProbeOptions
   type WorkerLaunch
   type WorkerMount
+  type WorkerNoteFacts
+  type WorkerNoteLimit
+  type WorkerProfile
   type WorkerSandbox
   applyClassification
   archivesDocument
@@ -809,6 +812,7 @@ export "./internal" (./src/internal.ts)
   webSearchBrief
   webSearchProvider
   workerHostBoundary
+  workerProfile
   workerSandboxNote
   workerSandboxWarnings
 

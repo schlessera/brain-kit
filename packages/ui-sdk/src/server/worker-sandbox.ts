@@ -17,11 +17,13 @@
  */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
+import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 
-/** Repo-relative scratch directory; core's `SCRATCH_DIR` names the same path. */
-export const BRAIN_SCRATCH_DIR = ".brain/scratch";
-/** Repo-relative workspace directory; always in core's default index exclusions. */
-export const BRAIN_WORKSPACES_DIR = "workspaces";
+/**
+ * Repo-relative scratch directory (core's `SCRATCH_DIR` names the same path)
+ * and workspace directory (always in core's default index exclusions).
+ */
+export { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR };
 /** Per-turn XDG directories on the worker's private `/tmp` when `$HOME` cannot be overlaid. */
 export const WORKER_XDG_HOME = "/tmp/brain-worker-home";
 export const WORKER_XDG_DIRS = {
@@ -54,6 +56,8 @@ export type WorkerAreaName = keyof typeof WORKER_AREAS;
 
 export interface WorkerArea {
   readonly name: WorkerAreaName;
+  /** Repo-relative directory the area was resolved at; the note names the area by this path. */
+  readonly rel: string;
   readonly mount: WorkerMount;
 }
 
@@ -362,54 +366,100 @@ export function resolveWorkspacesMount(brain: string, limit = WORKER_MOUNT_SCAN_
   return { writable: true, path: dir };
 }
 
+/**
+ * The profile a worker runs under: `strict` is the 0.41 read-only brain plus
+ * the named areas, `restricted` the autonomous envelope. The governed profile
+ * (#1649) adds `governed` here and to `PROFILE_LINES`, rendered from its
+ * resolved protected-path list, and resolves it onto the sandbox.
+ */
+export type WorkerProfile = "strict" | "restricted";
 
-const TURN_TEMP_HEADING = "1. **Turn temp: deleted when the turn ends.**";
-const BRAIN_LINE = "3. **The brain: canonical, and read-only here.** Change Markdown only through the brain write and edit tools; any other write, `git commit` or index command in the brain fails with `Read-only file system`. Hard links, renames and symlinks from the writable areas into it fail too: that is the sandbox, not something to work around.";
-
-/** The persistent-scratch lines for each state an area's mount can be in. */
-const AREA_LINES: Record<WorkerAreaName, (mount: WorkerMount) => string> = {
-  scratch: mount => mount.writable
-    ? "   - `.brain/scratch/` is writable (pruned after 7 days, oldest first past 1 GB). **Put anything you link in your response here, never in turn temp.** Use `brain render --scratch` or `brain image --scratch`, or write the file there, then link its repo-relative path, such as `.brain/scratch/<name>.pdf`. It is the only place outside the brain's own documents you may link to."
-    : `   - \`.brain/scratch/\` is read-only this turn: ${mount.reason}. There is nowhere to put a file for the reader; say so instead of linking a turn-temp file.`,
-  workspaces: mount => mount.writable
-    ? "   - `workspaces/` is writable: clone, fetch and commit other repositories there, never in `/tmp`."
-    : mount.missing
-      ? "   - There is no `workspaces/` directory, so no persistent place for repository clones. It becomes writable in later turns once someone creates `workspaces/` in the brain outside a hosted turn; until then a clone in `/tmp` is lost at turn end."
-      : `   - \`workspaces/\` is read-only this turn: ${mount.reason}.`,
-};
+export function workerProfile(sandbox: WorkerSandbox): WorkerProfile {
+  return sandbox.restricted ? "restricted" : "strict";
+}
 
 /**
- * The note the agent reads before it starts: the three places a file can be
- * (turn temp, persistent scratch, the brain) and which of them this worker
- * can write. Rendered only from the resolved sandbox that also builds the
- * worker's mounts, so it describes exactly the mounts the worker gets.
+ * One limit that applies to this worker: its resolved value and what hitting
+ * it looks like. Each owner renders its own from the input that enforces it,
+ * such as the worker-state allowance (#1625) and the resource limits (#1660);
+ * the note states them as given and invents none.
  */
-export function workerSandboxNote(sandbox: WorkerSandbox): string {
+export interface WorkerNoteLimit {
+  /** What is limited, such as "Runtime state". */
+  readonly name: string;
+  /** The resolved value, such as "64 MiB". */
+  readonly value: string;
+  /** What the agent sees when it hits the limit, and what to do instead. */
+  readonly onHit: string;
+}
+
+/** Facts resolved outside the mount list that the note states with it. */
+export interface WorkerNoteFacts {
+  readonly limits?: readonly WorkerNoteLimit[];
+}
+
+/** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
+const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
+  strict: () => `**Profile: \`strict\`.** ${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
+};
+
+/** The line for each state an area's mount can be in, naming the area by its resolved path. */
+const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea) => string> = {
+  scratch: ({ rel, mount }) => mount.writable
+    ? `   - \`${rel}/\` is writable. Write the file there (\`brain render --scratch\` and \`brain image --scratch\` do), then link its repo-relative path, such as \`${rel}/<name>.pdf\`.`
+    : `   - \`${rel}/\` is read-only this turn: ${mount.reason}. There is nowhere to put a file for the reader; say so instead of linking a turn-temp file.`,
+  workspaces: ({ rel, mount }) => mount.writable
+    ? `   - \`${rel}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
+    : mount.missing
+      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.`
+      : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
+};
+
+/** What this worker's turn temp covers, by how its `$HOME` was resolved. */
+function turnTempPlaces(home: WorkerHome | undefined): string {
+  return home?.mode === "overlay"
+    ? "`$BRAIN_WORKER_SCRATCH`, `/tmp` and anything written under `$HOME`"
+    : `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` itself is read-only)`;
+}
+
+/**
+ * The note the agent reads before it starts: its profile, the three places a
+ * file can be (turn temp, persistent areas, the brain) and which of them it
+ * can write, where a link may point, and the limits that apply. Rendered only
+ * from the resolved sandbox that also builds the worker's mounts and from
+ * facts their owners resolved, so it describes exactly the worker it goes
+ * to. Both backends inject this text unchanged. The restricted (autonomous)
+ * variant is the envelope's own and keeps its wording.
+ */
+export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts = {}): string {
   const lines: string[] = [];
-  if (sandbox.restricted) {
+  const profile = workerProfile(sandbox);
+  if (profile === "restricted") {
     lines.push(
       "This is a restricted (autonomous) turn: no network except the inference relay, no host home, and the brain's `.git` is hidden.",
       "",
-      `${TURN_TEMP_HEADING} \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and \`$HOME\` (the turn's own state, never the host home) are the only writable places. Nothing written there reaches the reader; never link to it.`,
-      "2. **No persistent scratch.** `.brain/scratch/` and `workspaces/` are read-only in this turn.",
+      "1. **Turn temp: deleted when the turn ends.** `$BRAIN_WORKER_SCRATCH`, `/tmp` and `$HOME` (the turn's own state, never the host home) are the only writable places. Nothing written there reaches the reader; never link to it.",
+      `2. **No persistent scratch.** \`${WORKER_AREAS.scratch}/\` and \`${WORKER_AREAS.workspaces}/\` are read-only in this turn.`,
       "3. **The brain: canonical, and read-only here.** Change it only through the approved brain tools.",
     );
   } else {
-    const home = sandbox.home?.mode === "overlay"
-      ? "and anything written under `$HOME`"
-      : `and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` itself is read-only)`;
+    const scratch = sandbox.areas.find(area => area.name === "scratch" && area.mount.writable);
     lines.push(
-      "Files live in three places, and only two of them survive this turn.",
+      PROFILE_LINES[profile](sandbox),
       "",
-      `${TURN_TEMP_HEADING} \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` ${home}. Use it for intermediate work only. **Never link to a file here in a response**: the reader cannot open it, and it is gone after the turn.`,
+      `1. **Turn temp:** ${turnTempPlaces(sandbox.home)}. ${TURN_TEMP_RULE}`,
       sandbox.areas.some(area => area.mount.writable)
-        ? "2. **Persistent scratch: kept across turns.** Any file the reader should open or download goes here."
-        : "2. **Persistent scratch: unavailable this turn.**",
-      ...sandbox.areas.map(area => AREA_LINES[area.name](area.mount)),
+        ? "2. **Persistent areas: kept across turns.**"
+        : "2. **Persistent areas: none writable this turn.**",
+      ...sandbox.areas.map(area => AREA_LINES[area.name](area)),
       ...(sandbox.areas.length ? [] : ["   - No directory outside the brain's documents is writable this turn."]),
-      BRAIN_LINE,
+      "3. **The brain: canonical and versioned.**",
+      "",
+      linkRule(scratch?.rel),
     );
   }
+  const limits = facts.limits ?? [];
+  if (limits.length) lines.push("", "Limits in this turn:", ...limits.map(limit => `- **${limit.name}: ${limit.value}.** ${limit.onHit}`));
   return `# Where files go in this turn\n\n${lines.join("\n")}`;
 }
 

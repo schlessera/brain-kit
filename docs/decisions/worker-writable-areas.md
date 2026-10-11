@@ -72,10 +72,10 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:256-293`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:258-295`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:387-414`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:434-464`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
@@ -92,13 +92,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:324-343`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:328-347`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:352-363`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:356-367`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -113,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:181-191`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:185-195`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -139,7 +139,7 @@ turn.
 **`$HOME`.** `probeHomeOverlay` runs the real launcher with
 `--overlay-src $HOME --tmp-overlay $HOME`, writes a file through it and checks
 from outside that the host home did not change
-(`export function probeHomeOverlay`, `packages/ui-sdk/src/server/worker-launcher.ts:223-239`).
+(`export function probeHomeOverlay`, `packages/ui-sdk/src/server/worker-launcher.ts:225-241`).
 On success the overlay is mounted before every other bind, so the brain, the
 areas and the runtime state land on top of it. On failure, or when `$HOME` is
 unset, `/`, under `/tmp` or inside the brain, the worker gets the XDG fallback
@@ -154,9 +154,18 @@ restricted turn adds it as its own block after the package-owned autonomous
 instructions. pi receives it from the server in the worker's `init` message
 and appends it to the resource loader's system prompt in both modes.
 
+Since #1654 the interactive note opens with the profile line (`strict`: the
+brain is read-only, change it through `write_file`, `edit_file` and the
+curated tools), names each area by the path in the resolved list, and ends
+with the link rule. Limits are stated in a closing list that their owners
+fill from the values they enforce (`WorkerNoteFacts`); the governed profile
+adds its own line with its protected paths. The rule sentences live in
+`@schlessera/brain-common/internal/worker-areas`, which core's CLI refusals
+render too, so a refusal repeats the note's rule word for word.
+
 **Errors.** The CLI's read-only pre-check asks about the directory a command
 actually writes: the scratch area for `brain scratch` and for `brain render`
-sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:38-44`).
+sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:42-48`).
 `brain render` and `brain image` into the read-only brain now say to write
 with `--scratch` and link the printed path; when scratch is read-only too, the
 message says nothing written now is kept. The `read_only_brain` code and its

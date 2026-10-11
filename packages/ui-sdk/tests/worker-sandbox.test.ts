@@ -138,11 +138,11 @@ describe("worker sandbox writable areas (#1626)", () => {
       const repo = join(f.brain, "workspaces/ithaca/palace");
       writeFileSync(join(repo, "object"), "loom");
       linkSync(join(repo, "object"), join(f.brain, "workspaces/ithaca/object-clone"));
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1], "CONTAINED_LINK").toEqual({ name: "workspaces",
+      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1], "CONTAINED_LINK").toEqual({ name: "workspaces", rel: "workspaces",
         mount: { writable: true, path: join(f.brain, "workspaces") } });
       linkSync(f.policy, join(repo, "policy-alias.md"));
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
-      expect(sandbox.areas[1], "OUTSIDE_LINK").toEqual({ name: "workspaces", mount: { writable: false,
+      expect(sandbox.areas[1], "OUTSIDE_LINK").toEqual({ name: "workspaces", rel: "workspaces", mount: { writable: false,
         reason: "hard-linked to files outside workspaces/: workspaces/ithaca/palace/policy-alias.md" } });
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds)
         .toEqual([join(f.brain, ".brain/scratch")]);
@@ -177,8 +177,8 @@ describe("worker sandbox writable areas (#1626)", () => {
       chmodSync(hidden, 0o100); chmodSync(scratchHidden, 0o100);
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
       expect(sandbox.areas, "UNREADABLE_DIR").toEqual([
-        { name: "scratch", mount: { writable: false, reason: ".brain/scratch/ could not be verified: .brain/scratch/hidden cannot be opened (EACCES)" } },
-        { name: "workspaces", mount: { writable: false, reason: "workspaces/ could not be verified: workspaces/ithaca/hidden cannot be opened (EACCES)" } },
+        { name: "scratch", rel: ".brain/scratch", mount: { writable: false, reason: ".brain/scratch/ could not be verified: .brain/scratch/hidden cannot be opened (EACCES)" } },
+        { name: "workspaces", rel: "workspaces", mount: { writable: false, reason: "workspaces/ could not be verified: workspaces/ithaca/hidden cannot be opened (EACCES)" } },
       ]);
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds).toEqual([]);
     } finally { chmodSync(hidden, 0o700); chmodSync(scratchHidden, 0o700); f.cleanup(); }
@@ -278,7 +278,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       if (link === ".brain/scratch") mkdirSync(join(f.brain, ".brain"));
       symlinkSync(target, join(f.brain, link));
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
-      expect(sandbox.areas[0]).toEqual({ name: "scratch", mount: { writable: false, reason: `${link} is a symlink` } });
+      expect(sandbox.areas[0]).toEqual({ name: "scratch", rel: ".brain/scratch", mount: { writable: false, reason: `${link} is a symlink` } });
       expect(readdirSync(target)).toEqual([]);
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds)
         .toEqual([join(f.brain, "workspaces")]);
@@ -289,7 +289,7 @@ describe("worker sandbox writable areas (#1626)", () => {
     const f = fixture({ workspaces: false });
     try {
       mkdirSync(join(f.root, "repos")); symlinkSync(join(f.root, "repos"), join(f.brain, "workspaces"));
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1]).toEqual({ name: "workspaces",
+      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1]).toEqual({ name: "workspaces", rel: "workspaces",
         mount: { writable: false, reason: "workspaces is a symlink" } });
     } finally { f.cleanup(); }
   });
@@ -339,10 +339,11 @@ describe("worker sandbox writable areas (#1626)", () => {
         expect(note.includes("XDG_CONFIG_HOME"), "NOTE_XDG").toBe(mounts.xdg);
         expect(note.includes("There is no `workspaces/` directory")).toBe(sandbox.areas.some(a => a.name === "workspaces" && !a.mount.writable && a.mount.missing));
         // The three places a file can be, with the link rule the reader depends on.
-        expect(note).toContain("**Never link to a file here in a response**");
-        expect(note.includes("Put anything you link in your response here, never in turn temp"))
+        expect(note).toContain("never link to a file there");
+        expect(note.includes("a link in your answer must point into the brain or `.brain/scratch/`"))
           .toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
-        expect(note).toContain("3. **The brain: canonical, and read-only here.**");
+        expect(note).toContain("**Profile: `strict`.** The brain is read-only here");
+        expect(note).toContain("3. **The brain: canonical and versioned.**");
       }
       const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
       expect(restricted).toEqual({ brain: f.brain, restricted: true, areas: [], scratchAliasesRemoved: [] });
@@ -368,5 +369,67 @@ describe("worker sandbox writable areas (#1626)", () => {
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }), "RELAUNCH_RECHECK")
         .toThrow("real directory at its own path");
     } finally { f.cleanup(); g.cleanup(); }
+  });
+});
+
+describe("the sandbox note's wording (#1654)", () => {
+  const brain = "/srv/ithaca/brain";
+  const strict: WorkerSandbox = {
+    brain, restricted: false, scratchAliasesRemoved: [], home: { mode: "overlay", path: "/home/penelope" },
+    areas: [
+      { name: "scratch", rel: ".brain/scratch", mount: { writable: true, path: `${brain}/.brain/scratch` } },
+      { name: "workspaces", rel: "workspaces", mount: { writable: true, path: `${brain}/workspaces` } },
+    ],
+  };
+
+  test("the strict note states the profile, the three areas and the link rule", () => {
+    expect(workerSandboxNote(strict)).toMatchInlineSnapshot(`
+      "# Where files go in this turn
+
+      **Profile: \`strict\`.** The brain is read-only here: change it through \`write_file\`, \`edit_file\` and the curated brain tools. Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.
+
+      1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and anything written under \`$HOME\`. It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
+      2. **Persistent areas: kept across turns.**
+         - \`.brain/scratch/\` is writable. Write the file there (\`brain render --scratch\` and \`brain image --scratch\` do), then link its repo-relative path, such as \`.brain/scratch/<name>.pdf\`.
+         - \`workspaces/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.
+      3. **The brain: canonical and versioned.**
+
+      Anything the reader should open goes in \`.brain/scratch/\` and is linked from there: a link in your answer must point into the brain or \`.brain/scratch/\`."
+    `);
+  });
+
+  test("the note names each area by the path the resolved list gives it", () => {
+    const moved: WorkerSandbox = { ...strict, areas: [
+      { name: "scratch", rel: ".brain/loom", mount: { writable: true, path: `${brain}/.brain/loom` } },
+      { name: "workspaces", rel: "harbour", mount: { writable: false, reason: "harbour/ does not exist", missing: true } },
+    ] };
+    const note = workerSandboxNote(moved);
+    expect(note, "SCRATCH_PATH").toContain("`.brain/loom/` is writable");
+    expect(note, "LINK_RULE_PATH").toContain("a link in your answer must point into the brain or `.brain/loom/`");
+    expect(note, "WORKSPACES_PATH").toContain("There is no `harbour/` directory");
+    expect(note).not.toContain(".brain/scratch");
+    expect(note).not.toContain("workspaces/");
+    // The launcher binds an area only at its own path, so a moved area never reaches a worker.
+    const f = fixture();
+    try {
+      const resolved = prepareWorkerSandbox(f.brain, { home: f.home });
+      const relabelled = { ...resolved, areas: resolved.areas.map(area => area.name === "scratch" ? { ...area, rel: ".brain/loom" } : area) };
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: relabelled }))
+        .toThrow("the scratch area is not at .brain/scratch/");
+    } finally { f.cleanup(); }
+  });
+
+  test("without a writable scratch area, links may only point into the brain", () => {
+    const note = workerSandboxNote({ ...strict,
+      areas: [{ name: "scratch", rel: ".brain/scratch", mount: { writable: false, reason: ".brain/scratch/ is a symlink" } }] });
+    expect(note).toContain("A link in your answer must point into the brain.");
+    expect(note).toContain("2. **Persistent areas: none writable this turn.**");
+    expect(note).not.toContain("is linked from there");
+  });
+
+  test("limits are stated as their owners resolved them, and only when given", () => {
+    expect(workerSandboxNote(strict)).not.toContain("Limits in this turn");
+    const note = workerSandboxNote(strict, { limits: [{ name: "Runtime state", value: "64 MiB", onHit: "Past it the conversation continues in a new one." }] });
+    expect(note.endsWith("Limits in this turn:\n- **Runtime state: 64 MiB.** Past it the conversation continues in a new one.")).toBe(true);
   });
 });

@@ -15,4 +15,13 @@ export "./internal/frontmatter" (./src/frontmatter-parse.ts)
   type ParsedFrontmatter
   parseFrontmatter
 
+export "./internal/worker-areas" (./src/worker-areas.ts)
+  BRAIN_SCRATCH_DIR
+  BRAIN_WORKSPACES_DIR
+  READ_ONLY_BRAIN_RULE
+  TURN_TEMP_PLACES
+  TURN_TEMP_RULE
+  linkRule
+  turnTempRule
+
 export "./package.json" (./package.json) [asset]
