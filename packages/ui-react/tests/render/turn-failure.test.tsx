@@ -306,11 +306,13 @@ describe("session capacity failures", () => {
     expect(useHandoffStore.getState().sheet?.preferSourceProfile).toBe(true);
     useHandoffStore.getState().close();
   });
-  for (const errorClass of ["session_too_large", "worker_host_unsupported"]) {
+  // A host problem is not a bug report (#1632), so its class travels through
+  // "Copy details"; both review texts are built from the same allowlist.
+  for (const [errorClass, action] of [["session_too_large", "Report a bug"], ["worker_host_unsupported", "Copy details"]] as const) {
     test(`reports preserve class: ${errorClass}`, () => {
       send(); failLive({ errorClass, message: "Runtime state refused" });
       const view = renderAssistant();
-      fireEvent.click(view.getByRole("button", { name: "Report a bug" }));
+      fireEvent.click(view.getByRole("button", { name: action }));
       const outgoing = document.querySelector<HTMLTextAreaElement>("[data-diagnostic-review] textarea");
       expect(outgoing?.value).toContain(`class: ${errorClass}`);
     });
