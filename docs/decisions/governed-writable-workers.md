@@ -204,6 +204,7 @@ egress:
   max_bytes_per_turn: 500000000
 outward:             # G5; see "Outward actions"
   allow: []
+  hosts: [api.github.com, uploads.github.com]   # extends the built-in list
 taint:               # G6; see "Untrusted input"
   egress: { allow: [] }
 providers: []        # G2; see "Data-to-provider routing"
@@ -282,33 +283,51 @@ below). The server itself must not run with the brain as its working
 directory. Boot refuses `governed` when it does.
 
 A malicious config, preload, filter or symlinked ref therefore runs only in a
-sandbox with a read-only host. The protected list below still matters for two
-reasons:
+sandbox with a read-only host.
 
-- **Governance integrity.** The policy must not change.
-- **Credentials.** The maintenance worker that runs `brain sync` holds push
-  credentials, so hooks and config that would run with those credentials stay
-  protected.
+**Credentials never reach a process that evaluates repository inputs.** A
+read-only host does not stop sandboxed code from stealing a credential it was
+handed: a config that imports a writable helper, or a git config that includes
+a writable filter definition, would run beside the push key. Credentials stay
+in host-owned transports instead:
+
+- **Git transport.** It goes through a host-private bare mirror with a host-owned
+  configuration and no hooks. An uncredentialed maintenance worker moves refs
+  and objects between the brain and the mirror over the local file transport.
+  A separate transport worker fetches and pushes between the mirror and the
+  remote with the credential. It never reads the brain's configuration or
+  working tree. Objects that cross the boundary are data.
+- **Paid providers.** Calls go through metered relays (see "Cost and budgets"),
+  so no worker holds a provider key.
+
+**Interim exposure.** Until the mirror and the relays land, a maintenance
+worker that needs a credential receives it directly. Code the agent can write,
+such as a helper the config imports, could then read it. That is the same
+exposure as before 0.41, it is listed in the capabilities status, and closing
+it is a p1 sub-issue of #1636.
+
+The protected list below keeps the policy intact, keeps secrets out of workers,
+and stops a turn from steering later turns' permissions or start-up code.
 
 ## Protected paths
 
-Protected paths are what governance and credentialed maintenance rely on. A
-write to one of them would let a turn change its own rules or run code with
-credentials it was not given.
+Protected paths are what governance and later workers rely on. A write to one
+of them would let a turn change its own rules, or run start-up code or grant
+permissions in another turn.
 
 | Tier | Paths | Can the policy release it? |
 | --- | --- | --- |
-| A — governance and credentialed execution | `context/policies/`, `.git/config`, `.git/config.worktree`, `.git/hooks/`, `.git/info/`, `.git/modules/`, `.env*`, `bunfig.toml` | No |
+| A — governance, secrets and start-up code | `context/policies/`, `.git/config`, `.git/config.worktree`, `.git/hooks/`, `.git/info/`, `.git/modules/`, `.env*`, `bunfig.toml` | No |
 | B — runtime permission and configuration surfaces | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`, `node_modules/` | Yes |
 | Added by the policy | Anything listed under `protect` | Yes, by deleting the entry |
 
 **Why the tier A paths are there:**
 
 - `context/policies/` is the policy itself.
-- Git hooks and config run inside the credentialed sync worker.
+- Git hooks and config run in every later git invocation, including the user's
+  own clones of the brain.
 - `.env*` holds secrets.
-- `bunfig.toml` preloads code into every in-worker Bun process, including the
-  credentialed one.
+- `bunfig.toml` preloads code into every later Bun process started in the brain.
 
 **Why the tier B configuration files are protected by default.** The config and
 its dependencies decide what the maintenance workers do. Since the host no
@@ -318,10 +337,15 @@ release them.
 
 **`.env*` is masked, not only read-only (G2).** A present `.env*` file is
 replaced inside the worker by a read-only bind of `/dev/null`. The agent cannot
-read the brain's API keys. A CLI provider that needs a key must receive it
-through the worker's filtered environment instead. Before the mask ships, the
-G2 sub-issue establishes which in-worker paths read `.env`. Otherwise masking
-would turn embeddings or search into a roadblock.
+read the brain's API keys. A CLI provider that needs a key reaches it through a
+metered relay (see "Cost and budgets"), never through the worker environment.
+
+Before the mask ships, the G2 sub-issue establishes which in-worker paths read
+`.env` and which providers they call. A provider without a relay yet is refused
+in turn workers with a named roadblock, and the key is not handed to the
+worker. Where core can degrade, as hybrid search falls back to keyword search,
+it does. The relay sub-issue is p1, because each refused provider is a
+roadblock.
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -392,15 +416,18 @@ durable quarantine:
 3. **Recovery after a crash.** At boot, every turn that has a manifest but no
    end record is reconciled the same way, before any maintenance worker or new
    turn launches.
-4. **Credentialed launches are gated.** A credentialed maintenance worker, such
-   as sync, launches only while no `governed` turn holds the brain's shared
-   writer gate (see "Revert"). It checks tier A against the most recent
-   reconciled manifest first.
+4. **Every launch reconciles against active turns.** A protected name that
+   exists now but is absent from the start manifest of any active turn appeared
+   during that turn. The new worker sees it masked, with `/dev/null` for a file
+   or an empty read-only tmpfs for a directory, until quarantine resolves it.
+   A turn that launches while another is running therefore never consumes
+   another turn's unapproved preload or permission file.
+5. **Credentialed maintenance is exclusive.** A maintenance worker that holds a
+   credential (in the interim, see above) holds the writer gate exclusively
+   from validation through execution and reconciliation (see "Revert").
 
 A user who creates such a file from a terminal while a turn is running sees it
-quarantined. That is the accepted cost. Masks and read-only mounts are fixed
-when a worker launches. A protected file that appears later is protected from
-the next launch on, and quarantine covers the gap.
+quarantined. That is the accepted cost.
 
 **Symlinks.** A symlink an agent creates toward a protected file resolves to
 the read-only mount (`EROFS`). A symlink toward the host root resolves to the
@@ -476,10 +503,21 @@ to the user.
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:
 
-- **The walk.** It walks the tree with `lstat` and never follows a symlink. It
-  skips `.git/`, `workspaces/` (snapshotted separately) and any path the
-  `.gitignore` rules ignore. Those rules are read as data by a pure matcher, so
-  no git configuration or attribute is involved.
+- **The walk is descriptor-anchored.** A worker can swap a directory for a
+  symlink between an `lstat` and the next open, so pathname operations are not
+  enough. Every directory is opened from its parent's descriptor with
+  `O_DIRECTORY | O_NOFOLLOW`, and every file with `O_NOFOLLOW`. Each one is
+  `fstat`-checked before it is read; only regular files are hashed. This is the
+  `/proc/self/fd` technique the application route already uses. Raw ref reads
+  follow the same rule.
+- **What it covers.** It skips `.git/` and `workspaces/` (which are snapshotted
+  separately). It also skips paths ignored by the `.gitignore` rules **as they
+  stood at turn start**. A pure matcher reads them as data, with no git
+  configuration or attributes involved. Every path in the turn-start manifest
+  stays covered until the turn ends. Editing `.gitignore` during a turn can
+  therefore never take a canonical file out of the journal or out of
+  scope-cap counting. The edit applies from the next turn on, and it is
+  highlighted in this turn's history.
 - **The stat cache.** It is host-owned, keyed by device, inode, size, mtime
   and ctime in nanoseconds. A file whose key changed has its **raw bytes**
   hashed. Symlinks are recorded by their target text, and each entry records
@@ -551,8 +589,15 @@ action: never an agent tool, never voice, never autonomous.
 and arbitrary Bash writes take none, so `BRAIN_LOCK_KEY` cannot make
 compare-and-restore atomic against a running turn.
 
-**The writer gate.** Every `governed` turn holds the brain's shared **writer
-gate** from launch to exit. Revert takes the gate exclusively:
+**The writer gate.** Every writer of a journal target holds the brain's shared
+**writer gate** from launch to exit:
+
+- `governed` turns;
+- `strict` turns, which can write workspaces and scratch;
+- uncredentialed maintenance workers.
+
+A credentialed maintenance worker holds it exclusively. Revert takes it
+exclusively too:
 
 - it waits for running turns to finish;
 - new turns queue behind it;
@@ -781,7 +826,19 @@ directories with empty read-only tmpfs mounts:
 - every home directory except the brain's own path;
 - `/root`, `/mnt`, `/media` and `/srv`.
 
-The only sockets they keep are the approved relay and proxy sockets. The
+After the masks, the launcher re-binds the runtime the worker needs, read-only
+and file by file, with the same resolution the restricted envelope uses
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:246`):
+
+- the Bun executable;
+- the backend entry and its `node_modules` chains;
+- the bundled agent CLI;
+- the brain's own path.
+
+This keeps a Bun or package install under a home directory or `/srv` working,
+without exposing that whole directory again.
+
+The only sockets a worker keeps are the approved relay and proxy sockets. The
 egress gate includes a probe that walks the worker's visible filesystem for
 sockets and fails on any socket not on that list.
 
@@ -799,6 +856,17 @@ Each `governed` or `strict` worker gets limits that always apply:
   missing cgroup is stated, not silently assumed.
 - **Sized tmpfs mounts** for turn temp and runtime state, owned by #1621 and
   #1625. They are the disk-side instance of the same class.
+- **A free-space floor** for the persistent writable areas: the brain,
+  persistent scratch and workspaces. `RLIMIT_FSIZE` bounds a single file, not
+  the total, and project quotas need privilege the server does not have.
+
+  So every scope observation also reads `statfs` for the brain's filesystem,
+  and counts bytes written to scratch and workspaces since turn start. Below a
+  free-space floor (default: 5% or 2 GiB, whichever is larger), or above the
+  turn's byte allowance, the worker is frozen and the turn escalates, exactly
+  as a scope cap does. The overshoot is bounded by one observation interval at
+  the worker's write rate. That is an enforced bound, not a hard quota, and
+  the record says so.
 
 Defaults are generous. A worker that hits a limit fails that step, and the
 failure is recorded as a roadblock.
@@ -815,8 +883,25 @@ providers:
 ```
 
 **Agent turns.** Paths not allowed for the turn's provider are masked in its
-worker with an empty read-only tmpfs. They do not exist for that turn at all,
-whichever tool asks. The capabilities note lists them.
+worker. A directory is masked with an empty read-only tmpfs, and a single file
+with a read-only bind of `/dev/null`. Permitted siblings stay visible. The
+capabilities note lists what is masked.
+
+**Copies of the same content are filtered too.** The working tree is not the
+only copy:
+
+- **The index.** `brain.db` holds document bodies. A turn with masked paths
+  gets the real `brain.db` masked, and a filtered derived copy without those
+  documents mounted read-only in its place. The copy is disposable and
+  rebuilt from Markdown like any index.
+- **Git history.** The `.git/` directory carries committed versions. Such a
+  turn sees `.git/` masked, as restricted turns do, so history is unavailable
+  to it.
+- **Server tools.** Search, read and context tools refuse masked paths for
+  that turn, with a named refusal.
+
+Setting a provider restriction therefore costs the affected turns git history,
+and the user is told so when the policy is checked.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
 a path that may not reach the configured embeddings provider keeps keyword
@@ -852,6 +937,26 @@ outward:
 Each outward action is recorded with its attribution. Because it cannot be
 reverted, it is listed in the journal as irreversible.
 
+**Opaque network code.** A script making an HTTPS `POST` shows nothing in its
+tool input, and a `CONNECT`-only proxy cannot see the method. Classification
+cannot catch it, so enforcement moves to the destination. The policy names
+**outward hosts**, the write APIs reachable from the user's credentials, with
+defaults for the GitHub API and mail submission. A `CONNECT` to an outward
+host waits on an approval card ("a command wants to connect to
+api.github.com"), unless one of two things is true:
+
+- the tool call in progress was classified and approved as that outward action;
+- it was classified as a read, such as `gh issue view`.
+
+What G5 promises is therefore:
+
+- classified actions ask;
+- unclassified connections to outward hosts ask;
+- connections to other hosts are recorded, and are only limited in
+  `allowlist` mode.
+
+A user who needs G5 for every host runs `egress.mode: allowlist`.
+
 ### Untrusted input (G6)
 
 A session becomes **tainted** the first time a turn ingests content it did not
@@ -861,7 +966,16 @@ author:
 - staged shares in `.brain-ui/inbox`;
 - reads under `workspaces/`;
 - email or other MCP-sourced documents;
-- files the user marks untrusted.
+- files the user marks untrusted;
+- **any connection from inside the worker other than the inference relay**,
+  recorded by the egress proxy. This covers `curl`, CLI scrapers, headless
+  Chromium and opaque scripts, whose provenance cannot be told apart.
+
+Before the egress proxy lands, Bash commands classified as fetching (`curl`,
+`wget`, `git clone` and `fetch`, the `brain` scrape and import commands, and
+Chromium) taint the session. Any Bash call that the classifier cannot rule out
+as network-free also taints it. Erring towards taint costs only tighter
+outward rules.
 
 Taint is sticky for the session, because that content stays in the context
 window. A tainted session runs under tighter rules:
@@ -909,13 +1023,25 @@ the application route). Revert does the same.
 - If another actor changed the file in between, the tool is denied with "changed
   since you read it; read it again". That is recorded as a roadblock.
 
-**Shell writes are detected after the fact.** They cannot be checked before
-they happen. At turn end the journal compares each changed path with the other
-actors' journal entries that overlap this turn's window. When a path was
-changed by both, the earlier actor's version is kept in the journal objects and
-the entry is marked as a conflict. The user resolves it from history by keeping
-one version or keeping both (as `brain sync` does). Nothing is lost, even when
-the later write landed.
+**Shell writes are detected after the fact, at observation granularity.** They
+cannot be checked before they happen. Each observation point records a
+version: the turn start, every tool completion, the 15-second scope snapshots
+and the turn end. The journal compares each changed path with other actors'
+entries that overlap this turn's window. When both changed a path, every
+version an observation captured is kept, and the entry is marked as a
+conflict. The user resolves it from history by keeping one version or keeping
+both, as `brain sync` does.
+
+**The guarantee is narrower than "nothing is lost".** A version that one shell
+write created and another overwrote between two observations was never
+captured, and it cannot be recovered. The guarantee is:
+
+- no **observed** version is lost;
+- every overlap on a path is reported.
+
+Closing the gap completely would need a capture on every write, which means
+either file watching (rejected below) or serializing writers (rejected with
+precise attribution).
 
 ## What each profile tells the agent
 
@@ -1036,3 +1162,15 @@ else here is read through the report.
 - **Policy grants for autonomous turns.** Ruling 3 defers them. This schema has
   no key that reaches autonomous turns, so adding one is a later, separate
   ruling.
+- **Interim credential exposure.** The maintenance workers for indexing and
+  sync hold provider and push credentials directly until the metered relays and
+  the git mirror land. Code the agent can write, such as a helper the config
+  imports, could read those credentials in the meantime.
+
+  The recommendation is to make `governed` the default in 0.42.0 anyway. The
+  exposure is narrower than before 0.41, where the agent itself held them. The
+  tier B default protects the config, and the relay and mirror sub-issues are
+  p1.
+
+  The stricter alternative is to keep `strict` as the default until both land.
+  That is a maintainer call.
