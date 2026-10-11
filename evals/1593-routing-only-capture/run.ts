@@ -29,6 +29,7 @@ const scratch = resolve(process.env.EVAL_SCRATCH ?? "scratch");
 const output = new URL("./results-2026-10-11.json", import.meta.url);
 const ActualDate = Date;
 const MODELS = { claude: "claude-sonnet-5-5", jev: "jev-1.13.0" };
+let loaded = false;
 let state: {
   source: string | null; sourceWorkingTree: string[] | null; claudeVersion: string | null; calls: { claudeProcesses: number; claudeModelRequests: number; jevRequests: number };
   calibration: Calibration | null; judgments: Judgment[]; tagCalls: { id: string; rep: number; raw: string }[]; runs: Run[];
@@ -194,6 +195,7 @@ async function measure() {
   mkdirSync(join(scratch, "raw"), { recursive: true });
   mkdirSync(join(scratch, "brains"), { recursive: true });
   if (existsSync(output)) { const previous = await Bun.file(output).json(); Object.assign(state, { ...previous, stopped: null }); }
+  loaded = true;
   state.claudeVersion = (await command(["claude", "--version"], here)).stdout.trim();
   const kinds = Object.fromEntries(types.map((t) => [t, meanings[t]]));
 
@@ -270,6 +272,7 @@ async function main() {
   const mode = process.argv[2];
   if (mode === "measure") return measure();
   Object.assign(state, await Bun.file(output).json());
+  loaded = true;
   if (mode === "apply-reviews") {
     const review = JSON.parse(readFileSync(process.argv[3], "utf8"));
     state.semanticReviews = review.reviews; state.semanticJudge = review.judge;
@@ -279,5 +282,6 @@ async function main() {
 }
 if (import.meta.main) {
   globalThis.Date = new Proxy(ActualDate, { construct(target, args, newTarget) { return Reflect.construct(target, args.length ? args : [fixture.referenceDate + "T12:00:00.000Z"], newTarget); } });
-  try { await main(); } catch (e) { state.stopped = String(e); save(); process.exitCode = 1; } finally { globalThis.Date = ActualDate; }
+  // A failure before the results are loaded must not overwrite them with empty state.
+  try { await main(); } catch (e) { state.stopped = String(e); if (loaded) save(); else console.error(e); process.exitCode = 1; } finally { globalThis.Date = ActualDate; }
 }

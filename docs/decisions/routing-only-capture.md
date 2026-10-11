@@ -132,9 +132,10 @@ Within the vocabulary its precision is 100%.
 
 The candidate's tag step emitted no out-of-vocabulary tag. It did over-tag
 inside the vocabulary: `ithaca` on 17 outcomes and `sailing` on 3, for 76.7%
-precision. Its higher all-tag precision therefore comes from avoiding the
-keyword fallback. It is not better tag judgment. The tag step does not beat
-the current path either.
+precision. Its higher all-tag precision comes from avoiding the keyword
+fallback. Within the vocabulary it trades precision (76.7% against 100%) for
+recall (100% against 98.5%, one missed tag). That is a trade-off, not a clear
+improvement in tag judgment, and it does not offset the routing gap.
 
 **Literal capture.** The current arm did not keep the literal capture string
 in 13 held-out and 4 tuning writes. It removed routing phrases, quotation
