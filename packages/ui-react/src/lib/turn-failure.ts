@@ -21,6 +21,11 @@ export function failurePresentation(failure: TurnFailure) {
       : "The Claude subscription token was rejected.";
     return { headline, explanation: instruction, operator: true, tone: "red" as const, retry: false, report: false };
   }
+  if (failure.errorClass === "session_too_large") return {
+    headline: "This conversation is too long to continue here.",
+    explanation: "Your conversation is saved. Continue in a new conversation with a reviewed handoff summary.",
+    operator: false, tone: "gold" as const, retry: false, report: true,
+  };
   if (AUTH.has(failure.errorClass)) return {
     headline: "The backend's credential was refused.",
     explanation: "Check the credential configured for this provider. The provider's message is available below.",

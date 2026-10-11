@@ -3,7 +3,7 @@ import type { ChatSession } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
 
 /**
- * The cross-backend handoff (#61): which review sheet is open, what the host
+ * The session handoff (#61): which review sheet is open, what the host
  * has said about it, and the links between sources and destinations.
  *
  * A small standalone store, like the mask request: the sheet is modal, one
@@ -17,6 +17,8 @@ export interface HandoffSheetTarget {
   handoffId: string;
   /** The source was opened for this review; snapshot its replayed history. */
   awaitHistory?: boolean;
+  /** Recovery from a full session prefers a fresh chat on the same profile. */
+  preferSourceProfile?: boolean;
 }
 
 /** The model summary for the open sheet (R1: it runs when the sheet opens). */
@@ -72,7 +74,7 @@ export interface HandoffState {
   /** Source by destination session: the destination's handoff card link. */
   from: Record<string, HandoffLink>;
 
-  open(sourceSessionId: string, handoffId: string, options?: { awaitHistory?: boolean }): void;
+  open(sourceSessionId: string, handoffId: string, options?: { awaitHistory?: boolean; preferSourceProfile?: boolean }): void;
   close(): void;
   /** Begin waiting on a summary run under its own id. */
   startPrepare(prepareId: string): void;
@@ -101,7 +103,7 @@ export function createHandoffStore(_env?: StoreEnvironment) {
     from: {},
 
     open: (sourceSessionId, handoffId, options) =>
-      set({ sheet: { sourceSessionId, handoffId, ...(options?.awaitHistory ? { awaitHistory: true } : {}) }, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
+      set({ sheet: { sourceSessionId, handoffId, ...options }, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
     close: () => set({ sheet: null, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
     startPrepare: (prepareId) => set({ prepareId, draft: { state: "running" } }),
     setDraft: (prepareId, draft) => {

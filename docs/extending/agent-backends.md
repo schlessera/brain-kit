@@ -29,8 +29,12 @@ before the CLI starts; an optional exec wrapper runs inside that boundary.
 The brain is read-only in the worker, with separate writable scratch. Hosted
 Markdown changes and PNG masks use server-owned applications with current turn
 authority. Ordinary Claude config/transcripts live outside the brain: the parent
-copies bounded, non-aliased state into a temporary tmpfs location, and persists
-only changed native project JSONL transcripts after worker teardown. Config
+copies bounded, non-aliased settings and only the resumed session's transcript
+state into a temporary tmpfs location. New sessions copy no transcripts. After
+worker teardown it persists only changed native JSONL files for the resumed or
+newly created sessions. Idle sessions are automatically archived after 30 days
+and restored transparently for history or resume; see the
+[runtime-state requirements](../hosting/agent-workers.md#claude-runtime-state-and-transcript-archival). Config
 paths inside the brain or its ancestors, redirected directories, linked files
 and concurrent transcript overwrites refuse. Existing sessions remain resumable.
 

@@ -454,7 +454,7 @@ calling principal's runs or sessions.
 unavailableBackends?: string[] }`, newest lastActiveAt first. Each session has
 id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.
-A cross-backend handoff destination (additive, #61) also carries
+A handoff destination on any backend (additive, #61, #1621) also carries
 `handoffFrom: { sessionId, title, backendId?, afterTurns? }`, as the
 [integration contract](integration-contract/wire.md#cross-backend-handoff-additive-61)
 describes. A session the host has labelled (additive, #1004) carries

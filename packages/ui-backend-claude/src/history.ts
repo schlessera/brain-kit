@@ -9,6 +9,8 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
+import { listArchivedSessions, restoreArchivedSession } from "./transcript-archive.js";
+import { isSessionId } from "./worker-state.js";
 import { statusFromText } from "./stream-adapter.js";
 
 /**
@@ -19,6 +21,8 @@ import { statusFromText } from "./stream-adapter.js";
  */
 export interface HistoryDeps {
   brainPath: string;
+  /** @internal Isolated native storage for offline tests. */
+  env?: Record<string, string | undefined>;
   listSessionsFn?: typeof sdkListSessions;
   getSessionMessagesFn?: typeof sdkGetSessionMessages;
 }
@@ -35,11 +39,11 @@ export function createHistory(deps: HistoryDeps): History {
   const dir = deps.brainPath;
 
   async function listSessions(): Promise<ChatSession[]> {
-    let sdkSessions;
+    let sdkSessions: Awaited<ReturnType<typeof sdkListSessions>>;
     try {
       sdkSessions = await listSessionsFn({ dir });
     } catch {
-      return [];
+      sdkSessions = [];
     }
 
     // Hide automation-initiated sessions (e.g. a `sync` job) from the human
@@ -50,7 +54,7 @@ export function createHistory(deps: HistoryDeps): History {
       return true;
     });
 
-    return humanSessions.map((s) => ({
+    const live = humanSessions.map((s) => ({
       id: s.sessionId,
       title: s.customTitle || s.summary || s.firstPrompt || null,
       createdAt: s.createdAt || s.lastModified,
@@ -58,11 +62,20 @@ export function createHistory(deps: HistoryDeps): History {
       totalCostUsd: 0,
       numTurns: 0,
     }));
+    const ids = new Set(sdkSessions.map(s => s.sessionId));
+    // Archive trouble degrades to the live list, as SDK trouble does above.
+    let archived: ReturnType<typeof listArchivedSessions> = [];
+    try { archived = listArchivedSessions(deps); }
+    catch (error) { console.warn("Claude transcript archive listing failed", error); }
+    return [...live, ...archived.filter(s => !ids.has(s.id)).map(s => ({
+      ...s, totalCostUsd: 0, numTurns: 0,
+    }))];
   }
 
   async function getHistory(
     sessionId: string
   ): Promise<SessionHistoryMessage[]> {
+    if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
     return buildSessionHistory(sessionId, getSessionMessagesFn, dir);
   }
 

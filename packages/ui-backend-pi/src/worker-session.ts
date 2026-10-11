@@ -16,14 +16,13 @@ import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-t
 import { DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
 import { subprocessEnv } from "./config/env.js";
 import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./session-storage.js";
-import { pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
+import { checkSessionSize, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string) {
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
-  requireWorkerHost(backend.brainPath, { restricted });
   const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
   const info = infos.find(i => i.id === resumeId);
   if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
@@ -59,6 +58,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
+  const init = { type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+    loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
+    resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
+  try {
+    checkSessionSize(init);
+    requireWorkerHost(backend.brainPath, { restricted });
+  } catch (error) { envelope?.relay.stop(); throw error; }
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   let child: ReturnType<typeof launchAgentWorker>;
   try {
@@ -261,7 +267,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         if (!active) throw new Error("Pi worker completed an inactive turn");
         cost = msg.cost; ended = true;
         if (msg.error) done.reject(new Error(msg.error)); else done.resolve();
-      } else throw new BackendRequestError(msg.message);
+      } else throw msg.errorClass === "session_too_large" ? new SessionTooLargeError() : new BackendRequestError(msg.message);
     }
     if (!ended) throw new Error(`Pi worker exited before completion: ${diagnostic || "protocol closed"}`);
   })().catch(fail);
@@ -269,9 +275,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
   try {
-    send({ type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
-      loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
-      resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) });
+    send(init);
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }

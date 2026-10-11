@@ -49,7 +49,7 @@ export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session
- * persistence (JSONL under the brain dir), tool execution, and cost reporting;
+ * persistence (native JSONL outside the brain), tool execution, and cost reporting;
  * this wrapper maps its streaming output onto the brain-kit wire protocol and
  * routes permission / ask-user / location round-trips through the host bridge.
  */

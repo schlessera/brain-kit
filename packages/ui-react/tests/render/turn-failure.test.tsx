@@ -7,13 +7,14 @@
 import { unregisterTurnFailureDom } from "./turn-failure-dom.js";
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   type ServerMessage,
   type SessionHistoryMessage,
   type TurnFailure,
 } from "@schlessera/brain-ui-sdk/protocol";
 
+import { useHandoffStore } from "../../src/stores/handoff-store.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
@@ -270,4 +271,29 @@ describe("a retry is visible while the turn is alive", () => {
     expect(assistant().retry).toBeUndefined();
     expect(renderAssistant().container.textContent).not.toContain("Retrying");
   });
+});
+
+
+describe("session capacity failures", () => {
+  test("the oversized-session card opens the existing handoff flow", () => {
+    send();
+    failLive({ errorClass: "session_too_large", message: "Conversation exceeds runtime state capacity" });
+    useHandoffStore.getState().close();
+    const view = renderAssistant();
+    expect(failureText(view)).toContain("This conversation is too long to continue here.");
+    fireEvent.click(view.getByRole("button", { name: "Continue in a new conversation" }));
+    expect(useHandoffStore.getState().sheet?.sourceSessionId).toBe(SESSION);
+    expect(useHandoffStore.getState().sheet?.handoffId).toBeTruthy();
+    expect(useHandoffStore.getState().sheet?.preferSourceProfile).toBe(true);
+    useHandoffStore.getState().close();
+  });
+  for (const errorClass of ["session_too_large", "worker_host_unsupported"]) {
+    test(`reports preserve class: ${errorClass}`, () => {
+      send(); failLive({ errorClass, message: "Runtime state refused" });
+      const view = renderAssistant();
+      fireEvent.click(view.getByRole("button", { name: "Report a bug" }));
+      const outgoing = document.querySelector<HTMLTextAreaElement>("[data-diagnostic-review] textarea");
+      expect(outgoing?.value).toContain(`class: ${errorClass}`);
+    });
+  }
 });

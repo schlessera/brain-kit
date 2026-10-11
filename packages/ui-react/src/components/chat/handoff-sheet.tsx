@@ -51,12 +51,12 @@ function destinationWhy(
 ): string | undefined {
   if (!connected) return "host offline";
   if (!profile && unavailable) return unavailableReasonCopy(unavailable.reason);
-  if (!profile) return "choose another backend";
+  if (!profile) return "choose an available profile";
   return undefined;
 }
 
 /**
- * Continue a conversation on another backend (#61; design approved
+ * Continue in a new conversation (#61; design approved
  * 2026-10-05). Opening the sheet snapshots the source at its latest settled
  * turn and runs one `handoff preparation` summary on the SOURCE's own
  * backend; the deterministic draft from the last six messages is the
@@ -72,14 +72,15 @@ export function HandoffSheet() {
   const send = useCallback((message: ClientMessage) => root.connection.send(message), [root]);
   if (!sheet) return null;
   // Keyed by the review: a new open is a new review with its own key.
-  return <HandoffReview key={sheet.handoffId} sourceSessionId={sheet.sourceSessionId} handoffId={sheet.handoffId} awaitHistory={sheet.awaitHistory === true} send={send} />;
+  return <HandoffReview key={sheet.handoffId} sourceSessionId={sheet.sourceSessionId} handoffId={sheet.handoffId} awaitHistory={sheet.awaitHistory === true} preferSourceProfile={sheet.preferSourceProfile === true} send={send} />;
 }
 
-function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
+function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceProfile, send }: {
   sourceSessionId: string;
   handoffId: string;
   /** The source was just opened: snapshot its fresh history, not a cached buffer. */
   awaitHistory: boolean;
+  preferSourceProfile: boolean;
   send: (message: ClientMessage) => boolean | void;
 }) {
   const root = useBrainUiRoot();
@@ -103,21 +104,23 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     ?? providers.find((p) => p.backendId === sourceBackendId);
   const sourceName = sourceProfile?.label ?? sourceBackendId ?? "this chat's model";
   const destinations = useMemo(
-    () => providers.filter((p) => p.backendId && p.backendId !== sourceBackendId),
-    [providers, sourceBackendId]
+    () => providers.filter((p) => p.backendId),
+    [providers]
   );
   const canSummarize = Boolean(sourceBackendId && backends[sourceBackendId]?.capabilities.autonomous);
 
-  // Configured on another backend but unable to run now (#1044): listed,
+  // Configured but unable to run now (#1044): listed,
   // disabled, with the reason printed; never chosen.
   const unavailableProfiles = useProviderStore((s) => s.unavailable);
   const unavailableDestinations = useMemo(
-    () => unavailableProfiles.filter((p) => p.backendId && p.backendId !== sourceBackendId),
-    [unavailableProfiles, sourceBackendId]
+    () => unavailableProfiles.filter((p) => p.backendId),
+    [unavailableProfiles]
   );
 
   const [destinationId, setDestinationId] = useState<string>(
-    () => destinations[0]?.id ?? unavailableDestinations[0]?.id ?? ""
+    () => (preferSourceProfile ? sourceProfile?.id : undefined)
+      ?? destinations.find((p) => p.backendId !== sourceBackendId)?.id
+      ?? destinations[0]?.id ?? unavailableDestinations[0]?.id ?? ""
   );
   const destination = destinations.find((p) => p.id === destinationId);
   const unavailableDestination = destination ? undefined : unavailableDestinations.find((p) => p.id === destinationId);
@@ -345,7 +348,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
       <div className="flex flex-col gap-1.5">
         <label htmlFor={`${titleId}-to`}><Label text="To" /></label>
         {destinations.length === 0 && unavailableDestinations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No other backend is set up on this host.</p>
+          <p className="text-sm text-muted-foreground">No profiles are set up on this host.</p>
         ) : (
           <select
             id={`${titleId}-to`}
@@ -357,7 +360,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
           >
             {destinations.map((p) => (
               <option key={p.id} value={p.id} disabled={!connected}>
-                {p.label} · {p.backendId}{p.billingMode === "api" ? " · spends" : ""}{!connected ? " — host offline" : ""}
+                {p.label}{p.id === sourceProfile?.id ? " · new conversation" : ""} · {p.backendId}{p.billingMode === "api" ? " · spends" : ""}{!connected ? " — host offline" : ""}
               </option>
             ))}
             {unavailableDestinations.map((p) => (
@@ -469,7 +472,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
       {/* Outcome of Start new chat (§4) */}
       <div aria-live="assertive" className="pt-3 empty:pt-0">
         {phase.kind === "creating" ? (
-          <p className="text-sm text-foreground">Starting new chat on {destination?.label ?? "the other backend"}…</p>
+          <p className="text-sm text-foreground">Starting new chat on {destination?.label ?? "the selected profile"}…</p>
         ) : phase.kind === "checking" ? (
           <p className="text-sm text-foreground">Checking whether the new chat exists…</p>
         ) : phase.kind === "refused" ? (
@@ -500,14 +503,14 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
           <Button tone="primary" size="md" block={false}
             style={{ minHeight: 44, flex: "1 1 0", width: "auto" }} label="Start new chat"
             onClick={start} disabled={Boolean(why) || busy || phase.kind !== "review"}
-            ariaLabel={`Start new chat on ${destination?.label ?? "another backend"}`} />
+            ariaLabel={`Start new chat on ${destination?.label ?? "the selected profile"}`} />
         </div>
       </div>
     </div>
   );
 
   return (
-    <Overlay open variant="dialog" size="md" title="Continue on another backend"
+    <Overlay open variant="dialog" size="md" title="Continue in a new conversation"
       subtitle="Starts a new linked chat. This one stays as it is." closeLabel="Cancel handoff"
       closedBy={busy ? "none" : "any"} initialFocus={toRef} onClose={cancel}
       returnFocus={created ? () => pointer ? document.querySelector<HTMLTextAreaElement>("[data-composer] textarea") : null : true}>
