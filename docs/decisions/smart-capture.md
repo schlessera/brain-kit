@@ -27,9 +27,9 @@ vocabulary, capture policy and text, in separate disposable brains.
 Smart capture delegates to `/add` (`if (flags.smart === true)`,
 `packages/core/src/cli/commands/add.ts:25-32`). The deterministic matcher is
 `classifyContent` (`export function classifyContent`,
-`packages/core/src/lib/ingestion.ts:81-136`). Configured types have directories
+`packages/core/src/lib/ingestion.ts:81-117`). Configured types have directories
 and structural flags but no semantic description (`export const typeSpecSchema`,
-`packages/core/src/lib/config.ts:50-92`). This experiment supplies descriptions
+`packages/core/src/lib/config.ts:50-84`). This experiment supplies descriptions
 in a shared capture policy, rather than pretending names alone establish their
 meaning.
 
