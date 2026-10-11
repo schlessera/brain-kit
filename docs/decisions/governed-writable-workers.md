@@ -40,7 +40,7 @@ a roadblock when it fails.
 | Class | What it prevents | How this record enforces it |
 | --- | --- | --- |
 | **G1 — system integrity, including resource exhaustion** | Breaking the host, the server, the policy, git internals or the kernel interface. Starving the host of CPU, memory, disk or processes. | Worker namespaces and the read-only host, with `/proc/sys` covered read-only in #1629. [The host execution boundary](#the-host-execution-boundary): no host process runs repository code, git or the `brain` CLI against a governed brain. Tier A protected paths with self-bound ancestors. Durable quarantine of unexpected protected files. [Per-worker resource limits](#resource-limits-g1). |
-| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host `$HOME` is replaced by #1626's per-turn overlay. Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). |
+| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host `$HOME` is replaced by #1626's per-turn overlay. Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). Where the host provides an identity helper, [the worker runs under its own uid](#worker-identity-g2), so the server's own state is denied by ownership. |
 | **G3 — budget runaway** | Cost growing without a stop | Turn, session and day limits that **block**, not only warn. Refusal at admission, an abort mid-turn, and Claude's `maxBudgetUsd` as a backstop. CLI provider spend is counted through metered relays. |
 | **G4 — scope runaway** | A turn that goes on and on: too many files changed, too much time, too many tool calls | Per-turn caps on all three. Reaching a cap **escalates to the user** rather than failing silently. |
 | **G5 — outward actions as the user** | An effect outside the brain in the user's name: git push, GitHub posts, email or messages, bookings, payments | [Approval, or a policy allow-list](#outward-actions-g5). Everything inside the brain stays free. |
@@ -837,7 +837,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:258`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:272`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -928,6 +928,78 @@ and the user is told so when the policy is checked.
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
 a path that may not reach the configured embeddings provider keeps keyword
 search and gets no vectors.
+
+### Worker identity (G2)
+
+The maintainer [ruled on #1638](https://github.com/schlessera/brain-kit/issues/1638)
+on 2026-10-11 that a worker uid separate from the server's uid is the
+`governed` profile's identity model, under G2.
+
+**Why a separate uid.** Today a worker runs as the server's kernel uid
+([agent workers](../hosting/agent-workers.md#running-the-server-as-root)).
+Once the brain is writable, any code the agent runs has the server's file
+authority over the read-only host root. That includes the server's database,
+its Claude and pi credentials, and its environment files. The masks in this
+record cover only the paths they name:
+
+- #1626's `$HOME` overlay;
+- the runtime and home-directory masks;
+- the `.env*` mask.
+
+A separate uid denies access by ownership, including paths nobody thought to
+list.
+
+**Where the switch happens.** Neither the worker nor the exec wrapper can make
+it. The exec wrapper runs inside the worker
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:15`).
+An unprivileged user namespace cannot change its outside uid, and bubblewrap
+cannot either. The uid therefore changes *before* `bwrap` starts, through a
+helper the host provides:
+
+- a setuid helper in a container;
+- or a uid launcher on a bare host.
+
+**What the kit and the template each own.**
+
+- **brain-kit owns the launcher seam** (#1677). An optional host-supplied
+  identity helper sits in front of `bwrap`. It follows the exec wrapper's
+  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:39`):
+  an absolute path in argv position 0, the worker as its own process group,
+  and abort through the kill helper, because `kill(2)` across uids returns
+  `EPERM`. The kit also verifies the result from inside a real worker:
+  - the outside uid is not the server's and is not 0;
+  - the server's database directory, its `$HOME` and its credential
+    directories refuse to open.
+
+  If either check fails, `governed` and `strict` are refused, with a named
+  host-status reason. Areas the two uids share are reachable through a shared
+  group, with setgid directories:
+  - the brain, scratch and workspaces;
+  - turn temp and runtime state;
+  - the relay sockets and the launcher's FIFOs.
+
+  The server reads agent-written files for the journal and promotion through
+  group read. Nothing private to the server is group-readable.
+- **The hosting template owns the packaging.** That means the two fixed uids,
+  the setuid helper and the kill helper, the ownership map, the volume
+  migration and the container proof. Its `docs/decisions/container-privilege.md`
+  already designs a `brain` server uid, an `agent` uid in group `brain`, and
+  `/data/db` at `0700`. That record predates the bubblewrap worker and is being
+  reassessed:
+  - the helper now wraps the one `bwrap` launch, not each agent subprocess;
+  - its rule that the CLI runs as `agent` is already met by this record's
+    maintenance workers.
+
+**Without a helper,** `governed` still runs. A laptop or a single-user server
+keeps working, with the masks as the only protection. The launcher also masks
+the configured database directory explicitly. The host status and the
+capabilities note say that the worker shares the server's uid.
+
+**Overlap with the other G2 controls.** The brain's `.env*` files sit in the
+group-shared tree, so a separate uid does not hide them; the mask stays
+(#1666). With a helper configured, a root-run server's worker is never uid 0,
+which removes the root read and socket authority that #1638 describes for
+those hosts.
 
 ### Outward actions (G5)
 
@@ -1203,3 +1275,9 @@ else here is read through the report.
 
   The stricter alternative is to keep `strict` as the default until both land.
   That is a maintainer call.
+- **A separate worker uid on shared hosts.** [Worker identity](#worker-identity-g2)
+  keeps `governed` available without an identity helper, because the masks
+  still apply. The recommendation is to keep it available, and to have the
+  hosting template always ship the helper. The stricter alternative is to
+  refuse `governed` without a helper whenever the server's uid owns state
+  outside the masks. That is a maintainer call.
