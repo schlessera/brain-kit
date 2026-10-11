@@ -638,7 +638,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:242`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`lock: toolLockFromKeyed(createKeyedLock())`,
-  `packages/ui-backend-pi/src/worker-entry.ts:73`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:86`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
