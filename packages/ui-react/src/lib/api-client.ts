@@ -1,7 +1,7 @@
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, InboxActionItem, SessionRecoveryResult } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -358,7 +358,16 @@ export function createBrainApi(
           lastStatus: string | null;
         }>;
         activeSession: boolean;
+        /** Only the worker host is typed here (#1632); see `SystemStatus.runtime`. */
+        runtime?: { workerHost?: WorkerHostStatus };
       }>("/status", { cache: "no-store" }),
+
+    /**
+     * "Check again" (#1632): the server re-runs its worker host probe and
+     * answers with what it recorded. A pass admits nothing; every turn still
+     * runs its own probe.
+     */
+    checkWorkerHost: () => fetchJson<WorkerHostStatus>("/status/worker-host", { method: "POST" }),
 
     brainSearch: (
       q: string,

@@ -8,6 +8,8 @@ import { join } from "path";
 import { ambientExecConfig, resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
+import { probeWorkerHostRecorded } from "./agent/worker-host.js";
+import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createDraftRoutes } from "./routes/drafts.js";
@@ -430,6 +432,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
+  // The agent worker boundary, probed now (#1632) so the server knows at boot
+  // whether this host can run a turn, and says so in the log, on /api/status
+  // and in the client. Unlike a missing runtime, a failure does not refuse
+  // the boot: everything but agent turns still works. Nor does it decide any
+  // turn: each one runs its own probe, which re-records the outcome. The
+  // restricted envelope only matters while autonomous work can run.
+  const workerHostModes: WorkerHostMode[] = dispatcher ? ["ordinary", "restricted"] : ["ordinary"];
+  for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot");
   // Scheduled-task definitions and ledger (#914). Storage only: no dispatcher
   // is wired, so every task reports dispatch_disabled until #915/#689.
   const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;
@@ -616,6 +626,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         }
       },
       getSubscription: () => subscription.status(),
+      // "Check again" (#1632): the boot probes, re-run now and recorded.
+      checkWorkerHost: () => {
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check");
+        return activity.runtime.snapshot().workerHost ?? {};
+      },
     })
   );
   app.route(

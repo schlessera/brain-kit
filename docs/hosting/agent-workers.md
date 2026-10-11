@@ -21,6 +21,16 @@ and removes its sentinel directory on either outcome. The host must be able to
 create and remove that owned fixture. Checks are repeated, not cached from a
 version string or an earlier turn.
 
+The server also runs the probe at boot (#1632): the ordinary mode always, and
+the restricted mode while autonomous work is enabled. A failure is logged once
+with its requirement and does not refuse the boot, because everything except
+agent turns still works. `/api/status` reports the latest probe per mode as
+`runtime.workerHost`, and each turn's own probe and each "Check again" update
+it ([contract](../integration-contract/http.md#worker-host-status-additive-1632)).
+While it says the host is unavailable, the app shows a notice above the
+composer with the requirement and a link here. The status never admits or
+refuses a turn; only that turn's own probe does.
+
 ## Process and filesystem coverage
 
 `launchAgentWorker` (first-party internal SDK sharing) starts a trusted bootstrap

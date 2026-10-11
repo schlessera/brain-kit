@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:98-131`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:99-132`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -88,6 +88,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
 | `POST /api/share` | `mounted supported handler: POST /api/share` | J, Q |
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
+| `POST /api/status/worker-host` | `mounted supported handler: POST /api/status/worker-host` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
@@ -118,6 +119,9 @@ row's real mounting check. They do not establish mounting by themselves.
 - `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:292-312`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
+- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:29-44`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:69-83`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:85-94`)
 
 **A — Password access and revocation.**
 

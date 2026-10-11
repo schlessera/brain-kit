@@ -2,6 +2,9 @@
  * What the server knows about the agent runtime it drives (#211,
  * docs/decisions/claude-code-runtime.md, "The server knows the version").
  *
+ * The worker host entry (#1632) is a fourth: whether the latest real probe
+ * could establish the agent worker boundary.
+ *
  * Three sources, kept apart because they answer different questions: what the
  * boot probe found (the binary a turn WOULD spawn), what the last turn
  * reported (the binary that DID run, the credential it selected, the billing
@@ -18,6 +21,8 @@ import {
   type BillingMode,
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
+import type { WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import type { WorkerHostCheck, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -40,9 +45,22 @@ export type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
   policy?: BillingMode;
 };
 
+/**
+ * Which envelope a worker host probe established (#1632): the ordinary one
+ * every chat, voice and handoff turn needs, or the restricted one an
+ * autonomous turn needs.
+ */
+export type WorkerHostMode = keyof WorkerHostStatus;
+
 export interface RuntimeStatusSnapshot {
   /** One entry per backend whose runtime was probed at boot. */
   boot: Array<{ backendId: string } & BackendRuntimeReport>;
+  /**
+   * Whether this host can run the agent worker boundary (#1632): probed at
+   * boot, then re-recorded by every turn's own probe and every explicit
+   * check, so it is always the latest real probe. Absent until one has run.
+   */
+  workerHost?: WorkerHostStatus;
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */
@@ -64,6 +82,11 @@ export interface RuntimeStatus {
   subscriptionAuthFailure(): (RecordedAuthFailure & { action: SubscriptionAuthAction }) | undefined;
   /** A turn that ran on the subscription succeeded, and ended at `at`. */
   subscriptionProven(at: number): void;
+  /**
+   * Records a real worker host probe's outcome (#1632). Logs the first
+   * outcome per mode and each change after it, never a repeat.
+   */
+  recordWorkerHost(mode: WorkerHostMode, probe: WorkerHostProbe, trigger: WorkerHostCheck["trigger"]): void;
   snapshot(): RuntimeStatusSnapshot;
 }
 
@@ -93,6 +116,7 @@ export function createRuntimeStatus(
   let lastObserved: RuntimeStatusSnapshot["lastObserved"];
   let lastAuthFailure: RecordedAuthFailure | undefined;
   let lastSubscriptionFailure: (RecordedAuthFailure & { action: SubscriptionAuthAction }) | undefined;
+  const workerHost: WorkerHostStatus = {};
   return {
     setBoot(probes) {
       boot = probes.map(({ backendId, report }) => ({ backendId, ...report }));
@@ -133,9 +157,32 @@ export function createRuntimeStatus(
     subscriptionProven(at) {
       keepProof?.(at);
     },
+    recordWorkerHost(mode, probe, trigger) {
+      const previous = workerHost[mode];
+      const checkedAt = now().toISOString();
+      const check: WorkerHostCheck = probe.ok
+        ? { available: true, checkedAt, trigger }
+        : { available: false, requirement: probe.requirement, checkedAt, trigger };
+      workerHost[mode] = check;
+      // Every turn re-probes; only a first answer or a changed one is news.
+      const repeat = previous !== undefined && (previous.available
+        ? check.available
+        : !check.available && previous.requirement === check.requirement);
+      if (repeat) return;
+      const attributes = { "worker_host.mode": mode, "worker_host.trigger": trigger };
+      log?.emit(check.available
+        ? { severityText: "INFO", body: `the ${mode} agent worker boundary is available on this host`, attributes }
+        : {
+          severityText: "WARN",
+          body: `agent turns that need the ${mode} worker boundary cannot run on this host: ${check.requirement}. ` +
+            "The server keeps running and every turn checks again (docs/hosting/agent-workers.md).",
+          attributes: { ...attributes, "worker_host.requirement": check.requirement },
+        });
+    },
     snapshot() {
       return {
         boot,
+        ...(workerHost.ordinary || workerHost.restricted ? { workerHost: { ...workerHost } } : {}),
         ...(lastObserved ? { lastObserved } : {}),
         ...(lastAuthFailure ? { lastAuthFailure } : {}),
       };

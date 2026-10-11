@@ -15,7 +15,8 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
-import { requireWorkerHost, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
@@ -85,7 +86,7 @@ export async function runAutonomousTurn(
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
   // The restricted envelope must be establishable, not only the ordinary worker (#676).
-  try { requireWorkerHost(deps.brainPath ?? process.cwd(), { restricted: true }); }
+  try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.emit?.({ type: "error", code: "BACKEND_REQUEST_ERROR", turnId: input.turnId, message,

@@ -393,11 +393,11 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:108-109`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2713-2736`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2743-2766`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:142-275`).
 
-- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:577`).
+- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:587`).
 
 - Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:683-727`).
 

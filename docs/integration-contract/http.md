@@ -64,6 +64,33 @@ response is unchanged; this only types it. The Activity bug report prints
 `server: {release}` and `server commit: {sourceCommit}` only when this read
 succeeded, and no server line otherwise.
 
+<a id="worker-host-status-additive-1632"></a>
+
+### Worker host status (additive, #1632)
+
+Authenticated `GET /api/status` gains `runtime.workerHost`, typed as
+`SystemStatus.runtime.workerHost` (`WorkerHostStatus`) in
+`@schlessera/brain-ui-sdk/protocol`. It is the latest real probe of the agent
+worker boundary per mode: `ordinary` for chat, voice and handoff turns,
+`restricted` for autonomous turns. Each present mode is `{ available,
+checkedAt, trigger }`, with `requirement` when `available` is false; that is
+the probe's named requirement, the same text a refused turn names. Boot probes
+`ordinary`, and `restricted` only while autonomous work is enabled. A failed
+boot probe is logged once and never refuses the boot. Every later probe
+re-records its mode: each turn's own gate (`trigger: "turn"`) and each
+explicit check (`"check"`).
+
+Authenticated `POST /api/status/worker-host` takes no body, re-runs the boot's
+probes and answers 200 with the same `WorkerHostStatus` object. In
+`@schlessera/brain-ui-react`, `BrainApi.status()` types `runtime.workerHost`
+and `BrainApi.checkWorkerHost()` makes this request.
+
+The status reports; it does not decide. A pass is never cached and a known
+failure never short-circuits a turn: every turn runs its own probe and refuses
+with `worker_host_unsupported` naming the requirement
+([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1632#issuecomment-6112509133)).
+Clients must tolerate either mode being absent.
+
 <a id="internal-queue-poke-additive"></a>
 
 ### Internal Queue poke (additive)

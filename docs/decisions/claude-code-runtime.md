@@ -62,7 +62,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:112-164`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:288`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:290`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -210,7 +210,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:268-273`).
+  `packages/ui-server/src/app.ts:270-275`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -262,9 +262,9 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:50-66`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:54-70`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:11-13`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:13-15`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is

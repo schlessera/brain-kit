@@ -2,6 +2,8 @@ import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: 
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
+import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
 import type { SubscriptionStatus } from "../agent/subscription.js";
 import type { MetricSnapshot } from "../observability/index.js";
@@ -45,6 +47,8 @@ export interface StatusDeps {
   getRuntime?(): RuntimeStatusSnapshot;
   /** The Claude subscription token: expiry, last proof, last failure (#254). */
   getSubscription?(): Promise<SubscriptionStatus>;
+  /** Re-runs the boot's worker host probes and returns what they recorded (#1632). */
+  checkWorkerHost?(): WorkerHostStatus;
 }
 
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
@@ -71,5 +75,12 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       // worked, and what to do about the last auth failure. Never the token.
       ...(subscription ? { subscription } : {}),
     });
+  }).post("/status/worker-host", (c) => {
+    // "Check again" (#1632): re-runs the real probes the boot ran and answers
+    // with what they recorded, the same object /status carries as
+    // `runtime.workerHost`. Behind the guard like /status. It admits nothing:
+    // every turn still runs its own probe.
+    if (!deps.checkWorkerHost) return c.json({ error: "Not found" }, 404);
+    return c.json(deps.checkWorkerHost());
   });
 }

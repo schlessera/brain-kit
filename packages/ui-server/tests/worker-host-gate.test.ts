@@ -5,6 +5,7 @@ import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createActivityStore } from "../src/activity/store";
+import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { createInboxBudget } from "../src/inbox/budget";
 import { createInboxStore } from "../src/inbox/store";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn";
@@ -27,6 +28,7 @@ function setup() {
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const authorization = testAuthorization(principal.id);
   const store = createActivityStore(db, { writer: "worker-host-test" });
+  const runtime = createRuntimeStatus();
   let starts = 0;
   const backend = makeFakeBackend({ id: "claude", capabilities: { autonomous: true, restrictedAutonomous: true },
     histories: { source: [{ role: "user", content: "Odysseus fixture", toolCalls: [] }] }, startTurn: async request => {
@@ -37,9 +39,9 @@ function setup() {
   const frames: ServerMessage[] = [];
   const ws = { send: (data: string) => { frames.push(JSON.parse(data)); } };
   const host = new WsHost({ brainPath: process.cwd(), registry: createStaticBackendRegistry([backend], backend.id), catalog,
-    activity: { store, stream: { pump() {} } as never } });
+    activity: { store, stream: { pump() {} } as never, runtime } });
   host.clients.add(ws, principal.id);
-  return { db, principal, authorization, store, backend, catalog, frames, ws, host, starts: () => starts,
+  return { db, principal, authorization, store, runtime, backend, catalog, frames, ws, host, starts: () => starts,
     cleanup: () => { host.close(); db.close(); } };
 }
 function noRuntime(f: ReturnType<typeof setup>) {
@@ -51,6 +53,11 @@ function missingRequirement(message: string) {
   expect(message).toContain("unprivileged user namespaces are disabled");
   expect(message).toContain("Linux or qualifying WSL2");
   expect(message).toContain("bubblewrap");
+}
+/** The turn's own refusal is what /api/status now reports (#1632). */
+function recordedRefusal(f: ReturnType<typeof setup>, mode: "ordinary" | "restricted") {
+  expect(f.runtime.snapshot().workerHost?.[mode]).toMatchObject({ available: false, trigger: "turn",
+    requirement: "unprivileged user namespaces are disabled" });
 }
 
 describe("pre-initialization worker host gate", () => {
@@ -78,7 +85,36 @@ describe("pre-initialization worker host gate", () => {
       expect(error).toMatchObject({ type: "error", code: "BACKEND_REQUEST_ERROR", failure: { errorClass: "worker_host_unsupported" } });
       missingRequirement((error as Extract<ServerMessage, { type: "error" }>).message);
       expect(f.host.coordinator.running.size).toBe(0);
+      recordedRefusal(f, "ordinary");
     } finally { sources.mockRestore(); transcript.mockRestore(); f.cleanup(); }
+  });
+
+  // #1632 ruling: a known status never decides a turn. A passing boot does
+  // not admit one, a failing boot does not refuse one, and each turn's own
+  // probe re-records the status.
+  test("a passing boot does not admit a turn: it probes again, refuses and re-records", async () => {
+    const f = setup();
+    f.runtime.recordWorkerHost("ordinary", { ok: true }, "boot");
+    unsupported();
+    try {
+      await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });
+      noRuntime(f);
+      expect(probe).toHaveBeenCalledTimes(1);
+      const error = f.frames.find(frame => frame.type === "error") as Extract<ServerMessage, { type: "error" }>;
+      expect(error.failure?.errorClass).toBe("worker_host_unsupported"); missingRequirement(error.message);
+      recordedRefusal(f, "ordinary");
+    } finally { f.cleanup(); }
+  });
+  test("a failing boot does not refuse a turn once the host is fixed, and the status heals", async () => {
+    const f = setup();
+    f.runtime.recordWorkerHost("ordinary", { ok: false, requirement: "unprivileged user namespaces are disabled" }, "boot");
+    probe = spyOn(workerHostBoundary, "probe").mockReturnValue({ ok: true });
+    try {
+      await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(f.starts()).toBe(1);
+      expect(f.runtime.snapshot().workerHost?.ordinary).toMatchObject({ available: true, trigger: "turn" });
+    } finally { f.cleanup(); }
   });
 
   test("autonomous refuses before ownership, activity or backend initialization", async () => {
@@ -94,7 +130,7 @@ describe("pre-initialization worker host gate", () => {
           cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" }) } });
       budget.claim("odysseus", { runId: "host-refusal", principalId: f.principal.id, model: "fixture",
         billingMode: "subscription", purpose: "execute" }, now + 600_000);
-      const rejection = await runAutonomousTurn({ db: f.db, brainPath: process.cwd(), backend: f.backend, store: f.store,
+      const rejection = await runAutonomousTurn({ db: f.db, brainPath: process.cwd(), backend: f.backend, store: f.store, runtime: f.runtime,
         checkpoint() {}, emit: frame => f.frames.push(frame) }, { turnId: "host-refusal", principalId: f.principal.id,
         prompt: "Odysseus fixture", allowedTools: [], systemPromptAppend: "No effects", signal: new AbortController().signal })
         .catch(error => error as Error);
@@ -103,6 +139,7 @@ describe("pre-initialization worker host gate", () => {
       missingRequirement((rejection as Error).message);
       const error = f.frames.find(frame => frame.type === "error") as Extract<ServerMessage, { type: "error" }>;
       expect(error.failure?.errorClass).toBe("worker_host_unsupported"); missingRequirement(error.message);
+      recordedRefusal(f, "restricted");
     } finally { f.cleanup(); }
   });
 
@@ -120,6 +157,7 @@ describe("pre-initialization worker host gate", () => {
       const draft = f.frames.find(frame => frame.type === "handoff_draft") as Extract<ServerMessage, { type: "handoff_draft" }>;
       expect(draft.state).toBe("failed"); missingRequirement(draft.message!);
       expect(f.host.coordinator.handoffPreparations.size).toBe(0);
+      recordedRefusal(f, "ordinary");
     } finally { history.mockRestore(); f.cleanup(); }
   });
 

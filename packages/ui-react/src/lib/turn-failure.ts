@@ -21,6 +21,13 @@ export function failurePresentation(failure: TurnFailure) {
       : "The Claude subscription token was rejected.";
     return { headline, explanation: instruction, operator: true, tone: "red" as const, retry: false, report: false };
   }
+  // The host, not the provider (#1632): the message names what it lacks, and
+  // retrying cannot help until the host is fixed.
+  if (failure.errorClass === "worker_host_unsupported") return {
+    headline: "This server can't run agent turns.",
+    explanation: "Its host lacks what the agent sandbox needs, named below. Retrying won't help until the host is fixed.",
+    operator: true, tone: "red" as const, retry: false, report: false,
+  };
   if (AUTH.has(failure.errorClass)) return {
     headline: "The backend's credential was refused.",
     explanation: "Check the credential configured for this provider. The provider's message is available below.",
