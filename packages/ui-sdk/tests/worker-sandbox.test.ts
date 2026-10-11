@@ -201,7 +201,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       linkSync(f.policy, join(child, "rule.md"));
       let swapped = false, opens = 0;
       const swap = () => { swapped = true; renameSync(child, `${child}-parked`); symlinkSync(join(f.brain, "notes"), child); };
-      const byChild = (path: unknown) => typeof path === "string" && path.endsWith("/child") && !swapped;
+      const byChild = (path: unknown) => String(path).endsWith("/child") && !swapped;
       if (name === "lstatSync") {
         spy.mockImplementation(((path: string, ...rest: unknown[]) => {
           const result = (original.lstatSync as (...args: unknown[]) => unknown)(path, ...rest);
@@ -219,8 +219,44 @@ describe("worker sandbox writable areas (#1626)", () => {
       expect(swapped, "SWAP_HAPPENED").toBe(true);
       expect(readFileSync(join(f.brain, "notes/rule.md"), "utf8"), "SWAP_FOLLOWED").toBe(GOLDEN);
       expect(lstatSync(join(f.brain, "notes/rule.md")).nlink).toBe(2);
-      expect(scratchMount.mount.writable).toBe(false);
-      expect(scratchMount.removed).toEqual([]);
+      // Mid-walk, the walk retries and then sees a plain symlink, which the bind makes harmless; mid-unlink, the alias stays and scratch is refused.
+      expect(scratchMount.mount.writable).toBe(moment === "walk");
+      // The parked directory still holds a real alias of the policy file; only that scratch name goes.
+      expect(scratchMount.removed).toEqual(moment === "walk" ? [".brain/scratch/child-parked/rule.md"] : []);
+      expect(readFileSync(f.policy, "utf8")).toBe(GOLDEN);
+    } finally { spy.mockRestore(); f.cleanup(); }
+  });
+
+  test("a name that is not UTF-8 cannot hide an outside link", () => {
+    const f = fixture();
+    try {
+      const odd = Buffer.concat([Buffer.from(join(f.brain, "workspaces/")), Buffer.from([0xff])]);
+      mkdirSync(odd);
+      linkSync(f.policy, Buffer.concat([odd, Buffer.from("/b"), Buffer.from([0xfe])]));
+      const mount = prepareWorkerSandbox(f.brain, { home: f.home }).areas[1]?.mount;
+      expect(mount?.writable, "BYTE_NAMES").toBe(false);
+      expect(mount && !mount.writable && mount.reason).toStartWith("hard-linked to files outside workspaces/: workspaces/");
+    } finally { f.cleanup(); }
+  });
+
+  // An alias moved from a directory not yet walked into one already walked
+  // is counted nowhere, so its inode looks fully accounted for.
+  test("an alias moved during the walk is still found", () => {
+    const f = fixture();
+    const original = fs.readdirSync;
+    let moved = false;
+    const spy = spyOn(fs, "readdirSync").mockImplementation(((path: fs.PathLike, ...rest: unknown[]) => {
+      const names = (original as (...args: unknown[]) => unknown)(path, ...rest);
+      // The first listing is the area root's; the alias moves there before its own directory is listed.
+      if (!moved) { moved = true; renameSync(join(f.brain, "workspaces/ithaca/palace/alias.md"), join(f.brain, "workspaces/alias.md")); }
+      return names;
+    }) as typeof fs.readdirSync);
+    try {
+      linkSync(f.policy, join(f.brain, "workspaces/ithaca/palace/alias.md"));
+      const { resolveWorkspacesMount } = require("../src/server/worker-sandbox") as typeof import("../src/server/worker-sandbox");
+      expect(resolveWorkspacesMount(f.brain), "MOVED_ALIAS").toEqual({ writable: false,
+        reason: "hard-linked to files outside workspaces/: workspaces/alias.md" });
+      expect(moved).toBe(true);
     } finally { spy.mockRestore(); f.cleanup(); }
   });
 
@@ -230,6 +266,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       for (let i = 0; i < 5; i++) writeFileSync(join(f.brain, `workspaces/ithaca/f${i}`), "x");
       const { resolveWorkspacesMount, scanForOutsideLinks } = require("../src/server/worker-sandbox") as typeof import("../src/server/worker-sandbox");
       expect(scanForOutsideLinks(f.brain, join(f.brain, "workspaces"), 3).overLimit).toBe(true);
+      expect(resolveWorkspacesMount(f.brain, 3), "OVER_LIMIT").toEqual({ writable: false, reason: "workspaces/ holds more than 3 entries, too many to verify" });
       expect(resolveWorkspacesMount(f.brain).writable).toBe(true);
     } finally { f.cleanup(); }
   });
@@ -262,6 +299,17 @@ describe("worker sandbox writable areas (#1626)", () => {
     try {
       expect(Bun.spawnSync(["git", "init", "-q", f.brain]).exitCode).toBe(0);
       expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount, "SCRATCH_IGNORED").toMatchObject({ writable: false,
+        reason: expect.stringContaining("not gitignored") });
+      writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
+      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);
+    } finally { f.cleanup(); }
+  });
+
+  test("scratch in a brain inside a parent repository is writable only while git ignores it", () => {
+    const f = fixture();
+    try {
+      expect(Bun.spawnSync(["git", "init", "-q", f.root]).exitCode).toBe(0);
+      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount, "PARENT_REPO").toMatchObject({ writable: false,
         reason: expect.stringContaining("not gitignored") });
       writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
       expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);

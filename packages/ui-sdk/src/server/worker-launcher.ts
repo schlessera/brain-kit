@@ -266,11 +266,18 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
   for (const name of options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])) {
-    if (name === "scratch") {
-      const scratch = resolveScratchMount(brain);
-      removed = scratch.removed;
-      areas.push({ name, mount: scratch.mount });
-    } else areas.push({ name, mount: resolveWorkspacesMount(brain) });
+    // A check that fails unexpectedly (EACCES on the way, an unreadable mount
+    // table) leaves the area read-only for the turn rather than failing it.
+    try {
+      if (name === "scratch") {
+        const scratch = resolveScratchMount(brain, options.home);
+        removed = scratch.removed;
+        areas.push({ name, mount: scratch.mount });
+      } else areas.push({ name, mount: resolveWorkspacesMount(brain) });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
+      areas.push({ name, mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
+    }
   }
   let home: WorkerHome;
   const requested = options.home;
