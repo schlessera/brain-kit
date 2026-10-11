@@ -1,5 +1,260 @@
 # @schlessera/brain-ui-server
 
+## 0.41.0
+
+### Minor Changes
+
+- 45326b1: Show follow-ups that are still waiting for the agent, and keep them through a reload. A message sent while a session is busy no longer appears in the chat until the agent takes it: it waits as a `pending` pill in the right half of the row above the composer, and its full text opens on hover, keyboard focus or a tap. Three or more show the oldest pill and a `+N pending` summary that opens a read-only `Pending follow-ups` sheet. When the agent takes one, its pill goes and the message appears in the chat once, where it entered the conversation; a dropped one leaves with its reason. The host reports each session's queue in a new `session_queue` frame (`server_hello.capabilities.followUpQueue`, sent only to clients that declare the same flag in `client_hello`) after a reconnect, after `session_resume` and on every change, so a reloaded or second client rebuilds the same stack. The kit adds `PendingFollowUps` and `followUpLabel`, and `ListRow` gains `describedBy` for pills.
+- 637d2c4: Label pending follow-up and working-session pills with a few words from a small, fast model. A host that passes `createApp({ labeller: { provider } })`, with any value of core's `CompletionProvider` shape, gets a 2–4 word label for each queued follow-up (on `QueuedFollowUpView.label`, sent again in `session_queue` when it arrives) and for each session's latest request (on `ChatSession.label` in `GET /api/sessions`, stored so a reload or restart reuses it). Labels are plain text of at most `PILL_LABEL_MAX_CHARS` (32) characters. Pills render at once with their fallback, the session title or the start of the prompt, and keep it when the labeller is off, which is the default, or fails. With a labeller set, the text of every queued follow-up and turn request goes to its provider, which may be a different vendor from the session's backend. Calls are counted in `brain.labeller.calls`. The app's pending follow-up pills print the host's label when there is one.
+- f508e27: Keep the composer's drafts on this device across a reload. The authenticated `GET /api/vpn-check` probe now also returns `accountKey`, an opaque name for the signed-in account on this host and brain root that stays the same across sign-out and sign-in as the same owner, differs between hosts and roots, and is never given to an agent principal. The client writes every draft (text and images), the voice review text, the selection, the focused element and the transcript position to IndexedDB in that account's partition a moment after each change, and opens the partition only while it holds the same key. After an authenticated boot as the same account they come back: the text, images and review text, the selection and focus, then the place in the transcript. Another account restores nothing. A write the browser refuses shows `Couldn't save your draft on this device.` in the composer's hint and is never reported as kept, while editing goes on. Staged track files still live in this tab only. The stored drafts are not encrypted and are not protection against someone with access to the device.
+- 9a89d4a: Show configured profiles that cannot run now, with their reason, in the handoff sheet. `AgentBackend` gains an optional `listUnavailableProfiles()` returning `{ id, label, reason }`, with `reason` from the closed `PROFILE_UNAVAILABLE_REASONS` enum (`needs-credentials`). The Claude backend reports a profile whose required environment key is missing; pi lists every configured profile and omits the member. `GET /api/providers` gains an optional `unavailable` list beside `providers`, absent when empty: the runnable roster, routing and handoff resolution are unchanged, and the host drops any entry whose reason is not in the enum, so no key name or other backend text reaches a client. The handoff sheet's To list shows these profiles on other backends after the runnable ones, disabled and reading `needs credentials`; they cannot be chosen.
+- b0815ec: **Breaking (pre-1.0, ruled on #1053):** narrow the public surfaces that were public only because a public declaration reached them, and move the names whose classification was uncertain.
+
+  - `@schlessera/brain-ui-server`: `WsHost` keeps its configuration fields, `registry` and `close()`. Its connection, client-set, catalog, turn, activity, inbox, draft, label and classification members are `@internal`, as are the matching `WsHostOptions` fields. `SessionCatalog` and `createSessionCatalog` move to `@schlessera/brain-ui-server/internal`; a custom session catalog is no longer supported, so build the host with `createApp`.
+  - `@schlessera/brain-ui-react`: `useChatStore`, `useFileStore`, `useShareStore`, `useUIStore` and `useVoiceStore` are typed as `ShellStoreHook<View>` over the new `ChatShellState`, `FileShellState`, `ShareShellState`, `UIShellState` and `VoiceShellState`, which hold the fields a shell reads and calls. The selector form and the `getState()`/`subscribe()` statics remain; `setState` is no longer typed. `activeChat`, `anyStreaming` and `hasPendingShare` take the views. `ShareIntakeState` is no longer exported, the full store state types leave the public surface, and `BrainUiRoot.stores` is `@internal`.
+  - Moved to `/internal`, with no compatibility promise: `collectStats` and `CollectStatsOptions` (`@schlessera/brain/internal`); `MAX_ROUTE_BYTES` (the new `@schlessera/brain-geo/internal`); `applyExportLinkPolicy` and `protectExportLinkDestinations` (`@schlessera/brain-render-template/internal`); `TOKENS`, `LIGHT_TOKENS`, `canvas` and `TokenName` (`@schlessera/brain-ui-kit/internal`); the SDK's bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`), `wrapCommand` and `execWrapperSpawnOptions` (`@schlessera/brain-ui-sdk/internal`); `describeRetry`, `canonicalModelId` and `resolveThinkingLevel`, from every SDK entry (`/internal` and `/internal/client`); `createToolRendererRegistry`, `pruneStoredShares`, `ShareTargetError`, `isShareTargetRequest` and `handleShareTargetRequest` (`@schlessera/brain-ui-sdk/internal/client`). `registerShareTarget` and `readShareLaunchParams` stay on `/share-target`.
+  - Kept and documented: `repoRelativePathSchema` (module config schemas), `MEASURED_RUNTIME` and `runScrape`.
+
+  The migration list is in `docs/decisions/public-export-boundary.md`.
+
+- 755e567: Record what the pill labeller spends. Every label call that reaches the host's label model is now an Activity run named `pill label` (`LABEL_RUN_NAME`) on the session whose pill it labels. A provider can report the call's usage and model through a new optional `LabelCompletionProvider.completeWithUsage`, which the labeller prefers to `complete()`, and the host declares how those calls are billed with `createApp({ labeller: { provider, billing: "api" | "subscription" } })`. A run is priced only when the call reported usage and a model and `billing` is set. Every other run counts as unpriced and is never shown as $0; that includes every call from a core `CompletionProvider`, which still satisfies the interface unchanged.
+- daf4546: Run the scripts of HTML files in the file viewer, isolated from the app. A new authenticated `GET /api/files/html?path=…` serves an `.html`/`.htm` file under the same path, auth and size rules as `?raw=1`. Its CSP `sandbox allow-scripts` directive gives the document an opaque origin, and `connect-src 'none'` and `form-action 'none'` keep it off the network. It is the only response sent with `X-Frame-Options: SAMEORIGIN`; every other response keeps `DENY`. The viewer's preview now loads that route in an `allow-scripts` iframe, and an "Open in new tab" link opens it full-screen with the same isolation. A previewed page cannot read the app's DOM, cookies or storage, call `/api/*`, open popups, submit forms, download files or navigate the app. It can still navigate itself to another site, carrying what it can read, and a tab shows it under the app's host: both are accepted residual risks (#1084). The SDK's default service-worker policy never answers an `/api` navigation from the app shell.
+- 21f146d: Spawn every brain CLI and repository script through the exec wrapper of the app's own configuration. An app created with an explicit `config` used to launch the brain CLI, `whatsup` and the streaming sync under whatever `BRAIN_UI_EXEC_WRAPPER` the process environment named, so two apps in one process shared one privilege boundary. `ServerConfig` gains optional `exec`, which `resolveServerConfig()` always sets, and `createBrainClient` accepts `exec`. A configuration or client without it keeps the process environment's wrapper, resolved once, and never spawns unwrapped. A relative `BRAIN_UI_EXEC_WRAPPER` now refuses at configuration time instead of failing each spawn, and the cron bin resolves the wrapper once at its entry point.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- 5416a22: Notify recipients about waiting Actions. Push-eligible decisions (score 12 or
+  more) collect in a fixed 60-second window per recipient and leave as one
+  counted notice that opens Actions. Each device is evaluated on its own:
+  strict local quiet hours from 22:00 to 08:00, at most one known successful
+  push per waiting episode, and bounded retries that resend only what is still
+  waiting and unsent. Lower-priority decisions and FYIs join the in-app digest
+  at the client's local 09:00 and 17:00, listing only work not already reported
+  to that client. Clients report their IANA zone on registration, rebind,
+  reconnection, foreground return and zone change; without a usable zone,
+  timed notices stay pending instead of using server time. Additive: optional
+  `timeZone` on `POST /api/push/subscribe`, `timeZone` in subscription
+  summaries, the SDK worker renewal sends its zone, and the
+  `ActionDigestEntry`/`ActionDigestSummary`/`ActionDigestState` protocol types.
+- 98baa4c: Interactive answers are delivered with receipts (breaking for ask answers,
+  #910). A host now settles an `ask_user`, `ask_user_list`, `ask_user_rank` or
+  `ask_user_form` answer only when it carries a `submissionId`, and tells the
+  sender what happened with an `ask_answer_receipt`. **Compatibility break:**
+  an older client's answer, which carries no `submissionId`, is refused with an
+  `ASK_ANSWER_UPDATE_REQUIRED` error and the question stays waiting. An updated
+  client shows "Update needed" instead of answering a host that does not
+  advertise `askReceipts`. Update the client and the host together. Tool
+  approvals, dismissals, location and mask replies are unchanged.
+
+  The wire protocol is revision 5. It adds `ask_answer_status`, `ping`/`pong`
+  liveness probes, `server_hello.principalKey`, and the `askReceipts` and
+  `liveness` capabilities. After `session_resume` the host re-sends that
+  session's pending questions. On the Claude backend an ask's request id is
+  now the model's `tool_use` id, so a card rebuilt from history answers the
+  same request as the live one.
+
+  `BrainUiClient` probes a foreground socket after 15 seconds without traffic
+  and replaces it if no `pong` arrives within 5 seconds. It also abandons a
+  connection attempt that has delivered nothing after 10 seconds, and exposes
+  `checkLiveness()`, `setForeground()`, `supportsAskReceipts` and `hello`.
+
+  In the chat UI, a request delivered twice, or after history, is one card.
+  A submitted answer is saved on the device (IndexedDB), then sent. It shows
+  as answered only on the host's receipt, and it is retried automatically after
+  a reconnect or a reload. The queue holds up to 16 answers and 16 MiB for up
+  to 24 hours. It is coordinated across tabs, and it is cleared at sign-out.
+  Each card shows where its answer stands, with Cancel sending, Copy answer,
+  Send as message, Edit and Try again where they apply. After Submit, focus
+  moves to that status rather than to the composer.
+
+- 75e79b6: Let a client that reloads, reconnects or comes back to a session learn from
+  the host what that session's latest work actually is. A host now advertises
+  `server_hello.capabilities.sessionRecovery` and answers
+  `GET /api/sessions/:id/recovery` with the latest accepted request (its
+  `requestId`, the `turnId` that runs it, and whether it is queued, running,
+  terminal with its Activity outcome, or unknown), a persisted revision that
+  orders acceptance, and the approvals and questions still waiting in the
+  session. A newer queued request is never reported as an older success, a
+  restart never resurrects a lost queue or turn, and whatever the host cannot
+  prove reads `unknown`. Replayed history may carry a host-proven `turnId` on
+  the answer that ended each turn. A `session_resume` now re-sends the
+  session's pending approvals, and the transcript draws a turn shell holding
+  the card, marked `restored`, when the replay ends on the user's message, so a
+  reload no longer loses a pending approval. Additive: the `SessionRecovery*`
+  types, `sessionRecoverySchema`, `classifySessionRecoveryResponse`, the
+  optional `SessionHistoryMessage.turnId`, and the React API client's
+  `sessionRecovery()`.
+- 18d5dde: Keep each session's unsent composer draft on the host, so its text and images
+  survive a reload, a closed tab or a host restart and come back on the same
+  operator's other devices. The host stores drafts in its own operational
+  database (never `brain.db`) behind six authenticated routes under
+  `/api/drafts`: list, read, save with `If-Match` and `Idempotency-Key`, upload
+  an image, delete (leaving a tombstone) and bind an unbound draft to the
+  session its accepted first message started. Concurrent saves of one revision
+  get one success and a `DRAFT_CONFLICT` carrying the host's version; nothing
+  is merged, evicted or expired. Limits are 64 KB of text, 8 MB per draft, 100
+  drafts and 256 MB per host. Additive: `server_hello.capabilities.sessionDrafts`
+  with `server_hello.sessionDraftLimits`, the optional `chat_message.draftRef`
+  (an accepted message consumes exactly that revision), the `Draft*` protocol
+  types and response schemas, and `If-Match`/`Idempotency-Key` in the
+  configured CORS allow-list.
+- 6f06be8: Expose shared durable inbox tool contracts and eagerly attached first-party bridge executors. Reuse authorized store reads and compensated trusted intake, enforce current turn and budget-admitted origin scope, and require an exact approved session/Action binding for deterministic resolution. Voice and restricted turns refuse mutations; deferred discuss sessions remain disabled.
+- 84b8e00: Run autonomous Claude and pi turns inside a restricted envelope. The worker gets a private network namespace with only loopback and an explicit read envelope instead of the host root, so it cannot read the host home, stored logins or the server's environment, and cannot reach the network, DNS or host Unix sockets. Inference leaves only through a server-owned relay socket that forwards the provider's inference routes to the profile's upstream and injects the server-held credential; the worker holds a placeholder. Restricted turns load no project settings, instructions, skills, hooks, MCP servers or pi extensions, and use only the server's instruction snapshot and enforced tool roster.
+
+  Additive SDK surface: `AutonomousTurnOptions.containment: "restricted"`, `BackendCapabilities.restrictedAutonomous`, and an optional `supportsRestricted` argument to `assertTurnPosture`. `runAutonomousTurn` always requests containment and refuses a backend without the capability. A restricted turn refuses before any worker starts when the host cannot establish the envelope, when a Claude subscription profile has no `CLAUDE_CODE_OAUTH_TOKEN` (a stored login is never copied into the envelope), or when a pi profile has no API key for an Anthropic Messages or OpenAI-compatible provider. Interactive, voice and handoff-summary turns are unchanged. Nothing dispatches autonomous work in production yet.
+
+- 9d33857: Allow server-marked decisions blocking autonomous work from share or CLI intake
+  to produce counted push notices below the ordinary priority cutoff. Preserve
+  quiet hours, fixed batching and delivery receipts; ordinary decisions retain
+  their existing score policy, and pushed blocking episodes do not join the digest.
+- 0fff240: Add bounded T0/T1 triage using pinned Jev Choice, independent answer recovery,
+  per-request budget admission and usage accounting, durable review escalation,
+  and diversion telemetry. Production dispatch remains gated on the autonomous
+  system proof. Missing pricing or usage cannot become a free paid operation.
+- 90d83d8: Run every Claude turn inside the isolated worker and apply hosted PNG masks through the bounded server operation.
+- d2436b8: Continue a conversation on another backend (#61). The locked model picker, a session row's overflow and the ⌘K palette open a review sheet that drafts a handoff summary with the source's own model (falling back to a draft from the last six messages), lets you edit it and pick references, and starts a new linked chat on the chosen backend. The source keeps its history, backend and accounting and shows a forward marker; the new chat opens with a handoff card linking back. Additive wire: `chat_message.handoff`, `handoff_prepare`/`handoff_prepare_cancel`/`handoff_status`, `handoff_draft`/`handoff_receipt`, message source `handoff` and `ChatSession.handoffFrom`. A repeated handoff key never creates a second session. `ModelPicker` gains an optional `lockedAction`.
+- 33af7e2: Support external dictation providers through `createApp({ speechProvider })`,
+  with explicit-selection mismatch errors, session validation and no silent
+  fallback. Publish `runSpeechProviderContract` and `runAsrClientContract` with
+  keyless transport harnesses, and document the matching public client registry
+  and authoring types. Dictation interfaces remain experimental until 1.0;
+  live conversation and permission authority retain their separate boundaries.
+- b04f98b: Pause hygiene review with a durable Actions-limit retirement reason and let explicit Resume admit a fresh card under the shared hard cap. Retain confirmed operation receipts across retirement and recovery.
+- 978031a: Add a deterministic human-started hygiene review backed by durable Actions, with pause/resume, confirmed CLI previews, persisted failure outcomes and check-only interrupted-write recovery. Extend the inbox contract with bounded handler input and hygiene effects. Existing generic cards display the new effect as unavailable until the separate hygiene surface is implemented.
+- e632b50: Add explicit human-started hygiene finding refresh. Refresh replaces an obsolete
+  Action with current CLI evidence and previews, retains a superseded receipt,
+  and refuses old confirmations without changing Markdown or review position.
+  The CLI supports read-only targeted `hygiene next --finding <id> --dry-run`.
+- 533c0a7: Add the live-conversation host contract (#957). `@schlessera/brain-ui-sdk/server`
+  exports the experimental `LiveConversationProvider` seam with runtime
+  validation, and the protocol gains the additive, negotiated `conversation_*`
+  frames and `tool_resolution`. `createApp({ conversationProvider })` registers a
+  provider beside dictation: the host admits work only on a client's semantic
+  commit, runs it through the ordinary backend with the voice posture
+  (new `StartTurnRequest.posture: "voice"`: Claude selects `VOICE_ALLOWED_TOOLS`,
+  pi refuses the turn), never
+  publishes a result for a cancelled, withdrawn or replaced request, and keeps a
+  once-only permission announcement ledger across epochs. Clients that declare
+  `toolResolution` learn whether a permission request was granted, denied,
+  expired with its turn, or unknown. Legacy and rev-3 clients see no change.
+  No provider adapter ships.
+- ae61e82: BREAKING: correct public `SearchResult.tags` to `string | null` and optional
+  `RerankCandidate.tags` to `string | null`, matching existing untagged results.
+  TypeScript clients and external rerankers must handle null (for local text,
+  use `tags ?? ""`). CLI/MCP/HTTP values, reranker inputs, built-in provider
+  requests and rankings stay unchanged. Correct the server's private list mirror
+  to the existing nullable/string fields, without an invented created field.
+- fdd31e7: Run hosted pi sessions, extensions and shell tools in isolated workers before any writer initializes. Permission and bridge requests use bounded protocol pipes; exact Markdown edits use the server-owned application route with existing approvals. Masks reuse the shared server-owned PNG operation with Pi’s existing filenames and result paths. Cancellation ends the process tree and preserves committed edit receipts.
+
+  Breaking pre-1.0 migration approved by the isolated-writer ruling: shell writes now stay in scratch, while the brain is read-only. Session JSONL defaults to `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions`; configured session and native agent directories must be outside the brain and its ancestors, without aliases. Move existing transcripts to an external directory to resume their unchanged ids/history. Unsupported worker hosts visibly refuse. Credential/egress containment and autonomous enablement remain separate work.
+
+- 8d966cf: Transcribe retained recordings only after explicit upload consent through the server. Add optional saved-audio speech support, read-only capability/status discovery, durable account-owned receipts and tombstones, and at most three explicit retries for definitive transient provider failures. Deepgram supports saved containers; Web Speech remains unavailable. Retain local audio through failures and durable transcript review, coordinate tabs, and never upload automatically on reconnect or reload.
+- a26209c: Store and inspect scheduled tasks on a UI host without running them. The new
+  `brain schedule add|list|cancel|due` commands talk only to the authenticated
+  host, and six protected `/api/schedules` routes back them: a proposal, a
+  verified operator approval, then publication of a Markdown definition under
+  `context/scheduled-tasks/` with its approved snapshot kept in the operational
+  ledger. Edited, missing or symlinked definitions quarantine the task; cancel is
+  idempotent and retires the file; `due` is read-only. Every task reports
+  `dispatch_disabled` until the Queue runtime ships. Proposals need the new
+  `BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS` setting, `context/scheduled-tasks` is
+  excluded from indexing by default, and restore pauses restored schedules.
+- 7719bca: Reopen scheduled tasks that a restore or an unknown effect paused. The new
+  `brain schedule reconcile <id> --key KEY` command and the protected
+  `POST /api/schedules/:id/reconcile` route record a verified operator decision,
+  checked against the approved definition bytes, the approved execution policy
+  and a usable creator. Reopening never replays an unknown occurrence, and a
+  restore now also ends lost attempts as `unknown` and drops their Queue work.
+  The UI server also gains the private occurrence admission boundary the Queue
+  runtime will drive (one admission per due instant, three operations and a
+  ten-minute deadline per attempt, crash recovery). Nothing wires it into the
+  running app yet, so tasks still report `dispatch_disabled`.
+- 83585eb: Route hosted capture, update, archive and permitted Markdown edits through a bounded server-owned application boundary with current authority, policy/alias denial and exact base hashes. Add hosted structured tools, preserve voice capabilities and archive confirmation, and explain CLI refusals in read-only workers.
+- ed9c94a: Installation migration (breaking): the knowledge graph and the index-derived
+  voice vocabulary now read the brain index through core's supported
+  `@schlessera/brain/queries` entry instead of the server's own SQL, and
+  `@schlessera/brain` is a new **optional peer**. A host that serves the graph
+  view or keyterm-capable dictation must now add `@schlessera/brain` (same
+  lockstep version; `>=0.40.0 <1.0.0` is accepted) to its own dependencies.
+  Without it the server still boots: the five `/api/graph/*` endpoints answer
+  503 `graph_unavailable`/`core_unavailable`, keyterms degrade to an empty
+  vocabulary while pronunciation overrides keep working, and every other
+  feature is unaffected. The peer is resolved once per app and checked for
+  package identity, version range and required operations; there is no SQL,
+  PATH-CLI or subprocess fallback. Graph 500 bodies are now a sanitized
+  `internal_error`, a locked index answers 503 `index_busy`, an index claiming
+  the graph layout without its tables also refuses neighborhoods, and
+  `writeCache` (including the post-sync rebuild) never persists a degraded
+  vocabulary.
+- 96ad470: Add the shared read-only bubblewrap worker launcher and refuse interactive,
+  voice, autonomous and handoff-summary turns before runtime initialization when
+  the actual host boundary probe fails. Native macOS and Windows hosts refuse.
+  Expose the SDK's environment descriptors at the root export; the worker payload
+  is internal transport, required only by the trusted bootstrap.
+
+### Patch Changes
+
+- d36cca7: Queue a message sent to a session whose turn has already streamed its result, instead of handing it to the backend's live `followUp()`. Between the result and the turn's end the backend has nothing left to deliver into, so the message was refused with `FOLLOWUP_FAILED` and lost; it now becomes the session's next turn.
+- 7286b2f: Stop losing a follow-up sent while a resumed or queued turn is still starting. The host handed such a message to the backend's `followUp()` as soon as the turn was registered as running, before the turn had reached the backend, so the Claude backend refused it and the message was dropped with `FOLLOWUP_FAILED`. The host now injects a follow-up natively only once the turn has been handed to `startTurn`, and queues it as the session's next turn before that. A follow-up that the backend still refuses with its "no running turn" `BackendRequestError` is queued the same way instead of being discarded, and keeps the local exchanges its refused prompt carried.
+- f341317: After a reload, the chat no longer shows the welcome screen while the next message would go into the previously selected conversation. Until that conversation's history arrives, Chat says "Restoring conversation", the composer keeps the draft and explains why sending waits, and no message can be sent into it from any surface. The history request is confirmed rather than fire-and-forget: it is asked for again on the next connection, and once on the session's next idle status, and a request nothing answers ends after 20 seconds in "Couldn't restore this conversation" with Retry and New chat, as does a load error. Retry only reads the history again; New chat starts a new conversation without the old session id. Nothing is sent automatically once the history arrives. The host logs one `session resume` line per `session_resume`, with the session id and its outcome (`loaded`, `error` or `unauthorized`).
+- 2c3e5bd: The Daily briefing panel now shows the keyless `brain briefing` output from `GET /api/brain/briefing`, the selected root's existing briefing route, with loading, empty, failure and Retry states. The internal `POST /api/brain/whatsup` route is gone, and with it the repo-local script lookup at `private/whatsup.ts` and `scripts/whatsup.ts` and its forced `--gemini` flag: opening the briefing runs no script and no agent turn. Because the briefing cannot spend, the rail, palette, More sheet and welcome chip no longer print `spends` beside it.
+
+  `SuggestionChips` now sets its chip gaps as longhands, so a chip whose reason comes and goes on a rerender no longer makes React report a conflicting `gap`/`rowGap` style.
+
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- 02fd0b9: `@schlessera/brain-ui-sdk/server` now exports the helpers both shipped backends use, so a third-party backend can give the host the same behavior and security posture without reaching into `/internal`. The new names, all `@experimental` until 1.0: the bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`) and `BRIDGE_TOOL_POSTURE`; the exec wrapper (`wrapCommand`, `validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`); the subprocess environment filter (`filterSubprocessEnv`, `parseSubprocessEnvExtra`, `SubprocessEnvAudience`); the lock keys (`BRAIN_LOCK_KEY`, `bashLockKey`); `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`, `rtkRewriteCommand`; and the bundled `DEFAULT_CONFIRM_BASH_PATTERNS`, whose entries may still change between releases. Their behavior is unchanged. They are no longer exported from the unsupported `@schlessera/brain-ui-sdk/internal` entry; first-party code imports them from `/server`.
+- 9f0df49: Gated dispatcher decisions that approve an exact change now offer `apply` and `dismiss`, the one-commit shape the Actions card renders, instead of `apply` and `cancel`. With two commits the card treated the answer as ambiguous and showed a bare "Resolved" instead of the exact "Approved · queued …" receipt. Choices without an approvable operation keep their explicit cancel. Autonomous dispatch stays disabled in `createApp`.
+- ba7e6fe: Internal only: the repository's dispatch fixture host can stop staging compensation between removal and acknowledgement, so a crash there can be proven through the gated dispatcher. Nothing a consumer can configure or import changes, and no autonomous dispatch is enabled.
+- edb97e1: Internal only: the repository's dispatch fixture host can supply its own clock, so crash, lease-recovery and restore tests can drive the gated production dispatcher through elapsed lease and backoff time. No configuration, environment variable or default enables autonomous dispatch, and nothing a consumer can import changes.
+- 4229675: Add the production Queue dispatcher behind the autonomous enablement gate. It routes arrivals through T0/T1 triage, runs agent-tier work and validated follow-ups in the restricted autonomous envelope, turns an exact Markdown proposal into a durable decision, and lets a follow-up apply exactly the approved tool, input and target once; any other change escalates and writes nothing. `createApp` still enables no dispatcher: no configuration, environment variable or default activates autonomous work, the internal poke keeps reporting `dispatchEnabled: false`, and operation-bearing approvals keep failing closed.
+- da41eb6: Reserve one Jev breaker probe after backoff so concurrent classification calls skip until it completes.
+- 16f9a8d: Refresh offline Claude price estimates for current models and correct Opus 4.6 base rates.
+- 1a943d8: Document completion fallback credential names and existing inherited/filtered
+  environment transport families in package metadata and generated READMEs.
+  Descriptor types, public exports, runtime reads and forwarding policies are unchanged.
+- 56cf3e3: Retain completed-response usage when restricted autonomous turns escalate or yield. Settle successful checkpoints using observed spend and a conservative allowance for any uncertain request, while preserving whole reservations for crashes and missing receipts.
+- 95752cc: Preserve full raw-file responses for ignored conditional and HEAD ranges across Bun's native HTTP server.
+- 30b5c20: Give operational backup export the server's five-second SQLite busy timeout so a temporary database lock does not immediately fail the recovery command.
+- b300bb3: Repair packaged documentation links to the integration contract's authoritative surface files. Runtime behavior is unchanged.
+- b5c30c1: Clarify the repository-only triage evaluator script documentation: success requires every repetition and full requested coverage, while observed failures take precedence over unavailable evidence.
+- Updated dependencies [45326b1]
+- Updated dependencies [637d2c4]
+- Updated dependencies [9a89d4a]
+- Updated dependencies [b0815ec]
+- Updated dependencies [daf4546]
+- Updated dependencies [1caadca]
+- Updated dependencies [02fd0b9]
+- Updated dependencies [825cd04]
+- Updated dependencies [543231e]
+- Updated dependencies [5416a22]
+- Updated dependencies [98baa4c]
+- Updated dependencies [75e79b6]
+- Updated dependencies [18d5dde]
+- Updated dependencies [6f06be8]
+- Updated dependencies [84b8e00]
+- Updated dependencies [368c318]
+- Updated dependencies [90d83d8]
+- Updated dependencies [ef479fd]
+- Updated dependencies [d2436b8]
+- Updated dependencies [56cf3e3]
+- Updated dependencies [33af7e2]
+- Updated dependencies [b04f98b]
+- Updated dependencies [978031a]
+- Updated dependencies [e632b50]
+- Updated dependencies [d89e175]
+- Updated dependencies [533c0a7]
+- Updated dependencies [b180a2f]
+- Updated dependencies [8d966cf]
+- Updated dependencies [2a7de32]
+- Updated dependencies [83585eb]
+- Updated dependencies [0e4290f]
+- Updated dependencies [70275b9]
+- Updated dependencies [7b4f62a]
+- Updated dependencies [b05d556]
+- Updated dependencies [96ad470]
+  - @schlessera/brain-ui-sdk@0.41.0
+  - @schlessera/brain-geo@0.41.0
+  - @schlessera/brain-render-template@0.41.0
+  - @schlessera/brain-common@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

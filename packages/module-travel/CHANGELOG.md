@@ -1,5 +1,59 @@
 # @schlessera/brain-module-travel
 
+## 0.41.0
+
+### Minor Changes
+
+- a4120ed: Add `@schlessera/brain/module`, the supported entry for module authors (`@experimental` until 1.0). It carries the path-containment and atomic-write helpers (`safeResolve`, `resolveWritable`, `writeFileSafely`, `WriteRefusedError`), the scratch helpers, frontmatter splitting and generated regions, `buildTaxonomy`, `getMarkdownFiles`, `runRegistry`, and completion-provider resolution (`resolveCompletionProvider`, `geminiCompletions`, `GEMINI_FLASH_MODEL`). `CommandContext` gains an optional `completions`, the brain's `completions` config block, so a module command honours the configured provider. The first-party modules now use this entry instead of `@schlessera/brain/internal`, so a module published outside this repository can do everything they do. `GEMINI_FLASH_MODEL` is now typed `string` rather than its literal value.
+- 2dd5502: Add `brain travel sync [--check]`, which regenerates `trips/_index.md` (Done, Proposed and Dismissed day trips) and `places/_index.md` (countries visited, every place and the places reached each year) from the canonical journey, trip and place records. Only the `travel-trips` and `travel-places` generated regions change; prose around them, including the trips index's choosing rules, keeps its bytes, and an unchanged brain writes nothing. A visit linked from several places counts once, and unknown dates and coordinates stay `unknown`. Any invalid record or malformed region refuses the run and writes neither registry. New `trip-log` and `places` skills propose, record and dismiss trips and record visited places through the photo, route and sync commands; `plan-travel` now records a completed journey's visit.
+- 91995dc: Add optional descriptive/date-based output names for travel photo and route
+  commands, with `date_source` reporting the date actually applied to a requested
+  name. Photos preserve original capture metadata and support explicit forced
+  visit dates; legacy names and non-overwriting publication remain intact.
+
+### Patch Changes
+
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- 9fae65f: An Outdooractive route URL is now refused with the supported path: export the GPX from the route page while signed in, then import the local file.
+- 1c8716a: Accept the global `--human` flag in travel route, validate and migrate commands, preserving their existing human output and rejecting unknown flags.
+- 07b5681: Direct saved-settings travel migration refusals to reviewed manual upgrade guidance instead of an unavailable automatic settings migration. Preserve the filename, refusal status and no-changes assurance.
+- f2000d0: Update the travel upgrade guidance for the delivered JSON module settings writer and precedence. Document the source-only migration's existing refusals and a reviewed manual upgrade that preserves complete party values, unrelated settings and content. Align speaking's upgrade pointer; command behavior and user formats are unchanged.
+- Updated dependencies [8e5c9e8]
+- Updated dependencies [b0815ec]
+- Updated dependencies [62cf4d6]
+- Updated dependencies [a8f884f]
+- Updated dependencies [6cb61cb]
+- Updated dependencies [20557bf]
+- Updated dependencies [b81ff20]
+- Updated dependencies [1caadca]
+- Updated dependencies [a4120ed]
+- Updated dependencies [08663e0]
+- Updated dependencies [825cd04]
+- Updated dependencies [e12287d]
+- Updated dependencies [2edf82b]
+- Updated dependencies [2907722]
+- Updated dependencies [1a943d8]
+- Updated dependencies [1de5e19]
+- Updated dependencies [651718a]
+- Updated dependencies [d57dc62]
+- Updated dependencies [e632b50]
+- Updated dependencies [dbea4f5]
+- Updated dependencies [ae61e82]
+- Updated dependencies [d4eff9f]
+- Updated dependencies [a95a924]
+- Updated dependencies [8cb13a6]
+- Updated dependencies [a26209c]
+- Updated dependencies [7719bca]
+- Updated dependencies [2a7de32]
+- Updated dependencies [83585eb]
+- Updated dependencies [9072d22]
+- Updated dependencies [b300bb3]
+- Updated dependencies [d641a7d]
+  - @schlessera/brain@0.41.0
+  - @schlessera/brain-geo@0.41.0
+  - @schlessera/brain-common@0.41.0
+  - @schlessera/brain-scrape@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

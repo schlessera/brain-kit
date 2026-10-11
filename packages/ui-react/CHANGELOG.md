@@ -1,5 +1,376 @@
 # @schlessera/brain-ui-react
 
+## 0.41.0
+
+### Minor Changes
+
+- 45326b1: Show follow-ups that are still waiting for the agent, and keep them through a reload. A message sent while a session is busy no longer appears in the chat until the agent takes it: it waits as a `pending` pill in the right half of the row above the composer, and its full text opens on hover, keyboard focus or a tap. Three or more show the oldest pill and a `+N pending` summary that opens a read-only `Pending follow-ups` sheet. When the agent takes one, its pill goes and the message appears in the chat once, where it entered the conversation; a dropped one leaves with its reason. The host reports each session's queue in a new `session_queue` frame (`server_hello.capabilities.followUpQueue`, sent only to clients that declare the same flag in `client_hello`) after a reconnect, after `session_resume` and on every change, so a reloaded or second client rebuilds the same stack. The kit adds `PendingFollowUps` and `followUpLabel`, and `ListRow` gains `describedBy` for pills.
+- 637d2c4: Label pending follow-up and working-session pills with a few words from a small, fast model. A host that passes `createApp({ labeller: { provider } })`, with any value of core's `CompletionProvider` shape, gets a 2–4 word label for each queued follow-up (on `QueuedFollowUpView.label`, sent again in `session_queue` when it arrives) and for each session's latest request (on `ChatSession.label` in `GET /api/sessions`, stored so a reload or restart reuses it). Labels are plain text of at most `PILL_LABEL_MAX_CHARS` (32) characters. Pills render at once with their fallback, the session title or the start of the prompt, and keep it when the labeller is off, which is the default, or fails. With a labeller set, the text of every queued follow-up and turn request goes to its provider, which may be a different vendor from the session's backend. Calls are counted in `brain.labeller.calls`. The app's pending follow-up pills print the host's label when there is one.
+- 07f5a26: Record on the device without a server voice session. `startLocalCapture` opens the microphone and records with MediaRecorder (`audio/webm;codecs=opus`, else `audio/mp4`), handing each chunk to a sink with its start and end in milliseconds; `stop(reason)` resolves once the final chunk was handed over and the microphone released. It makes no network request. `detectLocalCaptureSupport` reports whether the page can: a supported container, a Blob write to IndexedDB and a secure context, without touching the microphone.
+
+  A root created with `localCapture: { sink }` offers it in the composer: with the host unreachable, the mic becomes "Record on this device", and a tap records into the sink. A recording stays one when the host comes back, and a dictation never turns into one. A refused microphone and a browser that cannot record on the device each get their own copy, and the latter shows no mic. Without the option nothing changes: online and offline, the mic dictates as before. Shipped builds leave it off until recordings are stored durably.
+
+  The kit `Composer` gains `mic` (off hides the microphone) and `micLabel` (its accessible name when the capture is not dictation).
+
+- f508e27: Keep the composer's drafts on this device across a reload. The authenticated `GET /api/vpn-check` probe now also returns `accountKey`, an opaque name for the signed-in account on this host and brain root that stays the same across sign-out and sign-in as the same owner, differs between hosts and roots, and is never given to an agent principal. The client writes every draft (text and images), the voice review text, the selection, the focused element and the transcript position to IndexedDB in that account's partition a moment after each change, and opens the partition only while it holds the same key. After an authenticated boot as the same account they come back: the text, images and review text, the selection and focus, then the place in the transcript. Another account restores nothing. A write the browser refuses shows `Couldn't save your draft on this device.` in the composer's hint and is never reported as kept, while editing goes on. Staged track files still live in this tab only. The stored drafts are not encrypted and are not protection against someone with access to the device.
+- 89498a3: A service-worker update no longer reloads the page during a voice dictation or
+  while dictated text waits in the review card, even when the composer's text
+  field is empty. The reload waits for every update hold registered on the root
+  and fires once when they are all idle. `registerUpdateHold(root, { busy,
+subscribe })` lets other local work hold the reload the same way; the shell's
+  `isBusy` option still adds its own work.
+- ca68cbc: Add the local recording sheet, recording tray and editable transcript review; commit accepted text to the device-local draft before deleting its audio.
+- 9a89d4a: Show configured profiles that cannot run now, with their reason, in the handoff sheet. `AgentBackend` gains an optional `listUnavailableProfiles()` returning `{ id, label, reason }`, with `reason` from the closed `PROFILE_UNAVAILABLE_REASONS` enum (`needs-credentials`). The Claude backend reports a profile whose required environment key is missing; pi lists every configured profile and omits the member. `GET /api/providers` gains an optional `unavailable` list beside `providers`, absent when empty: the runnable roster, routing and handoff resolution are unchanged, and the host drops any entry whose reason is not in the enum, so no key name or other backend text reaches a client. The handoff sheet's To list shows these profiles on other backends after the runnable ones, disabled and reading `needs credentials`; they cannot be chosen.
+- b0815ec: **Breaking (pre-1.0, ruled on #1053):** narrow the public surfaces that were public only because a public declaration reached them, and move the names whose classification was uncertain.
+
+  - `@schlessera/brain-ui-server`: `WsHost` keeps its configuration fields, `registry` and `close()`. Its connection, client-set, catalog, turn, activity, inbox, draft, label and classification members are `@internal`, as are the matching `WsHostOptions` fields. `SessionCatalog` and `createSessionCatalog` move to `@schlessera/brain-ui-server/internal`; a custom session catalog is no longer supported, so build the host with `createApp`.
+  - `@schlessera/brain-ui-react`: `useChatStore`, `useFileStore`, `useShareStore`, `useUIStore` and `useVoiceStore` are typed as `ShellStoreHook<View>` over the new `ChatShellState`, `FileShellState`, `ShareShellState`, `UIShellState` and `VoiceShellState`, which hold the fields a shell reads and calls. The selector form and the `getState()`/`subscribe()` statics remain; `setState` is no longer typed. `activeChat`, `anyStreaming` and `hasPendingShare` take the views. `ShareIntakeState` is no longer exported, the full store state types leave the public surface, and `BrainUiRoot.stores` is `@internal`.
+  - Moved to `/internal`, with no compatibility promise: `collectStats` and `CollectStatsOptions` (`@schlessera/brain/internal`); `MAX_ROUTE_BYTES` (the new `@schlessera/brain-geo/internal`); `applyExportLinkPolicy` and `protectExportLinkDestinations` (`@schlessera/brain-render-template/internal`); `TOKENS`, `LIGHT_TOKENS`, `canvas` and `TokenName` (`@schlessera/brain-ui-kit/internal`); the SDK's bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`), `wrapCommand` and `execWrapperSpawnOptions` (`@schlessera/brain-ui-sdk/internal`); `describeRetry`, `canonicalModelId` and `resolveThinkingLevel`, from every SDK entry (`/internal` and `/internal/client`); `createToolRendererRegistry`, `pruneStoredShares`, `ShareTargetError`, `isShareTargetRequest` and `handleShareTargetRequest` (`@schlessera/brain-ui-sdk/internal/client`). `registerShareTarget` and `readShareLaunchParams` stay on `/share-target`.
+  - Kept and documented: `repoRelativePathSchema` (module config schemas), `MEASURED_RUNTIME` and `runScrape`.
+
+  The migration list is in `docs/decisions/public-export-boundary.md`.
+
+- 67aea56: A restored approval card now follows the host. When the host advertises session recovery, a card it re-delivered after a reload stays answerable only while the recovery envelope lists its request as pending. Otherwise it turns read-only, without Allow or Deny, and says why: `answered on another device`, `ended with the turn` or `no longer yours to answer` (after a 401/403 read or a revocation, which also drops the card's request and turn identities). Nothing is sent when a card closes. The read is the tracker client's existing recovery read, now also made for a session that holds a restored card. A turn shell's header shows the host's `startedAt` for its turn when the envelope's latest turn is that one, and no time otherwise, instead of the page's clock. Without the capability, cards behave as before. `ToolCall` gains `approvalTurnId` and `readOnly` (a `RestoredApprovalClosure`), and `ChatMessage` gains `turnShell`.
+- daf4546: Run the scripts of HTML files in the file viewer, isolated from the app. A new authenticated `GET /api/files/html?path=…` serves an `.html`/`.htm` file under the same path, auth and size rules as `?raw=1`. Its CSP `sandbox allow-scripts` directive gives the document an opaque origin, and `connect-src 'none'` and `form-action 'none'` keep it off the network. It is the only response sent with `X-Frame-Options: SAMEORIGIN`; every other response keeps `DENY`. The viewer's preview now loads that route in an `allow-scripts` iframe, and an "Open in new tab" link opens it full-screen with the same isolation. A previewed page cannot read the app's DOM, cookies or storage, call `/api/*`, open popups, submit forms, download files or navigate the app. It can still navigate itself to another site, carrying what it can read, and a tab shows it under the app's host: both are accepted residual risks (#1084). The SDK's default service-worker policy never answers an `/api` navigation from the app shell.
+- 8327d47: A page that throws, or a lazy chunk a redeploy has replaced, no longer blanks
+  the app. `AppShell` answers in place of the page, with a retry, a way back to
+  Chat and a reviewed copy of the details, while navigation keeps working. A
+  stale chunk reloads by itself when that is safe. Shells can wrap everything in
+  the new `AppErrorBoundary` for a last-resort reload screen.
+- 23599e2: Export the share pipeline (`shareMarkdown`, `renderBlockHtml`,
+  `buildDiagramShareOptions`, `inlineMermaidDiagrams`), `splitFrontmatter` and
+  `runStats` from the package root, for shells that assemble their own surfaces.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- 543231e: Failed Activity runs offer **Send bug report**: a sibling button on failed history rows (`Report` below 480px) and a button under the run detail receipt. It opens the editable review the chat failure card uses, prefilled with allowlisted facts only; failure text and job name are explicit, redacted and capped inclusions, and only the final action opens a prefilled public GitHub issue draft. `SystemStatus` now declares the `software: { release, sourceCommit }` object `/api/status` already serves (additive).
+- 5416a22: Notify recipients about waiting Actions. Push-eligible decisions (score 12 or
+  more) collect in a fixed 60-second window per recipient and leave as one
+  counted notice that opens Actions. Each device is evaluated on its own:
+  strict local quiet hours from 22:00 to 08:00, at most one known successful
+  push per waiting episode, and bounded retries that resend only what is still
+  waiting and unsent. Lower-priority decisions and FYIs join the in-app digest
+  at the client's local 09:00 and 17:00, listing only work not already reported
+  to that client. Clients report their IANA zone on registration, rebind,
+  reconnection, foreground return and zone change; without a usable zone,
+  timed notices stay pending instead of using server time. Additive: optional
+  `timeZone` on `POST /api/push/subscribe`, `timeZone` in subscription
+  summaries, the SDK worker renewal sends its zone, and the
+  `ActionDigestEntry`/`ActionDigestSummary`/`ActionDigestState` protocol types.
+- 618064d: Show durable decisions and a read-only Queue in the existing Actions destination (#684).
+
+  - `@schlessera/brain-ui-kit` adds `EffectPreview` (the exact tool, path and full input of a stored effect, with a 12-line reveal gate and a raw-text fallback for a malformed effect) and `DispositionBar` (commit, Later and Dismiss with 44px floors and a `Recording…` state), an optional `ActionCard.footLink`, and an optional `Button.ariaLabel`.
+  - `@schlessera/brain-ui-react` subscribes to the durable Actions and Queue views when the host advertises them, and renders open decisions in the `needs you` lens after live approvals, grouped by thread in priority order, with notices after them and snoozed items under `Later`. FYIs are filed under `done › Notes`. Nothing changes on a tap until the server confirms it; refusals reconcile from a fresh snapshot and nothing is resent automatically.
+  - The Actions badge now counts live approvals plus open, non-FYI durable decisions. Run notices keep their own count in the list and no longer badge.
+  - A pruned run's detail now reads "Trace pruned · this run's rollup is kept."
+
+- 98baa4c: Interactive answers are delivered with receipts (breaking for ask answers,
+  #910). A host now settles an `ask_user`, `ask_user_list`, `ask_user_rank` or
+  `ask_user_form` answer only when it carries a `submissionId`, and tells the
+  sender what happened with an `ask_answer_receipt`. **Compatibility break:**
+  an older client's answer, which carries no `submissionId`, is refused with an
+  `ASK_ANSWER_UPDATE_REQUIRED` error and the question stays waiting. An updated
+  client shows "Update needed" instead of answering a host that does not
+  advertise `askReceipts`. Update the client and the host together. Tool
+  approvals, dismissals, location and mask replies are unchanged.
+
+  The wire protocol is revision 5. It adds `ask_answer_status`, `ping`/`pong`
+  liveness probes, `server_hello.principalKey`, and the `askReceipts` and
+  `liveness` capabilities. After `session_resume` the host re-sends that
+  session's pending questions. On the Claude backend an ask's request id is
+  now the model's `tool_use` id, so a card rebuilt from history answers the
+  same request as the live one.
+
+  `BrainUiClient` probes a foreground socket after 15 seconds without traffic
+  and replaces it if no `pong` arrives within 5 seconds. It also abandons a
+  connection attempt that has delivered nothing after 10 seconds, and exposes
+  `checkLiveness()`, `setForeground()`, `supportsAskReceipts` and `hello`.
+
+  In the chat UI, a request delivered twice, or after history, is one card.
+  A submitted answer is saved on the device (IndexedDB), then sent. It shows
+  as answered only on the host's receipt, and it is retried automatically after
+  a reconnect or a reload. The queue holds up to 16 answers and 16 MiB for up
+  to 24 hours. It is coordinated across tabs, and it is cleared at sign-out.
+  Each card shows where its answer stands, with Cancel sending, Copy answer,
+  Send as message, Edit and Try again where they apply. After Submit, focus
+  moves to that status rather than to the composer.
+
+- f21c430: The kit gains `DiscButton` and `DiscRow`, the overlay disc: a 32px paint in a 44px button with `ink` or `mute` rest ink and an optional label that expands leftward on hover and keyboard focus, instantly under reduced motion. `SuggestionItem` gains optional `cost`, printed as a gold effect chip, and `disabled` with `why`, printed at rest; a disabled chip stays focusable and ignores clicks, taps, Enter and Space. Interactive chips are at least 44px tall under a coarse pointer. Icons gain `latest`. The Chat page's New chat and scroll discs now use `DiscButton`: New chat is ink at rest and opens to its label, and the scroll disc is named `Scroll to latest` with a 44px target.
+- 80657b9: The desktop rail follows D52 §1. Its destinations are Chat, Sessions, Actions, Files and Settings on ⌘1–⌘5 (Sessions is ⌘2, Actions moves to ⌘3 and Files to ⌘4). Graph is no longer a destination: it stays in the palette's Jump to, with no key. Under the destinations, the rail draws Search, Add a note and the Daily briefing (printing `spends` and its unavailable reason) with the palette's own handlers; collapsed, it draws only Search and Add. The passive ⌘K cap is now an `All commands` button that opens this root's palette by click, tap, Enter or space. Closing the palette without running a row returns focus to what held it. The palette lists Sessions once, under Jump to, and prints destination keys only under a fine pointer, as the rail does. A route that lands in Chat and then runs something (the acts, Sessions, New chat and the palette rows) now waits for unsaved Settings to be left before doing either.
+- 18bc182: The phone bar is now Chat, Sessions, Actions, Files and More (D52). Sessions has a slot of its own and Graph has moved into More. More now holds Settings, Graph, Add a note, the Daily briefing, Sync and Brain statistics. The briefing always shows `spends` and Sync always shows `sync`, including when they cannot run. Each unavailable row gives the real reason: `needs the host` when offline, `a turn is running` while a turn streams. A Search disc sits left of New chat in an occupied chat below 480px. On the empty chat, the starting chips are the briefing (showing `spends`, disabled with its reason when it cannot run), Search and Add a note. Add a note replaces the statistics chip.
+
+  Every bar slot replaces any open panel, and tapping the slot you are already on no longer closes it. The Sessions, Files and Settings drawers now stop above the phone bar, so every slot stays one tap away while one of them is open. A Files or Sessions tap from a view that cannot show that panel lands in Chat with the panel open. The UI store gains `openPanel("sessions" | "files" | "settings")` for this. Closing More with Escape or the scrim returns focus to the More slot.
+
+- ea8506b: Track work left running in another session until you have seen it (D52 §4).
+  Leaving a session by New chat, by selecting another one, or by leaving the
+  page while its turn runs, is queued, waits on an approval or a question, or
+  has a send the host never acknowledged, now records a tracker for it. So
+  does work that starts in a session you are not looking at. A tracker's state
+  comes only from the host: its recovery envelope when it advertises
+  `sessionRecovery`, and the live frames between reads. The states, in display
+  order, are needs you, failed, unconfirmed, running, queued, unknown, can't
+  check, done and cancelled, and times are only ever the host's own. A tracker
+  clears only when Chat shows that session's latest turn, with the document
+  visible, no panel over it and the transcript at its end. Selecting the
+  session or being scrolled up does not count, and an older observation never
+  clears newer work. Each root stores only identifiers, under its own prefix
+  (`${storagePrefix}:trackers:v1`); a different principal or a revocation
+  deletes the set. Recovery reads never send a frame, select a session or
+  start a turn. The strip and pane that show trackers are separate work.
+- 7bfdc71: Show work left running in other sessions where you can reach it. Below 1280px the sessions you left busy, or whose work started while you were elsewhere, appear as pills in the left half of the row above the composer, most urgent first: `needs you`, `failed`, `running · 2m`, `done · 4m` and the other tracker states, labelled with the host's few-word label or the session title. Three or more show the most urgent and a summary that opens the `Working` sheet. From 1280px Chat has a 280px Sessions pane beside the transcript instead: `New conversation` is its one primary action (there is no New chat disc at that width, and in an empty chat the button is `aria-disabled` with `already a new chat`), and a `Working` group lists the trackers above the date groups. Pressing Sessions there stays in Chat and moves focus into the pane. In the drawer and the pane, Working replaces the single `Session running…` row, a tracked session is not listed again in its date group, and the list is one roving tab stop.
+
+  Opening a tracker reattaches its session without starting a turn, shows its latest turn and moves focus to a waiting approval or question, a failed turn's primary action, or the composer (nowhere on a phone, so the keyboard stays down). It clears only once that latest turn is on screen. A latest turn the host cannot link offers `Mark as seen`. A change to `needs you`, `failed` or `done` is announced once in a polite live region; a reload, repeated frames and ticking ages announce nothing.
+
+- f9999e3: Every session keeps its own composer draft. Text and images typed in one session stay with it: switching sessions, opening Actions, Files or Settings, and remounting the composer bring back exactly that session's draft, and nothing typed in one session appears in another. New chat, from the overlay disc, Sessions `New conversation` and the palette, opens an empty composer and keeps the old draft where it was, with no confirmation. A draft that has no session yet is listed in Sessions under `Drafts` (`Draft with 2 images` when it has no text) and opens again in an empty chat; a session with a draft prints `draft · 2h` on its row. Repeated empty New chats list nothing.
+
+  On a host that advertises `capabilities.sessionDrafts`, drafts are saved there and restored after a reload and on the operator's other devices. The line under the composer says what happened: `draft · saved` only once the host acknowledged that exact revision, images included; `draft · saving…`, `draft · not saved yet` while unreachable, `too large to save` and `drafts saved · delete one to save this` for the host's limits, and `draft · this host doesn't keep drafts · kept on this device` without the capability. A draft changed on another device while edited here prints `draft changed on another device · Compare`; `Compare drafts` shows both versions and offers `Keep this device's`, `Keep other's` and `Keep both`, which turns the other version into a Draft entry. Nothing is merged and nothing visible is overwritten.
+
+  A send is now a snapshot apart from the draft: the field empties when you send, the message names the saved revision so the host consumes exactly that one, and words typed after sending are the session's next draft. A refused message comes back into the draft. A message the host never confirmed (the connection dropped, or the host refused a frame without naming it) is held where it was sent as a `Didn't hear back` block with `Check again`, `Send again` and `Edit`; nothing is resent on its own. A new conversation's first message that is answered after you have moved on attaches to its own session without taking over the view. `useServiceWorkerUpdates` now also waits while any draft holds words the host has not saved, or a send has not been settled, since those live in the page's memory rather than on screen.
+
+- 75e79b6: Let a client that reloads, reconnects or comes back to a session learn from
+  the host what that session's latest work actually is. A host now advertises
+  `server_hello.capabilities.sessionRecovery` and answers
+  `GET /api/sessions/:id/recovery` with the latest accepted request (its
+  `requestId`, the `turnId` that runs it, and whether it is queued, running,
+  terminal with its Activity outcome, or unknown), a persisted revision that
+  orders acceptance, and the approvals and questions still waiting in the
+  session. A newer queued request is never reported as an older success, a
+  restart never resurrects a lost queue or turn, and whatever the host cannot
+  prove reads `unknown`. Replayed history may carry a host-proven `turnId` on
+  the answer that ended each turn. A `session_resume` now re-sends the
+  session's pending approvals, and the transcript draws a turn shell holding
+  the card, marked `restored`, when the replay ends on the user's message, so a
+  reload no longer loses a pending approval. Additive: the `SessionRecovery*`
+  types, `sessionRecoverySchema`, `classifySessionRecoveryResponse`, the
+  optional `SessionHistoryMessage.turnId`, and the React API client's
+  `sessionRecovery()`.
+- ab55924: Breaking: remove the nonexistent `health().version` declaration and expose `timestamp`; callers needing software identity must use authenticated `status()`.
+  Fix `brainSync()` to consume SSE terminal results and reject incomplete streams without retrying.
+- ef479fd: Offer device-local unassigned voice capture on cached offline launches and from re-authentication, with locked account recordings shown only as aggregate size. Explain the one-online-load requirement in the worker's last-resort response.
+- d2436b8: Continue a conversation on another backend (#61). The locked model picker, a session row's overflow and the ⌘K palette open a review sheet that drafts a handoff summary with the source's own model (falling back to a draft from the last six messages), lets you edit it and pick references, and starts a new linked chat on the chosen backend. The source keeps its history, backend and accounting and shows a forward marker; the new chat opens with a handoff card linking back. Additive wire: `chat_message.handoff`, `handoff_prepare`/`handoff_prepare_cancel`/`handoff_status`, `handoff_draft`/`handoff_receipt`, message source `handoff` and `ChatSession.handoffFrom`. A repeated handoff key never creates a second session. `ModelPicker` gains an optional `lockedAction`.
+- 4c29de7: Require explicit association of unassigned recordings and warn before sign-out deletes account-local work.
+- 11c54ba: Explain Actions-limit hygiene pauses and server-confirmed Resume outcomes, with accessible focus and responsive panels.
+- 1a8ba32: Present human-started hygiene reviews in Actions with finding evidence, typed repairs, exact previews, confirmed dispositions, recovery controls and review receipts. Reuse the durable inbox stream, and explicitly refresh stale findings through the server-owned replacement operation.
+- d89e175: Add agent-authored inline graph blocks with bounded topology, deterministic layout, supplied edges, safe local-file links and accessible replay/static lists. GraphView can disable implicit focus connections and wrap bounded labels.
+- 533c0a7: Add the live-conversation host contract (#957). `@schlessera/brain-ui-sdk/server`
+  exports the experimental `LiveConversationProvider` seam with runtime
+  validation, and the protocol gains the additive, negotiated `conversation_*`
+  frames and `tool_resolution`. `createApp({ conversationProvider })` registers a
+  provider beside dictation: the host admits work only on a client's semantic
+  commit, runs it through the ordinary backend with the voice posture
+  (new `StartTurnRequest.posture: "voice"`: Claude selects `VOICE_ALLOWED_TOOLS`,
+  pi refuses the turn), never
+  publishes a result for a cancelled, withdrawn or replaced request, and keeps a
+  once-only permission announcement ledger across epochs. Clients that declare
+  `toolResolution` learn whether a permission request was granted, denied,
+  expired with its turn, or unknown. Legacy and rev-3 clients see no change.
+  No provider adapter ships.
+- 416bda6: Compose Markdown fences through CodeBlock with exact source copy and a
+  kit-token syntax theme in both themes. CodeBlock accepts highlighted
+  children and a host-owned head action; wrapping preserves full commands.
+
+  Pre-1.0 breaking change approved in #1142: CodeBlock no longer defaults to
+  bash or a sample command and draws no action-less copy glyph. Consumers
+  must pass lang explicitly when wanted, code or children for content, and
+  an action for a real control. Native wrap=false scrolling is retained.
+
+- 0c889d7: Stop capture and save the work context before locking protected views on auth expiry; restore it after same-account sign-in without a reload.
+- 0f54eea: Add account-partitioned local audio recordings with committed recovery, playback, hard caps and update holds.
+- 8d966cf: Transcribe retained recordings only after explicit upload consent through the server. Add optional saved-audio speech support, read-only capability/status discovery, durable account-owned receipts and tombstones, and at most three explicit retries for definitive transient provider failures. Deepgram supports saved containers; Web Speech remains unavailable. Retain local audio through failures and durable transcript review, coordinate tabs, and never upload automatically on reconnect or reload.
+- 9857f6f: Render Search and agent search results with the shared search card, preserving all snippet highlights, real scores when available, warnings and root-scoped file navigation. The kit gains optional title, type, selected-state and multi-highlight segment props; existing single-highlight callers remain supported.
+- 7b4f62a: Add a bounded data-only `show_block` supporting-files variant rendered through RelatedFiles in chat, replay and static exports. Keep file opening in the current root, omit invented scores and sample metadata, and make actionable rows at least 44px tall.
+- b05d556: `show_block` gains a `tracker` block (#1001): issues and pull requests the agent opened, closed, reopened, merged, labeled, commented on or reviewed, as `{ kind: "tracker", events: [{ url, action, qualifier?, title }] }` with 1-20 events.
+
+  - **ui-kit:** `TrackerPillList` draws each event as one tappable line, `action [qualifier] · number · title ↗`, under run headers that name the host and repository. Repository, number and type are derived from a GitHub-shaped `url`; any other address shows only its title, action and host. Long titles truncate instead of wrapping, a refused address draws a withheld line with no anchor, more than six events collapse to five behind `Show all N changes` (a shared image or PDF draws them all, titles in full), and the list always says the changes are as reported by the brain.
+  - **ui-sdk:** the schema rejects an event carrying any key besides its four, so a payload cannot state a repository, number or type, and the handler rejects an event whose address the link policy refuses, naming its position and the reason. The `show_block` description tells the model to use `tracker` instead of listing tracker changes in prose; the per-turn brief is unchanged.
+  - **ui-react:** the block renderer draws `tracker` blocks.
+
+### Patch Changes
+
+- 07345fa: Connection drops no longer move or reset what is on screen. The composer's hint line stays one line high (text that does not fit ends in an ellipsis), so the offline reason arriving or leaving no longer moves the field. A draft whose save is still on its way keeps the save line's place under the composer. Reconnecting in the middle of a running turn reattaches to it: the host's greeting no longer ends the stream in view, and a history replay keeps the messages already drawn (and their nodes, times and the reader's scroll position), so the answer keeps streaming into the same message. A track upload that fails in transit just before the page sees the connection go now waits and resumes with the connection instead of showing a failure.
+- 70af334: On the desktop rail, ⌘2/⌘4/⌘5 and the palette's Jump to rows, Sessions, Files and Settings no longer toggle (D52 N1/N3). Pressing the destination that is already open leaves it open, and each one replaces any other open panel. Files from Actions, which has no Files panel, now lands in Chat with Files drawn rather than setting the flag with nothing shown.
+- 42228d3: From 480px up, the Sessions, Files and Settings drawers and their backdrops stop beside the desktop rail instead of covering it, as they already stop above the phone bar. With one of them open, every rail destination is one press away again (D52 §2, "Panel open: 1"). Search, Add and the job panels still cover the rail.
+- 3c49d9f: Pressing the destination already shown, by rail row, ⌘1–⌘5, the palette's Jump to or a phone bar slot, now scrolls it to its start and moves focus instead of doing nothing (D52 N3 and its addendum). Chat's start is its latest turn: it does what `Scroll to latest` does, then focuses a waiting approval or question, the latest turn's failure, or the composer with the caret at the end; on a phone focus stays on the Chat tab. Sessions focuses the running session, then the one in view. Actions, Files and Settings focus their selected run, file or section, and fall back to their heading. Nothing is closed or cleared. Run rows in Actions now carry `aria-current` for the run the detail shows.
+- 270cb63: Say which backend to fix when Continue on another backend cannot run because the other backends are set up but none of their profiles can run. The entry in the locked model picker, a session row's menu and the desktop palette stays disabled, and now names every such backend, as `useBackendName` does, followed by the reason, for example `pi needs credentials` or `pi, codex need credentials`. It reads `can't run now` instead when any of those profiles reports another reason. `no other backend set up` is now shown only when no other backend reports any profile. `useBackendName` now falls back to the label of a profile that cannot run before it falls back to the backend id.
+- 0146922: A new chat that holds only staged track files (GPX, KML, GeoJSON) stays reachable after New chat. Sessions lists it under `Drafts` as `Draft with 1 track file`, with the state line `draft · tracks in this tab only`; a draft that also has text or images reads `draft · {save state} · tracks in this tab only`. A failed upload (`1 track failed`) is shown before one still under way (`uploading 1 track`). Opening the entry brings back the same staged tracks, uploads continuing, and sends nothing. Removing the last track from a chat with no text or images takes it out of Drafts at once and puts focus in the composer field. At 1280 and wider, the Sessions pane's `New conversation` is available while the new chat holds staged tracks. Tracks are never called saved: they live in this tab's memory only.
+
+  `useServiceWorkerUpdates` now also waits while any session or new chat holds a staged track, whichever is in view, and reloads once when the last one is sent or removed.
+
+- dff882e: Ask before leaving the page while staged track files would be lost. While any session or new chat holds a staged track (GPX, KML, GeoJSON), whichever is in view and whatever its upload state, the page asks the browser to confirm a reload, tab close or navigation away, including a reload the app starts itself, such as the one after signing in again. The browser shows its own confirmation, with its own words. Sending or removing the last track removes the guard, and the service-worker update's reload after it never asks.
+- d5a5feb: Keep what was dictated when the speech provider ends a dictation on its own. When the Deepgram socket closed (end of stream, an idle timeout, a dropped connection or an expired grant) or the browser's speech recognition ended without a stop, the dictation sheet closed and the words heard so far were lost. They now go to the review card as Done hands them, in the same update that ends the dictation, so a pending app update still waits for them. A dictation whose composer unmounts mid-capture keeps its words the same way, and a replaced recognizer ending late no longer ends the dictation that replaced it.
+- 6ce696e: Keep pending approval controls stable as their detail panels mount, so an early phone touch produces its original approval reply. Respect reduced motion for tool details while preserving ordinary expansion animation.
+- 5ffb624: Keep tool permissions pending when a decision send is refused, preserve restored approval controls through reconnect history, and avoid false Actions decision or policy-write receipts.
+- f341317: After a reload, the chat no longer shows the welcome screen while the next message would go into the previously selected conversation. Until that conversation's history arrives, Chat says "Restoring conversation", the composer keeps the draft and explains why sending waits, and no message can be sent into it from any surface. The history request is confirmed rather than fire-and-forget: it is asked for again on the next connection, and once on the session's next idle status, and a request nothing answers ends after 20 seconds in "Couldn't restore this conversation" with Retry and New chat, as does a load error. Retry only reads the history again; New chat starts a new conversation without the old session id. Nothing is sent automatically once the history arrives. The host logs one `session resume` line per `session_resume`, with the session id and its outcome (`loaded`, `error` or `unauthorized`).
+- e159c45: A tool renderer that throws no longer takes down the app. The failing call
+  falls back to the generic tool view, including its approval card, and the
+  error is reported once.
+- a1e007c: Internal: the root crash screen's native button carries a raw-button marker for
+  the new lint gate. Behaviour is unchanged.
+- 964f7dd: Internal: ui-react's stores, lib and connection modules no longer import its
+  components. The pure helpers they used moved into `lib/`. The public exports
+  are unchanged.
+- 2c3e5bd: The Daily briefing panel now shows the keyless `brain briefing` output from `GET /api/brain/briefing`, the selected root's existing briefing route, with loading, empty, failure and Retry states. The internal `POST /api/brain/whatsup` route is gone, and with it the repo-local script lookup at `private/whatsup.ts` and `scripts/whatsup.ts` and its forced `--gemini` flag: opening the briefing runs no script and no agent turn. Because the briefing cannot spend, the rail, palette, More sheet and welcome chip no longer print `spends` beside it.
+
+  `SuggestionChips` now sets its chip gaps as longhands, so a chip whose reason comes and goes on a rerender no longer makes React report a conflicting `gap`/`rowGap` style.
+
+- dcdda5d: The app shows the brain-kit logo where the lucide Brain icon stood in for it: the desktop side rail's wordmark tile, the login screen and the empty chat. `EmptyState` gains `brand`, which shows the logo on a plain tile in place of the icon. The Chat tab and command palette keep the lucide Brain navigation glyph.
+- 810af03: Enter runs a slash command instead of sending it. Typing `/stats` and pressing Enter shows the statistics, as clicking its row in the command palette does; nothing goes to the agent. While the palette is open, Enter runs its highlighted row, the first by default, and the up and down arrows move the highlight, which is marked with `aria-current` and announced. A command typed in full still runs after Escape closes the palette, and a draft that starts with `/` but names no command, such as `/etc/hosts?`, is sent as before.
+- 77b9db4: Give the Files drawer close button the accessible name “Close Files” so assistive navigation can identify and dismiss it.
+- 067d63c: Paper Buttons in the primary and affirm tones keep their near-black label on hover. `--bk-button-hover-fg-primary` and `--bk-button-hover-fg-affirm` now point at `--bk-on-fill` instead of `--bk-color-canvas`, so the hovered label on the amber and teal lift fills is `#231f1a` (8.64:1 and 9.10:1) instead of the paper canvas colour (1.54:1 and 1.46:1). The dark theme resolves to the same `#0c0e12` as before, and fills, borders and caller-owned `style` are unchanged. ui-react's precompiled stylesheet carries the corrected aliases.
+- 2274b9e: Use kit icon, text and row controls in Actions and Queue, keeping pricing status visible on phones and providing consistent touch targets and keyboard focus.
+- 0c156cb: Add touch and pen header swipe dismissal to sheet-shaped Overlay surfaces, with bounded feedback, cancellation and reduced-motion support. OverlayCloseReason gains the additive "swipe" reason. Dictation treats swipe as Stop and keeps words for review.
+- 17a6f84: Use kit icon and text actions for media, tool timelines and track controls, and kit row interaction for composite timeline and command rows.
+- c8b317a: Use kit controls for chat, handoff, draft comparison and share actions, with accessible names, focus rings and touch targets.
+- 48e8460: Keep the chat transcript's top spacer until its message area reaches 888px, so the centered reading column clears the New chat target.
+- 7e398dc: Use the shared Overlay for app sheets, dialogs, fullscreen tools and panels. Escape dismisses only the topmost surface, modal focus stays inside and returns on dismissal, and destination panels keep the phone bar and rail operable. Palette and More actions run after closing. Expose the overlay surface ref and destination heading for app navigation adapters.
+
+  CommandPalette no longer carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in Overlay to supply modal semantics and focus management. This standalone-consumer behavior change ships in a pre-1.0 minor.
+
+  Credential and created-handoff focus destinations use deferred focus getters, preserving their targets when the owner unmounts.
+
+- f752ff9: Restore shared Button hover colours while preserving caller-owned styles.
+- 2f0c99d: Show a distinct graph unavailable state when the server cannot load core, preserving mode navigation and hiding unusable scene controls.
+- b92cdb5: Keep reading server-owned hygiene review state during next-item selection so a final confirmed disposition displays Review complete without reloading, including on another connected device.
+- 276a6de: Preserve local hygiene decision attribution across successful intermediate updates until the confirmed lifecycle transition. Fix, manual recheck, Dismiss and Later no longer show a false receipt from another device.
+- 5b0c7d6: Keep hygiene decision controls and desktop detail entry unavailable while a REST finding awaits inbox replication. Enable the same pending Action when it arrives, without replaying an earlier response.
+- 978031a: Add a deterministic human-started hygiene review backed by durable Actions, with pause/resume, confirmed CLI previews, persisted failure outcomes and check-only interrupted-write recovery. Extend the inbox contract with bounded handler input and hygiene effects. Existing generic cards display the new effect as unavailable until the separate hygiene surface is implemented.
+- f91c9e3: Keep both versions of a device-local draft when two tabs edit it concurrently.
+- 9adc62e: Move the Working and Pending follow-up sheets and the phone ModelPicker onto the kit Overlay's native modal coordination, preserving their contents and caller actions. Keep existing sheet chrome, inherit subtree themes without sheet portals, and enforce the removal of the two legacy overlay exceptions.
+- 97021a4: Use StreamingAnswer for first-content, approval-wait and retry status while
+  preserving rich transcript rendering and the composer's single Stop control.
+  Show only measured elapsed time and announce only phase changes.
+
+  Approved pre-1.0 breaking migration: StreamingAnswer no longer supplies example
+  phase, target, elapsed, answer or cost. Pass those facts explicitly where known.
+  The polite live region contains only the phase word. Set the new `pulse` prop
+  to false for a static decision-wait dot.
+
+- 65215fb: Keep the principal learned from the host when an older startup storage read
+  finishes later. Offline answers can then be saved for the current principal;
+  results from before logout or disposal cannot restore admission authority.
+- fd01063: Use kit icon and text actions across Files, graph, search, image viewing and voice review. Preserve composite row interaction and keep voice review actions reachable at narrow widths.
+
+  Draw Overlay dismissal with the native mute IconButton, retaining its accessible name and 44px target, including untitled media and dictation close slots.
+
+- ec033c9: Show persistent, dismissible dictation failure explanations with safe copy while keeping captured words for review.
+- 5d48d1d: Use the shared Overlay for local-work warnings, diagnostic reviews and draft comparisons, with consistent dialog geometry at 900px and shared focus and dismissal handling.
+
+  Wait for the shared dialog's entrance transition before asserting visibility in the review stories.
+
+- 7b2d470: Keep dense graph nodes distinct with relative exponential sizing, tighter linked clusters and attached reminder branches, clearer reciprocal edges, and responsive labels that prioritize the focused neighborhood. Bound layout work with fewer iterations and stop collision cleanup when marks settle.
+- 27671c2: Render Activity run subagents through AgentOrbit using recorded identities and
+  needs-you/running/ended rings. Denied and cancelled agents use the neutral
+  stopped state; no radius represents progress.
+
+  Pre-1.0 migration approved in #1145: callers must pass agents with stable id
+  and state. Remove orbit/angle props; the kit computes placement and accepts
+  an optional state ring. Pass coreMeta explicitly. Empty/missing data draws
+  no sample agents. RunState now includes stopped, also styled neutrally in
+  AgentRunCard. Phone hosts pass compact; labelled pills use onOpen(id) and
+  onOverflow callbacks, with a truthful count legend.
+
+- 879352b: Render retained Activity run intervals through LaneChart on one recorded time
+  axis. Only explicit approval boundaries hatch; only recorded active work has
+  an open tail, and missing terminal timing is disclosed without inference.
+  Preserve outcome words and complete readable timing in both themes and on phones.
+
+  Expose LaneChart's existing HATCH_GLYPH constant from the public kit barrel so
+  hosts can supply the documented waiting legend. Long lane names and legends wrap.
+
+- 9857f6f: Render real chat and subagent tool permissions through ApprovalCard, retaining full targets, actual input/diffs and risk wording, eligibility-gated remembered grants and focus-scoped decisions. Duplicate or closed requests cannot send a second reply. ApprovalCard accepts input details, wrapped runtime headers and an optional remembered-grant action.
+- 2a7de32: Preserve leading dots in bare and inline-code chat links to scratch files and
+  directories, and document preview/download through direct links while scratch
+  remains hidden from normal file-tree browsing.
+- 4c92b91: Render sent validated tracks through AttachmentRow with the same identity and
+  known metadata live and after history replay. Preserve image thumbnails/zoom
+  and composer retry/remove controls.
+
+  AttachmentRow's approved pre-1.0 breaking migration requires `kind` and `label`.
+  Pass optional duration, metadata, extract and provenance explicitly; sample
+  facts are no longer defaults. `meta` also accepts a list of wrapping lines.
+
+- a9e934d: Use kit icon buttons, switches and text actions in Settings and Share, and kit keyboard interaction for settings tabs, variant segments and share menu rows.
+- Updated dependencies [45326b1]
+- Updated dependencies [637d2c4]
+- Updated dependencies [07f5a26]
+- Updated dependencies [07345fa]
+- Updated dependencies [ca68cbc]
+- Updated dependencies [9a89d4a]
+- Updated dependencies [b0815ec]
+- Updated dependencies [daf4546]
+- Updated dependencies [341bee1]
+- Updated dependencies [9ef25ef]
+- Updated dependencies [bddc92b]
+- Updated dependencies [2c3e5bd]
+- Updated dependencies [1caadca]
+- Updated dependencies [02fd0b9]
+- Updated dependencies [b68dd15]
+- Updated dependencies [b68dd15]
+- Updated dependencies [dcdda5d]
+- Updated dependencies [a9a3376]
+- Updated dependencies [825cd04]
+- Updated dependencies [543231e]
+- Updated dependencies [5416a22]
+- Updated dependencies [618064d]
+- Updated dependencies [98baa4c]
+- Updated dependencies [2529d28]
+- Updated dependencies [f21c430]
+- Updated dependencies [2808074]
+- Updated dependencies [75e79b6]
+- Updated dependencies [067d63c]
+- Updated dependencies [18d5dde]
+- Updated dependencies [a95f7c2]
+- Updated dependencies [6a46e7f]
+- Updated dependencies [6f06be8]
+- Updated dependencies [84b8e00]
+- Updated dependencies [368c318]
+- Updated dependencies [0c156cb]
+- Updated dependencies [ee4bcf0]
+- Updated dependencies [90d83d8]
+- Updated dependencies [e7f0ff3]
+- Updated dependencies [ef479fd]
+- Updated dependencies [7e398dc]
+- Updated dependencies [62c912c]
+- Updated dependencies [d2436b8]
+- Updated dependencies [56cf3e3]
+- Updated dependencies [33af7e2]
+- Updated dependencies [f752ff9]
+- Updated dependencies [b04f98b]
+- Updated dependencies [978031a]
+- Updated dependencies [e632b50]
+- Updated dependencies [1a8ba32]
+- Updated dependencies [d89e175]
+- Updated dependencies [9adc62e]
+- Updated dependencies [533c0a7]
+- Updated dependencies [97021a4]
+- Updated dependencies [416bda6]
+- Updated dependencies [9e8dc3e]
+- Updated dependencies [fd01063]
+- Updated dependencies [7e398dc]
+- Updated dependencies [c1052e2]
+- Updated dependencies [5d48d1d]
+- Updated dependencies [b180a2f]
+- Updated dependencies [a713b14]
+- Updated dependencies [5b1cd90]
+- Updated dependencies [ad855ce]
+- Updated dependencies [374bdd6]
+- Updated dependencies [27671c2]
+- Updated dependencies [879352b]
+- Updated dependencies [9857f6f]
+- Updated dependencies [8d966cf]
+- Updated dependencies [2a7de32]
+- Updated dependencies [9857f6f]
+- Updated dependencies [4c92b91]
+- Updated dependencies [83585eb]
+- Updated dependencies [0e4290f]
+- Updated dependencies [0c156cb]
+- Updated dependencies [70275b9]
+- Updated dependencies [7b4f62a]
+- Updated dependencies [693cb3e]
+- Updated dependencies [b05d556]
+- Updated dependencies [3dddcc9]
+- Updated dependencies [96ad470]
+  - @schlessera/brain-ui-sdk@0.41.0
+  - @schlessera/brain-ui-kit@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

@@ -1,5 +1,114 @@
 # @schlessera/brain-backend-claude
 
+## 0.41.0
+
+### Minor Changes
+
+- d36cca7: Deliver messages sent during a running Claude turn into that turn, the way Claude Code does: the message reaches the model beside the next tool result, without interrupting the running step. The backend now declares `capabilities.followUp: true` and implements `followUp()`, so hosts send mid-turn messages live instead of queuing them as the next turn. A message sent while the final answer is being written runs before the turn ends, and the turn still ends on one `result` that counts both runs.
+- 9a89d4a: Show configured profiles that cannot run now, with their reason, in the handoff sheet. `AgentBackend` gains an optional `listUnavailableProfiles()` returning `{ id, label, reason }`, with `reason` from the closed `PROFILE_UNAVAILABLE_REASONS` enum (`needs-credentials`). The Claude backend reports a profile whose required environment key is missing; pi lists every configured profile and omits the member. `GET /api/providers` gains an optional `unavailable` list beside `providers`, absent when empty: the runnable roster, routing and handoff resolution are unchanged, and the host drops any entry whose reason is not in the enum, so no key name or other backend text reaches a client. The handoff sheet's To list shows these profiles on other backends after the runnable ones, disabled and reading `needs credentials`; they cannot be chosen.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- 98baa4c: Interactive answers are delivered with receipts (breaking for ask answers,
+  #910). A host now settles an `ask_user`, `ask_user_list`, `ask_user_rank` or
+  `ask_user_form` answer only when it carries a `submissionId`, and tells the
+  sender what happened with an `ask_answer_receipt`. **Compatibility break:**
+  an older client's answer, which carries no `submissionId`, is refused with an
+  `ASK_ANSWER_UPDATE_REQUIRED` error and the question stays waiting. An updated
+  client shows "Update needed" instead of answering a host that does not
+  advertise `askReceipts`. Update the client and the host together. Tool
+  approvals, dismissals, location and mask replies are unchanged.
+
+  The wire protocol is revision 5. It adds `ask_answer_status`, `ping`/`pong`
+  liveness probes, `server_hello.principalKey`, and the `askReceipts` and
+  `liveness` capabilities. After `session_resume` the host re-sends that
+  session's pending questions. On the Claude backend an ask's request id is
+  now the model's `tool_use` id, so a card rebuilt from history answers the
+  same request as the live one.
+
+  `BrainUiClient` probes a foreground socket after 15 seconds without traffic
+  and replaces it if no `pong` arrives within 5 seconds. It also abandons a
+  connection attempt that has delivered nothing after 10 seconds, and exposes
+  `checkLiveness()`, `setForeground()`, `supportsAskReceipts` and `hello`.
+
+  In the chat UI, a request delivered twice, or after history, is one card.
+  A submitted answer is saved on the device (IndexedDB), then sent. It shows
+  as answered only on the host's receipt, and it is retried automatically after
+  a reconnect or a reload. The queue holds up to 16 answers and 16 MiB for up
+  to 24 hours. It is coordinated across tabs, and it is cleared at sign-out.
+  Each card shows where its answer stands, with Cancel sending, Copy answer,
+  Send as message, Edit and Try again where they apply. After Submit, focus
+  moves to that status rather than to the composer.
+
+- 6f06be8: Expose shared durable inbox tool contracts and eagerly attached first-party bridge executors. Reuse authorized store reads and compensated trusted intake, enforce current turn and budget-admitted origin scope, and require an exact approved session/Action binding for deterministic resolution. Voice and restricted turns refuse mutations; deferred discuss sessions remain disabled.
+- 84b8e00: Run autonomous Claude and pi turns inside a restricted envelope. The worker gets a private network namespace with only loopback and an explicit read envelope instead of the host root, so it cannot read the host home, stored logins or the server's environment, and cannot reach the network, DNS or host Unix sockets. Inference leaves only through a server-owned relay socket that forwards the provider's inference routes to the profile's upstream and injects the server-held credential; the worker holds a placeholder. Restricted turns load no project settings, instructions, skills, hooks, MCP servers or pi extensions, and use only the server's instruction snapshot and enforced tool roster.
+
+  Additive SDK surface: `AutonomousTurnOptions.containment: "restricted"`, `BackendCapabilities.restrictedAutonomous`, and an optional `supportsRestricted` argument to `assertTurnPosture`. `runAutonomousTurn` always requests containment and refuses a backend without the capability. A restricted turn refuses before any worker starts when the host cannot establish the envelope, when a Claude subscription profile has no `CLAUDE_CODE_OAUTH_TOKEN` (a stored login is never copied into the envelope), or when a pi profile has no API key for an Anthropic Messages or OpenAI-compatible provider. Interactive, voice and handoff-summary turns are unchanged. Nothing dispatches autonomous work in production yet.
+
+- 90d83d8: Run every Claude turn inside the isolated worker and apply hosted PNG masks through the bounded server operation.
+- 533c0a7: Add the live-conversation host contract (#957). `@schlessera/brain-ui-sdk/server`
+  exports the experimental `LiveConversationProvider` seam with runtime
+  validation, and the protocol gains the additive, negotiated `conversation_*`
+  frames and `tool_resolution`. `createApp({ conversationProvider })` registers a
+  provider beside dictation: the host admits work only on a client's semantic
+  commit, runs it through the ordinary backend with the voice posture
+  (new `StartTurnRequest.posture: "voice"`: Claude selects `VOICE_ALLOWED_TOOLS`,
+  pi refuses the turn), never
+  publishes a result for a cancelled, withdrawn or replaced request, and keeps a
+  once-only permission announcement ledger across epochs. Clients that declare
+  `toolResolution` learn whether a permission request was granted, denied,
+  expired with its turn, or unknown. Legacy and rev-3 clients see no change.
+  No provider adapter ships.
+- 83585eb: Route hosted capture, update, archive and permitted Markdown edits through a bounded server-owned application boundary with current authority, policy/alias denial and exact base hashes. Add hosted structured tools, preserve voice capabilities and archive confirmation, and explain CLI refusals in read-only workers.
+- 70275b9: Reject unknown fields at the block and item levels of new `show_block` suggestions calls, including unsupported item `tone`, in both Claude and pi. This is a breaking accepted-input tightening shipped as a pre-1.0 minor. Stored and replayed suggestions still discard unknown fields and render when otherwise valid; malformed payloads keep the generic fallback. Other block kinds retain their existing behavior.
+- 361320f: Support Claude Haiku 5.5 through existing discovery and profile selection,
+  including its five effort levels and the required Claude Code 2.1.293 minimum
+  on start and resume. Upgrade the Agent SDK to the verified 0.3.293 / bundled
+  2.1.293 pair, retaining explicit manual approvals and existing enforcement.
+- 6f94538: Give restricted autonomous turns a versioned trusted instruction/tool prefix and an explicit SDK cache boundary. Keep per-item server context after that prefix in the user message, without ambient project instructions. Provider cache savings require a separately authorized measurement and remain unclaimed.
+
+### Patch Changes
+
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- 02fd0b9: `@schlessera/brain-ui-sdk/server` now exports the helpers both shipped backends use, so a third-party backend can give the host the same behavior and security posture without reaching into `/internal`. The new names, all `@experimental` until 1.0: the bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`) and `BRIDGE_TOOL_POSTURE`; the exec wrapper (`wrapCommand`, `validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`); the subprocess environment filter (`filterSubprocessEnv`, `parseSubprocessEnvExtra`, `SubprocessEnvAudience`); the lock keys (`BRAIN_LOCK_KEY`, `bashLockKey`); `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`, `rtkRewriteCommand`; and the bundled `DEFAULT_CONFIRM_BASH_PATTERNS`, whose entries may still change between releases. Their behavior is unchanged. They are no longer exported from the unsupported `@schlessera/brain-ui-sdk/internal` entry; first-party code imports them from `/server`.
+- 7347c5d: Update the bundled Claude Agent SDK to 0.3.292 / Claude Code 2.1.292 for native Sonnet 5.5 support. Preserve manual approvals with an explicit default permission mode and remeasure native permission, credential, rewrite and enforcement behavior.
+- 56cf3e3: Retain completed-response usage when restricted autonomous turns escalate or yield. Settle successful checkpoints using observed spend and a conservative allowance for any uncertain request, while preserving whole reservations for crashes and missing receipts.
+- Updated dependencies [45326b1]
+- Updated dependencies [637d2c4]
+- Updated dependencies [9a89d4a]
+- Updated dependencies [b0815ec]
+- Updated dependencies [daf4546]
+- Updated dependencies [1caadca]
+- Updated dependencies [02fd0b9]
+- Updated dependencies [825cd04]
+- Updated dependencies [543231e]
+- Updated dependencies [5416a22]
+- Updated dependencies [98baa4c]
+- Updated dependencies [75e79b6]
+- Updated dependencies [18d5dde]
+- Updated dependencies [6f06be8]
+- Updated dependencies [84b8e00]
+- Updated dependencies [368c318]
+- Updated dependencies [90d83d8]
+- Updated dependencies [ef479fd]
+- Updated dependencies [d2436b8]
+- Updated dependencies [56cf3e3]
+- Updated dependencies [33af7e2]
+- Updated dependencies [b04f98b]
+- Updated dependencies [978031a]
+- Updated dependencies [e632b50]
+- Updated dependencies [d89e175]
+- Updated dependencies [533c0a7]
+- Updated dependencies [b180a2f]
+- Updated dependencies [8d966cf]
+- Updated dependencies [2a7de32]
+- Updated dependencies [83585eb]
+- Updated dependencies [0e4290f]
+- Updated dependencies [70275b9]
+- Updated dependencies [7b4f62a]
+- Updated dependencies [b05d556]
+- Updated dependencies [96ad470]
+  - @schlessera/brain-ui-sdk@0.41.0
+  - @schlessera/brain-common@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

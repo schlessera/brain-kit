@@ -1,5 +1,49 @@
 # @schlessera/brain-module-finance
 
+## 0.41.0
+
+### Minor Changes
+
+- a4120ed: Add `@schlessera/brain/module`, the supported entry for module authors (`@experimental` until 1.0). It carries the path-containment and atomic-write helpers (`safeResolve`, `resolveWritable`, `writeFileSafely`, `WriteRefusedError`), the scratch helpers, frontmatter splitting and generated regions, `buildTaxonomy`, `getMarkdownFiles`, `runRegistry`, and completion-provider resolution (`resolveCompletionProvider`, `geminiCompletions`, `GEMINI_FLASH_MODEL`). `CommandContext` gains an optional `completions`, the brain's `completions` config block, so a module command honours the configured provider. The first-party modules now use this entry instead of `@schlessera/brain/internal`, so a module published outside this repository can do everything they do. `GEMINI_FLASH_MODEL` is now typed `string` rather than its literal value.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+
+### Patch Changes
+
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- Updated dependencies [8e5c9e8]
+- Updated dependencies [b0815ec]
+- Updated dependencies [62cf4d6]
+- Updated dependencies [a8f884f]
+- Updated dependencies [6cb61cb]
+- Updated dependencies [20557bf]
+- Updated dependencies [b81ff20]
+- Updated dependencies [1caadca]
+- Updated dependencies [a4120ed]
+- Updated dependencies [08663e0]
+- Updated dependencies [825cd04]
+- Updated dependencies [e12287d]
+- Updated dependencies [2edf82b]
+- Updated dependencies [2907722]
+- Updated dependencies [1a943d8]
+- Updated dependencies [1de5e19]
+- Updated dependencies [651718a]
+- Updated dependencies [d57dc62]
+- Updated dependencies [e632b50]
+- Updated dependencies [dbea4f5]
+- Updated dependencies [ae61e82]
+- Updated dependencies [d4eff9f]
+- Updated dependencies [a95a924]
+- Updated dependencies [8cb13a6]
+- Updated dependencies [a26209c]
+- Updated dependencies [7719bca]
+- Updated dependencies [2a7de32]
+- Updated dependencies [83585eb]
+- Updated dependencies [9072d22]
+- Updated dependencies [b300bb3]
+- Updated dependencies [d641a7d]
+  - @schlessera/brain@0.41.0
+  - @schlessera/brain-common@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

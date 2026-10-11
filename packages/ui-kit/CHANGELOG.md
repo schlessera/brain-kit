@@ -1,5 +1,173 @@
 # @schlessera/brain-ui-kit
 
+## 0.41.0
+
+### Minor Changes
+
+- 45326b1: Show follow-ups that are still waiting for the agent, and keep them through a reload. A message sent while a session is busy no longer appears in the chat until the agent takes it: it waits as a `pending` pill in the right half of the row above the composer, and its full text opens on hover, keyboard focus or a tap. Three or more show the oldest pill and a `+N pending` summary that opens a read-only `Pending follow-ups` sheet. When the agent takes one, its pill goes and the message appears in the chat once, where it entered the conversation; a dropped one leaves with its reason. The host reports each session's queue in a new `session_queue` frame (`server_hello.capabilities.followUpQueue`, sent only to clients that declare the same flag in `client_hello`) after a reconnect, after `session_resume` and on every change, so a reloaded or second client rebuilds the same stack. The kit adds `PendingFollowUps` and `followUpLabel`, and `ListRow` gains `describedBy` for pills.
+- 07f5a26: Record on the device without a server voice session. `startLocalCapture` opens the microphone and records with MediaRecorder (`audio/webm;codecs=opus`, else `audio/mp4`), handing each chunk to a sink with its start and end in milliseconds; `stop(reason)` resolves once the final chunk was handed over and the microphone released. It makes no network request. `detectLocalCaptureSupport` reports whether the page can: a supported container, a Blob write to IndexedDB and a secure context, without touching the microphone.
+
+  A root created with `localCapture: { sink }` offers it in the composer: with the host unreachable, the mic becomes "Record on this device", and a tap records into the sink. A recording stays one when the host comes back, and a dictation never turns into one. A refused microphone and a browser that cannot record on the device each get their own copy, and the latter shows no mic. Without the option nothing changes: online and offline, the mic dictates as before. Shipped builds leave it off until recordings are stored durably.
+
+  The kit `Composer` gains `mic` (off hides the microphone) and `micLabel` (its accessible name when the capture is not dictation).
+
+- ca68cbc: Add the local recording sheet, recording tray and editable transcript review; commit accepted text to the device-local draft before deleting its audio.
+- b0815ec: **Breaking (pre-1.0, ruled on #1053):** narrow the public surfaces that were public only because a public declaration reached them, and move the names whose classification was uncertain.
+
+  - `@schlessera/brain-ui-server`: `WsHost` keeps its configuration fields, `registry` and `close()`. Its connection, client-set, catalog, turn, activity, inbox, draft, label and classification members are `@internal`, as are the matching `WsHostOptions` fields. `SessionCatalog` and `createSessionCatalog` move to `@schlessera/brain-ui-server/internal`; a custom session catalog is no longer supported, so build the host with `createApp`.
+  - `@schlessera/brain-ui-react`: `useChatStore`, `useFileStore`, `useShareStore`, `useUIStore` and `useVoiceStore` are typed as `ShellStoreHook<View>` over the new `ChatShellState`, `FileShellState`, `ShareShellState`, `UIShellState` and `VoiceShellState`, which hold the fields a shell reads and calls. The selector form and the `getState()`/`subscribe()` statics remain; `setState` is no longer typed. `activeChat`, `anyStreaming` and `hasPendingShare` take the views. `ShareIntakeState` is no longer exported, the full store state types leave the public surface, and `BrainUiRoot.stores` is `@internal`.
+  - Moved to `/internal`, with no compatibility promise: `collectStats` and `CollectStatsOptions` (`@schlessera/brain/internal`); `MAX_ROUTE_BYTES` (the new `@schlessera/brain-geo/internal`); `applyExportLinkPolicy` and `protectExportLinkDestinations` (`@schlessera/brain-render-template/internal`); `TOKENS`, `LIGHT_TOKENS`, `canvas` and `TokenName` (`@schlessera/brain-ui-kit/internal`); the SDK's bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`), `wrapCommand` and `execWrapperSpawnOptions` (`@schlessera/brain-ui-sdk/internal`); `describeRetry`, `canonicalModelId` and `resolveThinkingLevel`, from every SDK entry (`/internal` and `/internal/client`); `createToolRendererRegistry`, `pruneStoredShares`, `ShareTargetError`, `isShareTargetRequest` and `handleShareTargetRequest` (`@schlessera/brain-ui-sdk/internal/client`). `registerShareTarget` and `readShareLaunchParams` stay on `/share-target`.
+  - Kept and documented: `repoRelativePathSchema` (module config schemas), `MEASURED_RUNTIME` and `runScrape`.
+
+  The migration list is in `docs/decisions/public-export-boundary.md`.
+
+- 9ef25ef: Loading is ghost text. `Placeholder`'s `loading` variant, `StreamingAnswer`,
+  `ActionCard`, `QueueItemRow`, `SearchResultCard` and `FileRow` no longer draw
+  breathing skeleton bars: they draw blurred text in the replaced content's type
+  role and length, with the kit spectrum sweeping through it, and cross-fade to
+  the real content over 600ms when that item's data lands. The frame, icons and
+  dot slots are final from the first frame, so the layout does not move.
+
+  New: `Placeholder` takes `ghost` (the blocks it stands in for, each
+  `{ length, role, size? }`), `seed`, and `arrived` with the real content as
+  children; `lines` stays as the neutral fallback, and `barHeight` is ignored.
+  `QueueItemRow` and `SearchResultCard` take `index` to stagger the sweep down a
+  list, and `SearchResultCard` takes `snippetLength` to size its snippet ghost.
+  `StreamingAnswer` ghosts behind the answer until its first token (`bars` and
+  `lines` now describe that ghost, and the answer holds that height while it
+  streams); the first chunk fades in over the same 600ms, and later characters
+  settle in from 0.2 opacity as they stream. Ghost glyphs are seeded per
+  component instance, so re-ranking a list never regenerates them. New `--bk-ghost-*` tokens in both themes; reduced motion shows the
+  ghost as plain blurred text, with no sweep or spectrum, and makes the handoff
+  instant; print hides it.
+
+- b68dd15: Ship the brain-kit logo. `BrandMark` renders the mark, or with `variant="lockup"` the mark beside the outlined `brain-kit` wordmark, in the theme's ink and amber tokens; below 24px it switches to the small-size master, and it is decorative unless given a `label`. The thirteen master SVGs ship in the package and resolve as `@schlessera/brain-ui-kit/brand/<file>`; the new React-free `@schlessera/brain-ui-kit/brand` entry lists them in `BRAND_MASTERS`.
+- b68dd15: Ship a favicon and install-icon set for hosts. `@schlessera/brain-ui-kit/brand/` now also carries `favicon.ico` (16, 32 and 48px), an opaque 180px `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, a maskable `icon-maskable-512.png` all rendered from the logo's master SVGs, and a 1200x630 `social-card.png` for link previews. The `@schlessera/brain-ui-kit/brand` entry lists them in `BRAND_RASTERS` and exports what a host declares: `WEB_APP_MANIFEST_ICONS` for a web app manifest's `icons`, `WEB_APP_COLORS` for its `theme_color` and `background_color`, and `HTML_ICON_LINKS` for the page head.
+- dcdda5d: The app shows the brain-kit logo where the lucide Brain icon stood in for it: the desktop side rail's wordmark tile, the login screen and the empty chat. `EmptyState` gains `brand`, which shows the logo on a plain tile in place of the icon. The Chat tab and command palette keep the lucide Brain navigation glyph.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- 618064d: Show durable decisions and a read-only Queue in the existing Actions destination (#684).
+
+  - `@schlessera/brain-ui-kit` adds `EffectPreview` (the exact tool, path and full input of a stored effect, with a 12-line reveal gate and a raw-text fallback for a malformed effect) and `DispositionBar` (commit, Later and Dismiss with 44px floors and a `Recording…` state), an optional `ActionCard.footLink`, and an optional `Button.ariaLabel`.
+  - `@schlessera/brain-ui-react` subscribes to the durable Actions and Queue views when the host advertises them, and renders open decisions in the `needs you` lens after live approvals, grouped by thread in priority order, with notices after them and snoozed items under `Later`. FYIs are filed under `done › Notes`. Nothing changes on a tap until the server confirms it; refusals reconcile from a fresh snapshot and nothing is resent automatically.
+  - The Actions badge now counts live approvals plus open, non-FYI durable decisions. Run notices keep their own count in the list and no longer badge.
+  - A pruned run's detail now reads "Trace pruned · this run's rollup is kept."
+
+- 2529d28: `SideRail` gains optional rail acts and an operable All commands button (D52 §1). `acts` draws Search, Add a note and Daily briefing under the destinations as a vertical `Acts` toolbar with its own roving tab stop, printing each act's effect or cost and any unavailable reason at rest; the collapsed rail draws only effect-free acts. `onOpenPalette` replaces the passive ⌘K cap with an `All commands` button (`aria-keyshortcuts="Meta+K"`). The rail's middle now scrolls between a pinned wordmark and footer, and every new target is at least 44×44 under a coarse pointer. Callers that omit both props render as before. New export: `RailAct`.
+- f21c430: The kit gains `DiscButton` and `DiscRow`, the overlay disc: a 32px paint in a 44px button with `ink` or `mute` rest ink and an optional label that expands leftward on hover and keyboard focus, instantly under reduced motion. `SuggestionItem` gains optional `cost`, printed as a gold effect chip, and `disabled` with `why`, printed at rest; a disabled chip stays focusable and ignores clicks, taps, Enter and Space. Interactive chips are at least 44px tall under a coarse pointer. Icons gain `latest`. The Chat page's New chat and scroll discs now use `DiscButton`: New chat is ink at rest and opens to its label, and the scroll disc is named `Scroll to latest` with a 44px target.
+- 2808074: Add the working-session strip and the shared row above the composer (D52). `ComposerRow` lays out two hard halves with an 8px gutter and disappears when both are empty. `SessionStrip` fills the left half: one or two 44px pills, or the most urgent pill and a summary that opens a focus-trapped `Working` sheet listing every session, and a single 44px summary while the keyboard is up. It prints each tracker state's word, tone and icon and is one roving tab stop. `ListRow` gains `density="pill"`, which draws two lines in a half under 240px and one line otherwise, plus `name`, `tabStop` and `onFocus`. The icon map gains eight session-state keys, and `describeWorkingSession` exports the state vocabulary for other surfaces.
+- 0c156cb: Add touch and pen header swipe dismissal to sheet-shaped Overlay surfaces, with bounded feedback, cancellation and reduced-motion support. OverlayCloseReason gains the additive "swipe" reason. Dictation treats swipe as Stop and keeps words for review.
+- 7e398dc: Use the shared Overlay for app sheets, dialogs, fullscreen tools and panels. Escape dismisses only the topmost surface, modal focus stays inside and returns on dismissal, and destination panels keep the phone bar and rail operable. Palette and More actions run after closing. Expose the overlay surface ref and destination heading for app navigation adapters.
+
+  CommandPalette no longer carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in Overlay to supply modal semantics and focus management. This standalone-consumer behavior change ships in a pre-1.0 minor.
+
+  Credential and created-handoff focus destinations use deferred focus getters, preserving their targets when the owner unmounts.
+
+- 62c912c: Change ContactCard keyWidth to a finite-positive minimum for one capped aligned column; wrap complete fact keys and long values without truncation.
+- d2436b8: Continue a conversation on another backend (#61). The locked model picker, a session row's overflow and the ⌘K palette open a review sheet that drafts a handoff summary with the source's own model (falling back to a draft from the last six messages), lets you edit it and pick references, and starts a new linked chat on the chosen backend. The source keeps its history, backend and accounting and shows a forward marker; the new chat opens with a handoff card linking back. Additive wire: `chat_message.handoff`, `handoff_prepare`/`handoff_prepare_cancel`/`handoff_status`, `handoff_draft`/`handoff_receipt`, message source `handoff` and `ChatSession.handoffFrom`. A repeated handoff key never creates a second session. `ModelPicker` gains an optional `lockedAction`.
+- 1a8ba32: Present human-started hygiene reviews in Actions with finding evidence, typed repairs, exact previews, confirmed dispositions, recovery controls and review receipts. Reuse the durable inbox stream, and explicitly refresh stale findings through the server-owned replacement operation.
+- d89e175: Add agent-authored inline graph blocks with bounded topology, deterministic layout, supplied edges, safe local-file links and accessible replay/static lists. GraphView can disable implicit focus connections and wrap bounded labels.
+- 97021a4: Use StreamingAnswer for first-content, approval-wait and retry status while
+  preserving rich transcript rendering and the composer's single Stop control.
+  Show only measured elapsed time and announce only phase changes.
+
+  Approved pre-1.0 breaking migration: StreamingAnswer no longer supplies example
+  phase, target, elapsed, answer or cost. Pass those facts explicitly where known.
+  The polite live region contains only the phase word. Set the new `pulse` prop
+  to false for a static decision-wait dot.
+
+- 416bda6: Compose Markdown fences through CodeBlock with exact source copy and a
+  kit-token syntax theme in both themes. CodeBlock accepts highlighted
+  children and a host-owned head action; wrapping preserves full commands.
+
+  Pre-1.0 breaking change approved in #1142: CodeBlock no longer defaults to
+  bash or a sample command and draws no action-less copy glyph. Consumers
+  must pass lang explicitly when wanted, code or children for content, and
+  an action for a real control. Native wrap=false scrolling is retained.
+
+- 9e8dc3e: Add native IconButton and TextButton primitives with kit interaction states, accessible names, forwarded refs and data hooks, and 44px touch targets.
+- 7e398dc: Add the controlled Overlay primitive with four variants, native modal focus and stacking, destination-panel inertness, and named document layer tokens. BottomSheet supports an optional close control; CommandPalette supplies group semantics inside its owning overlay.
+
+  CommandPalette no longer carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in Overlay to supply modal semantics and focus management. This standalone-consumer behavior change ships in a pre-1.0 minor.
+
+- 27671c2: Render Activity run subagents through AgentOrbit using recorded identities and
+  needs-you/running/ended rings. Denied and cancelled agents use the neutral
+  stopped state; no radius represents progress.
+
+  Pre-1.0 migration approved in #1145: callers must pass agents with stable id
+  and state. Remove orbit/angle props; the kit computes placement and accepts
+  an optional state ring. Pass coreMeta explicitly. Empty/missing data draws
+  no sample agents. RunState now includes stopped, also styled neutrally in
+  AgentRunCard. Phone hosts pass compact; labelled pills use onOpen(id) and
+  onOverflow callbacks, with a truthful count legend.
+
+- 879352b: Render retained Activity run intervals through LaneChart on one recorded time
+  axis. Only explicit approval boundaries hatch; only recorded active work has
+  an open tail, and missing terminal timing is disclosed without inference.
+  Preserve outcome words and complete readable timing in both themes and on phones.
+
+  Expose LaneChart's existing HATCH_GLYPH constant from the public kit barrel so
+  hosts can supply the documented waiting legend. Long lane names and legends wrap.
+
+- 9857f6f: Render real chat and subagent tool permissions through ApprovalCard, retaining full targets, actual input/diffs and risk wording, eligibility-gated remembered grants and focus-scoped decisions. Duplicate or closed requests cannot send a second reply. ApprovalCard accepts input details, wrapped runtime headers and an optional remembered-grant action.
+- 9857f6f: Render Search and agent search results with the shared search card, preserving all snippet highlights, real scores when available, warnings and root-scoped file navigation. The kit gains optional title, type, selected-state and multi-highlight segment props; existing single-highlight callers remain supported.
+- 4c92b91: Render sent validated tracks through AttachmentRow with the same identity and
+  known metadata live and after history replay. Preserve image thumbnails/zoom
+  and composer retry/remove controls.
+
+  AttachmentRow's approved pre-1.0 breaking migration requires `kind` and `label`.
+  Pass optional duration, metadata, extract and provenance explicitly; sample
+  facts are no longer defaults. `meta` also accepts a list of wrapping lines.
+
+- b05d556: `show_block` gains a `tracker` block (#1001): issues and pull requests the agent opened, closed, reopened, merged, labeled, commented on or reviewed, as `{ kind: "tracker", events: [{ url, action, qualifier?, title }] }` with 1-20 events.
+
+  - **ui-kit:** `TrackerPillList` draws each event as one tappable line, `action [qualifier] · number · title ↗`, under run headers that name the host and repository. Repository, number and type are derived from a GitHub-shaped `url`; any other address shows only its title, action and host. Long titles truncate instead of wrapping, a refused address draws a withheld line with no anchor, more than six events collapse to five behind `Show all N changes` (a shared image or PDF draws them all, titles in full), and the list always says the changes are as reported by the brain.
+  - **ui-sdk:** the schema rejects an event carrying any key besides its four, so a payload cannot state a repository, number or type, and the handler rejects an event whose address the link policy refuses, naming its position and the reason. The `show_block` description tells the model to use `tracker` instead of listing tracker changes in prose; the per-turn brief is unchanged.
+  - **ui-react:** the block renderer draws `tracker` blocks.
+
+### Patch Changes
+
+- 07345fa: Connection drops no longer move or reset what is on screen. The composer's hint line stays one line high (text that does not fit ends in an ellipsis), so the offline reason arriving or leaving no longer moves the field. A draft whose save is still on its way keeps the save line's place under the composer. Reconnecting in the middle of a running turn reattaches to it: the host's greeting no longer ends the stream in view, and a history replay keeps the messages already drawn (and their nodes, times and the reader's scroll position), so the answer keeps streaming into the same message. A track upload that fails in transit just before the page sees the connection go now waits and resumes with the connection instead of showing a failure.
+- 341bee1: `CommandPalette`: a disabled row's reason no longer squeezes its label to an
+  ellipsis. The reason stays on the label's line, right-aligned, while the label,
+  its chips and the whole reason fit side by side; otherwise it drops to a line
+  of its own under the label and wraps there, with the icon kept beside the
+  label. Rows with a short reason look as before.
+- bddc92b: Make every `CommandPalette` row a 44px touch target under a coarse pointer. The rows were 34px tall (35.7px with a chip) for every pointer, and the palette is the only pointer route to Graph, Sync and Brain statistics. A mouse keeps the 34px rows; the label stays centred on its own line, and a reason that wraps still grows the row downward.
+- 2c3e5bd: The Daily briefing panel now shows the keyless `brain briefing` output from `GET /api/brain/briefing`, the selected root's existing briefing route, with loading, empty, failure and Retry states. The internal `POST /api/brain/whatsup` route is gone, and with it the repo-local script lookup at `private/whatsup.ts` and `scripts/whatsup.ts` and its forced `--gemini` flag: opening the briefing runs no script and no agent turn. Because the briefing cannot spend, the rail, palette, More sheet and welcome chip no longer print `spends` beside it.
+
+  `SuggestionChips` now sets its chip gaps as longhands, so a chip whose reason comes and goes on a rerender no longer makes React report a conflicting `gap`/`rowGap` style.
+
+- a9a3376: Replace the social card with the reviewed product card (#1428); `social-card.png` is now a reviewed raster master and `social-card.svg` is removed. A 2400x1260 `social-card@2x.png` of the same card ships beside it for high-DPI Open Graph use.
+- 067d63c: Paper Buttons in the primary and affirm tones keep their near-black label on hover. `--bk-button-hover-fg-primary` and `--bk-button-hover-fg-affirm` now point at `--bk-on-fill` instead of `--bk-color-canvas`, so the hovered label on the amber and teal lift fills is `#231f1a` (8.64:1 and 9.10:1) instead of the paper canvas colour (1.54:1 and 1.46:1). The dark theme resolves to the same `#0c0e12` as before, and fills, borders and caller-owned `style` are unchanged. ui-react's precompiled stylesheet carries the corrected aliases.
+- a95f7c2: Keep the last rail destination whole when End scrolls a short rail to it. After a touch pan that stopped without a fling, Chromium could draw End's scroll one pixel short for a frame, and with only one pixel of trailing room that cut half a pixel off the bottom of the focused row. The scrolling part of the rail now leaves two pixels below its last item.
+- 6a46e7f: Fit StatTiles into responsive columns without stretching orphan tiles, and align same-row values across labels of different heights. Keep the no-props example metadata in the Odysseus world.
+- ee4bcf0: Use the canonical voyage path in Receipt's default example.
+- e7f0ff3: Give desktop rail destinations full 44px touch targets, including on mixed-pointer devices, and keep short rails scrollable.
+- f752ff9: Restore shared Button hover colours while preserving caller-owned styles.
+- 9adc62e: Move the Working and Pending follow-up sheets and the phone ModelPicker onto the kit Overlay's native modal coordination, preserving their contents and caller actions. Keep existing sheet chrome, inherit subtree themes without sheet portals, and enforce the removal of the two legacy overlay exceptions.
+- fd01063: Use kit icon and text actions across Files, graph, search, image viewing and voice review. Preserve composite row interaction and keep voice review actions reachable at narrow widths.
+
+  Draw Overlay dismissal with the native mute IconButton, retaining its accessible name and 44px target, including untitled media and dictation close slots.
+
+- c1052e2: Move loading ghost sweeps to one compositor band per frame, with broad, smooth
+  edge fades and static glyphs. Preserve the per-item 600ms arrival handoff and
+  reduced-motion/print behavior; queue and search rows no longer stagger sweeps.
+- 5d48d1d: Use the shared Overlay for local-work warnings, diagnostic reviews and draft comparisons, with consistent dialog geometry at 900px and shared focus and dismissal handling.
+
+  Wait for the shared dialog's entrance transition before asserting visibility in the review stories.
+
+- a713b14: Keep tracker pills inside narrow flex columns with the design fonts, while preserving the action, item number and open glyph and letting the qualifier yield after the title.
+- 5b1cd90: Keep complete code and suggestions reachable with native horizontal scrolling when wrapping is disabled.
+- ad855ce: Keep long comparison-table values, headings and notes readable inside their own cells by wrapping unbroken text.
+- 374bdd6: Place map callouts from their rendered bounds so full names fit and avoid neighboring labels while geographic markers and scale remain truthful.
+- 0c156cb: End uninitiated pen gestures when their contact ends outside the header, and confine swipe-control stacking to sheet headers while keeping untitled body controls hittable.
+- 7b4f62a: Add a bounded data-only `show_block` supporting-files variant rendered through RelatedFiles in chat, replay and static exports. Keep file opening in the current root, omit invented scores and sample metadata, and make actionable rows at least 44px tall.
+- 693cb3e: Align stacked Meter labels with the track and value, and wrap long labels within the available width. Row meters retain their label gutter.
+- 3dddcc9: Omit invented activity metadata from first-run, no-results, offline and quiet EmptyState variants. Preserve explicit metadata, empty overrides and the caught-up example default.
+- Updated dependencies [b0815ec]
+- Updated dependencies [825cd04]
+  - @schlessera/brain-render-template@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

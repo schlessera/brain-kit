@@ -1,5 +1,116 @@
 # @schlessera/brain-backend-pi
 
+## 0.41.0
+
+### Minor Changes
+
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- 6f06be8: Expose shared durable inbox tool contracts and eagerly attached first-party bridge executors. Reuse authorized store reads and compensated trusted intake, enforce current turn and budget-admitted origin scope, and require an exact approved session/Action binding for deterministic resolution. Voice and restricted turns refuse mutations; deferred discuss sessions remain disabled.
+- 84b8e00: Run autonomous Claude and pi turns inside a restricted envelope. The worker gets a private network namespace with only loopback and an explicit read envelope instead of the host root, so it cannot read the host home, stored logins or the server's environment, and cannot reach the network, DNS or host Unix sockets. Inference leaves only through a server-owned relay socket that forwards the provider's inference routes to the profile's upstream and injects the server-held credential; the worker holds a placeholder. Restricted turns load no project settings, instructions, skills, hooks, MCP servers or pi extensions, and use only the server's instruction snapshot and enforced tool roster.
+
+  Additive SDK surface: `AutonomousTurnOptions.containment: "restricted"`, `BackendCapabilities.restrictedAutonomous`, and an optional `supportsRestricted` argument to `assertTurnPosture`. `runAutonomousTurn` always requests containment and refuses a backend without the capability. A restricted turn refuses before any worker starts when the host cannot establish the envelope, when a Claude subscription profile has no `CLAUDE_CODE_OAUTH_TOKEN` (a stored login is never copied into the envelope), or when a pi profile has no API key for an Anthropic Messages or OpenAI-compatible provider. Interactive, voice and handoff-summary turns are unchanged. Nothing dispatches autonomous work in production yet.
+
+- 533c0a7: Add the live-conversation host contract (#957). `@schlessera/brain-ui-sdk/server`
+  exports the experimental `LiveConversationProvider` seam with runtime
+  validation, and the protocol gains the additive, negotiated `conversation_*`
+  frames and `tool_resolution`. `createApp({ conversationProvider })` registers a
+  provider beside dictation: the host admits work only on a client's semantic
+  commit, runs it through the ordinary backend with the voice posture
+  (new `StartTurnRequest.posture: "voice"`: Claude selects `VOICE_ALLOWED_TOOLS`,
+  pi refuses the turn), never
+  publishes a result for a cancelled, withdrawn or replaced request, and keeps a
+  once-only permission announcement ledger across epochs. Clients that declare
+  `toolResolution` learn whether a permission request was granted, denied,
+  expired with its turn, or unknown. Legacy and rev-3 clients see no change.
+  No provider adapter ships.
+- fdd31e7: Run hosted pi sessions, extensions and shell tools in isolated workers before any writer initializes. Permission and bridge requests use bounded protocol pipes; exact Markdown edits use the server-owned application route with existing approvals. Masks reuse the shared server-owned PNG operation with Pi’s existing filenames and result paths. Cancellation ends the process tree and preserves committed edit receipts.
+
+  Breaking pre-1.0 migration approved by the isolated-writer ruling: shell writes now stay in scratch, while the brain is read-only. Session JSONL defaults to `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions`; configured session and native agent directories must be outside the brain and its ancestors, without aliases. Move existing transcripts to an external directory to resume their unchanged ids/history. Unsupported worker hosts visibly refuse. Credential/egress containment and autonomous enablement remain separate work.
+
+- 167832f: Routing migration (breaking): new ordinary and autonomous turns with explicitly
+  declared built-in pi profiles now honor native configured model endpoints through
+  the same ModelRuntime used for inference. Previously a raw catalog model could
+  ignore a models.json endpoint. Native authentication's endpoint still takes
+  precedence on each request, including changed/refreshed credentials, so a
+  configured proxy is conditional on native authentication supplying no endpoint.
+  Review existing native routing/auth configuration when upgrading. Credential,
+  subscription and billing ownership, model identity, saved-model fallback refusal,
+  tool authority and autonomous nonpersistence remain intact.
+- 83585eb: Route hosted capture, update, archive and permitted Markdown edits through a bounded server-owned application boundary with current authority, policy/alias denial and exact base hashes. Add hosted structured tools, preserve voice capabilities and archive confirmation, and explain CLI refusals in read-only workers.
+- 70275b9: Reject unknown fields at the block and item levels of new `show_block` suggestions calls, including unsupported item `tone`, in both Claude and pi. This is a breaking accepted-input tightening shipped as a pre-1.0 minor. Stored and replayed suggestions still discard unknown fields and render when otherwise valid; malformed payloads keep the generic fallback. Other block kinds retain their existing behavior.
+
+### Patch Changes
+
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- 02fd0b9: `@schlessera/brain-ui-sdk/server` now exports the helpers both shipped backends use, so a third-party backend can give the host the same behavior and security posture without reaching into `/internal`. The new names, all `@experimental` until 1.0: the bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`) and `BRIDGE_TOOL_POSTURE`; the exec wrapper (`wrapCommand`, `validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`); the subprocess environment filter (`filterSubprocessEnv`, `parseSubprocessEnvExtra`, `SubprocessEnvAudience`); the lock keys (`BRAIN_LOCK_KEY`, `bashLockKey`); `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`, `rtkRewriteCommand`; and the bundled `DEFAULT_CONFIRM_BASH_PATTERNS`, whose entries may still change between releases. Their behavior is unchanged. They are no longer exported from the unsupported `@schlessera/brain-ui-sdk/internal` entry; first-party code imports them from `/server`.
+- 1a943d8: Document completion fallback credential names and existing inherited/filtered
+  environment transport families in package metadata and generated READMEs.
+  Descriptor types, public exports, runtime reads and forwarding policies are unchanged.
+- 56cf3e3: Retain completed-response usage when restricted autonomous turns escalate or yield. Settle successful checkpoints using observed spend and a conservative allowance for any uncertain request, while preserving whole reservations for crashes and missing receipts.
+- Updated dependencies [45326b1]
+- Updated dependencies [637d2c4]
+- Updated dependencies [8e5c9e8]
+- Updated dependencies [9a89d4a]
+- Updated dependencies [b0815ec]
+- Updated dependencies [daf4546]
+- Updated dependencies [62cf4d6]
+- Updated dependencies [a8f884f]
+- Updated dependencies [6cb61cb]
+- Updated dependencies [20557bf]
+- Updated dependencies [b81ff20]
+- Updated dependencies [1caadca]
+- Updated dependencies [a4120ed]
+- Updated dependencies [02fd0b9]
+- Updated dependencies [08663e0]
+- Updated dependencies [825cd04]
+- Updated dependencies [543231e]
+- Updated dependencies [5416a22]
+- Updated dependencies [e12287d]
+- Updated dependencies [98baa4c]
+- Updated dependencies [75e79b6]
+- Updated dependencies [18d5dde]
+- Updated dependencies [6f06be8]
+- Updated dependencies [84b8e00]
+- Updated dependencies [368c318]
+- Updated dependencies [2edf82b]
+- Updated dependencies [90d83d8]
+- Updated dependencies [ef479fd]
+- Updated dependencies [2907722]
+- Updated dependencies [d2436b8]
+- Updated dependencies [1a943d8]
+- Updated dependencies [56cf3e3]
+- Updated dependencies [1de5e19]
+- Updated dependencies [33af7e2]
+- Updated dependencies [b04f98b]
+- Updated dependencies [651718a]
+- Updated dependencies [d57dc62]
+- Updated dependencies [978031a]
+- Updated dependencies [e632b50]
+- Updated dependencies [dbea4f5]
+- Updated dependencies [d89e175]
+- Updated dependencies [533c0a7]
+- Updated dependencies [ae61e82]
+- Updated dependencies [d4eff9f]
+- Updated dependencies [a95a924]
+- Updated dependencies [8cb13a6]
+- Updated dependencies [b180a2f]
+- Updated dependencies [8d966cf]
+- Updated dependencies [a26209c]
+- Updated dependencies [7719bca]
+- Updated dependencies [2a7de32]
+- Updated dependencies [83585eb]
+- Updated dependencies [0e4290f]
+- Updated dependencies [9072d22]
+- Updated dependencies [b300bb3]
+- Updated dependencies [70275b9]
+- Updated dependencies [7b4f62a]
+- Updated dependencies [b05d556]
+- Updated dependencies [d641a7d]
+- Updated dependencies [96ad470]
+  - @schlessera/brain-ui-sdk@0.41.0
+  - @schlessera/brain@0.41.0
+  - @schlessera/brain-common@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

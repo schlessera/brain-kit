@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-common",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "Internal brain-kit helpers shared by the @schlessera/brain-* packages: the environment descriptor core and the cache-free frontmatter parser. No compatibility promise.",
   "license": "MIT",
   "keywords": [

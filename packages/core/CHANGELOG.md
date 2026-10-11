@@ -1,5 +1,106 @@
 # @schlessera/brain
 
+## 0.41.0
+
+### Minor Changes
+
+- 8e5c9e8: `brain hygiene reconcile` now also runs `brain validate`'s corpus checks and joins reports of the same problem into one finding: a broken wiki-link that validation and audit both report is one entry, listing both sources. Each finding carries its sources, severity and an evidence fingerprint that covers only the fields relevant to its category, so an unrelated edit does not change it. New `brain hygiene dismiss <id> --expect-fingerprint <fp>` and `brain hygiene snooze <id> --until <date|date-time> --expect-fingerprint <fp>` record durable dispositions in `context/hygiene/` (a new `dismissed.md`). A disposition holds until the finding's evidence changes, or for a snooze until it comes due; a stale fingerprint is refused and nothing is written. `reconcile` and `list` JSON gain the new fields additively, and `brain validate`'s output and exit status are unchanged. The first reconcile after upgrading adds `Sources` and `Fingerprint` lines to open entries, a `Dismissed` count to `_index.md`, and creates `dismissed.md`.
+- b0815ec: **Breaking (pre-1.0, ruled on #1053):** narrow the public surfaces that were public only because a public declaration reached them, and move the names whose classification was uncertain.
+
+  - `@schlessera/brain-ui-server`: `WsHost` keeps its configuration fields, `registry` and `close()`. Its connection, client-set, catalog, turn, activity, inbox, draft, label and classification members are `@internal`, as are the matching `WsHostOptions` fields. `SessionCatalog` and `createSessionCatalog` move to `@schlessera/brain-ui-server/internal`; a custom session catalog is no longer supported, so build the host with `createApp`.
+  - `@schlessera/brain-ui-react`: `useChatStore`, `useFileStore`, `useShareStore`, `useUIStore` and `useVoiceStore` are typed as `ShellStoreHook<View>` over the new `ChatShellState`, `FileShellState`, `ShareShellState`, `UIShellState` and `VoiceShellState`, which hold the fields a shell reads and calls. The selector form and the `getState()`/`subscribe()` statics remain; `setState` is no longer typed. `activeChat`, `anyStreaming` and `hasPendingShare` take the views. `ShareIntakeState` is no longer exported, the full store state types leave the public surface, and `BrainUiRoot.stores` is `@internal`.
+  - Moved to `/internal`, with no compatibility promise: `collectStats` and `CollectStatsOptions` (`@schlessera/brain/internal`); `MAX_ROUTE_BYTES` (the new `@schlessera/brain-geo/internal`); `applyExportLinkPolicy` and `protectExportLinkDestinations` (`@schlessera/brain-render-template/internal`); `TOKENS`, `LIGHT_TOKENS`, `canvas` and `TokenName` (`@schlessera/brain-ui-kit/internal`); the SDK's bridge-tool handlers (`handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, with `ImageMaskHandlerOptions` and `LocationHandlerOptions`), `wrapCommand` and `execWrapperSpawnOptions` (`@schlessera/brain-ui-sdk/internal`); `describeRetry`, `canonicalModelId` and `resolveThinkingLevel`, from every SDK entry (`/internal` and `/internal/client`); `createToolRendererRegistry`, `pruneStoredShares`, `ShareTargetError`, `isShareTargetRequest` and `handleShareTargetRequest` (`@schlessera/brain-ui-sdk/internal/client`). `registerShareTarget` and `readShareLaunchParams` stay on `/share-target`.
+  - Kept and documented: `repoRelativePathSchema` (module config schemas), `MEASURED_RUNTIME` and `runScrape`.
+
+  The migration list is in `docs/decisions/public-export-boundary.md`.
+
+- 6cb61cb: **Breaking (#1351):** `brain list --limit` and `brain_list`'s `limit` now share one rule: a whole number from 1 to 100, defaulting to 20. A value outside it is refused, never clamped or partially read.
+
+  - **CLI, before:** `--limit` went through `parseInt`, so `10abc` listed 10, `1.5` listed 1, `abc` passed `NaN` to the query, and any value above 100 was honoured. **After:** the whole argument must be an integer literal in 1–100. `abc`, `10abc`, `1.5`, `0`, `-1`, `101` and a `--limit` with no value are usage errors (exit 1, message on stderr, nothing on stdout) in human and JSON modes, and no query runs. Omitting `--limit` still lists 20.
+  - **MCP, before:** `limit` was a plain `number` that the server clamped into 1–100, so `0` listed 1 and `500` listed 100. **After:** the input schema is `{ "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }`, and a fraction, `0`, a negative or a value over 100 is rejected as invalid input (a tool result with `isError: true`, as for any schema violation).
+
+  Successful results keep their shapes. A caller that asked for more than 100 now gets an error instead of the larger list; pass at most 100 and narrow with filters.
+
+- a4120ed: Add `@schlessera/brain/module`, the supported entry for module authors (`@experimental` until 1.0). It carries the path-containment and atomic-write helpers (`safeResolve`, `resolveWritable`, `writeFileSafely`, `WriteRefusedError`), the scratch helpers, frontmatter splitting and generated regions, `buildTaxonomy`, `getMarkdownFiles`, `runRegistry`, and completion-provider resolution (`resolveCompletionProvider`, `geminiCompletions`, `GEMINI_FLASH_MODEL`). `CommandContext` gains an optional `completions`, the brain's `completions` config block, so a module command honours the configured provider. The first-party modules now use this entry instead of `@schlessera/brain/internal`, so a module published outside this repository can do everything they do. `GEMINI_FLASH_MODEL` is now typed `string` rather than its literal value.
+- 08663e0: Make `brain audit --fix` deterministic with no completion-provider call. Repairability comes only from the available registry capability, with additive optional `repair` metadata in the JSON results. The command applies nothing and never emits replacement `fix` text.
+- 825cd04: Breaking (pre-1.0, ruled on #343 question 1): package entry points now export only the supported API. Names that only brain-kit's own packages used moved to `/internal` entry points, which have no compatibility guarantee and need the same lockstep version: `@schlessera/brain/internal` (path-safety, scratch, generated-region, taxonomy, context and write helpers, in addition to the existing native-handle helpers), and the new `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`, `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-server/internal` and `@schlessera/brain-ui-sdk/internal/client`; `@schlessera/brain-ui-sdk/internal` and `@schlessera/brain-backend-pi/internal` gain entries. Other incidental exports were removed: core's database, indexing, ingestion, search, archive, audit, validation, skills-discovery and config-loading functions (use `@schlessera/brain/queries` for content-index reads), the modules' ledger, scoring, routing and database helpers, pi's runtime building blocks, Claude's model-discovery helpers, ui-sdk's per-kind block schemas, tone tables, classification and web-search internals, ui-server's route, cron, staging and keyterm helpers, ui-react's URL helpers and default-root singletons, and the link-policy duplicates on the ui-kit root (use `@schlessera/brain-ui-kit/links`). Every removed or moved name, with its migration path, is listed in `docs/decisions/public-export-boundary.md`. The supported surface includes every type reachable through a public signature; from 1.0, breaking it needs a major version.
+- e12287d: Breaking: module hygiene checks no longer receive a raw `ctx.db` connection to `brain.db`. `HygieneContext` is now `{ queries, root, config }`, where `queries` is a frozen `ContentIndexQueries` object core binds to the brain root: the nine `@schlessera/brain/queries` operations, called with the same options minus `brainPath`. A check that read SQL must call the matching query and throw on `ok: false`; the audit reports that as a failed `module-hygiene` check. The jobs `jobs-stage` check now uses `findIndexDocuments`, with the same selection, and fails visibly when the index is missing or incompatible instead of reading SQL.
+- 651718a: Expose every available repair handler and its typed input schema on the selected `hygiene next --json` finding.
+- d57dc62: Add `brain hygiene next --json` to select one eligible canonical finding by published severity, explicit urgency, age and identity mappings, with a priority reason and deferred counts. Invalid configuration returns a structured blocker before indexing or hygiene writes.
+- e632b50: Add explicit human-started hygiene finding refresh. Refresh replaces an obsolete
+  Action with current CLI evidence and previews, retains a superseded receipt,
+  and refuses old confirmations without changing Markdown or review position.
+  The CLI supports read-only targeted `hygiene next --finding <id> --dry-run`.
+- ae61e82: BREAKING: correct public `SearchResult.tags` to `string | null` and optional
+  `RerankCandidate.tags` to `string | null`, matching existing untagged results.
+  TypeScript clients and external rerankers must handle null (for local text,
+  use `tags ?? ""`). CLI/MCP/HTTP values, reranker inputs, built-in provider
+  requests and rankings stay unchanged. Correct the server's private list mirror
+  to the existing nullable/string fields, without an invented created field.
+- d4eff9f: Add bounded hygiene repair previews, confirmed broken-link and required-field fixes, explicit Undo, manual recheck and configuration-blocker recheck.
+- a26209c: Store and inspect scheduled tasks on a UI host without running them. The new
+  `brain schedule add|list|cancel|due` commands talk only to the authenticated
+  host, and six protected `/api/schedules` routes back them: a proposal, a
+  verified operator approval, then publication of a Markdown definition under
+  `context/scheduled-tasks/` with its approved snapshot kept in the operational
+  ledger. Edited, missing or symlinked definitions quarantine the task; cancel is
+  idempotent and retires the file; `due` is read-only. Every task reports
+  `dispatch_disabled` until the Queue runtime ships. Proposals need the new
+  `BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS` setting, `context/scheduled-tasks` is
+  excluded from indexing by default, and restore pauses restored schedules.
+- 7719bca: Reopen scheduled tasks that a restore or an unknown effect paused. The new
+  `brain schedule reconcile <id> --key KEY` command and the protected
+  `POST /api/schedules/:id/reconcile` route record a verified operator decision,
+  checked against the approved definition bytes, the approved execution policy
+  and a usable creator. Reopening never replays an unknown occurrence, and a
+  restore now also ends lost attempts as `unknown` and drops their Queue work.
+  The UI server also gains the private occurrence admission boundary the Queue
+  runtime will drive (one admission per due instant, three operations and a
+  ten-minute deadline per attempt, crash recovery). Nothing wires it into the
+  running app yet, so tasks still report `dispatch_disabled`.
+- 83585eb: Route hosted capture, update, archive and permitted Markdown edits through a bounded server-owned application boundary with current authority, policy/alias denial and exact base hashes. Add hosted structured tools, preserve voice capabilities and archive confirmation, and explain CLI refusals in read-only workers.
+- d641a7d: Add an opt-in Gemini video module with timestamped watch answers, clip windows,
+  privacy disclosure and bounded upload/use/delete cleanup. Extend completion
+  parts with video, optional video capability and request cancellation; existing
+  custom providers without video capability remain valid and refuse video.
+
+  Raise the optional Gemini SDK minimum to 2.24.0 so every supported installation
+  has the client-level fetch option needed to cancel binary uploads.
+
+### Patch Changes
+
+- 62cf4d6: `brain doctor` now decides whether the index is stale with the same check the MCP read tools use for their staleness warning, so both always report the same count. The core MCP tools run on shared operations under the hood; their names, inputs, descriptions and results do not change.
+- a8f884f: The CLI, the MCP server and `brain doctor` now decide whether an embedding or
+  completion provider is usable in one place, from the key variable each built-in
+  declares. `brain doctor` no longer asks for `GEMINI_API_KEY` when the embedding
+  provider is a custom value, and an unknown built-in embedding name is reported
+  whether or not `GEMINI_API_KEY` is set.
+- 20557bf: Document writes no longer truncate a document when they fail. `brain_update`, capture (append and create), archive, `brain import --stamp`, `brain sync`'s merges and `updated` bumps, `brain tags --apply` and hygiene reconcile now all write through one writer: the new bytes go to a temporary sibling and are renamed over the document only when complete, so a full disk or a crash leaves the old document whole and no partial temporary file behind. A replaced document keeps its exact mode, and an archived project moved to `projects/archive/` keeps its source's mode without the umask narrowing it. These writes no longer follow a symlink at the document's own name: `brain import --stamp` and `brain tags --apply` report such a file as failed, and a sync merge reports it unresolved.
+- b81ff20: Internal: a browser-safe `@schlessera/brain/internal/graph` entry shares core's
+  graph metrics, layout and community labels with the project website's demo. It
+  is first-party and lockstep, with no compatibility guarantee.
+- 1caadca: Add `@schlessera/brain-common`, an internal-only package with no compatibility promise. Its `./internal/env` entry holds the environment descriptor core and `./internal/frontmatter` holds the cache-free `parseFrontmatter`. The packages that carried byte-identical copies of these files now depend on it instead. Environment and frontmatter parsing behave exactly as before, and every public export is unchanged. module-finance, module-jobs, module-travel and ui-server no longer depend on `gray-matter` directly.
+- 2edf82b: Return no canonical path for unset inherited names instead of throwing. Preserve explicitly configured keys, disabled entries and normalized paths.
+- 2907722: Explicitly select default permissions for the core Claude CLI runner while retaining its tool allowlist and subscription/settings restrictions.
+- 1a943d8: Document completion fallback credential names and existing inherited/filtered
+  environment transport families in package metadata and generated READMEs.
+  Descriptor types, public exports, runtime reads and forwarding policies are unchanged.
+- 1de5e19: Report distinct high-precision keyed fact values without rounding, while preserving supported numeric spelling equivalence.
+- dbea4f5: Resolve hygiene index-table wiki links with the indexer's targets, including frontmatter aliases and configured directory anchors. Preserve ambiguous and unresolved links instead of selecting an unrelated first basename.
+- a95a924: Validate taxonomy membership, classifier hints and module ownership against configured own entries.
+- 8cb13a6: Group root GEMINI.md as configuration and leave conflicts in exact GEMINI.md instruction filenames at every depth for judgment, preserving their text and Git index stages. Nested content membership, ordinary notes and clean Git line merges are unchanged.
+- 2a7de32: Preserve leading dots in bare and inline-code chat links to scratch files and
+  directories, and document preview/download through direct links while scratch
+  remains hidden from normal file-tree browsing.
+- 9072d22: Correct the add skill's smart-mode guidance to describe delegation to the configured agent runner and its authentication, and clarify that smart mode does not forward explicit type, title or tag flags. Explain ordinary capture's content-title matching for appends. Command behavior is unchanged.
+- b300bb3: Repair packaged documentation links to the integration contract's authoritative surface files. Runtime behavior is unchanged.
+- Updated dependencies [b0815ec]
+- Updated dependencies [1caadca]
+- Updated dependencies [825cd04]
+  - @schlessera/brain-geo@0.41.0
+  - @schlessera/brain-render-template@0.41.0
+  - @schlessera/brain-common@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes

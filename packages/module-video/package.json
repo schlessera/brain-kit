@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-module-video",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "Opt-in Gemini video understanding for brain-kit",
   "license": "MIT",
   "keywords": [
