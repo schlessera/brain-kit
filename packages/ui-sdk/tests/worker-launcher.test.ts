@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
@@ -117,6 +117,27 @@ describe("real bubblewrap worker launcher", () => {
       mkdirSync(join(ROOT, "tmp"), { recursive: true });
       writeFileSync(join(ROOT, "tmp/worker-host-probe.json"), JSON.stringify(tuple, null, 2) + "\n");
     } finally { f.cleanup(); }
+  });
+
+  // A container's masked /proc (Docker's default) makes bubblewrap's fresh
+  // procfs mount fail. A stand-in bwrap replays that exact refusal, so the
+  // probe's naming of cause and remedy is checked on hosts that can mount it.
+  test.each([
+    ["the masked-/proc refusal names the cause and the Docker remedy", "bwrap: Can't mount proc on /newroot/proc: Operation not permitted",
+      "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths; in Docker, run the container with --security-opt systempaths=unconfined (bwrap: Can't mount proc on /newroot/proc: Operation not permitted)"],
+    ["any other launch refusal keeps the generic requirement", "bwrap: No permissions to create new namespace",
+      "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation failed (bwrap: No permissions to create new namespace)"],
+  ])("%s", (_name, stderr, requirement) => {
+    const f = fixture(), fake = join(f.root, "bwrap"), which = Bun.which;
+    // Bun.which does not consult a PATH changed at runtime, so the lookup itself is replaced.
+    const spy = spyOn(Bun, "which").mockImplementation((name, options) => name === "bwrap" ? fake : which(name, options));
+    try {
+      writeFileSync(fake, `#!/bin/sh\necho ${JSON.stringify(stderr)} >&2\nexit 1\n`);
+      chmodSync(fake, 0o755);
+      expect(probeWorkerHost(f.brain)).toEqual({ ok: false, requirement });
+      expect(probeWorkerHost(f.brain, { restricted: true })).toEqual({ ok: false, requirement });
+      expect(readdirSync(f.brain).sort()).toEqual(["context", "notes"]);
+    } finally { spy.mockRestore(); f.cleanup(); }
   });
 
   test("closes non-protocol runtime descriptors before fixture code executes", async () => {
