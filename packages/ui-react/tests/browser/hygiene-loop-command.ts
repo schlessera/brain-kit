@@ -213,7 +213,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     await a.getByText("Hygiene review paused", { exact: true }).waitFor();
     await a.reload(); await a.getByText("Hygiene review paused", { exact: true }).waitFor();
     assert.equal((await active()).id, link.id, "reload retains the paused Action");
-    await a.getByRole("button", { name: "Resume", exact: true }).click(); await show(a);
+    await a.getByRole("button", { name: "Resume hygiene review", exact: true }).click(); await show(a);
     await a.evaluate(() => (window as unknown as {__c5Reconnect(): void}).__c5Reconnect());
     await show(a); assert.equal((await active()).id, link.id, "reconnect/resume retains the same Action");
     await choose(a);
