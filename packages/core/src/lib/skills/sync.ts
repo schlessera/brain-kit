@@ -23,6 +23,7 @@ import { resolveEnv } from "../../config/env.js";
 
 import type { SkillEmitter } from "../seams.js";
 import { discoverSkills, type DiscoverOptions, type SkillSources } from "./discover.js";
+import { selectCoreSkills } from "./core-installation.js";
 import { claudeEmitter } from "./emitters/claude.js";
 import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "./fs-links.js";
 
@@ -41,6 +42,8 @@ export interface SyncResult {
 }
 
 export function syncSkills(ctx: SkillSources, opts: SyncOptions = {}): SyncResult {
+  const core = selectCoreSkills(ctx.root, opts.coreSkillsDir);
+  if (core.warning) return { materialized: [], pruned: [], warnings: [core.warning], emitters: [] };
   const { skills, warnings } = discoverSkills(ctx, opts);
 
   const root = ctx.root;

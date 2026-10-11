@@ -46,7 +46,7 @@ skill descriptions and defaults are unchanged.
 
 The assembly entry is [createClaudeSdkTurn at measured source](https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/sdk-options.ts#L54-L216); eager bridge
 registration is [createBrainUiMcpServer at measured source](https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/ask-user-tool.ts#L91-L138). Skill discovery
-is (`discoverSkills`, `packages/core/src/lib/skills/discover.ts:43-81`), and
+is (`discoverSkills`, `packages/core/src/lib/skills/discover.ts:42-81`), and
 project emission is (`claudeEmitter`, `packages/core/src/lib/skills/emitters/claude.ts:16-52`).
 The probe connects the returned production server instance through
 (`connectSurface`, `scripts/turn-surface-routing.ts:19-32`), rather than

@@ -113,9 +113,17 @@ without the `pi` emitter even though they sit one directory away.
 `brain skills sync` collects skills from three layers, later layers overriding
 earlier ones by name:
 
-1. **core** — skills shipped in `@schlessera/brain`.
+1. **core** — skills shipped in the target repo's installed `@schlessera/brain`.
 2. **module** — skills from enabled modules.
 3. **local** — `.agents/skills/` in your own repo (your personal overrides win).
+
+Core links use the repo-relative `node_modules` path, including when the
+installed package is a symlink. If a foreign CLI runs against a repo without
+a usable local core installation, sync warns with both installation paths and
+leaves skill links and emitter output untouched. Run `bun install` in the
+target repo before retrying. A source checkout may use its own core package.
+`brain doctor` also warns about core skill links into a foreign installation;
+absolute links to module skills remain valid.
 
 It then runs the emitter list. This is also how you keep a personal variant of a
 shipped skill: drop your version in `.agents/skills/<name>/` and it shadows the

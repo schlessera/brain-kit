@@ -18,6 +18,7 @@ import { indexStaleness } from "../../lib/ops/staleness.js";
 import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
 import { measureInstructions } from "../../lib/instructions-weight.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
+import { foreignCoreSkill } from "../../lib/skills/core-installation.js";
 import { packageVersion } from "../../package-version.js";
 import { missingEmbeddingKey, rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
@@ -192,27 +193,35 @@ function checkSymlinks(root: string): Check {
   } catch {
     /* not linked at all — not broken, just absent */
   }
-  const skillsDir = join(root, ".claude", "skills");
-  let entries: string[] = [];
-  let unreadable: string | undefined;
-  if (existsSync(skillsDir)) {
+  const foreign: string[] = [];
+  const unreadable: string[] = [];
+  for (const home of [".claude", ".agents"]) {
+    const skillsDir = join(root, home, "skills");
+    if (!existsSync(skillsDir)) continue;
+    let entries: string[];
     try {
       entries = readdirSync(skillsDir);
     } catch (e) {
-      unreadable = `could not read .claude/skills: ${(e as Error).message}`;
+      unreadable.push(`could not read ${home}/skills: ${(e as Error).message}`);
+      continue;
+    }
+    for (const entry of entries) {
+      const p = join(skillsDir, entry);
+      try {
+        if (!lstatSync(p).isSymbolicLink()) continue;
+        if (!existsSync(p)) broken.push(`${home}/skills/${entry}`);
+        else if (foreignCoreSkill(root, p)) foreign.push(`${home}/skills/${entry}`);
+      } catch (e) {
+        unreadable.push(`could not inspect ${home}/skills/${entry}: ${(e as Error).message}`);
+      }
     }
   }
-  for (const entry of entries) {
-    const p = join(skillsDir, entry);
-    try {
-      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(`.claude/skills/${entry}`);
-    } catch {
-      /* ignore */
-    }
-  }
-  if (unreadable) {
+  if (unreadable.length > 0) {
     const also = broken.length > 0 ? `; also broken: ${broken.join(", ")}` : "";
-    return { id: "symlinks", status: "warn", detail: unreadable + also, fix: "make .claude/skills a readable directory, then run `brain skills sync`" };
+    return { id: "symlinks", status: "warn", detail: unreadable.join("; ") + also, fix: "make .claude/skills a readable directory, then run `brain skills sync`" };
+  }
+  if (foreign.length > 0) {
+    return { id: "symlinks", status: "warn", detail: `core skill link(s) into a foreign installation: ${foreign.join(", ")}${broken.length ? `; also broken: ${broken.join(", ")}` : ""}`, fix: "run `bun install`, then `brain skills sync` in this repository" };
   }
   if (broken.length > 0) {
     return { id: "symlinks", status: "warn", detail: `${broken.length} stale/broken symlink(s): ${broken.slice(0, 3).join(", ")}`, fix: "run `brain skills sync`" };

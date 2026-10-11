@@ -18,6 +18,8 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
+import { selectCoreSkills } from "./core-installation.js";
+
 import type { LoadedModule } from "../module-types.js";
 import type { SkillManifest } from "../seams.js";
 
@@ -28,7 +30,7 @@ export interface SkillSources {
 }
 
 export interface DiscoverOptions {
-  /** Override the core package skills dir. Defaults to the shipped `<core>/skills`. */
+  /** Override the core package skills dir. Defaults to the target repo's installed `<core>/skills`. */
   coreSkillsDir?: string;
 }
 
@@ -36,9 +38,6 @@ export interface DiscoveryResult {
   skills: SkillManifest[];
   warnings: string[];
 }
-
-/** `<core>/skills`, resolved from this file at packages/core/src/lib/skills/. */
-const DEFAULT_CORE_SKILLS_DIR = resolve(import.meta.dir, "../../../skills");
 
 export function discoverSkills(
   sources: SkillSources,
@@ -48,8 +47,9 @@ export function discoverSkills(
   const byName = new Map<string, SkillManifest>();
 
   // Layer 1 — core (lowest precedence).
-  const coreDir = opts.coreSkillsDir ?? DEFAULT_CORE_SKILLS_DIR;
-  for (const skill of readSkillsDir(coreDir, "core", warnings)) {
+  const core = selectCoreSkills(sources.root, opts.coreSkillsDir);
+  if (core.warning) warnings.push(core.warning);
+  for (const skill of core.dir ? readSkillsDir(core.dir, "core", warnings) : []) {
     byName.set(skill.name, skill);
   }
 
