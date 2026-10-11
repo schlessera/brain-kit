@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 import { ImageOff } from "lucide-react";
 
 import type { BrainUiRoot } from "../../root.js";
@@ -43,6 +43,12 @@ export function useScratchExpired(path: string | undefined): boolean {
 }
 
 /**
+ * True inside an expired link. An image there is drawn as a plain picture:
+ * the zoom control would be a live control inside a link marked unavailable.
+ */
+const InsideExpiredLink = createContext(false);
+
+/**
  * A link whose scratch file has been cleared (#1657). The words stay, as
  * inert text, followed by a muted "expired": nothing to click that would
  * only open an error. It keeps the link role, marked unavailable, so a screen
@@ -51,7 +57,9 @@ export function useScratchExpired(path: string | undefined): boolean {
 export function ExpiredFileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <span role="link" aria-disabled="true" className="brain-file-link--expired" style={style} title="This file is no longer available.">
-      <span className="brain-file-link-words">{children ?? path}</span>
+      <span className="brain-file-link-words">
+        <InsideExpiredLink.Provider value={true}>{children ?? path}</InsideExpiredLink.Provider>
+      </span>
       <span className="brain-expired-label"> expired</span>
     </span>
   );
@@ -88,7 +96,16 @@ export function MarkdownImage({ src, alt, imgProps, root }: {
   const scratch = scratchPath(src);
   const expired = useFileStore((s) => (scratch ? s.scratchFiles[scratch] === "expired" : false));
   const check = useFileStore((s) => s.checkScratchFile);
+  const inert = useContext(InsideExpiredLink);
   if (expired) return <ExpiredImage alt={alt} />;
+  // A load failure can mean a file seen earlier has gone since: ask again.
+  const onError = (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    imgProps?.onError?.(event);
+    if (scratch) void check(scratch, { revalidate: true });
+  };
+  if (inert) {
+    return <img {...imgProps} src={repoImageSrc(src, root)} alt={alt ?? ""} loading="lazy" onError={onError} className="my-2 max-w-full rounded" />;
+  }
   return (
     <ZoomableImage
       src={repoImageSrc(src, root)}
@@ -97,10 +114,7 @@ export function MarkdownImage({ src, alt, imgProps, root }: {
       imgProps={{
         ...imgProps,
         loading: "lazy",
-        onError: (event) => {
-          imgProps?.onError?.(event);
-          if (scratch) void check(scratch);
-        },
+        onError,
       }}
     />
   );

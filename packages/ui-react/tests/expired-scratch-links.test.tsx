@@ -79,6 +79,40 @@ if (!process.env[CHILD_MARKER]) {
       }
     });
 
+    test("a file seen earlier is asked again only when it has just failed to load", async () => {
+      let status = 200;
+      const { calls, file } = rootWith(() => status);
+      await file.getState().checkScratchFile(pdf);
+      status = 404;
+      await file.getState().checkScratchFile(pdf);
+      expect(file.getState().scratchFiles).toEqual({ [pdf]: "present" });
+      await file.getState().checkScratchFile(pdf, { revalidate: true });
+      expect(file.getState().scratchFiles).toEqual({ [pdf]: "expired" });
+      expect(calls).toHaveLength(2);
+      // Expired is final: nothing brings the link back.
+      await file.getState().checkScratchFile(pdf, { revalidate: true });
+      expect(calls).toHaveLength(2);
+    });
+
+    test("an older answer never overwrites a newer 404 from opening the file", async () => {
+      let answerHead: (status: number) => void = () => {};
+      const root = createBrainUiRoot({
+        storage: null,
+        request: (_url, init) => init?.method === "HEAD"
+          ? new Promise<Response>((resolve) => { answerHead = (status) => resolve(new Response(null, { status })); })
+          : Promise.resolve(new Response(JSON.stringify({ error: "not_found" }), { status: 404 })),
+      });
+      roots.push(root);
+      const file = root.stores.file;
+      const check = file.getState().checkScratchFile(pdf);
+      await file.getState().openFile(pdf);
+      expect(file.getState().scratchFiles).toEqual({ [pdf]: "expired" });
+      // The HEAD measured the file before it was cleared.
+      answerHead(200);
+      await check;
+      expect(file.getState().scratchFiles).toEqual({ [pdf]: "expired" });
+    });
+
     test("a reference outside scratch is never checked", async () => {
       const { calls, file } = rootWith(() => 404);
       await file.getState().checkScratchFile("notes/raft.md");
@@ -123,7 +157,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated expired-link render tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b6 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b8 pass\b/);
   }, 60_000);
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -167,6 +201,28 @@ if (!process.env[CHILD_MARKER]) {
       const placeholder = await screen.findByRole("img", { name: "Hull of the raft, expired" });
       expect(container.querySelector("img")).toBeNull();
       expect(placeholder.textContent).toBe("Hull of the raftexpired");
+    });
+
+    test("an image seen earlier that has gone since becomes the placeholder", async () => {
+      let status = 200;
+      const { root, file } = rootWith(() => status);
+      await file.getState().checkScratchFile(png);
+      expect(file.getState().scratchFiles).toEqual({ [png]: "present" });
+      status = 404;
+      const { container } = show(root, <BrainMarkdown content={`![Hull](${png})`} fileLinks />);
+      fireEvent.error(container.querySelector("img")!);
+      await screen.findByRole("img", { name: "Hull, expired" });
+    });
+
+    test("an expired link around a picture leaves nothing inside it to activate", async () => {
+      const { root } = rootWith(() => 404);
+      const { container } = show(root, <BrainMarkdown content={`[![Hull](assets/hull.png)](${pdf})`} fileLinks />);
+      // Live, the picture inside the link is the zoomable one.
+      expect(container.querySelector('img[role="button"]')).not.toBeNull();
+      const link = await screen.findByRole("link", { name: "Hull expired" });
+      expect(link.getAttribute("aria-disabled")).toBe("true");
+      expect(link.querySelector("button, [role=button], [tabindex], a")).toBeNull();
+      expect(link.querySelector("img")?.getAttribute("alt")).toBe("Hull");
     });
 
     test("an untitled expired image is still named", async () => {

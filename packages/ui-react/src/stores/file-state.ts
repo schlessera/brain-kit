@@ -66,7 +66,7 @@ export interface FileState {
   setHighlightedDir: (path: string | null) => void;
   ensureWikilinks: () => Promise<void>;
   /** Ask the server once whether a scratch file still exists (#1657). */
-  checkScratchFile: (path: string) => Promise<void>;
+  checkScratchFile: (path: string, options?: { revalidate?: boolean }) => Promise<void>;
   reset: () => void;
 }
 
@@ -144,6 +144,13 @@ export function createFileStore(env: StoreEnvironment) {
   }
 
   const scratchChecks = new Map<string, Promise<void>>();
+  /** Per scratch file, which piece of evidence is the latest. */
+  const scratchTurns = new Map<string, number>();
+  const nextScratchTurn = (key: string) => {
+    const turn = (scratchTurns.get(key) ?? 0) + 1;
+    scratchTurns.set(key, turn);
+    return turn;
+  };
   let fileRequest: AbortController | null = null;
   let directoryRequest: AbortController | null = null;
   let cacheEpoch = 0;
@@ -279,6 +286,7 @@ export function createFileStore(env: StoreEnvironment) {
         if (!ownsRequest()) return;
         const scratch = e.status === 404 ? scratchPath(normalized) : null;
         if (scratch) {
+          nextScratchTurn(scratch);
           set((s) => ({ contentExpired: true, contentLoading: false, scratchFiles: { ...s.scratchFiles, [scratch]: "expired" } }));
           return;
         }
@@ -351,15 +359,24 @@ export function createFileStore(env: StoreEnvironment) {
       }
     },
 
-    checkScratchFile: (path) => {
+    checkScratchFile: (path, options) => {
       const key = scratchPath(path);
-      if (!key || get().scratchFiles[key]) return Promise.resolve();
+      if (!key) return Promise.resolve();
+      // Expired is final. Present is final too, unless the caller has just
+      // seen the file fail to load and asks again.
+      const known = get().scratchFiles[key];
+      if (known === "expired" || (known === "present" && !options?.revalidate)) return Promise.resolve();
       const pending = scratchChecks.get(key);
       if (pending) return pending;
       const epoch = cacheEpoch;
+      const turn = nextScratchTurn(key);
       const check = scratchFileStatus(key)
         .then((status) => {
-          if (status && epoch === cacheEpoch) set((s) => ({ scratchFiles: { ...s.scratchFiles, [key]: status } }));
+          // A newer answer for this file (a later check, or a 404 from
+          // opening it) wins over this one.
+          if (status && epoch === cacheEpoch && scratchTurns.get(key) === turn) {
+            set((s) => ({ scratchFiles: { ...s.scratchFiles, [key]: status } }));
+          }
         })
         // Offline, signed out or a server fault: not evidence that the file
         // is gone, so the link stays as it is and a later render asks again.
@@ -388,6 +405,7 @@ export function createFileStore(env: StoreEnvironment) {
       directoryRequest = null;
       cacheEpoch++;
       scratchChecks.clear();
+      scratchTurns.clear();
       set({
         dirCache: {}, loadingDirs: new Set(), dirErrors: {}, expandedDirs: new Set([""]),
         highlightedDir: null, wikilinkMap: {}, wikilinkLoaded: false, wikilinkLoading: false,
