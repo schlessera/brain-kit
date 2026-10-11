@@ -75,7 +75,7 @@ areas and the home mode once per worker
 (`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:254-284`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:325-352`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:387-414`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
@@ -87,16 +87,22 @@ scratch is writable.
 **Scratch.** Every segment of `.brain/scratch` is checked with `lstat` and
 created one real directory at a time; a symlink anywhere, a mount point at or
 below it, or a walk past the entry limit leaves it read-only for the turn,
-named in the note. In a git repository it is bound only while git ignores
+named in the note. In a git repository (its own, or a parent one around the
+brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
-there by any tool could be committed
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:263-281`).
+there by any tool could be committed. Git runs with the server's `HOME`, so
+the operator's `safe.directory` applies
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:324-343`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:290-301`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:352-363`).
+It needs no gitignore line, unlike scratch: the ruling's condition is the
+index exclusion, and committing a clone or a work file from `workspaces/` is
+the user's choice, as it was before 0.41, not something a turn's output
+lands in by default.
 
 **Hard links made before the turn.** A bind mount stops a worker from
 creating a new hard link, rename or symlink write into the rest of the brain.
@@ -107,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:151-209`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:181-191`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -121,7 +127,14 @@ inode the walk counted. A concurrent worker owns scratch and could swap a
 directory for a symlink into the brain mid-walk; it cannot redirect either
 step. A directory or entry the walk cannot read (an execute-only directory
 hides its names, so a link could sit behind it) leaves that area read-only
-for the turn, scratch included.
+for the turn, scratch included. Names are read as raw bytes, so a name that
+is not UTF-8 cannot hide a directory. Every directory's change and
+modification times are taken before it is listed and compared after the
+walk: a rename that moved a name between directories, which could make an
+inode count twice or not at all, shows there. Such a walk is repeated, and
+after three tries the area is unverified for the turn. An unexpected error
+while resolving an area also leaves it read-only rather than failing the
+turn.
 
 **`$HOME`.** `probeHomeOverlay` runs the real launcher with
 `--overlay-src $HOME --tmp-overlay $HOME`, writes a file through it and checks
@@ -143,7 +156,7 @@ and appends it to the resource loader's system prompt in both modes.
 
 **Errors.** The CLI's read-only pre-check asks about the directory a command
 actually writes: the scratch area for `brain scratch` and for `brain render`
-sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:36-42`).
+sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:38-44`).
 `brain render` and `brain image` into the read-only brain now say to write
 with `--scratch` and link the printed path; when scratch is read-only too, the
 message says nothing written now is kept. The `read_only_brain` code and its
@@ -151,9 +164,17 @@ message says nothing written now is kept. The `read_only_brain` code and its
 
 **Serving.** The file routes refuse any symlink at or below `.brain` for a
 scratch path, and a scratch listing omits links
-(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:114`).
-Elsewhere in the brain an in-brain link resolves as before. Core's prune
-already reads every entry with `lstat`.
+(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:115`).
+Elsewhere in the brain an in-brain link resolves as before. Those checks
+run before the open, so a scratch file is then read once through descriptors
+that never follow a link (each directory from the brain root opened with
+`O_NOFOLLOW | O_DIRECTORY` through the previous one, the file with
+`O_NOFOLLOW`), and the route serves that snapshot; the size cap bounds it
+(`export function readScratchSnapshot`, `packages/ui-server/src/files/walker.ts:157-192`).
+Core's prune reads every entry with `lstat`, and on Linux removes each file
+and emptied directory through its parent's descriptor in the same way
+(`function anchored`, `packages/core/src/lib/scratch.ts:440-464`), because a
+hosted agent can swap a scratch directory for a link while the host prunes.
 
 ## Measurements
 
@@ -221,5 +242,14 @@ Measured 2026-10-11.
   and could expose anything.
 - **Overlay and sub-mounts.** An overlay shows only the home directory's
   own filesystem; a separate mount under `$HOME` appears empty in the worker.
+- **An agent can make its own scratch read-only** for later turns, with an
+  unreadable directory, deep nesting or more than 200 000 entries in it. The
+  note names the reason; the operator clears the directory. Nothing outside
+  scratch is affected.
+- **A busy scratch** that another turn keeps changing during the pre-turn
+  walk can come out unverified after three tries, leaving scratch read-only
+  for that one turn.
+- **The pre-turn resolution is synchronous** on the server: a walk of up to
+  200 000 entries per area, one `git` call and one overlay probe per turn.
 - **Overlay size.** The overlay's upper layer is an unbounded tmpfs, like
   `/tmp`. Per-turn tmpfs budgets are #1625's.
