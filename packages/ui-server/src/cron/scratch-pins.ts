@@ -1,5 +1,5 @@
 import { constants, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
@@ -44,6 +44,29 @@ export function scratchLinks(messages: SessionHistoryMessage[]): string[] {
 
 /** Concrete server-to-CLI data bridge, not a dependency on core or its index. */
 export function createScratchPins(root: string, registry: BackendRegistry) {
+  let store: ReturnType<typeof openScratchPins> | undefined;
+  let closed = false;
+  // Pin storage is maintenance, not a startup prerequisite. Preserve the
+  // server's existing ability to start with an unavailable brain; pruning
+  // stays suspended and its ordinary warning records the failed setup.
+  try { store = openScratchPins(root, registry); } catch { /* Retried by refresh/record. */ }
+  const get = () => {
+    if (closed) throw new Error("Scratch pin store is closed");
+    return store ??= openScratchPins(root, registry);
+  };
+  return {
+    get file(): string { return store?.file ?? resolve(root, PIN_FILE); },
+    close(): void { closed = true; store?.close(); },
+    record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void {
+      get().record(sessionId, backendId, messages);
+    },
+    async refresh(signal: AbortSignal): Promise<void> {
+      signal.throwIfAborted(); await get().refresh(signal);
+    },
+  };
+}
+
+function openScratchPins(root: string, registry: BackendRegistry) {
   const canonical = realpathSync(root);
   const file = join(canonical, PIN_FILE);
   // Same anchored directory technique as the application route: a renamed

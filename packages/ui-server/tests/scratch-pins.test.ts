@@ -138,3 +138,19 @@ test("a literal percent elsewhere cannot hide an encoded linked filename", () =>
   expect(paths).toContain(".brain/scratch/voyage log.pdf");
   expect(paths).toContain(".brain/scratch/voyage#log.pdf");
 });
+
+test("unavailable pin storage suspends pruning and recovers without blocking startup", async () => {
+  const missing = join(root, "missing-brain"), logs = createRecordingObservability();
+  const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
+  let pins!: ReturnType<typeof createRawScratchPins>;
+  expect(() => { pins = createScratchPins(missing, registry); }).not.toThrow();
+  let calls = 0;
+  const pruner = startScratchPrune({ pins, log: logs.logger("cron"), every: () => () => {}, brain: {
+    scratchPrune: async () => { calls++; return JSON.stringify({ overageBytes: 0 }); },
+  } });
+  try {
+    await pruner.tick(); expect(calls).toBe(0); expect(logs.logs.count({ scope: "cron", severity: "WARN" })).toBe(1);
+    mkdirSync(missing); await pruner.tick(); expect(calls).toBe(1);
+    expect(JSON.parse(readFileSync(pins.file, "utf8")).ready).toBe(true);
+  } finally { await pruner.close(); }
+});
