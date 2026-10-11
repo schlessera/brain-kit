@@ -36,6 +36,13 @@ bun evals/850-import-enrichment/run.ts
 bun evals/850-import-enrichment/run.ts --resume
 ```
 
+`EVAL_CLAUDE_MODEL` (default `claude-sonnet-5-5`) swaps the model for both
+arms' Claude steps: the skill run and the focused summary. A non-default model
+writes `results-<model>-2026-10-11.json` with one Claude worker. It replays the
+label check, Jev judgments and frozen calibration from the Sonnet results. The
+Sonnet verdicts score only byte-identical summaries; the rest stay pending in
+`summaryJudge.pending`.
+
 The type confidence floor rejects every wrong accepted tuning type. The tag
 threshold maximizes tuning micro F1, choosing the lowest on ties. Both values
 are selected before held-out classification. Repetitions are scored individually.

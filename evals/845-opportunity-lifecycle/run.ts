@@ -13,7 +13,9 @@ const cases: Case[] = input.cases;
 const countsFile = join(scratch, "call-counts.json");
 const counts = await Bun.file(countsFile).exists() ? await Bun.file(countsFile).json() : { claude: 0, jev: 0 };
 const count = (provider: "claude" | "jev") => { counts[provider]++; writeFileSync(countsFile, JSON.stringify(counts)); };
-const output = join(import.meta.dir, "results-2026-10-11.json");
+// EVAL_CLAUDE_MODEL swaps only the measured current-path model; a non-default model writes its own results file.
+const model = process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5";
+const output = join(import.meta.dir, model === "claude-sonnet-5-5" ? "results-2026-10-11.json" : `results-${model.replace(/^claude-/, "")}-2026-10-11.json`);
 const rows: any[] = [], labelCheck = input.labelCheck;
 const env: Record<string, string | undefined> = { ...process.env, PATH: `${scratch}/bin:${process.env.PATH}`, TMPDIR: `${scratch}/tmp` };
 delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN;
@@ -22,7 +24,7 @@ delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN;
 const hook = join(scratch, "product-commands.ts");
 writeFileSync(hook, `const r=await new Response(Bun.stdin).json(); const allowed=${JSON.stringify(["brain config check --json", "brain config get modules.@schlessera/brain-module-jobs", "brain jobs pipeline", "brain jobs pipeline --json"])}; if(!allowed.includes(r.tool_input?.command?.trim())) console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"Use only a single exact product command; use file tools for reads and edits."}}));`);
 const settings = JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `bun '${hook.replaceAll("'", "'\"'\"'")}'` }] }] } });
-function save(extra = {}) { const head = { source: input.source, models: { current: "claude-sonnet-5-5", candidate: "jev-1.13.0" }, repetitions: 3, floor: 0, counts, labelCheck, ...extra }; writeFileSync(output, JSON.stringify(head, null, 2).slice(0, -2) + ',\n  "rows": [\n' + rows.map(r => "    " + JSON.stringify(r)).join(",\n") + "\n  ]\n}\n"); }
+function save(extra = {}) { const head = { source: input.source, models: { current: model, candidate: "jev-1.13.0" }, repetitions: 3, floor: 0, counts, labelCheck, ...extra }; writeFileSync(output, JSON.stringify(head, null, 2).slice(0, -2) + ',\n  "rows": [\n' + rows.map(r => "    " + JSON.stringify(r)).join(",\n") + "\n  ]\n}\n"); }
 function snapshot(root: string): Files {
   const files: Files = {};
   function walk(dir: string) { for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
@@ -71,7 +73,7 @@ async function current(c: Case, rep: number) {
   for (let attempt = 0; attempt < 4; attempt++) {
     prepare(c, "current", rep); // Retry from the original brain, even after partial edits.
     count("claude");
-    const p = Bun.spawn(["claude", "-p", prompt, "--model", "claude-sonnet-5-5", "--output-format", "json", "--verbose", "--restricted", "--permission-mode", "dontAsk", "--tools", "Read,Glob,Grep,Edit,Write,Skill,Bash", "--allowedTools", "Read", "Glob", "Grep", "Edit", "Write", "Skill", "Bash(brain config check --json)", "Bash(brain config get modules.@schlessera/brain-module-jobs)", "Bash(brain jobs pipeline)", "Bash(brain jobs pipeline --json)", "--disallowedTools", "Edit(./brain.config.*)", "Write(./brain.config.*)", "--settings", settings, "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence"], { cwd: root, env: { ...env, PWD: root }, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn(["claude", "-p", prompt, "--model", model, "--output-format", "json", "--verbose", "--restricted", "--permission-mode", "dontAsk", "--tools", "Read,Glob,Grep,Edit,Write,Skill,Bash", "--allowedTools", "Read", "Glob", "Grep", "Edit", "Write", "Skill", "Bash(brain config check --json)", "Bash(brain config get modules.@schlessera/brain-module-jobs)", "Bash(brain jobs pipeline)", "Bash(brain jobs pipeline --json)", "--disallowedTools", "Edit(./brain.config.*)", "Write(./brain.config.*)", "--settings", settings, "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence"], { cwd: root, env: { ...env, PWD: root }, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     const name = `current-${rep}-${cases.indexOf(c)}-${attempt}`;
     writeFileSync(join(scratch, `${name}.json`), out); writeFileSync(join(scratch, `${name}.stderr`), err);
@@ -166,14 +168,14 @@ try {
       rows.push({ id: c.id, split, rep, arm, ...score(c, result.after, result.mapping), ...Object.fromEntries(Object.entries(result).filter(([k]) => k !== "after")) }); save();
     }
     const selected = cases.filter(c => c.split === split);
-    // Two workers maximum; subscription-limit detection prevents further dispatch.
+    // Two workers by default (EVAL_CLAUDE_WORKERS); subscription-limit detection prevents further dispatch.
     let index = 0, stopped = false;
     async function worker() { while (index < selected.length && !stopped) {
       const c = selected[index++];
       try { const result = await current(c, rep); rows.push({ id: c.id, split, rep, arm: "current", ...score(c, result.after, result.mapping), mapping: result.mapping, invalid: result.invalid, leak: result.leak }); save(); console.log(`${split} ${rep} ${c.id}: ${rows.at(-1).exact}`); }
       catch (error) { stopped = true; throw error; }
     } }
-    const finished = await Promise.allSettled([worker(), worker()]);
+    const finished = await Promise.allSettled(Array.from({ length: Number(process.env.EVAL_CLAUDE_WORKERS ?? 2) }, worker));
     const failure = finished.find(r => r.status === "rejected"); if (failure?.status === "rejected") throw failure.reason;
   }
   const totals = summary(); save({ summary: totals, complete: true, ...await report() }); console.table(totals);

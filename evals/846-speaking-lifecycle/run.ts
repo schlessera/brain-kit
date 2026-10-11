@@ -8,7 +8,10 @@ import { renderRegistry } from "../../packages/core/src/lib/index-registry";
 import { type Case, type Tree, type Answer, score, targets, data, outcome, outcomes } from "./score";
 
 const repo = resolve(import.meta.dir, "../.."), scratch = process.env.EVAL_SCRATCH;
-const file = resolve(import.meta.dir, "results-2026-10-11.json");
+// EVAL_CLAUDE_MODEL swaps only the measured current arm; a non-default model replays the stored owner/Jev arms into its own file.
+const sonnet = "claude-sonnet-5-5", model = process.env.EVAL_CLAUDE_MODEL ?? sonnet, override = model !== sonnet;
+const baseline = resolve(import.meta.dir, "results-2026-10-11.json");
+const file = override ? resolve(import.meta.dir, `results-${model.replace(/^claude-/, "")}-2026-10-11.json`) : baseline;
 const cases: Case[] = await Bun.file(resolve(import.meta.dir, "cases.json")).json();
 const fm = (title: string, body: string, extra = "", type = "conference") =>
   `---\ntype: ${type}\ntitle: ${JSON.stringify(title)}\ncreated: 2026-07-10\nupdated: 2026-07-12\nstatus: active\nrelevance: primary\n${extra}---\n\n${body}\n`;
@@ -94,13 +97,13 @@ function prompt(c: Case) {
   return `${conventions}\nUse the installed /${["delivery", "close"].includes(c.operation) ? "conference-aftermath" : "submission-outcome"} skill. Read its complete SKILL.md before acting. Operation requested: ${c.operation}. Read notes/letter.md and the brain documents; update every relevant layer. Do not ask for information already in the files. For delivery/close, highlights: Athena praised the clear demonstrations; Odysseus will keep the examples concise. Do not publish. Finish with JSON {"outcome":"accepted|rejected|waitlisted|backup|unclear","target":"first|second|shore|conference|none"}. first is ${c.submission} at ${c.assembly}; second is ${c.otherSubmission} at ${c.assembly}; shore is ${c.submission} at ${c.assembly}-secondary; conference means the main assembly as a whole. Non-outcome operations report outcome unclear. No applicable outcome reports both unclear and none.`;
 }
 let claudeCalls = 0, jevCalls = 0, stopped = false;
-async function claude(root: string, text: string, tools = "Read,Write,Edit,Glob,Grep,Bash,Skill") {
+async function claude(root: string, text: string, tools = "Read,Write,Edit,Glob,Grep,Bash,Skill", claudeModel = sonnet) {
   const env: Record<string,string | undefined> = { ...process.env, PATH: `${scratch}/bin:${process.env.PATH}` };
   delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN;
   for (let attempt = 0; attempt < 4; attempt++) {
     if (stopped) throw new Error("Subscription limit hit; dispatch stopped");
     claudeCalls++;
-    const p = Bun.spawn(["claude", "-p", text, "--model", "claude-sonnet-5-5", "--output-format", "json", "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--permission-mode", "acceptEdits", "--allowedTools", "Read,Write,Edit,Glob,Grep,Skill,Bash(brain:*)", "--tools", tools], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn(["claude", "-p", text, "--model", claudeModel, "--output-format", "json", "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--permission-mode", "acceptEdits", "--allowedTools", "Read,Write,Edit,Glob,Grep,Skill,Bash(brain:*)", "--tools", tools], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     await Bun.write(`${root}/claude-${attempt}.json`, stdout); await Bun.write(`${root}/claude-${attempt}.stderr`, stderr);
     if (/usage limit|out of extra usage|hit your limit/i.test(stdout + stderr)) { stopped = true; throw new Error("Subscription usage limit"); }
@@ -119,17 +122,18 @@ async function main() {
   await mkdir(`${scratch}/bin`, { recursive: true });
   await Bun.write(`${scratch}/bin/brain`, `#!/bin/sh\nexport BRAIN_ROOT="$PWD"\nexec bun '${repo}/packages/core/src/cli/brain.ts' "$@"\n`);
   await Bun.$`chmod +x ${scratch}/bin/brain`.quiet();
-  const labelRaw = await Bun.file(`${process.env.TMPDIR}/labels.raw.json`).json();
-  const currentOnly = process.argv.includes("--current-only"), prior = currentOnly ? await Bun.file(file).json() : null;
-  claudeCalls = prior?.calls.claude ?? labelRaw.evalCalls ?? 1;
-  jevCalls = prior?.calls.jev ?? 0;
-  const labelCheck = JSON.parse(labelRaw.result.replace(/^```json\s*|\s*```$/g, ""));
+  const currentOnly = override || process.argv.includes("--current-only"), prior = currentOnly ? await Bun.file(baseline).json() : null;
+  // The override reuses the frozen label check and counts only its own sessions; no Jev call is made.
+  const labelRaw = override ? null : await Bun.file(`${process.env.TMPDIR}/labels.raw.json`).json();
+  claudeCalls = override ? 0 : prior?.calls.claude ?? labelRaw.evalCalls ?? 1;
+  jevCalls = override ? 0 : prior?.calls.jev ?? 0;
+  const labelCheck = override ? prior.labelCheck : JSON.parse(labelRaw.result.replace(/^```json\s*|\s*```$/g, ""));
   if (labelCheck.verdicts.length !== cases.length || labelCheck.verdicts.some((v: {verdict:string}) => v.verdict !== "ok")) throw new Error("Resolve label review before measurement");
   const results: {id:string; split:string; arm:string; repetition:number; answer:Answer|null; score:ReturnType<typeof score>; [key:string]:unknown}[] = prior?.results.filter((r:{arm:string})=>r.arm!=="current") ?? [];
   const client = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY, timeoutMs: 60000 });
-  if (!client.enabled) throw new Error("TYPESAFE_API_KEY missing");
-  const discardedCurrent = prior ? {reason:"Semantic case ids were visible in Claude's working directory. Replaced by neutral-directory runs.",cliCalls:90,summary:prior.summary.current,review:prior.review} : null;
-  const save = async () => Bun.write(file, JSON.stringify({ date:"2026-10-11", models:{current:"claude-sonnet-5-5",candidate:"jev-1.13.0"}, threshold:null, labelCheck, calls:{claude:claudeCalls,jev:jevCalls}, discardedCurrent, stopped, results }, null, 2) + "\n");
+  if (!client.enabled && !override) throw new Error("TYPESAFE_API_KEY missing");
+  const discardedCurrent = prior && !override ? {reason:"Semantic case ids were visible in Claude's working directory. Replaced by neutral-directory runs.",cliCalls:90,summary:prior.summary.current,review:prior.review} : null;
+  const save = async () => Bun.write(file, JSON.stringify({ date:"2026-10-11", models:{current:model,candidate:"jev-1.13.0"}, threshold:null, labelCheck, calls:{claude:claudeCalls,jev:jevCalls}, discardedCurrent, stopped, results }, null, 2) + "\n");
   // No confidence floor: this experiment tests direct bounded Choices, not a calibrated gate.
   const jobs = cases.flatMap(c => Array.from({length:3}, (_, repetition) => ({c,repetition})));
   let next = 0;
@@ -153,7 +157,7 @@ async function main() {
             if (response.answers) answer = {outcome:(response.answers.outcome as JevChoiceAnswer).choice,target:(response.answers.target as JevChoiceAnswer).choice};
           } else {
             for (const name of ["submission-outcome", "conference-aftermath"]) await cp(`${repo}/packages/module-speaking/skills/${name}`, `${root}/.claude/skills/${name}`, {recursive:true});
-            raw = await claude(root, prompt(c));
+            raw = await claude(root, prompt(c), undefined, model);
             const response = raw as Awaited<ReturnType<typeof claude>>;
             if (!response.result.is_error && response.code === 0) answer = report(response.result.result);
           }
@@ -168,7 +172,7 @@ async function main() {
       }
     }
   }
-  await Promise.all([worker(),worker()]); await save();
+  await Promise.all(override ? [worker()] : [worker(),worker()]); await save();
   console.table(["owner","jev","current"].map(arm => {
     const rows = results.filter(r => r.arm === arm && r.split === "held-out");
     return {arm,n:rows.length,outcome:rows.filter(r => r.score.outcomeCorrect).length,target:rows.filter(r => r.score.targetCorrect).length,fields:rows.filter(r => r.score.fieldsCorrect).length,vetoes:rows.filter(r => r.score.vetoes.length).length,invalid:rows.filter(r=>r.score.invalid).length,abstentions:rows.filter(r=>r.score.abstention).length};
@@ -181,7 +185,12 @@ async function rescore() {
   saved.sourceCommit = "9f0df4959887b2b549d628010a8e2af1e5c1bfff";
   saved.callUnits = {claude:"CLI invocations, not individual agent turns",jev:"core ask invocations; internal HTTP retries are not observed"};
   saved.scoringNotes = "Rescored all saved trees after fixing status/history/negation parsing, selecting the Status column, tolerating formatting (including closed index rows), and completing mixed-index/focus/date checks. Replayed 180 deterministic runs with unchanged model answers after fixing summary-history and prior acceptance-date preservation on delivery. No candidate reruns or golden changes. Separately replaced all 90 current-arm runs because their working directories exposed semantic case ids; retained runs use fresh neutral directories.";
+  if (override) {
+    saved.sourceCommit = (await Bun.$`git -C ${repo} rev-parse HEAD`.text()).trim();
+    saved.scoringNotes = `Only the current arm was rerun, with ${model}; owner and Jev results and scores are replayed unchanged from results-2026-10-11.json. Label check frozen; no Jev calls.`;
+  }
   for (const r of saved.results) {
+    if (override && r.arm !== "current") continue;
     const c = cases.find(c => c.id === r.id)!;
     const root = `${scratch}/${r.brainDirectory ?? `${r.id}/${r.repetition}/${r.arm}`}`;
     r.score = score(c,initial(c),await read(root),r.answer);

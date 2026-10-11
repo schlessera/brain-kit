@@ -17,6 +17,12 @@ tables without calling providers. `current-only` replays the stored Jev
 judgments through deterministic writes and reruns the current comparison; it
 retains the previously selected floor and calls. `resume-current` also retains completed current samples and dispatches only missing cells. It was used to correct setup
 failures described in the decision record.
+`EVAL_CLAUDE_MODEL` (default `claude-sonnet-5-5`) replaces only the current
+arm's model; with an override, `current-only` replays the Sonnet file's Jev
+judgments and floor and writes `results-<model>-2026-10-11.json` instead.
+`EVAL_CLAUDE_CONCURRENCY` (default 2) caps parallel Claude sessions.
+`EVAL_CLAUDE_EFFORT`, when set, passes `--effort` to the current arm only and
+adds `-effort-<level>` to the results file name.
 
 Claude Code uses the logged-in subscription with both Anthropic API-key
 variables removed. At most two sessions run concurrently. The shipped `add`

@@ -10,6 +10,9 @@ const data = await Bun.file(join(root, "evals/cases/847-job-fit.json")).json();
 const cases: Case[] = data.cases.filter((c: Case) => c.set === "semantic-benchmark" && c.id !== "held-future-duty");
 const config = parseScoringConfig(data.shared.scoringConfig);
 const floors = [0, 0.4, 0.6, 0.8, 0.9, 0.95];
+// EVAL_CLAUDE_MODEL swaps only the measured skill arm; label check, goldens and Jev rows stay frozen.
+const model = process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5";
+const frozen = model === "claude-sonnet-5-5" ? undefined : await Bun.file(join(import.meta.dir, "results-2026-10-11.json")).json();
 const criteriaText = data.shared.criteria + "\n" + data.shared.evidencePrecedence + "\nConfigured title and location exclusions apply only to current requirements, not quoted, negated or historical mentions.";
 const schema = { type: "object", properties: {
   passage: { enum: ["met", "not_met", "unclear"] }, relocation: { enum: ["met", "not_met", "unclear"] },
@@ -27,15 +30,16 @@ async function main() {
   const tools = "Read,Write,Edit,Glob,Grep,Skill,Bash";
   const statePath = join(scratch, "state.json");
   const state: { claudeCalls: number; jevCalls: number; labels?: unknown; rows: Row[]; stopped?: string; review?: string; discardedPilot?: unknown; discardedCandidate?: unknown; prReview?: unknown } =
-    existsSync(statePath) ? await Bun.file(statePath).json() : { claudeCalls: 0, jevCalls: 0, rows: [] };
+    existsSync(statePath) ? await Bun.file(statePath).json() : frozen ? { claudeCalls: 0, jevCalls: 0, labels: frozen.labelCheck,
+      rows: frozen.rows.filter((r: Row) => r.arm === "jev") } : { claudeCalls: 0, jevCalls: 0, rows: [] };
   const save = () => Bun.write(statePath, JSON.stringify(state));
   let stop = false;
-  async function claude(cwd: string, prompt: string, name: string, write = false, jsonSchema?: unknown) {
+  async function claude(cwd: string, prompt: string, name: string, write = false, jsonSchema?: unknown, claudeModel = "claude-sonnet-5-5") {
     for (let attempt = 0; attempt < 4; attempt++) {
       if (stop) throw new Error("Subscription stop");
       state.claudeCalls++; await save();
       const proc = Bun.spawn(["env", "-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN", "claude", "-p", prompt,
-        "--model", "claude-sonnet-5-5", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config",
+        "--model", claudeModel, "--output-format", "json", "--no-session-persistence", "--strict-mcp-config",
         "--tools", write ? tools : "Read,Glob,Grep", "--allowedTools", write ? tools : "Read,Glob,Grep",
         "--permission-mode", write ? "acceptEdits" : "default", ...(jsonSchema ? ["--json-schema", JSON.stringify(jsonSchema)] : [])],
         { cwd, env, stdout: "pipe", stderr: "pipe" });
@@ -43,7 +47,7 @@ async function main() {
       await Bun.write(join(scratch, `${name}-${attempt}.json`), out);
       await Bun.write(join(scratch, `${name}-${attempt}.stderr`), err);
       const combined = out + err;
-      if (/hit your limit|usage limit|out of extra usage|resets.*limit/i.test(combined)) {
+      if (/hit your limit|usage limit|out of extra usage|resets.*limit|credit balance is too low|insufficient credit/i.test(combined)) {
         stop = true; state.stopped = "Claude subscription usage limit"; await save(); throw new Error(state.stopped);
       }
       if (/rate.?limit|overloaded|too many requests/i.test(combined) && attempt < 3) {
@@ -119,7 +123,7 @@ async function main() {
       const name = "skill-v2-" + c.id + "-" + rep;
       const dir = await brain(c, name);
       const prompt = "/research-opportunity\nResearch the pasted role in input.json using the installed shipped skill. This disposable fictional brain's date is 2026-07-12. Only operate within this brain directory. All available company facts are in companyPacket; no external research exists. Do the skill's local workflow, including config resolution, reading criteria and identity, creating status.md and refreshing the pipeline. Do not wait for a follow-up conversation. Finally report passage as met/not_met/unclear (met = the must-have is satisfied). Report relocation as met/not_met/unclear (met = the DEALBREAKER IS TRIGGERED: forced permanent move away from Ithaca; not_met = permanent Ithaca home expressly allowed; unclear = missing or contradictory binding residence terms). Report recommendation decision candidate/excluded/review: candidate means eligible to pursue, excluded means a definite must-have/dealbreaker/guaranteed-salary/current configured exclusion fails, review means required evidence is unknown. Use the guaranteed salary_min, never the maximum. Explain your recommendation briefly. Do not read expected labels.";
-      const j = await claude(dir, prompt, name, true, schema);
+      const j = await claude(dir, prompt, name, true, schema, model);
       const answer = j?.structured_output;
       const valid = answer && ["candidate", "excluded", "review"].includes(answer.decision) &&
         [answer.passage, answer.relocation].every((v: unknown) => ["met", "not_met", "unclear"].includes(String(v)));
@@ -133,7 +137,7 @@ async function main() {
       state.rows.push(row); await save(); console.log("Skill " + c.id + " " + (rep + 1) + ": " + row.decision);
     }
   }
-  const completions = await Promise.allSettled([jevRuns(), currentRuns(), currentRuns()]);
+  const completions = await Promise.allSettled([jevRuns(), ...Array.from({ length: Number(process.env.EVAL_CLAUDE_WORKERS ?? 2) }, currentRuns)]);
   for (const done of completions) if (done.status === "rejected") {
     state.stopped = done.reason instanceof Error ? done.reason.message : "Stopped"; await save();
   }
@@ -149,13 +153,14 @@ async function main() {
   const summary = Object.fromEntries(["skill", "jev", "keyword", "review-all"].map(arm => [arm,
     { ...metrics(rows.filter(r => r.arm === arm && cases.find(c => c.id === r.id)?.split === "held-out"), cases),
       perRep: [0, 1, 2].map(rep => metrics(rows.filter(r => r.arm === arm && r.rep === rep && cases.find(c => c.id === r.id)?.split === "held-out"), cases)) }]));
-  const results = { date: "2026-10-11", base: "9f0df4959887b2b549d628010a8e2af1e5c1bfff", models: { skill: "claude-sonnet-5-5", jev: "jev-1.13.0" },
+  const results = { date: "2026-10-11", base: "9f0df4959887b2b549d628010a8e2af1e5c1bfff", models: { skill: model, jev: "jev-1.13.0" },
+    replayed: frozen ? "Label check and Jev rows replayed from results-2026-10-11.json; only the skill arm re-measured" : undefined,
     selection: "28 semantic-benchmark cases; held-future-duty dropped after label check; legacy extraction controls excluded", repetitions: 3,
     callCounts: { claude: state.claudeCalls, jev: state.jevCalls, units: "Claude CLI invocations (not individual agent turns); Jev physical HTTP attempts including retries" }, stopped: state.stopped ?? null,
     labelCheck: state.labels, discardedPilot: state.discardedPilot, discardedCandidate: state.discardedCandidate, prReview: state.prReview,
     calibration, floor, summary, postHocFloor04: metrics(rows.filter(r => r.arm === "jev" && cases.find(c => c.id === r.id)?.split === "held-out").map(r =>
       ({ ...r, ...candidate(cases.find(c => c.id === r.id)!, r.invalid ? undefined : r.answers, 0.4, config) })), cases), rows };
-  await Bun.write(join(import.meta.dir, "results-2026-10-11.json"), JSON.stringify({ ...results, rows: undefined }, null, 2).slice(0, -2) +
+  await Bun.write(join(import.meta.dir, frozen ? `results-${model.replace(/^claude-/, "")}-2026-10-11.json` : "results-2026-10-11.json"), JSON.stringify({ ...results, rows: undefined }, null, 2).slice(0, -2) +
     ",\n  \"rows\": [\n" + rows.map(row => "    " + JSON.stringify(row)).join(",\n") + "\n  ]\n}\n");
   console.table(summary, ["n", "correct", "precision", "recall", "dealbreakerMisses", "mustHaveMisses", "invalid", "abstentions", "unanimous"]); console.log("Floor=" + floor + "; Claude=" + state.claudeCalls + "; Jev=" + state.jevCalls);
 }

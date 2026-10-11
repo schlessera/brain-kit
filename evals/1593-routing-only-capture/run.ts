@@ -26,9 +26,12 @@ const meanings = typeMeanings(fixture.policy);
 const types = Object.keys(meanings).filter((t) => taxonomy.isValidType(t));
 const here = resolve(import.meta.dir, "../..");
 const scratch = resolve(process.env.EVAL_SCRATCH ?? "scratch");
-const output = new URL("./results-2026-10-11.json", import.meta.url);
+// EVAL_CLAUDE_MODEL swaps the measured Claude steps (current arm and tag step); another model writes its own file, seeded with the stored Jev judgments and frozen floors.
+const MODELS = { claude: process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5", jev: "jev-1.13.0" };
+const seedOutput = new URL("./results-2026-10-11.json", import.meta.url);
+const output = MODELS.claude === "claude-sonnet-5-5" ? seedOutput : new URL(`./results-${MODELS.claude.replace(/^claude-/, "")}-2026-10-11.json`, import.meta.url);
+const CLAUDE_WIDTH = Number(process.env.EVAL_CLAUDE_WIDTH ?? 2);
 const ActualDate = Date;
-const MODELS = { claude: "claude-sonnet-5-5", jev: "jev-1.13.0" };
 let loaded = false;
 let state: {
   source: string | null; sourceWorkingTree: string[] | null; claudeVersion: string | null; calls: { claudeProcesses: number; claudeModelRequests: number; jevRequests: number };
@@ -171,7 +174,7 @@ function save() {
   state.sourceWorkingTree ??= Bun.spawnSync(["git", "status", "--short"], { cwd: here }).stdout.toString().trim().split("\n");
   const summaries = Object.fromEntries(["current", "candidate", "baseline"].map((a) => [a, { tuning: summary(a, "tuning"), heldOut: summary(a, "held-out") }]));
   const { runs, judgments, tagCalls, regression, ...meta } = state;
-  const data = { date: "2026-10-11", models: MODELS, fixture: "evals/cases/1593-routing-only-capture.json", ...meta, summaries, enforcement: enforcement(), regressionSummary: regressionSummary() };
+  const data = { date: "2026-10-11", models: MODELS, fixture: "evals/cases/1593-routing-only-capture.json", ...(output !== seedOutput ? { seededFrom: "results-2026-10-11.json judgments and calibration" } : {}), ...meta, summaries, enforcement: enforcement(), regressionSummary: regressionSummary() };
   const lines = (xs: unknown[]) => xs.map((x) => "    " + JSON.stringify(x)).join(",\n");
   writeFileSync(output, JSON.stringify(data, null, 2).slice(0, -2) + `,\n  "judgments": [\n${lines(judgments)}\n  ],\n  "tagCalls": [\n${lines(tagCalls)}\n  ],\n  "regression": [\n${lines(regression)}\n  ],\n  "runs": [\n${lines(runs)}\n  ]\n}\n`);
 }
@@ -195,6 +198,7 @@ async function measure() {
   mkdirSync(join(scratch, "raw"), { recursive: true });
   mkdirSync(join(scratch, "brains"), { recursive: true });
   if (existsSync(output)) { const previous = await Bun.file(output).json(); Object.assign(state, { ...previous, stopped: null }); }
+  else if (output !== seedOutput) { const { judgments, calibration } = await Bun.file(seedOutput).json(); Object.assign(state, { judgments, calibration }); }
   loaded = true;
   state.claudeVersion = (await command(["claude", "--version"], here)).stdout.trim();
   const kinds = Object.fromEntries(types.map((t) => [t, meanings[t]]));
@@ -229,7 +233,7 @@ async function measure() {
   const needTags = routed.filter(({ c, rep, routing }) => !routing.target && !routing.explicitTags && !state.tagCalls.some((t) => t.id === c.id && t.rep === rep));
   const tagRoot = join(scratch, "brains", "tag-step");
   mkdirSync(tagRoot, { recursive: true });
-  await pool(needTags, 2, async ({ c, rep, routing }) => { const raw = await claude(tagPrompt(c, routing.type), tagRoot, `tags-${c.id}-${rep}`, false); state.tagCalls.push({ id: c.id, rep, raw }); save(); });
+  await pool(needTags, CLAUDE_WIDTH, async ({ c, rep, routing }) => { const raw = await claude(tagPrompt(c, routing.type), tagRoot, `tags-${c.id}-${rep}`, false); state.tagCalls.push({ id: c.id, rep, raw }); save(); });
   state.runs = state.runs.filter((r) => r.arm === "current");
   for (const { c, rep, answers, routing } of routed) {
     const root = brain(`candidate-${c.id}-${rep}`), before = files(root);
@@ -256,7 +260,7 @@ async function measure() {
   // 6. Current shipped skill, at most two subscription sessions at once. Inputs and labels never enter a current brain.
   const jobs = cases.flatMap((c) => REPS.map((rep) => ({ c, rep }))).filter(({ c, rep }) => !state.runs.some((r) => r.arm === "current" && r.id === c.id && r.rep === rep));
   for (const { c, rep } of jobs) brain(`current-${c.id}-${rep}`);
-  await pool(jobs, 2, async ({ c, rep }) => {
+  await pool(jobs, CLAUDE_WIDTH, async ({ c, rep }) => {
     const name = `current-${c.id}-${rep}`, root = brain(name);
     const indexed = await command([join(scratch, "bin/brain-product"), "index", "--force"], root);
     if (indexed.code !== 0) throw new Error("Fixture indexing failed");
