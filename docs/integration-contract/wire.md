@@ -532,9 +532,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   Claude SDK's forwarded classes. Inventory proof covers first-party `errorClass`
   literals, registry references and that installed SDK vocabulary. Unregistered
   third-party classes still appear as `unknown` in the default outgoing review;
-  the wire field remains free-form. This additive export ships as a patch under
-  the maintainer's explicit 0.41.1 batch instruction, an exception to the ordinary
-  additive-minor rule.
+  the wire field remains free-form. This additive SDK export ships in a minor
+  release under the contract versioning rules.
 - **`authAction`** is set only on a Claude subscription's auth failure:
   `relogin`, `check_account` or `check_config`, as
   `subscriptionAuthAction(errorClass)` maps it, with
