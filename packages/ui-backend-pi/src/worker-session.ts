@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getAgentDir, SessionManager, CURRENT_SESSION_VERSION, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
-import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, type BrainApplicationResult,
+import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { launchAgentWorker, requireWorkerHost, restrictedReadPaths, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
@@ -19,6 +19,11 @@ import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./
 import { pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
+/** The path a granted brain_read_base input names; undefined unless it is a valid input. */
+function grantedReadBasePath(granted: string): string | undefined {
+  try { const parsed = brainReadBaseInput.safeParse(JSON.parse(granted)); return parsed.success ? parsed.data.path : undefined; }
+  catch { return undefined; }
+}
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string) {
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
@@ -199,7 +204,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       const grant = grants.get(msg.toolCallId);
       grants.delete(msg.toolCallId);
-      if (!grant || grant.name !== "brain_read_base" || grant.input !== JSON.stringify(msg.input)) {
+      // The grant covers the whole tool input (path plus any page range); the
+      // server base request carries only its path, which must match exactly.
+      if (!grant || grant.name !== "brain_read_base" || grantedReadBasePath(grant.input) !== msg.input.path) {
         throw new Error("Pi document-base request has no matching server permission decision.");
       }
       if (!bridge.readBrainBase) throw new Error("No server document-base reader is available.");

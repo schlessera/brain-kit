@@ -98,6 +98,77 @@ for (const kind of ["claude", "pi"] as const) {
   });
 }
 
+// The Claude Agent SDK passes an MCP result through untouched while its
+// length / 4 stays within half its 25,000-token default (#1624).
+const HARNESS_PASS_CHARS = 50_000;
+const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+function voyageLog(): string {
+  let text = "---\ntype: note\ntitle: Voyage log\n---\n";
+  for (let day = 1; text.length < 67_000; day++) text += `Day ${day}: Odysseus logs the wind, the oars and what Athena advised at dusk.\n`;
+  return text;
+}
+
+for (const kind of ["claude", "pi"] as const) {
+  test(`${kind} brain_read_base returns a small document whole, hash first`, async () => {
+    const a = await adapter(kind);
+    const path = "notes/raft-short.md"; const whole = "---\ntype: note\n---\nOdysseus rows.\n";
+    writeFileSync(join(root, path), whole);
+    const base = await a.call("brain_read_base", { path });
+    expect(Object.keys(base)).toEqual(["expectedBaseHash", "bytes", "lines", "content"]);
+    expect(base).toEqual({ expectedBaseHash: sha256(whole), bytes: Buffer.byteLength(whole), lines: 4, content: whole });
+  });
+
+  test(`${kind} brain_read_base pages a large document under the harness budget with the whole-document hash`, async () => {
+    const a = await adapter(kind);
+    const path = "notes/voyage-log.md"; const whole = voyageLog();
+    writeFileSync(join(root, path), whole);
+    const total = whole.split("\n").length - 1;
+    const first = await a.call("brain_read_base", { path });
+    expect(Object.keys(first)[0]).toBe("expectedBaseHash");
+    expect(first.content).toBeUndefined();
+    expect(first).toMatchObject({ expectedBaseHash: sha256(whole), bytes: Buffer.byteLength(whole), lines: total, offset: 1 });
+    expect(first.hint).toContain(`offset: ${first.nextOffset}`);
+    expect(JSON.stringify(first).length).toBeLessThanOrEqual(HARNESS_PASS_CHARS);
+    let text = first.text as string; let next = first.nextOffset as number | undefined;
+    while (next !== undefined) {
+      const page = await a.call("brain_read_base", { path, offset: next });
+      expect(JSON.stringify(page).length).toBeLessThanOrEqual(HARNESS_PASS_CHARS);
+      expect(page).toMatchObject({ expectedBaseHash: sha256(whole), lines: total, offset: next });
+      expect(page.hint).toBeUndefined();
+      text += page.text; next = page.nextOffset;
+    }
+    expect(text).toBe(whole);
+    const window = await a.call("brain_read_base", { path, offset: 6, limit: 2 });
+    expect(window).toEqual({ expectedBaseHash: sha256(whole), bytes: Buffer.byteLength(whole), lines: total, offset: 6, returnedLines: 2,
+      text: whole.split("\n").slice(5, 7).map(line => `${line}\n`).join(""), nextOffset: 8 });
+    const hashOnly = await a.call("brain_read_base", { path, limit: 0 });
+    expect(hashOnly).toEqual({ expectedBaseHash: sha256(whole), bytes: Buffer.byteLength(whole), lines: total,
+      offset: 1, returnedLines: 0, text: "", nextOffset: 1 });
+    // A paged hash is the full base: it applies once and then goes stale.
+    const edit = await a.call("edit_file", { path, expectedBaseHash: hashOnly.expectedBaseHash, old_string: "Day 3:", new_string: "Day three:" });
+    expect(edit.ok).toBe(true);
+    const stale = await a.call("edit_file", { path, expectedBaseHash: hashOnly.expectedBaseHash, old_string: "Day 4:", new_string: "Day four:" });
+    expect(stale.ok).toBe(false);
+    expect(readFileSync(join(root, path), "utf8")).toBe(whole.replace("Day 3:", "Day three:"));
+  });
+}
+
+test("pi edits from a paged read's whole-document receipt", async () => {
+  const a = await adapter("pi");
+  const path = "notes/voyage-log.md"; const whole = voyageLog();
+  writeFileSync(join(root, path), whole);
+  await a.call("brain_read_base", { path, offset: 3, limit: 1 });
+  const edit = await a.call("edit_file", { path, old_string: "Day 2:", new_string: "Day two:" });
+  expect(edit.ok).toBe(true);
+  expect(readFileSync(join(root, path), "utf8")).toBe(whole.replace("Day 2:", "Day two:"));
+});
+
+test("claude brain_read_base refuses unknown keys", async () => {
+  const a = await adapter("claude");
+  const refused = await a.call("brain_read_base", { path: "notes/raft.md", content: false });
+  expect(refused.isError).toBe(true);
+});
+
 test("the actual Claude turn options shadow project writers and expose server writers", async () => {
   const a = await adapter("claude");
   for (const name of ["brain_add", "brain_update", "brain_archive"]) {

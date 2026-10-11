@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { brainApplicationInput, BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import { brainApplicationInput, brainReadBaseInput, brainReadBaseResult, BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS,
+  BRAIN_READ_BASE_DESCRIPTION, type BackendBridge, type BrainReadBaseInput } from "@schlessera/brain-ui-sdk/server";
 import { toPiParameters } from "./bridge-tools.js";
 /**
  * The curated brain tool surface for the pi backend.
@@ -322,8 +323,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   };
 
   const bases = new WeakMap<BackendBridge, Map<string, string>>();
-  const rememberBase = (path: string, raw: string): string => {
-    const hash = createHash("sha256").update(raw, "utf8").digest("hex");
+  const rememberBase = (path: string, raw: string): string =>
+    rememberHash(path, createHash("sha256").update(raw, "utf8").digest("hex"));
+  // The receipt is always a whole-document hash: a paged brain_read_base
+  // remembers the server's hash, never one recomputed from its page.
+  const rememberHash = (path: string, hash: string): string => {
     if (turn.bridge?.applyBrain) {
       let entries = bases.get(turn.bridge);
       if (!entries) { entries = new Map(); bases.set(turn.bridge, entries); }
@@ -854,13 +858,14 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   });
   const readBase = {
     name: "brain_read_base", label: "Read document base",
-    description: "Read a Markdown document and its exact SHA-256 base for a hosted edit.",
-    parameters: Type.Object({ path: Type.String() }),
-    async execute(_id: string, params: { path: string }) {
+    description: BRAIN_READ_BASE_DESCRIPTION,
+    parameters: toPiParameters(brainReadBaseInput),
+    async execute(_id: string, params: BrainReadBaseInput) {
       if (!turn.bridge?.readBrainBase) throw new Error("No server document-base reader is available.");
       const base = await turn.bridge.readBrainBase(params.path);
-      rememberBase(params.path, base.content);
-      return textResult(JSON.stringify(base), base);
+      rememberHash(params.path, base.expectedBaseHash);
+      const result = brainReadBaseResult(base, { offset: params.offset, limit: params.limit, column: params.column });
+      return textResult(JSON.stringify(result), result);
     },
   } satisfies ToolDefinition;
   return [...tools.filter(t => !routed.some(r => r.name === t.name)), ...routed, readBase];

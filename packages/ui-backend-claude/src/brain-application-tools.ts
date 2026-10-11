@@ -1,6 +1,7 @@
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { brainApplicationInput, BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import { brainApplicationInput, brainReadBaseInput, brainReadBaseResult, BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS,
+  BRAIN_READ_BASE_DESCRIPTION, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 /** Register full strict objects: the SDK's raw-shape helper strips extra keys. */
 export function registerBrainApplicationTools(
@@ -20,11 +21,13 @@ export function registerBrainApplicationTools(
     });
   }
   if (bridge.readBrainBase) server.registerTool("brain_read_base", {
-    description: "Read a Markdown document and its exact SHA-256 base for a hosted edit.",
-    inputSchema: z.object({ path: z.string().min(1).max(1024) }).strict(),
+    description: BRAIN_READ_BASE_DESCRIPTION,
+    inputSchema: brainReadBaseInput,
     _meta: { "anthropic/alwaysLoad": true },
-  }, async ({ path }) => {
-    try { return { content: [{ type: "text" as const, text: JSON.stringify(await bridge.readBrainBase!(path)) }] }; }
+  }, async ({ path, ...range }) => {
+    // The bridge returns the whole document and its server hash; only the
+    // agent-facing result is paged, so no result outgrows the MCP budget.
+    try { return { content: [{ type: "text" as const, text: JSON.stringify(brainReadBaseResult(await bridge.readBrainBase!(path), range)) }] }; }
     catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "Read failed." }] }; }
   });
 }

@@ -37,7 +37,11 @@ writeFileSync(join(brainPath, "mcp-witness.ts"), `import {readlinkSync,writeFile
 writeFileSync(join(brainPath, ".mcp.json"), JSON.stringify({ mcpServers: { brain: { command: process.execPath, args: [join(brainPath, "mcp-witness.ts")] } } }));
 const nativeBun = process.execPath;
 const childMarker = `brain-claude-worker-${basename(root)}`;
-const actions = scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: 120000 } }] : [
+// #1624: a status log large enough that the whole-document result used to spill.
+let voyageLog = "---\ntype: note\ntitle: Voyage log\n---\n";
+for (let day = 1; voyageLog.length < 67_000; day++) voyageLog += `Day ${day}: Odysseus logs "the wind", the oars and what Athena advised at dusk.\n`;
+if (scenario === "read-base") writeFileSync(join(brainPath, "notes/voyage-log.md"), voyageLog);
+const actions = scenario === "read-base" ? [{ name: "mcp__brain-ui__brain_read_base", input: { path: "notes/voyage-log.md" } }] : scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: 120000 } }] : [
   { name: "Write", input: { file_path: policyPath, content: "Write changed policy" } },
   { name: "Edit", input: { file_path: policyPath, old_string: "Athena", new_string: "Untrusted" } },
   { name: "NotebookEdit", input: { notebook_path: join(brainPath, "context/policies/crew.ipynb"), cell_id: "crew", new_source: "Untrusted notebook", cell_type: "markdown", edit_mode: "replace" } },

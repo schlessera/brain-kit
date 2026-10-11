@@ -62,6 +62,30 @@ describe("ordinary pi isolated worker", () => {
     else if (scenario === "forge-overflow") expect(r.frames.some((f: any) => f.type === "error" && f.message.includes("exceeds its bound"))).toBe(true);
     else expect(r.frames.some((f: any) => f.type === "error")).toBe(true);
   });
+  test("a ranged brain_read_base pages in the worker and its whole-document receipt backs a later edit", async () => {
+    const r = await probe("read-base-page");
+    policyUnchanged(r);
+    expect(r.failure).toBeUndefined();
+    const read = r.frames.find((f: any) => f.type === "tool_result" && f.toolUseId === "toolu_fixture_0");
+    // The worker's server request carries only the path of the granted ranged input.
+    expect(read.output).toStartWith('{"expectedBaseHash":');
+    const page = JSON.parse(read.output);
+    const whole = "---\ntype: note\n---\nDay 1: Odysseus leaves Troy.\nDay 2: Athena counsels patience.\n";
+    expect(page).toEqual({ expectedBaseHash: new Bun.CryptoHasher("sha256").update(whole).digest("hex"),
+      bytes: Buffer.byteLength(whole), lines: 5, offset: 4, returnedLines: 1, text: "Day 1: Odysseus leaves Troy.\n", nextOffset: 5 });
+    const edit = r.applicationReceipts.find((v: any) => v.ok);
+    expect(edit?.changes[0].path).toBe("notes/voyage-log.md");
+    expect(r.voyageLog).toBe(whole.replace("patience", "courage"));
+    expect(r.running).toEqual([]);
+  });
+  test.each(["forge-readbase-path", "forge-readbase-replay"])("refuses a %s document-base request from inside the worker", async scenario => {
+    const r = await probe(scenario);
+    policyUnchanged(r);
+    expect(r.frames.some((f: any) => f.code === "PI_WORKER_RPC_REFUSED"
+      && f.message === "Pi document-base request has no matching server permission decision.")).toBe(true);
+    expect(JSON.stringify(r.frames)).not.toContain("Calypso keeps the hidden route");
+    expect(r.running).toEqual([]);
+  });
   test("a failed host probe refuses before any installed extension factory runs", async () => {
     const r = await probe("failed-host");
     policyUnchanged(r);
