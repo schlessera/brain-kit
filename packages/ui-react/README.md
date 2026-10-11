@@ -427,6 +427,16 @@ its confirmed lifecycle transition, preserving receipt attribution. A failed
 check unlocks controls without a success receipt; an ambiguous winning option
 remains unattributed.
 
+Actions-limit retirement shows a neutral explanation above Needs you: the finding
+was set aside without fixing, dismissing or snoozing it. Resume explicitly asks
+the server to bring it back. If this device's response names a new retirement
+receipt, the panel turns gold with guidance to make room; reload returns to the
+neutral explanation. Successful server-confirmed Resume hands focus to the
+finding title without interrupting typing. Retired title/path metadata is shown
+only while held in the inbox mirror, and the panel exposes no operational IDs
+or cap number. The matching generic dropped row stays hidden in Needs you;
+its stored receipt and Done notes remain unchanged.
+
 ## Store hooks
 
 The exported store hooks are what a shell reads and calls, typed against a
