@@ -36,7 +36,7 @@ import { RollupCards } from "./activity-rollups.js";
 import { LiveRow, RunRow } from "./activity-run-list.js";
 import { RunDetail, RunTraceSteps } from "./activity-run-detail.js";
 import { IntentCard } from "./activity-views.js";
-import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
+import { focusAfterDecision, isEditableTarget, singleKey } from "../../lib/single-key.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { PushToggle } from "./push-toggle.js";
 import { ActivityReportSheet, type ActivityReportRequest } from "./activity-report.js";
@@ -143,6 +143,7 @@ export function ActivityPage() {
   const [queueReceiptId, setQueueReceiptId] = useState<string | null>(null);
   /** The decision whose confirmation should move focus (D37 §6). */
   const awaitingFocus = useRef<string | null>(null);
+  const handledResumeFocus = useRef(0);
   const actions = useMemo(() => Object.values(inboxItems).filter((i): i is InboxActionItem => i.queue === "actions"), [inboxItems]);
   const openDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && !a.hygiene && a.status === "pending"), [actions]);
   const snoozedDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && !a.hygiene && a.status === "snoozed"), [actions]);
@@ -165,6 +166,8 @@ export function ActivityPage() {
   // Rows that replace a card in place: an answer's outcome, including a
   // confirmed snooze, whose card has moved under Later.
   const receiptIds = Object.keys(outcomes).filter((id) => {
+    // Hygiene receipts have their own presentation, including the Actions-limit
+    // panel in place of its dropped row. The stored receipt and Done notes remain.
     if ((inboxItems[id]?.queue === "actions" && (inboxItems[id] as InboxActionItem).hygiene) || inboxItems[id]?.queue === "queue" || openDecisions.some((d) => d.id === id)) return false;
     const o = outcomes[id];
     return !snoozedDecisions.some((d) => d.id === id) || (o?.kind === "receipt" && o.status === "snoozed");
@@ -552,17 +555,28 @@ export function ActivityPage() {
   });
   useEffect(() => {
     if (!detailActionId || !inboxItems[detailActionId] || inboxItems[detailActionId]?.queue !== "actions" || !(inboxItems[detailActionId] as InboxActionItem).hygiene) return;
+    if (hygiene.read.review.status === "paused" && hygiene.read.review.pauseReason?.retiredActionId === detailActionId) {
+      setDetailActionId(null);
+      return;
+    }
     const next = hygiene.read.review.pendingActionId;
     // REST can name the replacement before its inbox delta. Keep the current
     // detail until the replacement exists, rather than opening a missing item.
     if (next && next !== detailActionId && inboxItems[next]?.queue === "actions") setDetailActionId(next);
     else if (hygiene.read.review.status === "complete") setDetailActionId(null);
-  }, [hygiene.read.review.pendingActionId, hygiene.read.review.status, detailActionId, inboxItems]);
+  }, [hygiene.read.review.pendingActionId, hygiene.read.review.status, hygiene.read.review.pauseReason, detailActionId, inboxItems]);
   useEffect(() => {
     if (detailActionId && (inboxItems[detailActionId] as InboxActionItem | undefined)?.hygiene) requestAnimationFrame(() => {
       if (!document.activeElement || !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) pageRef.current?.querySelector<HTMLElement>("[data-hygiene-detail] [data-hygiene-title]")?.focus();
     });
   }, [detailActionId]);
+  useEffect(() => {
+    if (hygiene.resumeFocus <= handledResumeFocus.current) return;
+    const id = hygiene.read.review.pendingActionId;
+    if (!id || inboxItems[id]?.queue !== "actions") return;
+    handledResumeFocus.current = hygiene.resumeFocus;
+    if (hygieneDesktop && !isEditableTarget(document.activeElement)) setDetailActionId(id);
+  }, [hygiene.resumeFocus, hygiene.read.review.pendingActionId, hygieneDesktop, inboxItems]);
   const queueReceiptItem = queueReceiptId ? inboxItems[queueReceiptId] : undefined;
   const detailAction = detailActionId ? inboxItems[detailActionId] : undefined;
   const nextBack = snoozedDecisions.reduce<number | null>((min, d) => (d.waitUntil !== undefined && (min === null || d.waitUntil < min) ? d.waitUntil : min), null);

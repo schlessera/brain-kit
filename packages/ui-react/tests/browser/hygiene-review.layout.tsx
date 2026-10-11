@@ -229,7 +229,7 @@ test("reload, reconnect, Pause and Resume retain the pending card and strip", as
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
   expect(current().dataset.hygieneId).toBe(id);
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await page.getByRole("button", { name: "Resume hygiene review", exact: true }).click();
   await expect.poll(() => host!.querySelector("[data-hygiene-strip]")?.textContent).toContain("1 of 2 open");
   expect(current().dataset.hygieneId).toBe(id);
   flushSync(() =>
@@ -560,7 +560,7 @@ for (const width of [320, 1280])
         if (operation === "resume") {
           await page.getByRole("button", { name: "Pause", exact: true }).click();
           await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
-          await page.getByRole("button", { name: "Resume", exact: true }).click();
+          await page.getByRole("button", { name: "Resume hygiene review", exact: true }).click();
           await expect.poll(() => host!.querySelector("[data-hygiene-strip]")?.textContent).toContain("1 of 2 open");
           expect(current().dataset.hygieneId, "Resume retains the same REST-only pending Action").toBe(id);
         }
@@ -618,7 +618,7 @@ for (const recovery of ["unknown", "undo"] as const)
       await expect.poll(async () => (await ui!.api.hygieneReview()).action?.hygiene?.outcome?.status).toBe("check_failed");
       await page.getByRole("button", { name: "Pause", exact: true }).click();
       await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
-      await page.getByRole("button", { name: "Resume", exact: true }).click();
+      await page.getByRole("button", { name: "Resume hygiene review", exact: true }).click();
       const label = recovery === "unknown" ? "Check again" : "Undo change";
       const button = page.getByRole("button", { name: label, exact: true });
       await expect.element(button).toBeVisible();
