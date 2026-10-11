@@ -95,6 +95,7 @@ function byteRange(header: string | undefined, size: number): { start: number; e
 async function rangeResponse(
   rel: string,
   abs: string,
+  snapshot: Uint8Array<ArrayBuffer> | undefined,
   header: string | undefined,
   size: number,
   headers: Record<string, string>
@@ -106,7 +107,7 @@ async function rangeResponse(
     if (range === "unsatisfiable") {
       return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${known}` } });
     }
-    const bytes = await Bun.file(abs).slice(range.start, range.end + 1).bytes();
+    const bytes = snapshot ? snapshot.slice(range.start, range.end + 1) : await Bun.file(abs).slice(range.start, range.end + 1).bytes();
     const whole = bytes.length === range.end - range.start + 1;
     if (whole || (attempt === 1 && bytes.length > 0)) {
       return new Response(bytes, {
@@ -150,7 +151,7 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
     const raw = c.req.query("raw") === "1";
     try {
       if (raw) {
-        const { abs, mime, size } = await resolveForRaw(path, brainRoot);
+        const { abs, mime, size, bytes: snapshot } = await resolveForRaw(path, brainRoot);
         const headers = {
           "Content-Type": mime,
           "Content-Disposition": "inline",
@@ -163,10 +164,11 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
         // match here, because this route sends no validator, and a Range
         // behind a failed If-Range is ignored (§13.1.5).
         if (c.req.method === "GET" && c.req.header("If-Range") === undefined) {
-          const partial = await rangeResponse(path, abs, c.req.header("Range"), size, headers);
+          const partial = await rangeResponse(path, abs, snapshot, c.req.header("Range"), size, headers);
           if (partial) return partial;
         }
-        const file = Bun.file(abs);
+        // A scratch file arrives as a snapshot, never reopened by path (#1626).
+        const file = snapshot ? new Blob([snapshot]) : Bun.file(abs);
         // Bun.serve can apply the original Range again to a native file body,
         // even after this route chose 200 for an unmatched If-Range or HEAD.
         // Materialize only ignored-range GET responses; the size cap still
@@ -199,10 +201,11 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
     if (!path) return c.json({ error: "missing_path" }, 400);
     if (!HTML_REQUEST.test(path)) return c.json({ error: "not_html" }, 400);
     try {
-      const { abs, size } = await resolveForRaw(path, brainRoot);
-      // A symlink named .html may resolve to a file that is not.
-      if (classifyKind(await realpath(abs)) !== "html") return c.json({ error: "not_html" }, 400);
-      return new Response(Bun.file(abs), {
+      const { abs, size, bytes: snapshot } = await resolveForRaw(path, brainRoot);
+      // A symlink named .html may resolve to a file that is not. A scratch
+      // snapshot was read without following one (#1626).
+      if (!snapshot && classifyKind(await realpath(abs)) !== "html") return c.json({ error: "not_html" }, 400);
+      return new Response(snapshot ?? Bun.file(abs), {
         status: 200,
         headers: {
           "Content-Type": "text/html; charset=utf-8",

@@ -11,6 +11,7 @@ import {
   classifyKind,
   safeResolve,
   PathEscapeError,
+  readScratchSnapshot,
   NotFoundError,
   TooLargeError,
 } from "../src/files/walker";
@@ -123,6 +124,36 @@ describe("safeResolve", () => {
     } finally {
       await rm(join(root, ".brain"), { recursive: true, force: true });
       await rm(join(root, "notes/foo-link.md"), { force: true });
+    }
+  });
+
+  // The path checks above run before the open; a hosted agent can swap a
+  // scratch directory or file for a link in between. The snapshot opens
+  // every component without following one, so a swap at that moment fails
+  // closed instead of serving the link's target.
+  test.skipIf(process.platform !== "linux")("a scratch file is read through descriptors that never follow a link (#1626)", async () => {
+    const scratch = join(root, ".brain/scratch");
+    await mkdir(join(scratch, "real"), { recursive: true });
+    await writeFile(join(scratch, "real/report.html"), "<p>Ithaca</p>");
+    await symlink(join(root, "notes"), join(scratch, "swapped"));
+    await symlink(join(root, "notes/foo.md"), join(scratch, "swapped.md"));
+    try {
+      expect(new TextDecoder().decode(readScratchSnapshot(join(scratch, "real/report.html"), root, "x")!.bytes)).toBe("<p>Ithaca</p>");
+      expect(() => readScratchSnapshot(join(scratch, "swapped/foo.md"), root, "x"), "SNAPSHOT_DIR_LINK").toThrow(PathEscapeError);
+      expect(() => readScratchSnapshot(join(scratch, "swapped.md"), root, "x"), "SNAPSHOT_FILE_LINK").toThrow(PathEscapeError);
+      // The routes serve the snapshot: whole, ranged and as an HTML preview.
+      const app = createFilesRoutes({ brainRoot: root });
+      const whole = await app.request("/files/content?path=.brain/scratch/real/report.html&raw=1");
+      expect(await whole.text()).toBe("<p>Ithaca</p>");
+      const ranged = await app.request("/files/content?path=.brain/scratch/real/report.html&raw=1", { headers: { Range: "bytes=3-8" } });
+      expect(ranged.status).toBe(206);
+      expect(await ranged.text()).toBe("Ithaca");
+      const preview = await app.request("/files/html?path=.brain/scratch/real/report.html");
+      expect(await preview.text()).toBe("<p>Ithaca</p>");
+      const content = await app.request("/files/content?path=.brain/scratch/real/report.html");
+      expect((await content.json() as { content: string }).content).toBe("<p>Ithaca</p>");
+    } finally {
+      await rm(join(root, ".brain"), { recursive: true, force: true });
     }
   });
 });

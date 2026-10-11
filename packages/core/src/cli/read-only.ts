@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { SCRATCH_DIR } from "../lib/scratch.js";
 
@@ -15,8 +15,10 @@ export function readOnlyBrainError(command: string, error: unknown, root?: strin
 } | null {
   if ((error as NodeJS.ErrnoException)?.code !== "EROFS") return null;
   const tool = command === "add" ? "brain_add" : command === "archive" ? "brain_archive" : "apply_staged_changes";
-  const sandbox = root === undefined ? undefined : isReadOnlyBrainMount(join(root, SCRATCH_DIR))
-    ? `${SCRATCH_DIR}/ is read-only in this turn as well (a restricted autonomous turn, or it is not gitignored, redirected or holds a link to a file outside it), so nothing written now is kept for the reader.`
+  // A scratch directory missing from a read-only brain cannot be created, so it is no route either.
+  const scratch = root === undefined ? undefined : join(root, SCRATCH_DIR);
+  const sandbox = scratch === undefined ? undefined : !existsSync(scratch) || isReadOnlyBrainMount(scratch)
+    ? `${SCRATCH_DIR}/ is read-only in this turn as well (a restricted autonomous turn, or it is missing, not gitignored, redirected or could not be verified), so nothing written now is kept for the reader.`
     : undefined;
   const message = command === "scratch"
     ? `The scratch area ${SCRATCH_DIR}/ is read-only here, so nothing was removed. In a hosted turn that means a restricted autonomous turn, or a scratch directory the worker sandbox would not bind writable; the server prunes it hourly.`

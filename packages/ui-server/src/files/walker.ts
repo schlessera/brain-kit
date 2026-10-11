@@ -1,3 +1,4 @@
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { lstat, readdir, readFile, stat, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, posix, dirname } from "node:path";
 import ignore, { type Ignore } from "ignore";
@@ -141,6 +142,58 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
     }
   }
   return abs;
+}
+
+/**
+ * A scratch file's bytes, read through descriptors that never follow a link
+ * (#1626). A hosted agent writes scratch while the reader fetches its links,
+ * so a check by path followed by an open by path could serve whatever a
+ * symlink swapped in meanwhile points at. Each directory from the brain root
+ * down is opened with `O_NOFOLLOW | O_DIRECTORY` through the previous one, the
+ * file with `O_NOFOLLOW | O_NONBLOCK`, and size and bytes come from that one
+ * descriptor. `null` off Linux, where no worker writes scratch and the path
+ * checks in `safeResolve` stand.
+ */
+export function readScratchSnapshot(abs: string, absRoot: string, rel: string): { bytes: Uint8Array<ArrayBuffer>; size: number; mtimeMs: number } | null {
+  if (process.platform !== "linux") return null;
+  const segments = relative(absRoot, abs).split(sep).filter(Boolean);
+  const name = segments.pop();
+  if (!name) throw new NotFoundError(rel);
+  const fail = (err: unknown): never => {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ELOOP" || code === "ENOTDIR") throw new PathEscapeError(rel);
+    throw new NotFoundError(rel);
+  };
+  let dir: number;
+  try { dir = openSync(absRoot, constants.O_RDONLY | constants.O_DIRECTORY); } catch (err) { return fail(err); }
+  try {
+    for (const segment of segments) {
+      let next: number;
+      try { next = openSync(`/proc/self/fd/${dir}/${segment}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch (err) { return fail(err); }
+      closeSync(dir);
+      dir = next;
+    }
+    let fd: number;
+    try { fd = openSync(`/proc/self/fd/${dir}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch (err) { return fail(err); }
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile()) throw new NotFoundError(rel);
+      if (info.size > FILE_SIZE_CAP_BYTES) throw new TooLargeError(info.size);
+      const bytes = new Uint8Array(info.size);
+      let read = 0;
+      while (read < bytes.length) {
+        const n = readSync(fd, bytes, read, bytes.length - read, read);
+        if (n === 0) break;
+        read += n;
+      }
+      return { bytes: bytes.subarray(0, read), size: read, mtimeMs: info.mtimeMs };
+    } finally { closeSync(fd); }
+  } finally { closeSync(dir); }
+}
+
+/** The canonical brain root `safeResolve` resolves against. */
+async function canonicalRoot(root: string): Promise<string> {
+  try { return await realpath(resolve(root)); } catch { return resolve(root); }
 }
 
 interface CachedIgnore {
@@ -342,11 +395,15 @@ export interface FileContent {
 
 export async function readFileContent(rel: string, root: string): Promise<FileContent> {
   const abs = await safeResolve(rel, root);
-  let s;
-  try {
-    s = await stat(abs);
-  } catch {
-    throw new NotFoundError(rel);
+  const snapshot = isScratchPath(rel.replace(/\\/g, "/")) ? readScratchSnapshot(abs, await canonicalRoot(root), rel) : null;
+  let s: { size: number; mtimeMs: number; isFile(): boolean };
+  if (snapshot) s = { size: snapshot.size, mtimeMs: snapshot.mtimeMs, isFile: () => true };
+  else {
+    try {
+      s = await stat(abs);
+    } catch {
+      throw new NotFoundError(rel);
+    }
   }
   if (!s.isFile()) throw new NotFoundError(rel);
   if (s.size > FILE_SIZE_CAP_BYTES) throw new TooLargeError(s.size);
@@ -361,7 +418,7 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
         : null;
 
   if (presumed) {
-    const content = await readFile(abs, "utf8");
+    const content = snapshot ? Buffer.from(snapshot.bytes).toString("utf8") : await readFile(abs, "utf8");
     return {
       kind: presumed,
       size: s.size,
@@ -371,7 +428,7 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
     };
   }
 
-  const buf = await readFile(abs);
+  const buf = snapshot ? Buffer.from(snapshot.bytes) : await readFile(abs);
   const kind = classifyKind(abs, buf);
   if (kind === "text" || kind === "markdown" || kind === "html") {
     return {
@@ -392,10 +449,17 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
 
 /**
  * Stream raw bytes of a file (for image/binary preview).
- * Returns the absolute path; caller uses Bun.file() to stream.
+ * Returns the absolute path; caller uses Bun.file() to stream, or `bytes`
+ * when present (a scratch file's snapshot, never reopened by path).
  */
-export async function resolveForRaw(rel: string, root: string): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind }> {
+export async function resolveForRaw(rel: string, root: string): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind; bytes?: Uint8Array<ArrayBuffer> }> {
   const abs = await safeResolve(rel, root);
+  // A scratch file is served from a snapshot read without following links; see readScratchSnapshot.
+  const snapshot = isScratchPath(rel.replace(/\\/g, "/")) ? readScratchSnapshot(abs, await canonicalRoot(root), rel) : null;
+  if (snapshot) {
+    const kind = classifyKind(abs);
+    return { abs, size: snapshot.size, mime: mimeFor(rel, kind), kind, bytes: snapshot.bytes };
+  }
   let s;
   try {
     s = await stat(abs);

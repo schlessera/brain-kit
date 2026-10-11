@@ -85,4 +85,10 @@ test("a hosted scratch mount keeps render --scratch and scratch prune working; b
   const noScratch = await run(false, "render", "notes/loose-idea.md", "--format", "html", "--scratch", "--json");
   expect(noScratch.exit).toBe(2);
   expect(JSON.parse(noScratch.stdout).error.message).toContain("read-only in this turn as well");
+  // A scratch directory missing from the read-only brain is no route either; the refusal must not suggest it.
+  rmSync(scratch, { recursive: true, force: true });
+  const missing = await run(false, "render", "notes/loose-idea.md", "--format", "html", "--scratch", "--json");
+  expect(missing.exit).toBe(2);
+  expect(JSON.parse(missing.stdout).error.message, "MISSING_SCRATCH").toContain("read-only in this turn as well");
+  expect(JSON.parse(missing.stdout).error.message).not.toContain("Write the output with --scratch");
 });
