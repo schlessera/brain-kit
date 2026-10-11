@@ -90,7 +90,8 @@ The skills miss the rubric's related-file links in eleven held-out runs, and mak
 eight edits where the approved golden requires no write. They also make three
 unnecessary clarifications for an unrelated message. One offer run refuses to
 act because it incorrectly claims the installed skills are unavailable.
-These checks overlap; the total is twenty-four failed runs, not their sum.
+One further no-write run labels an untracked target `none` rather than `unclear`.
+Together these groups account for the twenty-four failed runs.
 Tuning exact outcomes are 21 / 30 for the skills, 30 / 30 for the candidate and
 0 / 30 for the pipeline baseline.
 
