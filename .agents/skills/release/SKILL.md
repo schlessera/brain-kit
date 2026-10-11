@@ -25,6 +25,14 @@ proof before the release PR, and
 
 ## Before you version
 
+Check the bundled Claude model coverage and base rates against the provider's
+current pricing and lifecycle pages, following
+[`packages/ui-server/data/README.md`](../../../packages/ui-server/data/README.md#refreshing).
+Record the check date there and refresh the data and independent offline test
+expectations when they differ. These prices serve offline hosts until a remote
+catalog is cached; a stale snapshot can leave a current model unpriced. No paid
+inference call is needed.
+
 1. **Changesets exist for everything user-visible.** `.changeset/*.md`, one per
    change, each naming the packages it affects and a bump type. No changeset
    means no version bump and no changelog entry.

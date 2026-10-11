@@ -27,7 +27,7 @@ import {
 import type { LoadedModule } from "../src/lib/module-types";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { AuditIssue } from "../src/lib/types";
-import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 const NOW = new Date("2026-07-01T12:00:00Z");
 const TODAY = "2026-07-01";
@@ -408,9 +408,40 @@ describe("brain hygiene", () => {
     });
   }
 
-  test("the second reconcile writes no file and leaves git status clean", async () => {
+  test.each([
+    ["forward", "2026-07-11T23:59:59.500Z", "2026-07-12T00:00:00.500Z"],
+    ["backward", "2026-07-12T00:00:00.500Z", "2026-07-11T23:59:59.500Z"],
+  ])("the second reconcile writes no file and leaves git status clean (%s across UTC midnight)", async (_direction, firstHostInstant, secondHostInstant) => {
+    // The host may cross a day boundary while the fixture runs. Both real CLI
+    // children must still see the same corpus instant, without freezing timers
+    // or changing the parent test process's Date.
+    const clocks = tempRoot("brain-hygiene-clock-");
+    const hostClock = join(clocks, "host-clock.ts");
+    const corpusClock = join(clocks, "corpus-clock.ts");
+    const writeClock = (path: string, instant: string) => writeFileSync(path, `
+      const RealDate = Date;
+      const instant = RealDate.parse(${JSON.stringify(instant)});
+      globalThis.Date = new Proxy(RealDate, {
+        construct(target, args, newTarget) { return Reflect.construct(target, args.length ? args : [instant], newTarget); },
+        apply() { return new RealDate(instant).toString(); },
+        get(target, key, receiver) { return key === "now" ? () => instant : Reflect.get(target, key, receiver); },
+      });
+    `);
+    writeClock(corpusClock, "2026-07-12T12:00:00Z");
     const root = await corpusBrain();
-    const first = await reconcileCli(root);
+    const reconcilePinned = async (hostInstant: string) => {
+      writeClock(hostClock, hostInstant);
+      const proc = Bun.spawn([process.execPath, "--preload", hostClock, "--preload", corpusClock,
+        BRAIN_BIN, "hygiene", "reconcile", "--json"], {
+        env: keylessEnv(root), stdout: "pipe", stderr: "pipe", stdin: "ignore",
+      });
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited,
+      ]);
+      expect(code, stderr).toBe(0);
+      return { code, out: JSON.parse(stdout) };
+    };
+    const first = await reconcilePinned(firstHostInstant);
     expect(first.code).toBe(0);
     expect(first.out.opened).toBeGreaterThan(0);
     expect(first.out.changedFiles.length).toBeGreaterThan(0);
@@ -429,7 +460,7 @@ describe("brain hygiene", () => {
     const names = ["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"];
     const past = new Date("2020-01-01T00:00:00Z");
     for (const name of names) utimesSync(log(root, name), past, past);
-    const second = await reconcileCli(root);
+    const second = await reconcilePinned(secondHostInstant);
     expect(second.out.changedFiles).toEqual([]);
     expect(names.map((name) => statSync(log(root, name)).mtimeMs)).toEqual(names.map(() => past.getTime()));
     expect(git(root, "rev-parse", "--is-inside-work-tree").trim()).toBe("true");
@@ -437,6 +468,8 @@ describe("brain hygiene", () => {
     expect(git(root, "status", "--porcelain", "--untracked-files=all")).toBe("");
     // The IDs are the same on both runs.
     expect(second.out.detected.map((d: { id: string }) => d.id)).toEqual(first.out.detected.map((d: { id: string }) => d.id));
+    expect(read(root, "open.md")).toContain("updated: 2026-07-12");
+    expect(read(root, "open.md")).toContain("**First seen**: 2026-07-12 · **Last seen**: 2026-07-12");
   });
 
   test("--extra candidates get IDs and open like detected ones", async () => {

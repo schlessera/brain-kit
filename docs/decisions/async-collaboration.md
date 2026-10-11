@@ -371,3 +371,9 @@ current counts/authority, per-destination receipts, due-only overnight
 consolidation and atomic catch-up coverage. These are selected requirements;
 they do not establish delivery, resolve an Action or weaken the complete
 autonomous-v1 enablement gate.
+
+The maintainer's 2026-10-11 amendment on #1553 separately permits a
+server-marked decision blocking autonomous work to push at any score. It
+preserves the ordinary cutoff, quiet hours, batching and receipts, and excludes
+that push-class episode from digest counts. Models cannot select the marker;
+the [notification decision](action-notifications.md) records the rule.

@@ -394,6 +394,9 @@ Stated before the requirements because five of them derive from it.
   selects a fixed 60,000 ms window from first eligibility, cross-thread grouping by
   recipient principal + existing channel + delivery class, inclusive push cutoff 12
   with the existing score/zero Action attempts, and immediately visible Actions.
+  The 2026-10-11 #1553 amendment also permits server-marked decisions blocking
+  autonomous work to push at any score; models cannot select this fact. Such
+  episodes remain push class and are excluded from digest counts.
   Strict quiet hours [22:00, 08:00) and in-app digest refreshes 09:00 and 17:00 use each
   client's validated, last reported IANA zone under authenticated ownership/refresh;
   missing usable metadata leaves new timed notices pending, without server-zone fallback.

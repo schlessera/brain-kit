@@ -951,6 +951,12 @@ produces exactly one executable item
 
 ### U9. Escalation notifications (ui-server)
 
+The 2026-10-11 ruling on #1553 amends the score-only policy below: a
+server-marked decision blocking autonomous work qualifies for push at any
+score and is excluded from digest counts. Model output cannot select the
+marker. Quiet hours, batching and receipts continue to apply; see the
+[notification decision](../decisions/action-notifications.md).
+
 **Goal:** Counted Action notices with client-local timing and durable episode/device
 coverage, deep-linked into the existing Actions destination.
 
