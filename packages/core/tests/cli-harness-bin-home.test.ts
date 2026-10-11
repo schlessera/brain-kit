@@ -70,3 +70,21 @@ test("doctor --fix links brain under the harness's XDG_BIN_HOME, not ~/.local/bi
   expect(readlinkSync(link)).toBe(target);
   expect(readlinkSync(sentinel)).toBe(sentinelTarget);
 });
+
+test("deleting a fixture drops the test bin links into it, so no later fixture sees them dangle (#1680)", () => {
+  const root = makeTempBrain();
+  const kept = mkdtempSync(join(tmpdir(), "brain-bin-kept-"));
+  temps.push(kept);
+  const into = join(testBinHome(), "brain-1680-into");
+  const elsewhere = join(testBinHome(), "brain-1680-elsewhere");
+  symlinkSync(join(root, "node_modules", ".bin", "brain"), into);
+  symlinkSync(join(kept, "brain"), elsewhere);
+  try {
+    cleanup(root);
+    expect(lstatSync(into, { throwIfNoEntry: false })).toBeUndefined();
+    expect(readlinkSync(elsewhere)).toBe(join(kept, "brain"));
+  } finally {
+    rmSync(into, { force: true });
+    rmSync(elsewhere, { force: true });
+  }
+});

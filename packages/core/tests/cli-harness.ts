@@ -8,7 +8,7 @@
  * keyless (FTS-only, deterministic) paths are exercised.
  */
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -30,9 +30,29 @@ export function cleanup(dir: string): void {
   } catch {
     /* best effort */
   }
+  dropBinLinksInto(dir);
 }
 
 let binHome: string | null = null;
+
+/**
+ * `brain setup` and `brain doctor --fix` link `brain` into the shared test bin
+ * home, pointing into the fixture that ran them. Once that fixture is deleted
+ * the link dangles, and a later fixture's `brain doctor` reports it as a broken
+ * symlink (#1680). Deleting a fixture therefore also drops the bin links into it.
+ */
+function dropBinLinksInto(dir: string): void {
+  if (binHome === null || dir === binHome) return;
+  const prefix = resolve(dir) + "/";
+  for (const name of readdirSync(binHome)) {
+    const link = join(binHome, name);
+    try {
+      if (lstatSync(link).isSymbolicLink() && resolve(binHome, readlinkSync(link)).startsWith(prefix)) rmSync(link, { force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+}
 let home: string | null = null;
 let commandPath: string | null = null;
 
