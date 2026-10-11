@@ -971,10 +971,17 @@ helper the host provides:
   gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
   resumes the worker through them (see "Scope caps"). Signalling the process
   group is not enough. `bwrap --new-session` puts the payload in a session and
-  group of its own. So for `STOP` and `CONT`, the helper takes the worker's pid
-  and signals every process in that worker's PID namespace, matched through
-  `/proc/<pid>/ns/pid`. It repeats until a pass finds no process it has not
-  already stopped, which catches anything forked during the pass.
+  group of its own. The pid the launcher holds is bubblewrap's outer
+  supervisor, which stays in the server's PID namespace.
+
+  So the launcher reads the sandbox child's pid from bubblewrap's
+  `--json-status-fd`. It checks that this pid is a descendant of the
+  supervisor, in a PID namespace other than the server's. For `STOP` and
+  `CONT`, the helper gets that child pid and signals the whole process tree
+  rooted at it. It walks parent links in `/proc`, so processes in nested PID
+  namespaces are covered too. It repeats the walk until a pass finds no
+  process it has not already stopped, which catches anything forked during
+  the pass.
 - **The hosting template owns the packaging.** That means the two fixed uids,
   the setuid identity helper, the kill helper with `STOP` and `CONT`, the
   ownership map, the volume migration and the container proof. Its `docs/decisions/container-privilege.md`
