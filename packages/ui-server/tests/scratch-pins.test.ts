@@ -25,9 +25,8 @@ function old(name: string) {
 }
 test("retained history backfill protects ten-day-old links; deletion releases the last session pin", async () => {
   const retained = [session("odysseus"), session("penelope")];
-  const backend = makeFakeBackend({ id: "fake", sessions: retained, histories: {
-    odysseus: [answer("[Voyage](.brain/scratch/voyage.pdf)")], penelope: [answer(".brain/scratch/voyage.pdf")],
-  } });
+  const histories = { odysseus: [answer("[Voyage](.brain/scratch/voyage.pdf)")], penelope: [answer(".brain/scratch/voyage.pdf")] } as Record<string, SessionHistoryMessage[]>;
+  const backend = makeFakeBackend({ id: "fake", sessions: retained, histories });
   const kept = old("voyage.pdf"), unlinked = old("draft.pdf");
   const pins = createScratchPins(root, createStaticBackendRegistry([backend]));
   let output = "";
@@ -38,8 +37,8 @@ test("retained history backfill protects ten-day-old links; deletion releases th
   try {
     await pruner.tick(); expect(existsSync(kept)).toBe(true); expect(existsSync(unlinked)).toBe(false);
     expect(JSON.parse(output).pinned).toEqual({ files: 1, bytes: 5 });
-    retained.shift(); await pruner.tick(); expect(existsSync(kept)).toBe(true);
-    retained.pop(); await pruner.tick(); expect(existsSync(kept)).toBe(false);
+    delete histories[retained.shift()!.id]; await pruner.tick(); expect(existsSync(kept)).toBe(true);
+    delete histories[retained.pop()!.id]; await pruner.tick(); expect(existsSync(kept)).toBe(false);
   } finally { await pruner.close(); }
 });
 test("a failed backfill suspends all prune callers and recovers on a complete scan", async () => {
@@ -155,4 +154,29 @@ test("unavailable pin storage suspends pruning and recovers without blocking sta
     mkdirSync(missing); await pruner.tick(); expect(calls).toBe(1);
     expect(JSON.parse(readFileSync(pins.file, "utf8")).ready).toBe(true);
   } finally { await pruner.close(); }
+});
+
+test("a degraded empty listing cannot release a retained session pin", async () => {
+  const listed = [session("odysseus")]; let messages = [answer(".brain/scratch/voyage.pdf")]; let unreadable = false;
+  const backend = makeFakeBackend({ id: "fake", sessions: listed, getHistory: async () => {
+    if (unreadable) throw new Error("corrupt archived transcript"); return messages;
+  } });
+  const kept = old("voyage.pdf"), pins = createScratchPins(root, createStaticBackendRegistry([backend]));
+  await pins.refresh(new AbortController().signal); listed.pop();
+  await pins.refresh(new AbortController().signal);
+  let result = await runCli(root, ["scratch", "prune", "--json"]);
+  expect(result.code).toBe(0); expect(existsSync(kept)).toBe(true);
+  unreadable = true; await expect(pins.refresh(new AbortController().signal)).rejects.toThrow("corrupt archived transcript");
+  result = await runCli(root, ["scratch", "prune", "--json"]); expect(result.code).toBe(2); expect(existsSync(kept)).toBe(true);
+  unreadable = false; messages = []; await pins.refresh(new AbortController().signal);
+  result = await runCli(root, ["scratch", "prune", "--json"]); expect(result.code).toBe(0); expect(existsSync(kept)).toBe(false);
+});
+
+test("an unavailable backend keeps its existing session pins", async () => {
+  const retained = makeFakeBackend({ id: "fake", sessions: [session("odysseus")], histories: { odysseus: [answer(".brain/scratch/voyage.pdf")] } });
+  const other = makeFakeBackend({ id: "other" }); let enabled = true;
+  const registry = { ...createStaticBackendRegistry([retained, other]), getBackends: async () => enabled ? [retained, other] : [other] };
+  const kept = old("voyage.pdf"), pins = createScratchPins(root, registry);
+  await pins.refresh(new AbortController().signal); enabled = false; await pins.refresh(new AbortController().signal);
+  const result = await runCli(root, ["scratch", "prune", "--json"]); expect(result.code).toBe(0); expect(existsSync(kept)).toBe(true);
 });

@@ -143,7 +143,8 @@ function openScratchPins(root: string, registry: BackendRegistry) {
   return {
     file, close,
     record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void {
-      const key = JSON.stringify([backendId, sessionId]), paths = scratchLinks(messages);
+      const key = JSON.stringify([backendId, sessionId]);
+      const paths = [...new Set([...(state.sessions[key] ?? []), ...scratchLinks(messages)])].sort();
       state.sessions[key] = paths;
       if (recordedDuringScan) recordedDuringScan[key] = paths;
       publish();
@@ -152,16 +153,35 @@ function openScratchPins(root: string, registry: BackendRegistry) {
       return serialize(async () => {
         // Do not trust a stale ready snapshot if enumeration or any read fails.
         state.ready = false; publish();
-        const next: Record<string, string[]> = Object.create(null);
+        const previous = { ...state.sessions };
+        // A disabled/unavailable backend is not evidence of session deletion.
+        const next: Record<string, string[]> = { ...previous };
         recordedDuringScan = Object.create(null);
         try {
           for (const backend of await read("backends", () => registry.getBackends(), signal)) {
             signal.throwIfAborted();
-            for (const session of await read(JSON.stringify([backend.id, "list"]), () => backend.listSessions(), signal)) {
+            const listed = await read(JSON.stringify([backend.id, "list"]), () => backend.listSessions(), signal);
+            const ids = new Set(listed.map(session => session.id));
+            for (const session of listed) {
               signal.throwIfAborted();
               const messages = await read(JSON.stringify([backend.id, "history", session.id]), () => backend.getHistory(session.id), signal);
               signal.throwIfAborted();
-              next[JSON.stringify([backend.id, session.id])] = scratchLinks(messages);
+              const key = JSON.stringify([backend.id, session.id]);
+              next[key] = [...new Set([...(previous[key] ?? []), ...scratchLinks(messages)])].sort();
+            }
+            // First-party listings can degrade to a partial or empty array.
+            // Confirm missing sessions through history before releasing pins;
+            // an unreadable archive fails the whole scan safely.
+            for (const [key, paths] of Object.entries(previous)) {
+              let identity: unknown;
+              try { identity = JSON.parse(key); } catch { continue; }
+              if (!Array.isArray(identity) || identity.length !== 2 || identity[0] !== backend.id || typeof identity[1] !== "string" || ids.has(identity[1])) continue;
+              const sessionId = identity[1];
+              if (paths.length === 0) { delete next[key]; continue; }
+              const messages = await read(JSON.stringify([backend.id, "history", sessionId]), () => backend.getHistory(sessionId), signal);
+              signal.throwIfAborted();
+              if (messages.length === 0) delete next[key];
+              else next[key] = [...new Set([...paths, ...scratchLinks(messages)])].sort();
             }
           }
           signal.throwIfAborted();
