@@ -455,6 +455,7 @@ export function makeBridge(
       : { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
     const apply = createBrainApplication({
       root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
+      ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
       isAuthorized,
       approve: async (input, destructive) => {
         if (work?.posture === "voice") return false;

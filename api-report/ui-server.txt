@@ -274,6 +274,14 @@ signatures (every public export and the types it is made of)
             pinsFile?: string;
         }): Promise<string>;
     }
+  BrainClientOptions (packages/ui-server/src/brain/client.ts)
+    export interface BrainClientOptions {
+        brainPath: string;
+        searchTimeoutMs?: number;
+        minimumVersion?: string;
+        log?: Logger;
+        exec?: ExecWrapperConfig;
+    }
   BrainDbHandle (packages/ui-server/src/db/brain-db.ts)
     export interface BrainDbHandle {
         db: Database;
@@ -837,13 +845,7 @@ signatures (every public export and the types it is made of)
   createApp (packages/ui-server/src/app.ts)
     export function createApp(options?: CreateAppOptions): Promise<BrainUiApp>;
   createBrainClient (packages/ui-server/src/brain/client.ts)
-    export function createBrainClient(opts: {
-        brainPath: string;
-        searchTimeoutMs?: number;
-        minimumVersion?: string;
-        log?: Logger;
-        exec?: ExecWrapperConfig;
-    }): BrainClient;
+    export function createBrainClient(opts: BrainClientOptions): BrainClient;
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)

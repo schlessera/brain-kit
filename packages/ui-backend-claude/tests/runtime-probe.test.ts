@@ -106,7 +106,7 @@ describe("probeClaudeRuntime", () => {
     expect(report.runtime.version).toBe(MEASURED_RUNTIME.claudeCode);
   });
 
-  test("goes through the exec wrapper, with the turn's environment and working directory", async () => {
+  test("goes through the exec wrapper, with the turn's environment, outside the brain", async () => {
     const dir = tempDir("probe-wrap-");
     const fake = fakeBinary(dir, "claude", "2.0.0 (Claude Code)");
     const wrapperLog = join(dir, "wrapper.log");
@@ -121,7 +121,8 @@ describe("probeClaudeRuntime", () => {
     await probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: { wrapper } });
 
     expect(invocations(wrapperLog)).toEqual([
-      `argv=${fake.path} --version cwd=${dir} mark=turn-env entrypoint=sdk-ts`,
+      // Outside the brain (#1648): no Bun configuration the brain holds loads into the probe.
+      `argv=${fake.path} --version cwd=/ mark=turn-env entrypoint=sdk-ts`,
     ]);
     expect(invocations(fake.log)).toEqual(["--version"]);
   });

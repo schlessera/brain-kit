@@ -13,6 +13,7 @@ import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_EN
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 import { createTurnTemp, type TurnTemp } from "./worker-turn-temp.js";
+import { isEnvName } from "./protected-paths.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -83,6 +84,50 @@ export interface WorkerLaunch {
    * restricted envelope: namespace-private tmpfs mounts, as before.
    */
   turnTemp?: TurnTemp;
+  /**
+   * A maintenance worker (#1648): the server's own work on a brain that
+   * agents may write (indexing, application planning, the `brain` CLI, git).
+   * The brain is bound read-write, the host stays read-only with its runtime
+   * and home directories masked, and nothing but `env` is passed in. Exclusive
+   * with `restricted` and `sandbox`.
+   */
+  maintenance?: MaintenanceEnvelope;
+}
+
+/**
+ * Host directories a maintenance worker never sees: runtime state, Unix
+ * sockets and every home. Each one becomes an empty private tmpfs; the paths
+ * a worker needs from below one are bound back read-only (`readPaths`).
+ * `/tmp` is already a fresh tmpfs in every worker, which covers
+ * `/tmp/.X11-unix`.
+ */
+export const HOST_MASKS = ["/run", "/var/run", "/var/lib", "/home", "/root", "/mnt", "/media", "/srv"] as const;
+
+/** The private, empty `$HOME` of a credential-free maintenance worker, on its own `/tmp`. */
+export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";
+
+export interface MaintenanceEnvelope {
+  /** The host network namespace. Otherwise a private one with only loopback. */
+  network: boolean;
+  /**
+   * Whether the command receives credentials. A credential-free worker also
+   * gets every `.env*` file at the brain root replaced by an empty read-only
+   * file, so Bun cannot load the brain's keys into it.
+   */
+  credentials: boolean;
+  /**
+   * The server's home, made visible again below the home masks. Only a
+   * credentialed worker gets it (the interim exposure the decision record
+   * names): read through an overlay whose writes vanish with the worker, or a
+   * read-only bind where the host cannot overlay.
+   */
+  home?: { path: string; overlay: boolean };
+  /** Host files and directories bound back read-only after the masks: the runtime, the entry and its packages. */
+  readPaths: readonly string[];
+  /** Host directories masked in addition to {@link HOST_MASKS}, such as the server's database directory. */
+  maskPaths?: readonly string[];
+  /** Existing host files bound read-write at their own path, such as a cron job's span sink. */
+  writeFiles?: readonly string[];
 }
 
 export interface RestrictedEnvelope {
@@ -202,6 +247,93 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
   return [plan.prlimit, ...prlimitArgs(plan.rlimits), "--"];
 }
 
+/**
+ * The mounts of a maintenance worker (#1648), after the read-only host root:
+ * the host masks, the runtime bound back below them, the server's home for a
+ * credentialed worker, then the brain read-write. A credential-free worker
+ * gets the brain's `.env*` files covered, so Bun loads no key into it.
+ */
+function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string[] {
+  const masks: string[] = [];
+  // Every mask as asked, before nested ones fold into an ancestor.
+  const resolved: string[] = [];
+  for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
+    if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
+    let path: string;
+    try { path = realpathSync(requested); } catch { continue; }
+    if (!statSync(path).isDirectory()) continue;
+    if (path === "/" || within(brain, path)) {
+      throw new WorkerHostError(`a maintenance worker cannot mask ${path}: it is the brain, inside it or the root`);
+    }
+    resolved.push(path);
+    if (masks.some(mask => within(mask, path))) continue;
+    for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
+    masks.push(path);
+  }
+  const masked = (path: string) => masks.some(mask => within(mask, path));
+  const argv = masks.flatMap(mask => ["--tmpfs", mask]);
+  const bound = new Set<string>();
+  const bindBack = (requested: string) => {
+    if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker read paths must be absolute");
+    let real: string;
+    try { real = realpathSync(requested); } catch { return; }
+    for (const path of new Set([real, normalize(requested)])) {
+      if (!masked(path) || bound.has(path)) continue;
+      bound.add(path);
+      // A path reached through a link (a `latest` install alias) gets the
+      // file it names bound at the linked path too.
+      argv.push("--ro-bind", real, path);
+    }
+  };
+  for (const path of envelope.readPaths) bindBack(path);
+  // The resolver configuration, when it links into a masked directory (a
+  // systemd-resolved `resolv.conf` under `/run`), stays readable for a
+  // networked command. Only that one regular file: any other link from
+  // `/etc` into a mask could re-expose a socket or a secret.
+  if (envelope.network) {
+    try {
+      if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");
+    } catch { /* No resolver configuration: nothing to bind. */ }
+  }
+  if (envelope.home) {
+    if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker sees the server's home");
+    const home = realpathSync(envelope.home.path);
+    if (home === "/" || within(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
+    argv.push(...(envelope.home.overlay ? ["--overlay-src", home, "--tmp-overlay", home] : ["--ro-bind", home, home]));
+    // A mask inside the home (the UI database's directory below it) is laid
+    // again over the home just bound back.
+    for (const mask of resolved) if (mask !== home && within(home, mask)) argv.push("--tmpfs", mask);
+  }
+  argv.push("--bind", brain, brain);
+  if (!envelope.credentials) {
+    argv.push("--dir", MAINTENANCE_HOME);
+    const covered = new Set<string>();
+    for (const name of readdirSync(brain)) {
+      if (!isEnvName(name)) continue;
+      const path = join(brain, name);
+      const info = lstatSync(path, { throwIfNoEntry: false });
+      if (info?.isDirectory()) { argv.push("--tmpfs", path); continue; }
+      // A link is covered where it leads, without following it in a mount
+      // destination: the file it resolves to now (in the brain or on the
+      // host) is replaced, so Bun reads nothing through it. A link that
+      // resolves to nothing has nothing to read.
+      let target = path;
+      if (info?.isSymbolicLink()) {
+        try { target = realpathSync(path); } catch { continue; }
+      }
+      if (covered.has(target) || !lstatSync(target, { throwIfNoEntry: false })?.isFile()) continue;
+      covered.add(target);
+      argv.push("--ro-bind", "/dev/null", target);
+    }
+  }
+  for (const requested of envelope.writeFiles ?? []) {
+    const real = realpathSync(requested);
+    if (!lstatSync(real).isFile() || within(brain, real)) throw new WorkerHostError("a maintenance worker's writable file must be a regular file outside the brain");
+    argv.push("--bind", real, real);
+  }
+  return argv;
+}
+
 /** The only argv builder used by both live workers and the actual host probe. */
 export function workerCommand(input: WorkerLaunch): string[] {
   if (process.platform !== "linux") throw new WorkerHostError("Linux namespaces are required");
@@ -223,12 +355,16 @@ export function workerCommand(input: WorkerLaunch): string[] {
       throw new WorkerHostError("runtime state must be a separate location outside the brain and scratch");
     }
   }
+  const maintenance = input.maintenance;
+  if (maintenance && (input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTemp)) {
+    throw new WorkerHostError("a maintenance worker has no restricted envelope, writable areas, agent runtime state or turn temp");
+  }
   const temp = input.restricted ? undefined : input.turnTemp;
   // Runtime state is a private mount inside the worker (#1625), never a host path turn temp could overlap.
   if (temp) checkTurnTemp(temp, brain, scratch, undefined);
   const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined, temp);
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
-    ...(input.restricted ? ["--unshare-net"] : []),
+    ...(input.restricted || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted ? [] : ["--ro-bind", "/", "/"]),
@@ -236,7 +372,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...writable.home,
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev", ...(temp ? ["--bind", temp.tmp, "/tmp"] : ["--tmpfs", "/tmp"]),
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
-    "--ro-bind", brain, brain,
+    ...(maintenance ? maintenanceMounts(maintenance, brain) : ["--ro-bind", brain, brain]),
     ...(input.restricted ? maskedGit(brain) : []),
     ...(temp ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds, "--clearenv"];
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
@@ -375,7 +511,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
     // table) leaves the area read-only for the turn rather than failing it.
     try {
       if (name === "scratch") {
-        const scratch = resolveScratchMount(brain, options.home);
+        const scratch = resolveScratchMount(brain);
         removed = scratch.removed;
         areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
       } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain) });
@@ -637,6 +773,17 @@ export interface WorkerHostProbeOptions {
 
 /** bubblewrap before 0.7 does not know `--size`. */
 const NO_TMPFS_SIZE = /--size/;
+/** Brains whose ordinary worker boundary a real probe has proven in this process. */
+const proven = new Set<string>();
+
+/**
+ * Whether a real probe has passed for this brain in this process. The host
+ * execution boundary (#1648) holds from the first pass on: a host that can
+ * run a governed turn never again evaluates the brain's code itself.
+ */
+export function workerHostProven(brainPath: string): boolean {
+  try { return proven.has(realpathSync(brainPath)); } catch { return false; }
+}
 
 /** Runs the real launcher before each turn; a version/OS check is insufficient. */
 export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): WorkerHostProbe {
@@ -677,7 +824,9 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       ${options.stateBytes !== undefined ? `const state=require("node:fs").statfsSync(${JSON.stringify(WORKER_STATE)});
       if(state.type!==${TMPFS_MAGIC}||state.blocks*state.bsize!==${Number(options.stateBytes)}) process.exit(6);` : ""}
       console.log("worker-boundary-pass");`;
-    const boot = workerBootstrap({ brainPath, command: [process.execPath, "-e", program], env: {}, restricted, limits,
+    // The probe starts outside the brain and loads no `.env`: the brain's own
+    // `bunfig.toml` or `.env` must never decide whether the boundary holds (#1648).
+    const boot = workerBootstrap({ brainPath, command: ["/bin/sh", "-c", 'cd / && exec "$0" --no-env-file -e "$1"', process.execPath, program], env: {}, restricted, limits,
       ...(options.stateBytes !== undefined ? { stateBytes: options.stateBytes } : {}) });
     const pipes = createWorkerPipes();
     try {
@@ -702,6 +851,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
         throw new Error(`${what} failed (${detail})`);
       }
     } finally { pipes.cleanup(); }
+    if (!options.restricted) proven.add(brainPath);
     return { ok: true };
   } catch (error) {
     return { ok: false, requirement: error instanceof WorkerHostError ? error.requirement

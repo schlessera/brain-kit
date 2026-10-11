@@ -44,7 +44,7 @@ the separately authorized cache measurement procedure.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.42.0.**
 The floor is enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:91`) and covers
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:90`) and covers
 all commands and flags the server invokes, including 0.42.0’s scratch pin input. Hygiene review requires 0.41.0's
 selection, repair, recheck and fingerprint-bound dispositions; module settings
 and `stats --history` require 0.40.0. The command/flag inventory test guards the

@@ -31,6 +31,9 @@ import {
 } from "./definition.js";
 import { assertTargetContained, createScheduleFiles, ScheduleContainmentError, TEMPORARY_REAP_AGE_MS, ScheduleFileConflictError, type ScheduleFiles } from "./files.js";
 import { isoInstant, latestCronInstant, nextCronInstant, parseCron, parseInstant, SCHEDULE_FRESHNESS_MS } from "./time.js";
+import { createHostBoundary, type HostBoundary } from "../brain/host-boundary.js";
+import { brainGitSync } from "@schlessera/brain-ui-sdk/internal";
+import { subprocessEnv } from "../config/env.js";
 
 export const PROPOSAL_TTL_MS = 15 * 60_000;
 export const CURSOR_TTL_MS = 15 * 60_000;
@@ -136,12 +139,19 @@ function isOperator(principal: Principal): boolean {
   return principal.kind === "owner" || principal.kind === "ambient";
 }
 
-/** Git's own answer; outside a repository nothing is ignored. */
-export function gitCheckIgnored(root: string): (relativePath: string) => boolean {
+/**
+ * Git's own answer; outside a repository nothing is ignored. Git reads the
+ * brain's configuration and ignore files, so while the host execution
+ * boundary holds (#1648) it answers from a credential-free maintenance worker.
+ */
+export function gitCheckIgnored(root: string, boundary: HostBoundary = createHostBoundary({ brainPath: root })): (relativePath: string) => boolean {
   return (relativePath) => {
     try {
-      const result = Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", "--", relativePath],
-        { stdout: "ignore", stderr: "ignore" });
+      const args = ["check-ignore", "-q", "--no-index", "--", relativePath];
+      // In a worker, through the helper that also shows a parent repository.
+      if (boundary.isolated()) return brainGitSync(root, args) === 0;
+      const result = boundary.runSync({ argv: ["git", ...args],
+        env: subprocessEnv("brainCli"), credentials: false, purpose: "git check-ignore", timeoutMs: 10_000 });
       return result.exitCode === 0;
     } catch {
       return false;
@@ -154,7 +164,8 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   const dispatchAvailable = options.dispatchAvailable ?? (() => false);
   let root: { path: string; identity: string; secret: Buffer; matches: boolean } | null = null;
   let files: ScheduleFiles | null = null;
-  const gitIgnored = () => options.gitIgnored ?? gitCheckIgnored(rootInfo().path);
+  let gitCheck: ((relativePath: string) => boolean) | undefined;
+  const gitIgnored = () => options.gitIgnored ?? (gitCheck ??= gitCheckIgnored(rootInfo().path));
 
   function rootInfo() {
     if (root) return root;

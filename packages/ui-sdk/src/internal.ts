@@ -31,3 +31,8 @@ export type { TurnTemp, TurnTempPromoterOptions, TurnTempPromotionRecord } from 
 export { DEFAULT_WORKER_STATE_BYTES, WORKER_STATE_BUDGET_ENV, WORKER_STATE_BYTES_ENV, WORKER_STATE_PAGE, WorkerStateConfigError, mib,
   parseWorkerStateBytes, resolveWorkerStateLimits, validWorkerStateBytes } from "./server/worker-state-limits.js";
 export type { WorkerStateLimits } from "./server/worker-state-limits.js";
+export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
+export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
+export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
+export type { MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
+export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";

@@ -8,9 +8,10 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 
 import { createUiDb } from "../src/db/client";
+import { MAINTENANCE_HOME, probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 
 const BIN = resolve(import.meta.dir, "../src/bin/brain-ui-cron.ts");
 let directory: string;
@@ -166,12 +167,16 @@ describe("brain-ui-cron subprocess", () => {
     const brainRoot = join(directory, "brain-root");
     mkdirSync(join(brainRoot, "scripts", "jobs"), { recursive: true });
     writeFileSync(join(brainRoot, "scripts", "jobs", "scrape-all.ts"), "");
-    const fakeBrain = join(directory, "brain");
-    writeFileSync(
-      fakeBrain,
-      '#!/bin/sh\nprintf \'%s\\n\' \'{"enabled":[],"available":[]}\'\n'
-    );
-    chmodSync(fakeBrain, 0o755);
+    // On PATH for a host-run discovery, and in the brain's own bin directory,
+    // which is all a maintenance worker resolves it from (#1648).
+    for (const fakeBrain of [join(directory, "brain"), join(brainRoot, "node_modules", ".bin", "brain")]) {
+      mkdirSync(dirname(fakeBrain), { recursive: true });
+      writeFileSync(
+        fakeBrain,
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"enabled":[],"available":[]}\'\n'
+      );
+      chmodSync(fakeBrain, 0o755);
+    }
 
     const proc = Bun.spawn(
       [
@@ -201,7 +206,7 @@ describe("brain-ui-cron subprocess", () => {
     const output = await new Response(proc.stdout).text();
     expect(output).toContain("PATH=/custom/bin\n");
     expect(output).toContain(
-      "cronuser cd /data/brain && /absolute/brain-ui-cron run sync --"
+      "cronuser cd / && /absolute/brain-ui-cron run sync --"
     );
     expect(output).toContain(
       "/absolute/brain-ui-cron run digest -- /absolute/brain-ui-cron digest"
@@ -211,22 +216,25 @@ describe("brain-ui-cron subprocess", () => {
     expect(await new Response(proc.stderr).text()).toBe("");
   });
 
-  test("module discovery uses brainCli env while scheduled commands use cron env", async () => {
+  test("module discovery uses brainCli env on the host and no credential in a worker; scheduled commands use cron env", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
     const brainRoot = join(directory, "audience-brain-root");
     const binDir = join(directory, "audience-bin");
-    const observedEnv = join(directory, "module-discovery-env.txt");
+    // In the brain: the one host directory a maintenance worker writes (#1648).
+    const observedEnv = join(brainRoot, "module-discovery-env.txt");
     mkdirSync(brainRoot, { recursive: true });
     mkdirSync(binDir, { recursive: true });
-    const fakeBrain = join(binDir, "brain");
-    writeFileSync(
-      fakeBrain,
-      "#!/bin/sh\n" +
-        `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$HOME" "$CLAUDE_CONFIG_DIR" "$ANTHROPIC_API_KEY" "\${DB_PATH-unset}" "$CUSTOM_DISCOVERY_TOKEN" "\${BRAIN_UI_SUBPROCESS_ENV_EXTRA-unset}" "\${UNKNOWN_CHILD_VALUE-unset}" > '${observedEnv}'\n` +
-        "printf '%s\\n' '{\"enabled\":[],\"available\":[]}'\n"
-    );
-    chmodSync(fakeBrain, 0o755);
+    for (const fakeBrain of [join(binDir, "brain"), join(brainRoot, "node_modules", ".bin", "brain")]) {
+      mkdirSync(dirname(fakeBrain), { recursive: true });
+      writeFileSync(
+        fakeBrain,
+        "#!/bin/sh\n" +
+          `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$HOME" "$CLAUDE_CONFIG_DIR" "$ANTHROPIC_API_KEY" "\${DB_PATH-unset}" "$CUSTOM_DISCOVERY_TOKEN" "\${BRAIN_UI_SUBPROCESS_ENV_EXTRA-unset}" "\${UNKNOWN_CHILD_VALUE-unset}" > '${observedEnv}'\n` +
+          "printf '%s\\n' '{\"enabled\":[],\"available\":[]}'\n"
+      );
+      chmodSync(fakeBrain, 0o755);
+    }
 
     const parentEnv = {
       PATH: `${binDir}:${process.env.PATH ?? ""}`,
@@ -239,7 +247,10 @@ describe("brain-ui-cron subprocess", () => {
       BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CUSTOM_DISCOVERY_TOKEN",
       UNKNOWN_CHILD_VALUE: "must-not-pass",
     };
+    // A runner started inside the brain can run no governed turn, so its
+    // discovery stays on the host with the brainCli audience.
     const emit = Bun.spawn([bun, BIN, "crontab"], {
+      cwd: brainRoot,
       env: parentEnv,
       stdout: "pipe",
       stderr: "pipe",
@@ -250,6 +261,16 @@ describe("brain-ui-cron subprocess", () => {
       "/brain-cli/home|/brain-cli/claude|brain-cli-anthropic|unset|operator-extra|unset|unset\n"
     );
     expect(await new Response(emit.stderr).text()).toBe("");
+
+    // Started outside the brain on a host that runs the worker boundary,
+    // discovery runs in a credential-free maintenance worker: none of it.
+    if (probeWorkerHost(brainRoot).ok) {
+      rmSync(observedEnv);
+      const isolated = Bun.spawn([bun, BIN, "crontab"], { cwd: "/", env: parentEnv, stdout: "pipe", stderr: "pipe" });
+      expect(await isolated.exited).toBe(0);
+      expect(await Bun.file(observedEnv).text()).toBe(`${MAINTENANCE_HOME}|||unset||unset|unset\n`);
+      expect(await new Response(isolated.stderr).text()).toBe("");
+    }
 
     const run = Bun.spawn(
       [

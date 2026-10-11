@@ -2,10 +2,8 @@ import { existsSync } from "fs";
 import { join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { ambientExecConfig, subprocessEnv } from "../config/env.js";
-import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
-import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
+import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 import {
-  killWrapped,
   probeVersionCommand,
   assertVersionRequirements,
   validateVersionMinimum,
@@ -23,6 +21,7 @@ import type {
 } from "./types.js";
 import { parseSyncResult, syncMessage, type BrainSyncOutput } from "./sync-result.js";
 import type { ConfiguredModule } from "@schlessera/brain-ui-sdk";
+import { brainCommandClass, createHostBoundary, type HostBoundary } from "./host-boundary.js";
 
 /**
  * A `brain sync` that exited non-zero, with its result when stdout held one:
@@ -110,7 +109,9 @@ export function brainCliCommand(brainPath: string): string[] {
 }
 
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
-export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal }): Promise<void> {
+export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
+  /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */
+  boundary?: HostBoundary }): Promise<void> {
   const phase = options.phase ?? "startup";
   const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
   if (options.minimumVersion !== undefined) {
@@ -126,13 +127,23 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
     log.emit({ severityText: "WARN", body, attributes: { reason, ...attributes } });
   }
   let result: VersionProbeResult;
+  const boundary = options.boundary ?? createHostBoundary({ brainPath, exec: options.exec });
   try {
-    result = await probeVersionCommand([...command, "--version"], {
-      cwd: brainPath,
-      env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-      exec: options.exec,
-      signal: options.signal,
-    });
+    if (boundary.isolated()) {
+      // The CLI is the brain's own code: answered from a maintenance worker.
+      const answer = await boundary.run({ argv: [...command, "--version"], env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+        credentials: false, gate: "shared", purpose: "brain CLI version", ...(options.signal ? { signal: options.signal } : {}),
+        timeoutMs: VERSION_PROBE_TIMEOUT_MS });
+      result = { stdout: answer.stdout, stderr: answer.stderr, exitCode: answer.timedOut ? null : answer.exitCode,
+        timedOut: answer.timedOut === true, cleanupWarnings: [] };
+    } else {
+      result = await probeVersionCommand([...command, "--version"], {
+        cwd: brainPath,
+        env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+        exec: options.exec,
+        signal: options.signal,
+      });
+    }
   } catch (error) {
     options.signal?.throwIfAborted();
     unknown(error instanceof Error ? error.message : String(error), "brain CLI version probe failed; continuing");
@@ -168,7 +179,8 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
 /** Interactive search must finish or fail within a bounded time. */
 const SEARCH_TIMEOUT_MS = 15_000;
 
-export function createBrainClient(opts: {
+/** Options for {@link createBrainClient}. */
+export interface BrainClientOptions {
   brainPath: string;
   searchTimeoutMs?: number;
   minimumVersion?: string;
@@ -179,9 +191,19 @@ export function createBrainClient(opts: {
    * once, here, so a client built directly by an embedder is never unwrapped.
    */
   exec?: ExecWrapperConfig;
-}): BrainClient {
+  /**
+   * @internal The host execution boundary (#1648). `createApp()` passes the app's.
+   * Omitted, the client builds its own, so a client built directly by an
+   * embedder never runs the brain's code on a host that can run a governed
+   * turn.
+   */
+  boundary?: HostBoundary;
+}
+
+export function createBrainClient(opts: BrainClientOptions): BrainClient {
   const { brainPath } = opts;
   const exec = opts.exec ?? ambientExecConfig();
+  const boundary = opts.boundary ?? createHostBoundary({ brainPath, exec });
   const minimumVersion = opts.minimumVersion;
   if (minimumVersion !== undefined) validateVersionMinimum(minimumVersion, "host versionRequirements.brainCli", "brain CLI during client construction");
   const log = opts.log ?? { emit() {}, enabled: () => false };
@@ -194,52 +216,29 @@ export function createBrainClient(opts: {
     signal?.throwIfAborted();
     const command = brainCliCommand(brainPath);
     if (minimumVersion !== undefined) {
-      await probeBrainCliVersion(brainPath, log, { exec, minimumVersion, phase: "invocation", command, signal });
+      await probeBrainCliVersion(brainPath, log, { exec, minimumVersion, phase: "invocation", command, signal, boundary });
       signal?.throwIfAborted();
     }
-    // Every brain CLI launch goes through the host's wrapper, not only the
+    // Every brain CLI launch goes through the host boundary, not only the
     // agent's tools. The CLI imports the repository's `brain.config.ts` and
     // its repo-resolved modules — agent-writable executable inputs — so a
     // search or a stats call executes repository code just as a tool call
-    // does. Leaving these two spawns unwrapped would have left the privilege
-    // boundary with a hole the size of the whole read path.
-    const proc = Bun.spawn(wrapCommand([...command, ...args], exec.wrapper), {
-      cwd: brainPath,
-      stdout: "pipe",
-      stderr: "pipe",
-      ...(input !== undefined ? { stdin: new TextEncoder().encode(input) } : {}),
+    // does. While the boundary holds, that happens in a maintenance worker,
+    // with the operator's exec wrapper inside it; otherwise in a host process
+    // through the wrapper, as before.
+    const { credentials, gate } = brainCommandClass(args);
+    return boundary.run({
+      argv: [...command, ...args],
       // Force JSON output when not a TTY
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+      credentials,
+      gate,
+      purpose: `brain ${args.slice(0, 2).join(" ")}`,
+      ...(input !== undefined ? { stdin: input } : {}),
       // Only read-only search passes a signal. Kill even a CLI that ignores
       // SIGTERM; abandoning a request must not leave the local process alive.
-      // Bun's own signal handling kills the pid it spawned, which with a
-      // wrapper is the wrapper alone — so with one configured we take the
-      // abort ourselves and signal the group.
-      ...(signal && !exec.wrapper ? { signal, killSignal: "SIGKILL" } : {}),
-      ...execWrapperSpawnOptions(exec.wrapper),
+      ...(signal ? { signal, killSignal: "SIGKILL" as const } : {}),
     });
-    const onAbort = () => killWrapped(proc, exec, "SIGKILL");
-    if (signal && exec.wrapper) signal.addEventListener("abort", onAbort, { once: true });
-
-    try {
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      signal?.throwIfAborted();
-      return { stdout, stderr, exitCode };
-    } catch (error) {
-      // A pipe-read failure also abandons search. Reap before its caller
-      // clears the deadline; otherwise that failure could orphan the child.
-      if (signal) {
-        killWrapped(proc, exec, "SIGKILL");
-        await proc.exited;
-      }
-      throw error;
-    } finally {
-      if (signal && exec.wrapper) signal.removeEventListener("abort", onAbort);
-    }
   }
 
   function parseJsonOutput<T>(result: ExecResult): T {

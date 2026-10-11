@@ -6,8 +6,6 @@ import { join } from "path";
 
 import { resolveCronConfig } from "../config/env.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
-import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import { runDigest } from "../cron/digest.js";
 import {
   emitCrontab,
@@ -15,6 +13,10 @@ import {
   type BrainModuleListPayload,
 } from "../cron/emit.js";
 import { runJob } from "../cron/run-job.js";
+import { createUiDb } from "../db/client.js";
+import { brainCommandClass, type HostBoundary } from "../brain/host-boundary.js";
+import { createHostExecution } from "../brain/host-execution.js";
+import type { Reconciliation } from "../brain/governed-manifest.js";
 
 /**
  * The bash this replaced tested `[ -f … ]`, which is true only for a regular
@@ -93,25 +95,50 @@ function runOptions(args: string[]): {
   return { jobName, command, subprocessEnvExtraNames };
 }
 
+/**
+ * The host execution boundary for this cron process (#1648), on the UI
+ * database the server shares. Turns a dead server left mid-turn are
+ * reconciled here too, before this process evaluates anything in the brain.
+ * Gated jobs refuse rather than run without the gate.
+ */
+function cronHostExecution(config: { brainPath: string; dbPath: string; exec: ExecWrapperConfig }, options: { gate: boolean }) {
+  const execution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, requireGate: options.gate });
+  const report = (results: Reconciliation[]) => {
+    for (const result of results) {
+      if (!result.quarantined.length && !result.failed.length) continue;
+      process.stderr.write(`[brain-ui-cron] governed turn ${result.turnId}: quarantined ${result.quarantined.map(q => q.path).join(", ") || "nothing"}`
+        + `${result.failed.length ? `; could not move ${result.failed.map(f => f.path).join(", ")}` : ""}\n`);
+    }
+  };
+  let db: ReturnType<typeof createUiDb> | undefined;
+  let reconciled = true;
+  try {
+    // A job holds the gate on the database; emitting a crontab only needs
+    // whatever an existing database says about the brain.
+    if (options.gate) {
+      db = createUiDb(config.dbPath);
+      report(execution.attach(db));
+    } else report(execution.reconcileExisting());
+  } catch (error) {
+    reconciled = false;
+    process.stderr.write(`[brain-ui-cron] the brain cannot be evaluated: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+  return { boundary: execution.boundary, reconciled, close: () => { execution.release(); try { db?.close(); } catch { /* Closing cannot fail the job. */ } } };
+}
+
 async function readModuleList(
   brainPath: string,
   env: Record<string, string | undefined>,
-  exec: ExecWrapperConfig
+  boundary: HostBoundary
 ): Promise<BrainModuleListPayload | null> {
   try {
     // The CLI imports the repository's config, so this read goes through the
-    // wrapper like every other CLI launch.
-    const proc = Bun.spawn(wrapCommand(["brain", "module", "list", "--json"], exec.wrapper), {
-      cwd: brainPath,
-      env,
-      stdout: "pipe",
-      stderr: "ignore",
-      ...execWrapperSpawnOptions(exec.wrapper),
-    });
-    const [exitCode, stdout] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-    ]);
+    // host boundary like every other CLI launch: a maintenance worker while
+    // it holds, the exec wrapper otherwise.
+    const result = await boundary.run({ argv: ["brain", "module", "list", "--json"], env,
+      ...brainCommandClass(["module", "list"]), purpose: "brain module list" });
+    const exitCode = result.exitCode;
+    const stdout = result.stdout;
     if (exitCode !== 0 || stdout.trim() === "") return null;
     const parsed: unknown = JSON.parse(stdout);
     if (
@@ -133,15 +160,20 @@ const [subcommand, ...args] = process.argv.slice(2);
 if (subcommand === "run") {
   const { jobName, command, subprocessEnvExtraNames } = runOptions(args);
   const config = resolveCronConfig(undefined, subprocessEnvExtraNames);
-  process.exit(
-    await runJob({
+  const host = cronHostExecution(config, { gate: true });
+  let code: number;
+  try {
+    code = await runJob({
       jobName,
       command,
       dbPath: config.dbPath,
       childEnv: config.childEnv,
       exec: config.exec,
-    })
-  );
+      brainPath: config.brainPath,
+      boundary: host.boundary,
+    });
+  } finally { host.close(); }
+  process.exit(code);
 }
 
 if (subcommand === "digest" && args.length === 0) {
@@ -152,11 +184,12 @@ if (subcommand === "digest" && args.length === 0) {
 if (subcommand === "crontab") {
   const config = resolveCronConfig();
   const options = crontabOptions(args);
-  const modules = await readModuleList(
-    config.brainPath,
-    config.moduleDiscoveryEnv,
-    config.exec
-  );
+  const host = cronHostExecution(config, { gate: false });
+  let modules: BrainModuleListPayload | null;
+  try {
+    // Nothing evaluates a brain that still holds an unreconciled protected path.
+    modules = host.reconciled ? await readModuleList(config.brainPath, config.moduleDiscoveryEnv, host.boundary) : null;
+  } finally { host.close(); }
   process.stdout.write(
     emitCrontab({
       ...options,

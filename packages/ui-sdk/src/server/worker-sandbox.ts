@@ -18,6 +18,7 @@
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
+import { brainGitSync } from "./maintenance-worker.js";
 
 /**
  * Repo-relative scratch directory (core's `SCRATCH_DIR` names the same path)
@@ -296,20 +297,23 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
  * `scratchIgnored` does, and in the same cases: the brain has its own `.git`
  * or sits inside a parent repository (`isGitRepo`). A brain in no repository
  * has nothing to commit it into; core still refuses its own scratch writes
- * until it is ignored. Git runs with the given `HOME` (the server's, which the
- * worker's home is), so the operator's `safe.directory` applies to a brain
- * owned by another user.
+ * until it is ignored. Git reads the brain's configuration, so it runs in a
+ * credential-free maintenance worker (#1648), which names the brain a safe
+ * directory itself; a worker that cannot run leaves scratch read-only.
  */
-function scratchIgnoredByGit(brain: string, home: string | undefined): true | { refused: string } {
+function scratchIgnoredByGit(brain: string): true | { refused: string } {
   const git = Bun.which("git");
-  const env: Record<string, string> = { PATH: "/usr/bin:/bin", ...(home ? { HOME: home } : {}) };
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
-  if (!own && (!git || Bun.spawnSync([git, "-C", brain, "rev-parse", "--git-dir"], { env, stdout: "ignore", stderr: "ignore" }).exitCode !== 0)) return true;
+  if (!own) {
+    if (!git) return true;
+    const inRepo = brainGitSync(brain, ["rev-parse", "--git-dir"]);
+    if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
+    if (inRepo !== 0) return true;
+  }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const result = Bun.spawnSync([git, "check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR],
-    { cwd: brain, env, stdout: "ignore", stderr: "ignore" });
-  if (result.exitCode === 0) return true;
-  return { refused: result.exitCode === 1
+  const exitCode = brainGitSync(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR]);
+  if (exitCode === 0) return true;
+  return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
     : "git could not confirm .brain/scratch/ is gitignored" };
 }
@@ -325,10 +329,10 @@ function shown(paths: readonly string[]): string {
  * file also has a name outside scratch is unlinked first: scratch is
  * disposable, and the other name keeps its data.
  */
-export function resolveScratchMount(brain: string, home?: string): { mount: WorkerMount; removed: string[] } {
+export function resolveScratchMount(brain: string): { mount: WorkerMount; removed: string[] } {
   const dir = realBrainDirectory(brain, BRAIN_SCRATCH_DIR, true);
   if (dir === null || typeof dir === "object") return { mount: { writable: false, reason: dir?.refused ?? "missing" }, removed: [] };
-  const ignored = scratchIgnoredByGit(brain, home);
+  const ignored = scratchIgnoredByGit(brain);
   if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed: [] };
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
   const scan = scanForOutsideLinks(brain, dir);

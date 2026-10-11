@@ -1,11 +1,10 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
+import { brainCommandClass, createHostBoundary, type HostBoundary } from "../brain/host-boundary.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { subprocessEnv } from "../config/env.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
-import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
   buildKeyterms,
   writeCache,
@@ -24,12 +23,15 @@ export interface BrainRoutesDeps {
   brain: BrainClient;
   brainPath: string;
   keyterms: KeytermSettings;
+  /** @internal The host execution boundary (#1648); omitted, the routes build their own. */
+  boundary?: HostBoundary;
   /** The app's configured exec wrapper; the streaming sync spawns through it. */
   exec: ExecWrapperConfig;
 }
 
 export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
   const { brain, brainPath, keyterms } = deps;
+  const boundary = deps.boundary ?? createHostBoundary({ brainPath, exec: deps.exec });
   let indexing: Promise<void> | null = null;
 
   return new Hono()
@@ -145,25 +147,19 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
         const command = brain.cliCommand();
         if (deps.brainCliMinimum !== undefined) {
-          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { exec: deps.exec, minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command });
+          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { exec: deps.exec, minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command, boundary });
         }
         const [cliBin, ...cliArgs] = command;
-        const sync = deps.exec;
-        const proc = Bun.spawn(
-          wrapCommand(
-            // `--human`: stdout is a pipe, which would make it the JSON
-            // result (#290); this route streams the readable report.
-            ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync", "--human"],
-            sync.wrapper
-          ),
-          {
-            cwd: brainPath,
-            stdout: "pipe",
-            stderr: "pipe",
-            env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-            ...execWrapperSpawnOptions(sync.wrapper),
-          }
-        );
+        // Through the host boundary (#1648): a credentialed maintenance worker
+        // holding the writer gate exclusively while the boundary holds.
+        const proc = await boundary.launch({
+          // `--human`: stdout is a pipe, which would make it the JSON
+          // result (#290); this route streams the readable report.
+          argv: ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync", "--human"],
+          env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+          ...brainCommandClass(["sync"]),
+          purpose: "brain sync",
+        });
 
         // Keep draining even when the SSE reader disconnects. The repository
         // stays reserved until the actual sync process has exited.

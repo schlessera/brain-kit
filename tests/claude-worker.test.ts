@@ -32,7 +32,7 @@ test("ordinary Claude worker protects policy bytes, applies and indexes permitte
   expect(r.entries).toEqual(["crew.ipynb", "crew.md"]);
   expect(JSON.parse(r.notebook).cells[0].source).toEqual(["Athena: agent writers never change these policy bytes.\n"]);
   expect(r.ordinary).toContain("Odysseus sails through the validated worker route.");
-  expect(r.indexed).toEqual([{ path: "notes/worker-raft.md" }]);
+  expect(r.indexed, JSON.stringify(r.requests).match(/indexError.{0,800}/)?.[0] ?? JSON.stringify(r.appEvents)).toEqual([{ path: "notes/worker-raft.md" }]);
   expect(r.mask).toEqual([137,80,78,71,13,10,26,10,0,0,0,0]);
   const outputs = r.requests.flatMap((req: any) => req.results ?? []).map((result: any) => JSON.stringify(result.content));
   expect(outputs.some((out: string) => out.includes("Odysseus scratch succeeds"))).toBe(true);

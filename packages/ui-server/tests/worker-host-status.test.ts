@@ -44,7 +44,9 @@ describe("boot probe", () => {
       // Only the ordinary mode: autonomous work is not enabled.
       expect(spy.mock.calls.map(([, options]) => options)).toEqual([{ restricted: false, stateBytes: 64 * 1024 * 1024 }]);
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
-      expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) }, limits: expect.any(Object) });
+      expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) },
+        // #1648: governed cannot run either, and with no turn able to change the brain its code stays on the host.
+        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "host" }, limits: expect.any(Object) });
       const warnings = observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes(FRESH_PROC));
       expect(warnings).toHaveLength(1);
       expect(String(warnings[0]!.body)).toContain("The server keeps running");
@@ -58,7 +60,8 @@ describe("boot probe", () => {
     const t = await createTestApp();
     try {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
-      expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) }, limits: expect.any(Object) });
+      expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) },
+        governed: { available: true, hostExecution: "worker" }, limits: expect.any(Object) });
     } finally { await t.teardown(); }
   });
 
@@ -116,11 +119,13 @@ describe("Check again", () => {
     try {
       const fixed = await t.fetch("/api/status/worker-host", { method: "POST" });
       expect(fixed.status).toBe(200);
-      expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) }, limits: expect.any(Object) });
+      expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) },
+        governed: { available: true, hostExecution: "worker" }, limits: expect.any(Object) });
       expect(spy).toHaveBeenCalledTimes(2);
       // A pass is not cached: the next check probes again.
       const broken = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
       expect(broken.ordinary).toMatchObject({ available: false, requirement: "bubblewrap is missing", trigger: "check" });
+      expect(broken.governed).toMatchObject({ available: false, reason: "worker_host_unavailable", detail: "bubblewrap is missing" });
       expect(spy).toHaveBeenCalledTimes(3);
       expect(await workerHostOf(await t.fetch("/api/status"))).toEqual(broken);
     } finally { await t.teardown(); }

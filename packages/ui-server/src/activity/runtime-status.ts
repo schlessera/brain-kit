@@ -22,7 +22,7 @@ import {
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
-import type { WorkerHostCheck, WorkerHostStatus, WorkerLimitsStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { GovernedStatus, WorkerHostCheck, WorkerHostStatus, WorkerLimitsStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -98,6 +98,12 @@ export interface RuntimeStatus {
    * for each limit this host cannot enforce.
    */
   recordWorkerLimits(limits: WorkerLimitsStatus): void;
+  /**
+   * Whether `governed` can run and where the brain's code is evaluated
+   * (#1648). Logs the first answer and each change; an unavailable one is a
+   * warning.
+   */
+  recordGoverned(status: GovernedStatus): void;
   snapshot(): RuntimeStatusSnapshot;
 }
 
@@ -208,10 +214,22 @@ export function createRuntimeStatus(
       workerHost.rootServer = { warning };
       log?.emit({ severityText: "WARN", body: warning, attributes: { "worker_host.root_server": true } });
     },
+    recordGoverned(status) {
+      const previous = workerHost.governed;
+      workerHost.governed = status;
+      if (previous && JSON.stringify(previous) === JSON.stringify(status)) return;
+      const attributes = { "governed.available": status.available, "governed.host_execution": status.hostExecution,
+        ...(status.available ? {} : { "governed.reason": status.reason }) };
+      log?.emit(status.available
+        ? { severityText: "INFO", body: "the governed profile is available; the brain's own code runs only in maintenance workers", attributes }
+        // A worker host failure is already a warning of its own; say it once.
+        : { severityText: status.reason === "worker_host_unavailable" ? "INFO" : "WARN",
+          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. Interactive and voice turns run under strict.`, attributes });
+    },
     snapshot() {
       return {
         boot,
-        ...(workerHost.ordinary || workerHost.restricted || workerHost.rootServer || workerHost.limits ? { workerHost: { ...workerHost } } : {}),
+        ...(workerHost.ordinary || workerHost.restricted || workerHost.rootServer || workerHost.limits || workerHost.governed ? { workerHost: { ...workerHost } } : {}),
         ...(lastObserved ? { lastObserved } : {}),
         ...(lastAuthFailure ? { lastAuthFailure } : {}),
       };

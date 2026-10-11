@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeClaudeRuntime } from "../../ui-backend-claude/src/runtime-probe";
 import { probeBrainCliVersion } from "../src/brain/client";
+import { createHostBoundary } from "../src/brain/host-boundary";
 import { createRecordingObservability } from "../src/observability";
 
 const dirs: string[] = [];
@@ -41,7 +42,9 @@ async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, ki
   let error: unknown;
   const started = Date.now();
   try {
-    if (kind === "brain") await probeBrainCliVersion(f.dir, observability.logger("brain"), { exec: { wrapper: f.wrapper, killer } });
+    // The host path of the probe, which a server takes where no governed turn can run (#1648).
+    if (kind === "brain") await probeBrainCliVersion(f.dir, observability.logger("brain"), { exec: { wrapper: f.wrapper, killer },
+      boundary: createHostBoundary({ brainPath: f.dir, exec: { wrapper: f.wrapper, killer }, workerHost: () => ({ ok: false, requirement: "host-path fixture" }) }) });
     else await probeClaudeRuntime({ claudeCodePath: f.path, brainPath: f.dir, env: { PATH: process.env.PATH }, exec: { wrapper: f.wrapper, killer } });
   } catch (caught) { error = caught; }
   return { elapsed: Date.now() - started, error, logs: observability.logs.find({ severity: "WARN" }) };

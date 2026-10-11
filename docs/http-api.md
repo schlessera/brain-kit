@@ -324,6 +324,14 @@ The server is not refused for it
 under: `enforced` entries `{ limit, source, value }` and `absent` entries
 `{ limit, source, reason }`
 ([contract](integration-contract/http.md#worker-resource-limits-additive-1660)).
+`workerHost.governed` (#1648) says whether the `governed` profile can run and
+where the server evaluates the brain's own code: `{ available, hostExecution }`,
+with `reason` (`server_cwd_in_brain`, `database_in_brain` or
+`worker_host_unavailable`) and `detail` when unavailable. `hostExecution` is
+`"worker"` while the brain's config, the `brain` CLI and git run only in
+maintenance workers, and `"host"` where no governed turn can have changed the
+brain. Boot records it and every check re-records it
+([contract](integration-contract/http.md#governed-availability-additive-1648)).
 
 `runtime` reports observed chat runtime and optional sync state, using the
 [runtime identity declarations](../packages/ui-server/src/activity/runtime-status.ts)

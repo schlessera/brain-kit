@@ -155,6 +155,32 @@ It appears on `GET /api/status` as `runtime.workerHost.limits` and in the
 answer of `POST /api/status/worker-host`. Clients must tolerate it being
 absent and must not assume the list of limit names is closed.
 
+<a id="governed-availability-additive-1648"></a>
+
+### Governed availability and host execution (additive, #1648)
+
+`WorkerHostStatus` gains `governed`, typed as `GovernedStatus` in
+`@schlessera/brain-ui-sdk/protocol`: whether the `governed` worker profile can
+run on this server, and where the server evaluates the brain's own code.
+
+- `{ available: true, hostExecution: "worker" }`: governed can run, so every
+  evaluation of the brain's config and its imports, every server-spawned
+  `brain` command, every cron job and every git invocation against the brain
+  runs in a maintenance worker, never in a host process.
+- `{ available: false, reason, detail, hostExecution }`: governed cannot run,
+  and interactive and voice turns run under `strict`. `reason` is
+  `server_cwd_in_brain` (the server was started inside the brain, so Bun
+  already loaded the brain's `bunfig.toml` and `.env` into it),
+  `database_in_brain`, or `worker_host_unavailable` (with the probe's
+  requirement as `detail`). `hostExecution` stays `"worker"` once a governed
+  turn has ever run on this brain or a real probe has proven the worker
+  boundary in this process; otherwise it is `"host"`.
+
+Boot records it, and `POST /api/status/worker-host` re-records it in its
+answer. Each change is logged once: a warning, except for
+`worker_host_unavailable`, which the worker host entry already warns about.
+Clients must tolerate it being absent.
+
 <a id="internal-queue-poke-additive"></a>
 
 ### Internal Queue poke (additive)
