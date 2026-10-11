@@ -1,3 +1,4 @@
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { lstat, readdir, readFile, stat, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, posix, dirname } from "node:path";
 import ignore, { type Ignore } from "ignore";
@@ -55,6 +56,16 @@ export class TooLargeError extends Error {
 }
 
 /**
+ * Whether a normalized repo-relative path names `.brain`, the scratch area
+ * (core's `SCRATCH_DIR`, `.brain/scratch`) or something in it. ui-server does
+ * not depend on core (tests/allowed-edges.ts).
+ */
+export function isScratchPath(rel: string): boolean {
+  const parts = rel.split("/").filter((part) => part && part !== ".");
+  return parts[0] === ".brain" && (parts.length === 1 || parts[1] === "scratch");
+}
+
+/**
  * Resolve a repo-relative path to an absolute path, rejecting any escape
  * outside the brain root (including via symlinks).
  */
@@ -98,13 +109,21 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
     candidates.push(candidate);
   }
 
+  // The scratch area is agent-writable in a hosted worker (#1626), so nothing
+  // under `.brain/` is followed through a link: a scratch symlink cannot make
+  // the server serve, preview or list another file under a scratch path.
+  const scratchRequest = isScratchPath(normalized);
   for (const existing of candidates) {
+    let entry;
     try {
-      await lstat(existing);
+      entry = await lstat(existing);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
       throw err;
+    }
+    if (scratchRequest && entry.isSymbolicLink() && existing.startsWith(join(absRoot, ".brain"))) {
+      throw new PathEscapeError(rel);
     }
 
     let real: string;
@@ -123,6 +142,83 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
     }
   }
   return abs;
+}
+
+/**
+ * A file's bytes, read through descriptors that never follow a link (#1626).
+ * A hosted agent writes scratch and workspaces while the reader fetches its
+ * links, so a check by path followed by an open by path could serve whatever
+ * a symlink swapped in meanwhile points at. Each directory from the brain root
+ * down is opened with `O_NOFOLLOW | O_DIRECTORY` through the previous one, the
+ * file with `O_NOFOLLOW | O_NONBLOCK`, and size and bytes come from that one
+ * descriptor. `null` off Linux, where no worker writes scratch and the path
+ * checks in `safeResolve` stand.
+ */
+export function readAnchoredSnapshot(abs: string, absRoot: string, rel: string): { bytes: Uint8Array<ArrayBuffer>; size: number; mtimeMs: number } | null {
+  if (process.platform !== "linux") return null;
+  const segments = relative(absRoot, abs).split(sep).filter(Boolean);
+  const name = segments.pop();
+  if (!name) throw new NotFoundError(rel);
+  const fail = (err: unknown): never => {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ELOOP" || code === "ENOTDIR") throw new PathEscapeError(rel);
+    throw new NotFoundError(rel);
+  };
+  let dir: number;
+  try { dir = openSync(absRoot, constants.O_RDONLY | constants.O_DIRECTORY); } catch (err) { return fail(err); }
+  try {
+    for (const segment of segments) {
+      let next: number;
+      try { next = openSync(`/proc/self/fd/${dir}/${segment}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch (err) { return fail(err); }
+      closeSync(dir);
+      dir = next;
+    }
+    let fd: number;
+    try { fd = openSync(`/proc/self/fd/${dir}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch (err) { return fail(err); }
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile()) throw new NotFoundError(rel);
+      if (info.size > FILE_SIZE_CAP_BYTES) throw new TooLargeError(info.size);
+      const bytes = new Uint8Array(info.size);
+      let read = 0;
+      while (read < bytes.length) {
+        const n = readSync(fd, bytes, read, bytes.length - read, read);
+        if (n === 0) break;
+        read += n;
+      }
+      return { bytes: bytes.subarray(0, read), size: read, mtimeMs: info.mtimeMs };
+    } finally { closeSync(fd); }
+  } finally { closeSync(dir); }
+}
+
+/** The canonical brain root `safeResolve` resolves against. */
+async function canonicalRoot(root: string): Promise<string> {
+  try { return await realpath(resolve(root)); } catch { return resolve(root); }
+}
+
+/** Directories a hosted agent can write (#1626): `.brain/scratch` and `workspaces`. */
+const AGENT_WRITABLE = [".brain/scratch", "workspaces"];
+
+/**
+ * When the requested path or the file it resolves to lies in an
+ * agent-writable area, the file's bytes read from its resolved path through
+ * `readAnchoredSnapshot`: a link swapped in after the checks fails the read
+ * instead of redirecting it. Links the brain already holds still resolve, as
+ * `safeResolve` allowed them. `null` for any other file, which no agent can
+ * change, and off Linux.
+ */
+async function areaSnapshot(rel: string, abs: string, root: string) {
+  if (process.platform !== "linux") return null;
+  const absRoot = await canonicalRoot(root);
+  const inArea = (path: string) => AGENT_WRITABLE.some((area) => {
+    const dir = join(absRoot, area);
+    return path === dir || path.startsWith(dir + sep);
+  });
+  let real: string;
+  try { real = await realpath(abs); } catch { throw new NotFoundError(rel); }
+  if (!inArea(abs) && !inArea(real) && !isScratchPath(rel)) return null;
+  if (real !== absRoot && !real.startsWith(absRoot + sep)) throw new PathEscapeError(rel);
+  return { real, ...readAnchoredSnapshot(real, absRoot, rel)! };
 }
 
 interface CachedIgnore {
@@ -203,6 +299,8 @@ export async function listDirectory(rel: string, root: string): Promise<FileEntr
     // ignore expects trailing slash on dirs to match dir-only rules
     const matchPath = isDir ? `${relChild}/` : relChild;
     if (matcher.ignores(matchPath)) continue;
+    // A scratch listing shows no link: safeResolve would refuse to open it.
+    if (isSymlink && isScratchPath(relChild)) continue;
 
     let childStat;
     try {
@@ -322,11 +420,15 @@ export interface FileContent {
 
 export async function readFileContent(rel: string, root: string): Promise<FileContent> {
   const abs = await safeResolve(rel, root);
-  let s;
-  try {
-    s = await stat(abs);
-  } catch {
-    throw new NotFoundError(rel);
+  const snapshot = await areaSnapshot(rel, abs, root);
+  let s: { size: number; mtimeMs: number; isFile(): boolean };
+  if (snapshot) s = { size: snapshot.size, mtimeMs: snapshot.mtimeMs, isFile: () => true };
+  else {
+    try {
+      s = await stat(abs);
+    } catch {
+      throw new NotFoundError(rel);
+    }
   }
   if (!s.isFile()) throw new NotFoundError(rel);
   if (s.size > FILE_SIZE_CAP_BYTES) throw new TooLargeError(s.size);
@@ -341,7 +443,7 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
         : null;
 
   if (presumed) {
-    const content = await readFile(abs, "utf8");
+    const content = snapshot ? Buffer.from(snapshot.bytes).toString("utf8") : await readFile(abs, "utf8");
     return {
       kind: presumed,
       size: s.size,
@@ -351,7 +453,7 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
     };
   }
 
-  const buf = await readFile(abs);
+  const buf = snapshot ? Buffer.from(snapshot.bytes) : await readFile(abs);
   const kind = classifyKind(abs, buf);
   if (kind === "text" || kind === "markdown" || kind === "html") {
     return {
@@ -372,10 +474,18 @@ export async function readFileContent(rel: string, root: string): Promise<FileCo
 
 /**
  * Stream raw bytes of a file (for image/binary preview).
- * Returns the absolute path; caller uses Bun.file() to stream.
+ * Returns the absolute path; caller uses Bun.file() to stream, or `bytes`
+ * when present (a snapshot of a file in an agent-writable area, never
+ * reopened by path).
  */
-export async function resolveForRaw(rel: string, root: string): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind }> {
+export async function resolveForRaw(rel: string, root: string): Promise<{ abs: string; size: number; mime: string; kind: FileContentKind; bytes?: Uint8Array<ArrayBuffer> }> {
   const abs = await safeResolve(rel, root);
+  // A file in an agent-writable area is served from a snapshot read without following links; see areaSnapshot.
+  const snapshot = await areaSnapshot(rel, abs, root);
+  if (snapshot) {
+    const kind = classifyKind(snapshot.real);
+    return { abs, size: snapshot.size, mime: mimeFor(rel, kind), kind, bytes: snapshot.bytes };
+  }
   let s;
   try {
     s = await stat(abs);

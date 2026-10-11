@@ -20,15 +20,20 @@
  * whatever entry was there; and a removal, a descent and a publication each
  * re-verify the path just before they act. Node has no `openat`/`unlinkat`/
  * `renameat`, so a window the width of one syscall remains between each
- * check and its operation; it is named at the check.
+ * check and its operation; it is named at the check. On Linux, where a
+ * hosted agent can write scratch during a prune, a removal goes through
+ * directory descriptors instead (`anchored`) and has no such window.
  */
 import { randomBytes } from "crypto";
 import {
+  closeSync,
+  constants,
   existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -419,6 +424,46 @@ function listFiles(dir: string): Entry[] {
 }
 
 /**
+ * On Linux, where a hosted agent worker can write scratch while the host
+ * prunes it, a removal goes through directory descriptors: scratch is opened
+ * with `O_NOFOLLOW | O_DIRECTORY`, then each directory down to the entry's
+ * parent through the previous one (`/proc/self/fd/<fd>/<name>`), and the
+ * unlink or rmdir names the entry through that parent's descriptor. A
+ * directory swapped for a symlink at any moment makes the open fail
+ * (`ELOOP`/`ENOTDIR`) instead of redirecting the removal out of scratch.
+ * Elsewhere no worker exists, and the path checks below are what remains.
+ */
+const ANCHORED = process.platform === "linux";
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+
+/** Runs `act` with `/proc/self/fd/<fd>` for the real directory holding `abs` under `scratch`, and the entry's name. */
+function anchored<T>(scratch: string, abs: string, act: (parent: string, name: string) => T): T | "skipped" | "gone" {
+  const segments = relative(scratch, dirname(abs)).split(sep).filter(Boolean);
+  let fd: number;
+  try {
+    fd = openSync(scratch, DIRECTORY_FLAGS);
+  } catch (error) {
+    return gone(error) ? "gone" : "skipped";
+  }
+  try {
+    for (const segment of segments) {
+      let next: number;
+      try {
+        next = openSync(`/proc/self/fd/${fd}/${segment}`, DIRECTORY_FLAGS);
+      } catch (error) {
+        // ENOENT: gone. ELOOP/ENOTDIR: a link or file now sits where the directory was.
+        return (error as { code?: string }).code === "ENOENT" ? "gone" : "skipped";
+      }
+      closeSync(fd);
+      fd = next;
+    }
+    return act(`/proc/self/fd/${fd}`, basename(abs));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
  * Remove one file or link that the listing found, re-verifying the path just
  * before the unlink: the chain up to scratch is still genuine (`scratchDir`),
  * the entry's directory is exactly what its path says (`realpath` equal to
@@ -426,9 +471,10 @@ function listFiles(dir: string): Entry[] {
  * entry is still not a directory. Any mismatch skips the entry without
  * reporting it; so does an entry already gone.
  *
- * What remains open: Node has no `unlinkat`, so between this verification
- * and the unlink syscall an ancestor can still be swapped, and the unlink
- * would then follow the new link. The window is one syscall wide.
+ * Off Linux, Node has no `unlinkat`, so between this verification and the
+ * unlink syscall an ancestor can still be swapped, and the unlink would then
+ * follow the new link; the window is one syscall wide. On Linux the removal
+ * is anchored on descriptors (`anchored`) and the window is closed.
  */
 /** `gone`: already removed by someone else. `skipped`: not ours to remove any more (moved, swapped, a directory now). */
 type Removal = "removed" | "gone" | "skipped" | { failed: string };
@@ -436,6 +482,13 @@ type Removal = "removed" | "gone" | "skipped" | { failed: string };
 function removeFile(root: string, dir: string, abs: string): Removal {
   if (!genuineDir(root, dir, dirname(abs))) return "skipped";
   try {
+    if (ANCHORED) {
+      return anchored(dir, abs, (parent, name) => {
+        if (lstatSync(join(parent, name)).isDirectory()) return "skipped";
+        unlinkSync(join(parent, name));
+        return "removed";
+      });
+    }
     if (lstatSync(abs).isDirectory()) return "skipped";
     unlinkSync(abs);
     return "removed";
@@ -473,7 +526,8 @@ function removeEmptyDirs(root: string, scratch: string, dir: string): void {
   if (dir === scratch) return;
   if (!genuineDir(root, scratch, dir)) return;
   try {
-    rmdirSync(dir);
+    if (ANCHORED) anchored(scratch, dir, (parent, name) => rmdirSync(join(parent, name)));
+    else rmdirSync(dir);
   } catch (error) {
     const code = (error as { code?: string }).code;
     // Refilled, replaced or removed meanwhile: leave it be.

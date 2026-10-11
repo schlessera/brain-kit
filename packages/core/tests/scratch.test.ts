@@ -237,6 +237,36 @@ describe("a prune beside another process", () => {
   });
 
   /**
+   * The narrowest window: the removal has just re-verified `nested` (its
+   * last `lstat`), and `nested` becomes a link before the unlink. A hosted
+   * agent owns scratch while the host prunes it, so it can keep trying until
+   * it lands here. Only a removal anchored on descriptors survives it.
+   */
+  test.skipIf(process.platform !== "linux")("prune: an ancestor swapped for a link right after its last check is never followed (#1626)", () => {
+    file("nested/victim.pdf", 7, SCRATCH_TTL_MS + 1000);
+    const outside = outsideDir();
+    outsides.push(outside.dir);
+    const nested = join(root, SCRATCH_DIR, "nested");
+    let checks = 0;
+    const real = fs.lstatSync;
+    const spy = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+      const result = real(path, options as never);
+      // The listing lstats `nested` twice (as an entry, then before descending); the third is the removal's last check.
+      if (String(path) === nested && ++checks === 3) {
+        fs.renameSync(nested, `${nested}-parked`);
+        symlinkSync(outside.dir, nested);
+      }
+      return result;
+    }) as typeof fs.lstatSync);
+    spies.push(spy);
+    const report = pruneScratch(root, NOW);
+    spy.mockRestore();
+    expect(checks, "SWAP_HAPPENED").toBeGreaterThanOrEqual(3);
+    expect(readFileSync(outside.file, "utf8"), "PRUNE_FOLLOWED_SWAP").toBe("keep me");
+    expect(report.removed).toEqual([]);
+  });
+
+  /**
    * The files are gone and the cleanup has just listed `nested`; before it
    * descends, `nested` becomes a link to an outside directory holding an
    * empty `deep` of the listed name.

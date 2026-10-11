@@ -1,13 +1,46 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { SCRATCH_DIR } from "../lib/scratch.js";
 
-/** Read-only worker writes are refusals, never staged commands. */
-export function readOnlyBrainError(command: string, error: unknown): {
+/** Commands whose output belongs in the scratch area when the brain is read-only (#1626). */
+const SCRATCH_WRITERS = new Set(["render", "image"]);
+
+/**
+ * Read-only worker writes are refusals, never staged commands. With `root`,
+ * a command that has a scratch alternative names it: in a hosted worker the
+ * brain is read-only but `.brain/scratch/` is its own writable mount (#1626).
+ */
+export function readOnlyBrainError(command: string, error: unknown, root?: string): {
   schema_version: 1; ok: false; error: { code: "read_only_brain"; message: string; tool: string };
 } | null {
   if ((error as NodeJS.ErrnoException)?.code !== "EROFS") return null;
   const tool = command === "add" ? "brain_add" : command === "archive" ? "brain_archive" : "apply_staged_changes";
-  return { schema_version: 1, ok: false, error: { code: "read_only_brain", tool,
-    message: `The brain is read-only here. In a hosted turn use ${tool} (Claude: mcp__brain-ui__${tool}); the CLI write is not staged or replayed. Use a writable terminal brain for other operations.` } };
+  // A scratch directory missing from a read-only brain cannot be created, so it is no route either.
+  const scratch = root === undefined ? undefined : join(root, SCRATCH_DIR);
+  const sandbox = scratch === undefined ? undefined : !existsSync(scratch) || isReadOnlyBrainMount(scratch)
+    ? `${SCRATCH_DIR}/ is read-only in this turn as well (a restricted autonomous turn, or it is missing, not gitignored, redirected or could not be verified), so nothing written now is kept for the reader.`
+    : undefined;
+  const message = command === "scratch"
+    ? `The scratch area ${SCRATCH_DIR}/ is read-only here, so nothing was removed. In a hosted turn that means a restricted autonomous turn, or a scratch directory the worker sandbox would not bind writable; the server prunes it hourly.`
+    : SCRATCH_WRITERS.has(command)
+      ? `The brain is read-only here outside ${SCRATCH_DIR}/ (the hosted worker sandbox). ` + (sandbox
+        ?? `Write the output with --scratch instead: ${SCRATCH_DIR}/ is writable and kept across turns. Then give the reader a link to the path the command prints; a file in /tmp or $BRAIN_WORKER_SCRATCH is gone when the turn ends.`)
+      : `The brain is read-only here. In a hosted turn use ${tool} (Claude: mcp__brain-ui__${tool}); the CLI write is not staged or replayed. Use a writable terminal brain for other operations.`;
+  return { schema_version: 1, ok: false, error: { code: "read_only_brain", tool, message } };
+}
+
+/**
+ * The directory a known write form writes into: the scratch area for
+ * `scratch` and for a `render` sent there, the brain root otherwise. The
+ * read-only pre-check asks about this path, so a scratch write still runs
+ * where the scratch area is its own writable mount.
+ */
+export function writeTarget(command: string, args: readonly string[], root: string): string {
+  const out = args.some(arg => arg === "--out" || arg.startsWith("--out="));
+  if (command === "scratch" || (command === "render" && (args.includes("--scratch") || (args.includes("-") && !out)))) {
+    return join(root, SCRATCH_DIR);
+  }
+  return root;
 }
 
 /** Diagnostics only: the kernel remains the write boundary. Linux mount flags

@@ -10,6 +10,7 @@ import type {
   StartTurnRequest,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
+import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
@@ -135,7 +136,13 @@ function assembleClaudeSdkTurn(
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
 
-  const append = req.autonomous?.systemPromptAppend ?? buildAppend(
+  const childEnv = envelope?.env ?? turnEnv(profile);
+  // One resolution of the worker's writable areas feeds both its mounts and
+  // the note the agent reads, so the two cannot disagree (#1626).
+  const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted: Boolean(envelope), home: childEnv.HOME });
+  const sandboxNote = workerSandboxNote(sandbox);
+  for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
+  const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
     {
@@ -151,7 +158,7 @@ function assembleClaudeSdkTurn(
     },
     req.turnBudgetMs
   );
-  const childEnv = envelope?.env ?? turnEnv(profile);
+  const append = brief ? `${brief}\n\n${sandboxNote}` : sandboxNote;
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
     ...(req.autonomous ? { persistSession: false } : {}),
@@ -173,10 +180,10 @@ function assembleClaudeSdkTurn(
     // The brain repo's CLAUDE.md says what the agent is working ON; this says
     // what it is rendering INTO. Interactive turns append to the preset;
     // restricted turns use the package-owned static prompt and boundary.
-    systemPrompt: envelope ? autonomousSystemPrompt(allowed) : {
+    systemPrompt: envelope ? autonomousSystemPrompt(allowed, sandboxNote) : {
       type: "preset",
       preset: "claude_code",
-      ...(append ? { append } : {}),
+      append,
     },
     // Preserve manual approvals across SDK versions that leave an omitted
     // mode to the CLI (claude-code-runtime.md, #1213). Enforcement hooks
@@ -224,7 +231,7 @@ function assembleClaudeSdkTurn(
   // Every runtime-owned executor enters the worker. An optional host exec
   // wrapper runs inside it and can never replace the filesystem boundary.
   const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal,
-    envelope ? { inferenceDir: envelope.relay.dir } : undefined);
+    envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their

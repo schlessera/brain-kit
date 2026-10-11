@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
+import * as fsp from "node:fs/promises";
 import { mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import {
   classifyKind,
   safeResolve,
   PathEscapeError,
+  readAnchoredSnapshot,
   NotFoundError,
   TooLargeError,
 } from "../src/files/walker";
@@ -104,6 +106,94 @@ describe("safeResolve", () => {
   test("accepts empty string (root)", async () => {
     await expect(safeResolve("", root)).resolves.toBeTruthy();
   });
+  test("never follows a link under the agent-writable scratch area (#1626)", async () => {
+    const scratch = join(root, ".brain/scratch");
+    await mkdir(join(scratch, "real"), { recursive: true });
+    await writeFile(join(scratch, "render.pdf"), "%PDF-1.4");
+    // Both stay inside the brain, so only the scratch rule refuses them.
+    await symlink(join(root, "notes/foo.md"), join(scratch, "foo.md"));
+    await symlink(join(root, "notes"), join(scratch, "notes-dir"));
+    try {
+      await expect(safeResolve(".brain/scratch/render.pdf", root)).resolves.toBe(join(scratch, "render.pdf"));
+      await expect(safeResolve(".brain/scratch/foo.md", root), "SCRATCH_LINK").rejects.toBeInstanceOf(PathEscapeError);
+      await expect(safeResolve(".brain/scratch/notes-dir/foo.md", root)).rejects.toBeInstanceOf(PathEscapeError);
+      await expect(resolveForRaw(".brain/scratch/foo.md", root)).rejects.toBeInstanceOf(PathEscapeError);
+      expect((await listDirectory(".brain/scratch", root)).map((e) => e.name), "SCRATCH_LISTING").toEqual(["real", "render.pdf"]);
+      // Outside scratch an in-brain link still resolves as before.
+      await symlink(join(root, "notes/foo.md"), join(root, "notes/foo-link.md"));
+      await expect(safeResolve("notes/foo-link.md", root)).resolves.toBeTruthy();
+    } finally {
+      await rm(join(root, ".brain"), { recursive: true, force: true });
+      await rm(join(root, "notes/foo-link.md"), { force: true });
+    }
+  });
+
+  // The path checks above run before the open; a hosted agent can swap a
+  // scratch directory or file for a link in between. The snapshot opens
+  // every component without following one, so a swap at that moment fails
+  // closed instead of serving the link's target.
+  test.skipIf(process.platform !== "linux")("a scratch file is read through descriptors that never follow a link (#1626)", async () => {
+    const scratch = join(root, ".brain/scratch");
+    await mkdir(join(scratch, "real"), { recursive: true });
+    await writeFile(join(scratch, "real/report.html"), "<p>Ithaca</p>");
+    await symlink(join(root, "notes"), join(scratch, "swapped"));
+    await symlink(join(root, "notes/foo.md"), join(scratch, "swapped.md"));
+    try {
+      expect(new TextDecoder().decode(readAnchoredSnapshot(join(scratch, "real/report.html"), root, "x")!.bytes)).toBe("<p>Ithaca</p>");
+      expect(() => readAnchoredSnapshot(join(scratch, "swapped/foo.md"), root, "x"), "SNAPSHOT_DIR_LINK").toThrow(PathEscapeError);
+      expect(() => readAnchoredSnapshot(join(scratch, "swapped.md"), root, "x"), "SNAPSHOT_FILE_LINK").toThrow(PathEscapeError);
+      // The routes serve the snapshot: whole, ranged and as an HTML preview.
+      const app = createFilesRoutes({ brainRoot: root });
+      const whole = await app.request("/files/content?path=.brain/scratch/real/report.html&raw=1");
+      expect(await whole.text()).toBe("<p>Ithaca</p>");
+      const ranged = await app.request("/files/content?path=.brain/scratch/real/report.html&raw=1", { headers: { Range: "bytes=3-8" } });
+      expect(ranged.status).toBe(206);
+      expect(await ranged.text()).toBe("Ithaca");
+      const preview = await app.request("/files/html?path=.brain/scratch/real/report.html");
+      expect(await preview.text()).toBe("<p>Ithaca</p>");
+      const content = await app.request("/files/content?path=.brain/scratch/real/report.html");
+      expect((await content.json() as { content: string }).content).toBe("<p>Ithaca</p>");
+    } finally {
+      await rm(join(root, ".brain"), { recursive: true, force: true });
+    }
+  });
+
+  // The agent swaps a file in an area it writes for a link right after the
+  // route's last check by path (safeResolve's realpath of the file itself).
+  // Served by path, the response would carry the link's target.
+  test.skipIf(process.platform !== "linux").each([".brain/scratch/report.txt", "workspaces/ithaca/report.txt"])(
+    "%s swapped for a link after the checks is never served through it (#1626)", async (rel) => {
+      const outside = await Bun.$`mktemp -d`.text().then((t) => t.trim());
+      await writeFile(join(outside, "secret.txt"), "PENELOPE-SECRET");
+      const target = join(root, rel);
+      await mkdir(join(target, ".."), { recursive: true });
+      const original = fsp.realpath;
+      const spy = spyOn(fsp, "realpath");
+      try {
+        const app = createFilesRoutes({ brainRoot: root });
+        for (const url of [`/files/content?path=${rel}&raw=1`, `/files/content?path=${rel}`]) {
+          await writeFile(target, "Ithaca");
+          let swapped = false;
+          spy.mockImplementation((async (path: string, ...rest: unknown[]) => {
+            const result = await (original as (...args: unknown[]) => Promise<string>)(path, ...rest);
+            if (!swapped && String(path) === target) {
+              swapped = true;
+              await rm(target);
+              await symlink(join(outside, "secret.txt"), target);
+            }
+            return result;
+          }) as typeof fsp.realpath);
+          const response = await app.request(url);
+          expect(swapped, "ROUTE_SWAP_HAPPENED").toBe(true);
+          expect(await response.text(), `ROUTE_SWAP_FOLLOWED ${url}`).not.toContain("PENELOPE-SECRET");
+          await rm(target, { force: true });
+        }
+      } finally {
+        spy.mockRestore();
+        await rm(outside, { recursive: true, force: true });
+        await rm(join(root, rel.split("/")[0]!), { recursive: true, force: true });
+      }
+    });
 });
 
 describe("listDirectory", () => {

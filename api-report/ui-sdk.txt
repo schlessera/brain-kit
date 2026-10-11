@@ -749,6 +749,8 @@ export "./client" (./src/client/index.ts)
 export "./internal" (./src/internal.ts)
   ANTHROPIC_INFERENCE_ROUTES
   ARCHIVING_UPDATE_REASON
+  BRAIN_SCRATCH_DIR
+  BRAIN_WORKSPACES_DIR
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
@@ -758,6 +760,7 @@ export "./internal" (./src/internal.ts)
   type InferenceRelayEvent
   type InferenceRelayOptions
   MAX_INFERENCE_REQUEST_BYTES
+  type PrepareWorkerSandboxOptions
   type QuestionObservation
   type RestrictedEnvelope
   SUBPROCESS_ENV
@@ -765,13 +768,20 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
+  WORKER_AREAS
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_SCRATCH
+  WORKER_XDG_DIRS
+  type WorkerArea
+  type WorkerAreaName
+  type WorkerHome
   WorkerHostError
   type WorkerHostProbe
   type WorkerHostProbeOptions
   type WorkerLaunch
+  type WorkerMount
+  type WorkerSandbox
   applyClassification
   archivesDocument
   assertScratchMask
@@ -787,6 +797,8 @@ export "./internal" (./src/internal.ts)
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareWorkerSandbox
+  probeHomeOverlay
   probeWorkerHost
   readWebSearchOverride
   readWebSearchRouting
@@ -797,6 +809,8 @@ export "./internal" (./src/internal.ts)
   webSearchBrief
   webSearchProvider
   workerHostBoundary
+  workerSandboxNote
+  workerSandboxWarnings
 
 export "./internal/client" (./src/internal-client.ts)
   type ShareTargetError

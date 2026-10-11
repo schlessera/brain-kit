@@ -24,6 +24,8 @@ interface Init {
   entries?: FileEntry[];
   profileId?: string;
   agentFiles: Record<string, string>;
+  /** Rendered by the server from this worker's resolved mounts (#1626). */
+  sandboxNote?: string;
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
 }
@@ -86,6 +88,7 @@ async function initialize(init: Init): Promise<void> {
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
     shellCwd: WORKER_SCRATCH,
+    ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
       pi.on("tool_call", async event => {
         if (controller.signal.aborted) return { block: true, reason: "Turn cancelled" };

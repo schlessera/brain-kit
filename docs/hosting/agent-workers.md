@@ -47,10 +47,13 @@ Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts `/` and the canonical brain read-only, and replaces `/proc`
 and `/dev`. When the server runs as root, the worker's whole `/proc` is
 read-only as well (#1629, see [running as root](#running-the-server-as-root)).
-`/tmp` is private tmpfs; the scratch location is a fresh tmpfs,
-never a writable host bind. Scratch cannot overlap the brain or its ancestors.
-The worker receives only explicit environment entries and
-`BRAIN_WORKER_SCRATCH`. There is no overlay dependency; bubblewrap 0.9 is eligible.
+`/tmp` is private tmpfs; the per-turn scratch location is a fresh
+tmpfs and cannot overlap the brain or its ancestors. The brain's own scratch
+area and its workspace directory are writable binds inside the read-only
+brain, and `$HOME` gets a per-turn overlay where the host supports one; see
+[what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
+worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
+The overlay is optional; bubblewrap 0.9 is eligible.
 The worker and its descendants are inside the boundary. PID-namespace ownership,
 `--die-with-parent` and the returned process handle support cancellation.
 The caller owns the returned stdin/stdout/stderr streams and closes or destroys
@@ -98,6 +101,57 @@ and removes the archive entry. Autonomous state stays empty and nonpersistent.
 Pi also bounds each session's serialized initialization and snapshots to 16 MiB,
 reserving the larger of 1 MiB or 25% of initialization bytes before launch;
 an oversized session or mid-turn snapshot fails with `session_too_large`.
+
+## What a turn can write and where outputs go
+
+An interactive or voice turn has three places a file can be. The
+[writable-areas decision](../decisions/worker-writable-areas.md) records why
+and how each is checked; a separate "governed writable" epic will revise this
+default, and these areas will remain what its strict profile gets.
+
+| Place | Paths | Lifetime | Link it for the reader? |
+| --- | --- | --- | --- |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp`, writes under `$HOME` | Deleted when the turn ends | Never: the reader cannot open it |
+| Persistent scratch | `.brain/scratch/`, and `workspaces/` for repository clones | Kept across turns; scratch is pruned after 7 days, oldest first past 1 GB | Yes: the only non-brain place to link |
+| The brain | Everything else | Canonical | Yes, as documents |
+
+- **The brain** stays read-only. Markdown changes go through the server's
+  validated write and edit tools; a direct write, `git commit` or index
+  command in the brain fails with `Read-only file system`.
+- **`.brain/scratch/`** is created when missing and bound writable when every
+  segment is a real directory (no symlink), no mount point sits at or below
+  it, and, in a git repository, git ignores it (`brain doctor --fix` adds the
+  line). A scratch name whose file also has a name outside scratch is
+  unlinked before the turn. `brain render --scratch`, `brain image --scratch`
+  and `brain scratch prune` work inside a turn, and the reader opens the path
+  the command prints. The server never follows a symlink under `.brain/` when
+  it serves, previews or lists a scratch path.
+- **`workspaces/`** is bound writable only when it already exists as a real
+  directory in the brain root. Core always excludes it from the index.
+  Creating it outside a hosted turn is the opt-in; the name is fixed. It
+  stays read-only for a turn when it holds a file hard-linked to something
+  outside it, sits on or contains a mount point, holds more than 200 000
+  entries, or holds a directory the server cannot read (scratch too); the
+  agent's note and the server log name the reason. Links wholly
+  inside it, such as local clones between workspace repositories, are fine.
+- **`$HOME`** gets `bwrap --tmp-overlay` when the host can mount it:
+  bubblewrap 0.11.0 or later, not installed setuid, and a kernel that allows
+  overlayfs in an unprivileged user namespace. Each turn probes this with
+  the real launcher. Existing configuration such as `.gitconfig` still
+  reads; every write is discarded at turn end. Otherwise the fallback keeps
+  `$HOME` read-only and points `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
+  `XDG_DATA_HOME` at per-turn directories under `/tmp/brain-worker-home`,
+  which is what headless Chromium needs to start. Ubuntu 24.04's bubblewrap
+  0.9.0 takes the fallback.
+- **Restricted (autonomous) turns** are unchanged: no area is bound, there is
+  no host home, and `$BRAIN_WORKER_SCRATCH` and `/tmp` are the only writable
+  places.
+
+Every turn's agent reads a note generated from the same resolved layout that
+builds the mounts, so it is told exactly which of these it has this turn,
+and to put anything it links into `.brain/scratch/`, never into turn temp.
+When a `brain` CLI write hits the read-only brain, the error names the rule
+and the route: `brain render` and `brain image` say to use `--scratch`.
 
 ## The restricted envelope for autonomous turns (#676)
 
@@ -285,6 +339,8 @@ After the frozen dependency install, run:
 
 ```sh
 bun run test packages/ui-sdk/tests/worker-launcher.test.ts \
+  packages/ui-sdk/tests/worker-sandbox.test.ts \
+  packages/core/tests/cli-read-only.test.ts \
   packages/ui-server/tests/worker-host-gate.test.ts \
   packages/ui-server/tests/run-session.test.ts \
   packages/ui-server/tests/autonomous-turn.test.ts \

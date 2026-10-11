@@ -76,6 +76,10 @@ function executorsHeld(r: any, adapter: "claude" | "pi"): void {
     expect(w.results.length).toBeGreaterThan(30);
     expect(w.results.filter((x: any) => x.ok), `${w.source} could not change a policy alias`).toEqual([]);
     expect(w.scratch, "worker scratch exists").toBe(true);
+    // #1626: scratch and workspaces are writable binds, so each refusal from inside them is the boundary's.
+    expect(w.areaWritable, "AREAS_WRITABLE").toEqual([true, true]);
+    expect(w.results.filter((x: any) => x.op.startsWith("area-")).map((x: any) => x.code), "AREA_ESCAPES_REFUSED")
+      .toEqual(["EROFS", "EXDEV", "EXDEV", "EROFS", "EXDEV", "EXDEV"]);
     expect(w.scratchAliases, "fresh scratch holds no policy alias").toEqual([]);
   }
 }

@@ -10,7 +10,7 @@
  */
 
 import { join } from "path";
-import { isReadOnlyBrainMount, readOnlyBrainError } from "./read-only.js";
+import { isReadOnlyBrainMount, readOnlyBrainError, writeTarget } from "./read-only.js";
 import { Console } from "node:console";
 
 import { buildTaxonomy } from "../lib/taxonomy.js";
@@ -205,8 +205,11 @@ async function main(): Promise<number> {
 
   // Refuse known write forms before handlers which intentionally collect
   // per-file errors; those loops cannot surface EROFS to main's catch.
-  if (mutates && !beforeTerminator(argv.slice(1)).includes("--dry-run") && isReadOnlyBrainMount(brain.root)) {
-    const refusal = readOnlyBrainError(command, { code: "EROFS" })!;
+  // A scratch write asks about the scratch area, its own writable mount in a
+  // hosted worker (#1626).
+  const target = writeTarget(command, beforeTerminator(argv.slice(1)), brain.root);
+  if (mutates && !beforeTerminator(argv.slice(1)).includes("--dry-run") && isReadOnlyBrainMount(target)) {
+    const refusal = readOnlyBrainError(command, { code: "EROFS" }, brain.root)!;
     if (json) console.log(JSON.stringify(refusal));
     else console.error(refusal.error.message);
     return 2;
@@ -219,7 +222,7 @@ async function main(): Promise<number> {
     const code = await entry.run(argv.slice(1), cli);
     return typeof code === "number" ? code : 0;
   } catch (error) {
-    const refusal = readOnlyBrainError(command, error);
+    const refusal = readOnlyBrainError(command, error, brain.root);
     if (!refusal) throw error;
     if (json) console.log(JSON.stringify(refusal));
     else console.error(refusal.error.message);

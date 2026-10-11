@@ -482,10 +482,10 @@ bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:491`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:545`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:52`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:57`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted.
 
 **Expired links.** A link whose file is gone renders as "expired", not as a
@@ -638,7 +638,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:242`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`lock: toolLockFromKeyed(createKeyedLock())`,
-  `packages/ui-backend-pi/src/worker-entry.ts:84`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:86`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -650,7 +650,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:188`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:195`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:518`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -825,7 +825,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:54`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:62`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -837,7 +837,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:275`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:409`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;

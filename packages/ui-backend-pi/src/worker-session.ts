@@ -7,7 +7,8 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
-import { launchAgentWorker, requireWorkerHost, restrictedReadPaths, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { launchAgentWorker, prepareWorkerSandbox, requireWorkerHost, restrictedReadPaths, workerSandboxNote, workerSandboxWarnings,
+  WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -71,15 +72,20 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     requireWorkerHost(backend.brainPath, { restricted });
   } catch (error) { envelope?.relay.stop(); throw error; }
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
+  const workerEnv: Record<string, string> = envelope
+    // The restricted envelope: minimum runtime variables only, the installed
+    // runtime as the explicit read envelope, and the relay as the one route out.
+    ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
+    : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   let child: ReturnType<typeof launchAgentWorker>;
+  let sandboxNote: string;
   try {
+    // One resolution feeds the worker's mounts and the note its agent reads (#1626).
+    const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
+    sandboxNote = workerSandboxNote(sandbox);
+    for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     child = launchAgentWorker({ brainPath: backend.brainPath,
-      command: [process.execPath, entry],
-      env: envelope
-        // The restricted envelope: minimum runtime variables only, the installed
-        // runtime as the explicit read envelope, and the relay as the one route out.
-        ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
-        : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath },
+      command: [process.execPath, entry], env: workerEnv, sandbox,
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
   } catch (error) { envelope?.relay.stop(); throw error; }
@@ -282,7 +288,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
   try {
-    send(init);
+    send({ ...init, sandboxNote });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }
