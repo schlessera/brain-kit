@@ -263,7 +263,7 @@ reservation with bounded growth and named refusal) for the 0.42.0 batch.
   space less what live reservations have not yet written (`const admit`,
   `packages/ui-backend-claude/src/worker-state.ts:107-115`;
   `export function createStateLedger`,
-  `packages/ui-backend-claude/src/worker-state-budget.ts:87-141`). Reserve,
+  `packages/ui-backend-claude/src/worker-state-budget.ts:93-164`). Reserve,
   copy and release are synchronous in the server process, so check-then-copy
   cannot interleave between turns. Cleanup releases on every exit path,
   including a failed copy, a failed launch and a failed removal. What never
@@ -274,19 +274,24 @@ reservation with bounded growth and named refusal) for the 0.42.0 batch.
   run.
 - **Growth is measured, then stopped by name.** The spawn measures the running
   state every 250 ms (`const monitor`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:90`). Within 8 MiB of its
+  `packages/ui-backend-claude/src/worker-spawn.ts:93`). Within 8 MiB of its
   reservation a turn extends it to 16 MiB beyond its usage into space no
   other turn holds. A turn that has outgrown its reservation with no unheld
-  space left, or that passes 128 MiB, is killed and reported as
-  `worker_state_exceeded`; what it saved is still persisted. The turn reports
-  the recorded class, not the runtime's own error for a killed process.
+  space left, passes 128 MiB, or makes its state unreadable to the server is
+  killed and reported as `worker_state_exceeded`. What it saved still goes
+  through the ordinary persist checks. An unmeasurable state counts as
+  wholly unwritten in other turns' admission. Live usage is always measured
+  before free space is read, so a concurrent write can only make a check
+  stricter. A host cancellation outranks a state failure measured meanwhile;
+  otherwise the turn reports the recorded class, not the runtime's own error
+  for a killed process.
   **Residual:** this is polling, not a quota. A turn that writes more than its
   unheld headroom within one interval can still fill the tmpfs before it is
-  stopped; its own report is still `worker_state_exceeded` (the exit check
-  measures once more), but another turn's write in that window can see
-  `ENOSPC`. A second server process or any other tmpfs user appears only as
-  used space, never as a reservation, so the hosting doc says one server per
-  `/dev/shm`.
+  stopped, and another turn's write in that window can see `ENOSPC`. A turn
+  whose result already streamed stays completed; an overshoot found by the
+  exit check is then only logged. A second server process or any other tmpfs
+  user appears only as used space, never as a reservation, so the hosting doc
+  says one server per `/dev/shm`.
 - **Agent memory persists (#1626 finding 2, memory option M2).** Interactive
   turns copy the project's `memory/` folder in and write back new or changed
   `.md` notes directly in it (`persist() {`,

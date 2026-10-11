@@ -34,7 +34,7 @@ function turn(script: string, resume?: string) {
   const worker = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, {}, 50);
   let child: SpawnedProcess | undefined, refused: string | undefined;
   try {
-    child = worker.spawn({ command: "/bin/sh", args: ["-c", script, "sh", ...(resume ? ["--resume", resume] : [])],
+    child = worker.spawn({ command: "/bin/sh", args: ["-c", script, "sh", ...(resume ? [`--resume=${resume}`] : [])],
       cwd: brain, env: { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: config }, signal: new AbortController().signal });
   } catch (error) { refused = error instanceof Error ? error.message : String(error); }
   const exited = new Promise<{ code: number | null; signal: string | null }>(done => {

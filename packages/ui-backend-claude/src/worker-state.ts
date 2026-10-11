@@ -110,7 +110,7 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
       throw new WorkerHostError("Claude settings and credentials do not fit in the runtime-state tmpfs with room for a turn to grow; increase /dev/shm capacity (--shm-size in Docker)");
     const needed = base + transcripts + stateReserveBytes(transcripts);
     if (needed > limit) throw new SessionTooLargeError();
-    held = ledger.reserve({ path: state, bytes: needed, space: now });
+    held = ledger.reserve({ path: state, bytes: needed, space });
     return limit;
   };
   // An autonomous turn starts from nothing saved and saves nothing: no stored

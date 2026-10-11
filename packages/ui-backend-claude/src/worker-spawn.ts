@@ -96,8 +96,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         exitCode = code;
         clearInterval(monitor);
         signal.removeEventListener("abort", abort);
-        // An overshoot since the last tick is still named, not lost.
-        check();
+        // An overshoot since the last tick is still named, not lost. A turn
+        // whose result already streamed stays completed, so log it too.
+        if (!check()) console.error(`Claude worker runtime state: ${failure?.message ?? "over its reservation"}`);
         // bwrap's PID namespace dies with its init, including detached children.
         state.persist();
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);

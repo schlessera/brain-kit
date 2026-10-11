@@ -522,11 +522,15 @@ export function createClaudeTurnRunner(options: {
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult) {
-        if (workerRefusal()) {
+        // A monitor-driven stop never aborts this controller, so a host
+        // cancellation keeps outranking a state failure measured meanwhile.
+        if (refused) {
           emitTerminal("error");
         } else if (abortController.signal.aborted) {
           emit({ type: "status", status: "cancelled" });
           emitTerminal("cancelled");
+        } else if (workerRefusal()) {
+          emitTerminal("error");
         } else {
           emit({
             type: "error",
@@ -546,11 +550,13 @@ export function createClaudeTurnRunner(options: {
       // is over and nothing may follow it.
       if (sawResult) {
         // Terminal frame already sent — swallow the late failure.
-      } else if (workerRefusal()) {
+      } else if (refused) {
         emitTerminal("error");
       } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
+      } else if (workerRefusal()) {
+        emitTerminal("error");
       } else {
         if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || err instanceof WorkerStateError) {
           refused = { code: "CLAUDE_ERROR", message: err.message,

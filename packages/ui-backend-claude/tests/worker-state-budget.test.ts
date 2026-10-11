@@ -16,15 +16,19 @@ const ITHACA = "22222222-2222-4222-8222-222222222222";
 let root: string, brain: string, saved: string, project: string, stateRoot: string;
 let total: number, ledger: StateLedger;
 const states: ReturnType<typeof createClaudeWorkerState>[] = [];
+/** Bytes a test hid from `usage`; the kernel still counts them. */
+let unmeasured = 0;
 /** A tmpfs of `total` bytes: what the state directories hold is no longer free. */
-const free = () => total - usage(stateRoot);
+const free = () => {
+  try { return total - usage(stateRoot); } catch { return total - unmeasured; }
+};
 beforeEach(() => {
   root = fs.mkdtempSync(join(tmpdir(), "claude-state-budget-"));
   brain = join(root, "brain"); saved = join(root, "config"); stateRoot = join(root, "shm");
   project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
   fs.mkdirSync(brain); fs.mkdirSync(stateRoot); fs.mkdirSync(join(saved, project), { recursive: true });
   fs.writeFileSync(join(saved, "settings.json"), "{}");
-  total = 64 * MiB;
+  total = 64 * MiB; unmeasured = 0;
   ledger = createStateLedger({ space: () => ({ free: free(), total }), growth: stateReserveBytes(0), max: 128 * MiB });
 });
 afterEach(() => { for (const state of states.splice(0)) state.cleanup(); fs.rmSync(root, { recursive: true, force: true }); });
@@ -110,6 +114,26 @@ test("growth past the reservation extends into free space, and is stopped by nam
   expect(() => grower.ensure()).not.toThrow();
 });
 
+test("a worker that hides its state from measurement is stopped, and its reservation stays held for others", () => {
+  total = 50 * MiB;
+  const hider = turn();
+  const hidden = join(hider.path, project);
+  fs.mkdirSync(hidden, { recursive: true });
+  fs.writeFileSync(join(hidden, `${ITHACA}.jsonl`), Buffer.alloc(10 * MiB));
+  fs.chmodSync(hidden, 0);
+  try {
+    const stopped = refusal(() => hider.ensure());
+    expect(stopped?.errorClass).toBe("worker_state_exceeded");
+    expect(stopped?.message).toContain("could not be measured");
+    // 40 MiB is free. Taking the hider's 10 MiB as written would leave 34 MiB
+    // for two more 16 MiB turns; holding its whole reservation leaves room
+    // for one, and the ledger still admits that one.
+    unmeasured = 10 * MiB;
+    turn();
+    expect(refusal(() => turn())?.errorClass).toBe("worker_state_busy");
+  } finally { fs.chmodSync(hidden, 0o700); }
+});
+
 test("a turn may not grow past the per-turn bound, whatever the tmpfs holds", () => {
   total = 1024 * MiB;
   const grower = turn();
@@ -185,4 +209,18 @@ test("memory counts against the reservation", () => {
   fs.writeFileSync(join(saved, project, "memory", "MEMORY.md"), Buffer.alloc(5 * MiB, 0x41));
   let error: any; try { turn(); } catch (e) { error = e; }
   expect(error?.errorClass).toBe("worker_host_unsupported");
+});
+
+test("live usage is measured before free space is read, at admission and while growing", () => {
+  const calls: string[] = [];
+  const space = () => { calls.push("space"); return { free: 64 * MiB, total: 64 * MiB }; };
+  const own = createStateLedger({ space, growth: 16 * MiB, max: 128 * MiB,
+    measure: () => { calls.push("measure"); return 15 * MiB; } });
+  const first = own.reserve({ path: "a", bytes: 16 * MiB, space });
+  calls.length = 0;
+  own.reserve({ path: "b", bytes: 16 * MiB, space });
+  expect(calls).toEqual(["measure", "space"]);
+  calls.length = 0;
+  first.ensure();
+  expect(calls).toEqual(["measure", "measure", "space"]);
 });

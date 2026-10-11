@@ -90,7 +90,7 @@ classes, never with a raw `ENOSPC` from this path:
 | --- | --- |
 | `session_too_large` | Settings, memory, resumed history and growth reserve exceed 128 MiB or the whole tmpfs. Nothing is copied. The error card offers **Continue in a new conversation** through the existing reviewed handoff flow. |
 | `worker_state_busy` | The turn would fit, but running conversations hold the space. Nothing is copied or sent; a retry after one finishes works. |
-| `worker_state_exceeded` | The running turn outgrew its reservation and no unheld space was left, or it passed 128 MiB. The worker is stopped, and what it saved so far is persisted. |
+| `worker_state_exceeded` | The running turn outgrew its reservation and no unheld space was left, passed 128 MiB, or made its state unreadable to the server. The worker is stopped. What it saved so far is persisted with the usual checks, so a file past the 128 MiB bound or an unreadable folder is not. |
 | `worker_host_unsupported` | The tmpfs cannot hold the settings and memory plus a 16 MiB growth reserve. |
 
 **Sizing rule.** The host's `/dev/shm` must hold the sum of the turns that run
@@ -108,6 +108,8 @@ example, three parallel sessions of up to 20 MiB of history each need
 whole 4 KiB pages, as tmpfs allocates them. Growth is measured, not prevented:
 a turn writing faster than its unheld headroom per 250 ms can still fill the
 tmpfs between two measurements, which a larger `/dev/shm` makes less likely.
+A turn whose answer already completed stays completed; an overshoot found as
+its worker exits is only logged.
 Run one server process per `/dev/shm`: another process's turns, or any other
 tmpfs user, appear only as used space, not as reservations.
 

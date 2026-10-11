@@ -53,3 +53,27 @@ test("a worker-state refusal the runtime reports as its own failure still ends t
     expect(frames.some(f => f.type === "error" && f.message.includes("exited with code 1")), "the runtime's own error is not the report").toBe(false);
   } finally { space.mockRestore(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a host cancellation outranks a worker-state failure measured meanwhile (#1625)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "claude-cancel-")), brain = join(root, "brain"), config = join(root, "claude");
+  mkdirSync(brain); mkdirSync(config); writeFileSync(join(config, "settings.json"), "{}");
+  const space = spyOn(budget, "tmpfsSpace").mockReturnValue({ free: 1024 * 1024, total: 64 * 1024 * 1024 });
+  try {
+    const frames: ServerMessage[] = [];
+    const host = new AbortController();
+    const queryFn = (({ options }: { options: { spawnClaudeCodeProcess: (spawn: unknown) => unknown } }) => {
+      try {
+        options.spawnClaudeCodeProcess({ command: "/bin/true", args: [], env: { CLAUDE_CONFIG_DIR: config },
+          signal: new AbortController().signal });
+      } catch { /* recorded as worker_state_busy */ }
+      host.abort();
+      throw new Error("Claude Code process aborted by user");
+    }) as never;
+    const backend = createClaudeBackend({ brainPath: brain, queryFn });
+    await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "11111111-1111-4111-8111-111111111111",
+      signal: host.signal,
+      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
+    expect(frames.filter(f => f.type === "result")).toMatchObject([{ outcome: "cancelled" }]);
+    expect(frames.some(f => (f.type === "result" || f.type === "error") && "failure" in f && f.failure)).toBe(false);
+  } finally { space.mockRestore(); rmSync(root, { recursive: true, force: true }); }
+});
