@@ -1,9 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkPackages } from "../scripts/check-packages";
-import { localChecks } from "../scripts/check-pr";
+import { localChecks, requireRuntimeTools } from "../scripts/check-pr";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 
 const dirs: string[] = [];
@@ -13,6 +13,49 @@ function fixture() {
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   return dir;
 }
+
+test("runtime tools reject invalid Chrome paths before launching any child", () => {
+  const dir = fixture();
+  const file = join(dir, "non-executable"); writeFileSync(file, "fixture"); chmodSync(file, 0o600);
+  const dangling = join(dir, "dangling"); symlinkSync(join(dir, "absent-target"), dangling);
+  const plan = planChecks(["package.json"], []);
+  const previous = process.env.PUPPETEER_EXECUTABLE_PATH;
+  const which = spyOn(Bun, "which").mockImplementation(name => `/fixture/${name}`);
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => { throw new Error("Unexpected child launch"); });
+  try {
+    for (const path of [dir, file, join(dir, "absent"), dangling]) {
+      process.env.PUPPETEER_EXECUTABLE_PATH = path;
+      expect(() => requireRuntimeTools(plan)).toThrow(`Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH (rejected path: ${path})`);
+      expect(spawn).not.toHaveBeenCalled();
+    }
+  } finally {
+    which.mockRestore(); spawn.mockRestore();
+    if (previous === undefined) delete process.env.PUPPETEER_EXECUTABLE_PATH;
+    else process.env.PUPPETEER_EXECUTABLE_PATH = previous;
+  }
+});
+
+test("runtime tools accept executable regular files and symlinks and retain the namespace probe", () => {
+  const dir = fixture(); const file = join(dir, "chrome");
+  writeFileSync(file, "fixture"); chmodSync(file, 0o700);
+  const link = join(dir, "chrome-link"); symlinkSync(file, link);
+  const plan = planChecks(["package.json"], []);
+  const previous = process.env.PUPPETEER_EXECUTABLE_PATH;
+  const which = spyOn(Bun, "which").mockImplementation(name => `/fixture/${name}`);
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0 } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    for (const path of [file, link]) {
+      process.env.PUPPETEER_EXECUTABLE_PATH = path;
+      expect(requireRuntimeTools(plan)).toBe(path);
+    }
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn).toHaveBeenCalledWith(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
+  } finally {
+    which.mockRestore(); spawn.mockRestore();
+    if (previous === undefined) delete process.env.PUPPETEER_EXECUTABLE_PATH;
+    else process.env.PUPPETEER_EXECUTABLE_PATH = previous;
+  }
+});
 
 test("local packaging executes the source job's phases in order and removes the temporary consumer", async () => {
   const dir = fixture();
