@@ -87,6 +87,7 @@ const checks: Record<string, Check> = {
   "POST /api/voice/session": { init: { method: "POST" }, body: { providerId: "webspeech", url: "", expiresAt: 0, capabilities: { streaming: true } } },
   "POST /api/voice/token": { init: { method: "POST" }, status: 500, verify: async (r) => { expect((await r.json()).error).toContain("DEEPGRAM_API_KEY"); } },
   "GET /api/voice/keyterms": { body: { keyterms: ["Odysseus"], count: 1 } },
+  "GET /api/governance/events": { path: "/api/governance/events?session=fixture-session&kind=taint", body: { events: [], nextAfter: null }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/voice/overrides": { body: { overrides: [{ match: "Odysseus", replacement: "Odysseus" }] } },
 };
 

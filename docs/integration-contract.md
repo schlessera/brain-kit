@@ -222,6 +222,10 @@ Original fragment identities remain available at this entry point.
 
 - [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
 
+<a id="governance-events-additive-1651"></a>
+
+- [Governance events (additive, #1651)](integration-contract/http.md#governance-events-additive-1651).
+
 <a id="root-server-warning-additive-1638"></a>
 
 - [Root server warning (additive, #1638)](integration-contract/http.md#root-server-warning-additive-1638).

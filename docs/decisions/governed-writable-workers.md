@@ -149,7 +149,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:119`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:428-432`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:430-434`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -683,7 +683,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:248`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:255`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1231,6 +1231,13 @@ Every sandbox or governance intervention writes one versioned JSON record:
 Each record carries `kind`, `schema_version`, the turn, the session, the time
 and fields specific to its kind. Records go in a governance-event table in
 `brain-ui.db`, kept with the session rather than with the 7-day span detail.
+
+#1651 built the table, its one validating writer and the read endpoint. The
+[HTTP specification](../http-api.md#governance-events-additive-1651) lists
+every kind's payload. Each event also carries the attribution: the actor, the
+model and the profile. An event whose turn never named a session, such as a
+new conversation refused at admission, has no catalog row to live with and is
+kept for 90 days.
 
 ### Roadblocks
 
