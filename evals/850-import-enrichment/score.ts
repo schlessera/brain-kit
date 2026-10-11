@@ -22,13 +22,13 @@ export function canonicalReport(value: Record<string, unknown>, paths: string[])
     needsSummary: Array.isArray(need) ? need.length > 0 : need, completed: value.completed };
 }
 
-/** Mutable YAML values may span lines; comments and other fields still belong to the owner. */
+/** Mutable YAML values may span lines, including unindented `- item` sequences; comments and other fields still belong to the owner. */
 export function protectedFrontmatter(raw: string, mutable: string[]) {
   const frontmatter = raw.split(/^---\r?$/m)[1] ?? '';
   let skipping = false;
   return (frontmatter.match(/[^\n]*\n|[^\n]+$/g) ?? []).filter(line => {
     if (mutable.some(key => line.startsWith(`${key}:`))) { skipping = true; return false; }
-    if (skipping && /^[ \t]+\S/.test(line)) return line.trimStart().startsWith('#');
+    if (skipping && /^([ \t]+\S|-([ \t]|\r?\n|$))/.test(line)) return line.trimStart().startsWith('#');
     skipping = false; return true;
   }).join('');
 }

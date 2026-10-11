@@ -27,6 +27,9 @@ test('multiline mutable tags are allowed, while owner comments and fields stay p
   expect(protectedFrontmatter(before, ['tags', 'summary'])).toBe(protectedFrontmatter(after, ['tags', 'summary']));
   expect(protectedFrontmatter(before, ['tags', 'summary'])).not.toBe(protectedFrontmatter(after.replace('# Keep this comment.\n', ''), ['tags', 'summary']));
   expect(protectedFrontmatter(before, ['summary'])).not.toBe(protectedFrontmatter(after, ['summary']));
+  const compact = after.replace('  - council', '- council\n- stewardship');
+  expect(protectedFrontmatter(before, ['tags', 'summary'])).toBe(protectedFrontmatter(compact, ['tags', 'summary']));
+  expect(protectedFrontmatter(before, ['summary'])).not.toBe(protectedFrontmatter(compact, ['summary']));
 });
 
 test('consistent per-file reports score, while conflicting duplicate labels refuse', () => {

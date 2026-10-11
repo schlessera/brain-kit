@@ -17,8 +17,16 @@ const scratch = process.env.EVAL_SCRATCH;
 const input = await Bun.file(join(base, "cases.json")).json() as { day: string; cases: Case[] };
 const skill = readFileSync(join(repo, "packages/core/skills/content-hygiene/SKILL.md"), "utf8");
 const phase2 = skill.split("## Phase 2")[1]!.split("## Phase 3")[0]!;
-const file = join(base, "results-2026-10-11.json");
-const results = await Bun.file(file).exists() ? await Bun.file(file).json() : {
+// EVAL_CLAUDE_MODEL overrides only the measured current arm; label checks and reviews keep Sonnet.
+const model = process.env.EVAL_CLAUDE_MODEL ?? "claude-sonnet-5-5", replay = model !== "claude-sonnet-5-5";
+const file = join(base, replay ? `results-${model.replace(/^claude-/, "")}-2026-10-11.json` : "results-2026-10-11.json");
+// An override run replays the stored labels, Jev/deterministic rows and frozen floor; only current rows are re-measured.
+const stored = replay && !await Bun.file(file).exists() ? await Bun.file(join(base, "results-2026-10-11.json")).json() : null;
+const results = await Bun.file(file).exists() ? await Bun.file(file).json() : stored ? {
+  date: "2026-10-11", day: input.day, models: { ...stored.models, current: model }, replayedFrom: "results-2026-10-11.json",
+  calls: { claude: 0, jev: 0 }, ...Object.fromEntries(["labelCheck", "labelRechecks", "labelActions", "dropped", "calibration", "floor", "base"].map(k => [k, stored[k]])),
+  rows: stored.rows.filter((r: Row) => r.arm !== "current"),
+} : {
   date: "2026-10-11", day: input.day, models: { current: "claude-sonnet-5-5", candidate: "jev-1.13.0" },
   calls: { claude: 0, jev: 0 }, labelCheck: [], rows: [], calibration: [], floor: null,
 };
@@ -48,7 +56,7 @@ async function claude(root: string, prompt: string, schema: object, current = fa
   env.PATH = `${join(scratch!, "bin")}:${env.PATH}`;
   for (let attempt = 0; attempt < 4; attempt++) {
     if (results.blocked) throw new Error(results.blocked);
-    const args = ["env", "-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN", "claude", "-p", ...(prompt.length < 100000 ? [prompt] : []), "--model", "claude-sonnet-5-5", "--output-format", "json",
+    const args = ["env", "-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN", "claude", "-p", ...(prompt.length < 100000 ? [prompt] : []), "--model", current ? model : "claude-sonnet-5-5", "--output-format", "json",
       "--json-schema", JSON.stringify(schema), "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
       "--setting-sources", "project", "--tools", current ? "Read,Glob,Grep,Skill,Bash" : ""];
     if (current) args.push("--allowedTools", "Read", "Glob", "Grep", "Skill", "Bash(brain config check*)", "--permission-mode", "default");
@@ -199,13 +207,13 @@ async function main() {
   }
   if (!process.argv.includes("--run")) throw new Error("Use --labels, --run or --review");
   if (results.labelCheck.length !== input.cases.length) throw new Error("Every golden needs a label check first");
-  if (!client.enabled) throw new Error("TYPESAFE_API_KEY required");
+  if (!replay && !client.enabled) throw new Error("TYPESAFE_API_KEY required");
   const active = input.cases.filter(c => !results.dropped?.includes(c.id));
   for (const split of ["tuning", "held-out"]) {
     const cases = active.filter(c => c.split === split);
-    // Two Claude workers, each processing its cases sequentially. Jev uses the shipped client.
+    // Two Claude workers (one on an override replay), each processing its cases sequentially. Jev uses the shipped client.
     let next = 0;
-    await Promise.all([0, 1].map(async () => {
+    await Promise.all((replay ? [0] : [0, 1]).map(async () => {
       for (;;) { const c = cases[next++]; if (!c) break;
         for (let rep = 0; rep < 3; rep++) {
           if (results.rows.some((r: Row) => r.id === c.id && r.arm === "current" && r.rep === rep)) continue;
@@ -228,7 +236,7 @@ async function main() {
       results.rows.push({ id: c.id, split, gold: c.golden.conflict, arm: "candidate", rep, raw, label: prediction(raw, results.floor ?? 0), invalid: raw.judgments.some((j: any) => j.invalid) }); save();
       console.log(`${c.id} ${rep}: code ${baseline}, Jev ${prediction(raw, results.floor ?? 0)}`);
     }
-    if (split === "tuning") {
+    if (split === "tuning" && !replay) {
       const rows = results.rows.filter((r: Row) => r.arm === "candidate" && r.split === "tuning");
       results.calibration = [0, 0.2, 0.4, 0.6, 0.8].map(floor => ({ floor, ...metrics(rows.map((r: any) => ({ ...r, label: prediction(r.raw, floor) }))) }));
       const best = [...results.calibration].sort((a, b) => a.vetoes - b.vetoes || b.tp - a.tp || b.correct - a.correct || a.floor - b.floor)[0];

@@ -26,6 +26,12 @@ set +a
 bun run evals/845-opportunity-lifecycle/run.ts
 ```
 
+`EVAL_CLAUDE_MODEL` (default `claude-sonnet-5-5`) replaces only the current-path
+model; any other model writes `results-<model without claude->-2026-10-11.json`
+instead of the Sonnet results. Seed scratch `jev-<rep>-<index>.json` files from a
+stored results file to replay the candidate without new Jev requests.
+`EVAL_CLAUDE_WORKERS` (default 2) bounds concurrent Claude sessions.
+
 Every Claude process removes the Anthropic API-key variables and uses the
 logged-in subscription. Restricted file tools cannot leave the brain, and Bash
 is limited to the four product commands. Native modes also auto-approve some

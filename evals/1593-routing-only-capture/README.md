@@ -18,6 +18,10 @@ are made. `MAX_JEV_REQUESTS` (default 260) stops Jev dispatch. Claude Code
 uses the logged-in subscription with API-key variables removed, and stops on a
 usage limit or active overage. `apply-reviews FILE` records the cross-family
 semantic review of current-arm writes that did not keep the literal capture.
+`EVAL_CLAUDE_MODEL` swaps the model for the current arm and the tag step; a
+non-default model writes `results-<model>-2026-10-11.json`, seeded with the
+stored Jev judgments and frozen floors. `EVAL_CLAUDE_WIDTH` (default 2) caps
+concurrent Claude sessions.
 
 The cases are `evals/cases/1593-routing-only-capture.json`, authored fresh for
 this spike and label-checked once by a different model family. Target-ambiguous

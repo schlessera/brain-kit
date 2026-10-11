@@ -21,7 +21,10 @@ const vocabulary: string[] = fixture.config.taxonomy.tags.vocabulary;
 const taxonomy = buildTaxonomy({ user: fixture.config as BrainConfig });
 const here = resolve(import.meta.dir, "../..");
 const scratch = resolve(process.env.EVAL_SCRATCH ?? "scratch");
-const output = new URL("./results-2026-10-11.json", import.meta.url);
+// EVAL_CLAUDE_MODEL replaces only the measured current arm; label and isolation checks stay on Sonnet.
+const defaultClaude = "claude-sonnet-5-5", claudeModel = process.env.EVAL_CLAUDE_MODEL ?? defaultClaude, claudeEffort = process.env.EVAL_CLAUDE_EFFORT;
+const sonnetOutput = new URL("./results-2026-10-11.json", import.meta.url);
+const output = claudeModel===defaultClaude && !claudeEffort ? sonnetOutput : new URL(`./results-${claudeModel.replace(/^claude-/,"")}${claudeEffort ? `-effort-${claudeEffort}` : ""}-2026-10-11.json`, import.meta.url);
 const ActualDate = Date;
 const calls = { claudeProcesses: 0, claudeModelRequests: 0, jevRequests: 0 };
 const runs: Run[] = [];
@@ -72,7 +75,7 @@ async function command(args: string[], cwd: string) {
 }
 async function claude(prompt: string, cwd: string, name: string, tools: boolean) {
   // Restricted mode confines file tools to cwd. Bash has a product-command allow list and native filesystem restrictions.
-  const args = ["claude", "-p", prompt, "--model", "claude-sonnet-5-5", "--output-format", "stream-json", "--verbose", "--restricted", "--setting-sources", "", ...(tools ? ["--settings",JSON.stringify({sandbox:{enabled:true,failIfUnavailable:true,autoAllowBashIfSandboxed:false,allowUnsandboxedCommands:false,filesystem:{denyRead:[here,join(scratch,"raw"),join(scratch,"discarded"),...readdirSync(join(scratch,"brains")).map(n=>join(scratch,"brains",n)).filter(p=>p!==cwd)]}}})] : []), "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", ...(tools ? ["--append-system-prompt", readFileSync(join(here,"packages/core/skills/add/SKILL.md"),"utf8") + "\n" + fixture.policy + "\nTool availability: use Read for brain.config.json and Markdown records. Bash permits brain add, brain search, brain tags and brain --help. Execute product commands separately; do not combine them with unsupported commands."] : []), "--permission-mode", "dontAsk", "--tools", tools ? "Read,Skill,Bash" : "", ...(tools ? ["--allowedTools", "Read", "Skill(add)", "Bash(brain add *)", "Bash(brain search *)", "Bash(brain tags)", "Bash(brain tags *)", "Bash(brain --help)", ...(name.startsWith("isolation-control") ? [`Bash(cat ${join(here,"evals/cases/839-smart-capture.json")})`] : [])] : [])];
+  const args = ["claude", "-p", prompt, "--model", name.startsWith("current-") ? claudeModel : defaultClaude, ...(claudeEffort && name.startsWith("current-") ? ["--effort", claudeEffort] : []), "--output-format", "stream-json", "--verbose", "--restricted", "--setting-sources", "", ...(tools ? ["--settings",JSON.stringify({sandbox:{enabled:true,failIfUnavailable:true,autoAllowBashIfSandboxed:false,allowUnsandboxedCommands:false,filesystem:{denyRead:[here,join(scratch,"raw"),join(scratch,"discarded"),...readdirSync(join(scratch,"brains")).map(n=>join(scratch,"brains",n)).filter(p=>p!==cwd)]}}})] : []), "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", ...(tools ? ["--append-system-prompt", readFileSync(join(here,"packages/core/skills/add/SKILL.md"),"utf8") + "\n" + fixture.policy + "\nTool availability: use Read for brain.config.json and Markdown records. Bash permits brain add, brain search, brain tags and brain --help. Execute product commands separately; do not combine them with unsupported commands."] : []), "--permission-mode", "dontAsk", "--tools", tools ? "Read,Skill,Bash" : "", ...(tools ? ["--allowedTools", "Read", "Skill(add)", "Bash(brain add *)", "Bash(brain search *)", "Bash(brain tags)", "Bash(brain tags *)", "Bash(brain --help)", ...(name.startsWith("isolation-control") ? [`Bash(cat ${join(here,"evals/cases/839-smart-capture.json")})`] : [])] : [])];
   for (let attempt=0; attempt<4; attempt++) {
     if (attempt>0 && name.startsWith("current-")) {brain(name);const indexed=await command([join(scratch,"bin/brain-product"),"index","--force"],cwd);if(indexed.code!==0)throw new Error("Retry fixture indexing failed");}
     calls.claudeProcesses++;
@@ -83,12 +86,12 @@ async function claude(prompt: string, cwd: string, name: string, tools: boolean)
     calls.claudeModelRequests += new Set(messages.filter(m => m.type === "assistant").map(m=>m.message?.id)).size;
     const result = messages.findLast(m => m.type === "result");
     const text = `${result?.is_error ? result.result : ""} ${JSON.stringify(result?.errors ?? [])} ${r.stderr}`;
-    if (/usage limit|hit your limit|out of extra usage|insufficient credits/i.test(text)) throw new Error("Claude subscription usage limit; dispatch stopped");
+    if (/usage limit|hit your limit|out of extra usage|insufficient credits|overage|credit balance/i.test(text)) throw new Error("Claude subscription usage limit; dispatch stopped");
     if (/rate.limit|too many requests/i.test(text)) { await Bun.sleep(15000 * (attempt+1)); continue; }
     if (r.code !== 0 || !result || result.is_error) throw new Error(`Claude incomplete: ${name}, exit ${r.code}`);
     if (tools) {
       const accesses = messages.filter(m => m.type === "assistant").flatMap(m => m.message?.content ?? []).filter(b => b.type === "tool_use");
-      const suspicious = accesses.filter(b => /evals\/|839-smart-capture\.json|results-2026|worktrees/.test(JSON.stringify(b.input)));
+      const suspicious = accesses.filter(b => /evals\/|839-smart-capture\.json|results-|worktrees/.test(JSON.stringify(b.input)));
       transcriptChecks.push({name,toolCalls:accesses.length,suspicious:suspicious.length,skillSupplied:"unchanged shipped text in system prompt; installed copy in .claude/skills/add"});
     }
     return result.result as string;
@@ -169,7 +172,7 @@ function save() {
   source ??= Bun.spawnSync(["git","rev-parse","HEAD"]).stdout.toString().trim();
   sourceWorkingTree ??= Bun.spawnSync(["git","status","--short"]).stdout.toString().trim().split("\n");
   const summaries=Object.fromEntries(["current","candidate","baseline"].map(a=>[a,{tuning:summary(a,"tuning"),heldOut:summary(a,"held-out")}]));
-  const data={date:"2026-10-11",source,sourceWorkingTree,audit,models:{claude:"claude-sonnet-5-5",jev:"jev-1.13.0"},calls,floor,labelCheck,discardedSetup,calibration,semanticReviews,semanticJudge,isolationCheck,prReview,stopped,transcriptChecks,summaries,runs};
+  const data={date:"2026-10-11",source,sourceWorkingTree,audit,models:{claude:claudeModel,...(claudeEffort?{claudeEffort}:{}),...(claudeModel===defaultClaude?{}:{labelCheckAndIsolation:defaultClaude}),jev:"jev-1.13.0"},calls,floor,labelCheck,discardedSetup,calibration,semanticReviews,semanticJudge,isolationCheck,prReview,stopped,transcriptChecks,summaries,runs};
   const {runs: observations,...metadata}=data;writeFileSync(output,JSON.stringify(metadata,null,2).slice(0,-2)+',\n  "runs": [\n'+observations.map(r=>"    "+JSON.stringify(r)).join(",\n")+"\n  ]\n}\n");
   console.table(Object.fromEntries(Object.entries(summaries).map(([a,s])=>[a,s.heldOut])));
 }
@@ -191,7 +194,9 @@ async function main() {
     const root=brain("isolation-control");isolationCheck=await claude(`Isolation control only. Attempt to read ${join(here,"evals/cases/839-smart-capture.json")} using Read and then Bash cat. Do not attempt a bypass or capture any note. Report whether each access is refused, and quote only the denial, never file contents.`,root,`isolation-control-${calls.claudeProcesses}`,true);isolationCheck=isolationCheck.replaceAll(scratch,"<scratch>").replaceAll(here,"<checkout>");save();return;
   }
   if (mode!=="measure" && mode!=="current-only" && mode!=="resume-current") throw new Error("Use label-check, measure, current-only, resume-current or summarize");
-  const previous=await Bun.file(output).json(); labelCheck=previous.labelCheck; Object.assign(calls,previous.calls); discardedSetup=previous.discardedSetup ?? null; transcriptChecks=previous.transcriptChecks ?? [];source=previous.source;sourceWorkingTree=previous.sourceWorkingTree;audit=previous.audit;
+  // A model override starts from the Sonnet file's frozen Jev judgments and floor, but not its Claude bookkeeping.
+  const fresh=output!==sonnetOutput && !(await Bun.file(output).exists());
+  const previous=await Bun.file(fresh?sonnetOutput:output).json(); labelCheck=previous.labelCheck; if(!fresh){Object.assign(calls,previous.calls); discardedSetup=previous.discardedSetup ?? null; transcriptChecks=previous.transcriptChecks ?? [];source=previous.source;sourceWorkingTree=previous.sourceWorkingTree;audit=previous.audit;}
   mkdirSync(join(scratch,"bin"),{recursive:true});
   writeFileSync(join(scratch,"bin/entry.ts"),`globalThis.Date=new Proxy(Date,{construct(target,args,newTarget){return Reflect.construct(target,args.length?args:["2026-07-12T12:00:00.000Z"],newTarget);}}); await import(${JSON.stringify(join(here,"packages/core/src/cli/brain.ts"))});`);
   const built=await command([process.execPath,"build","--compile",join(scratch,"bin/entry.ts"),"--outfile",join(scratch,"bin/brain-product")],here);
@@ -234,7 +239,7 @@ async function main() {
     runs.push({arm:"current",id:c.id,rep,observation:scoreWrite(c.content,c.expected,before,files(root))});save();
   } }
   const guarded = async () => { try { await worker(); } catch(e) { stopped=String(e); throw e; } };
-  const settled=await Promise.allSettled([guarded(),guarded()]);
+  const settled=await Promise.allSettled(Array.from({length:Number(process.env.EVAL_CLAUDE_CONCURRENCY ?? 2)},guarded));
   for (const r of settled) if (r.status==="rejected") stopped=String(r.reason);
   save();if(stopped)process.exitCode=1;
 }
