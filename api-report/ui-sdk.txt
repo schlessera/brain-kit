@@ -125,6 +125,7 @@ export "." (./src/index.ts)
   type DraftSummary
   ENV_VARS
   FILE_SIZE_CAP_BYTES
+  FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
@@ -479,6 +480,7 @@ export "./client" (./src/client/index.ts)
   type DraftSaveResponse
   type DraftSummary
   FILE_SIZE_CAP_BYTES
+  FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
@@ -934,6 +936,7 @@ export "./protocol" (./src/protocol.ts)
   type DraftSaveResponse
   type DraftSummary
   FILE_SIZE_CAP_BYTES
+  FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
@@ -1483,6 +1486,7 @@ export "./server" (./src/server/index.ts)
   type ExecWrapperConfig
   type ExecutionBrief
   FILE_SIZE_CAP_BYTES
+  FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FetchLike
   type FileContentKind
@@ -5185,6 +5189,10 @@ signatures (every public export and the types it is made of)
     }
   FILE_SIZE_CAP_BYTES (packages/ui-sdk/src/protocol.ts)
     const FILE_SIZE_CAP_BYTES: 10485760;
+  FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/protocol.ts)
+    const FIRST_PARTY_FAILURE_CLASSES: Readonly<{
+        [Class in FirstPartyFailureClass]: Class;
+    }>;
   FOLLOW_UP_QUEUE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
     const FOLLOW_UP_QUEUE_CAPABILITY: "followUpQueue";
   FetchLike (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -5219,6 +5227,8 @@ signatures (every public export and the types it is made of)
         path: string;
         entries: FileEntry[];
     }
+  FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "unknown";
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;

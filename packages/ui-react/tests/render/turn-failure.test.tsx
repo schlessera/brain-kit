@@ -7,7 +7,7 @@
 import { unregisterTurnFailureDom } from "./turn-failure-dom.js";
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   type ServerMessage,
   type SessionHistoryMessage,
@@ -97,6 +97,21 @@ function replay(history: SessionHistoryMessage[]) {
 
 const failureText = (view: ReturnType<typeof render>) =>
   view.container.querySelector("[data-turn-failure]")?.textContent ?? "";
+
+describe("failed-turn outgoing class allowlist", () => {
+  test.each(["worker_host_unsupported", "auth_failure", "third_party_secret_class\nprivate details"])("review reports %s safely", (errorClass) => {
+    send();
+    failLive({ errorClass, message: "Odysseus: turn refused." });
+    const view = renderAssistant();
+    const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
+    for (const action of ["Copy details", "Report a bug"]) {
+      fireEvent.click(view.getByRole("button", { name: action, exact: true }));
+      const body = (view.getByRole("textbox", { name: "Exact outgoing text" }) as HTMLTextAreaElement).value;
+      expect(body).toBe(`brain-kit failed turn\nprotocol: 5\nclass: ${expected}`);
+      fireEvent.click(view.getByRole("button", { name: "Close review", exact: true }));
+    }
+  });
+});
 
 describe("a failed turn is visible the moment it ends", () => {
   test("the empty assistant row shows the failure, with no reload", () => {

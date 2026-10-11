@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describeRetry } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -118,12 +119,12 @@ export class StreamAdapter {
             .join("")
             .trim();
           if (AUTH_ERROR_CLASSES.has(msg.error)) {
-            this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
+            this.report({ kind: "auth_failure", errorClass: FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error, ...(text ? { message: text } : {}) });
           }
           // The runtime's API-error message: its text arrives here and never
           // as deltas, so it is kept for the terminal frame rather than
           // streamed as if the model had said it (#575).
-          this.apiError = this.failure(msg.error, text || msg.error, statusFromText(text));
+          this.apiError = this.failure(FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error, text || msg.error, statusFromText(text));
         }
         for (const block of msg.message.content) {
           if (block.type === "tool_use") {
@@ -262,7 +263,7 @@ export class StreamAdapter {
             attempt: msg.attempt,
             maxAttempts: msg.max_retries,
             delayMs: msg.retry_delay_ms,
-            errorClass: msg.error,
+            errorClass: FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error,
             ...(typeof msg.error_status === "number" ? { status: msg.error_status } : {}),
           };
           messages.push({ type: "status", status: "thinking", detail: describeRetry(retry), retry });
@@ -359,7 +360,7 @@ export class StreamAdapter {
   private resultFailure(text: string | undefined, apiStatus: number | null | undefined): TurnFailure {
     const status = typeof apiStatus === "number" ? apiStatus : this.apiError?.status;
     const message = this.apiError?.message ?? (text?.trim() || "The model call failed.");
-    return this.observedFailure(this.failure(this.apiError?.errorClass ?? "unknown", message, status));
+    return this.observedFailure(this.failure(this.apiError?.errorClass ?? FIRST_PARTY_FAILURE_CLASSES.unknown, message, status));
   }
 
   private observedFailure(failure: TurnFailure): TurnFailure {

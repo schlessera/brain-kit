@@ -341,7 +341,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1455-1485`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1487-1517`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**

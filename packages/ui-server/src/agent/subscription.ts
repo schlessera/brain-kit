@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 /**
  * The Claude subscription token, as the operator needs to see it (#254,
  * docs/decisions/claude-code-runtime.md, "Subscription billing and
@@ -241,7 +242,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
       }
       if (refused) {
         failures.push({
-          errorClass: "authentication_failed",
+          errorClass: FIRST_PARTY_FAILURE_CLASSES.authentication_failed,
           at: new Date(refused.at).toISOString(),
           action: "relogin",
           source: "model_discovery",

@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -94,7 +95,7 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
 }
 
 export class WorkerHostError extends BackendRequestError {
-  readonly errorClass = "worker_host_unsupported";
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.worker_host_unsupported;
   /** The probe's named requirement alone, for status reporting (#1632). */
   constructor(readonly requirement: string) {
     super(`Agent worker boundary unavailable: ${requirement}. ${WORKER_HOST_ROUTE}`);
@@ -243,7 +244,8 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     } finally { pipes.cleanup(); }
     return { ok: true };
   } catch (error) {
-    return { ok: false, requirement: error instanceof Error ? error.message : String(error) };
+    return { ok: false, requirement: error instanceof WorkerHostError ? error.requirement
+      : error instanceof Error ? error.message : String(error) };
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });

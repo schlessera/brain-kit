@@ -524,6 +524,17 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
   unknown, not "no status". **`message`** is the runtime's own text.
+- **First-party diagnostic classes (#1619).** `FIRST_PARTY_FAILURE_CLASSES`,
+  exported from `@schlessera/brain-ui-sdk` and `/protocol`, is an immutable
+  registry whose keys and values are the first-party class names. Emitters
+  reference it and the failed-turn review derives its class allowlist from its
+  values. It includes `worker_host_unsupported`, `auth_failure` and the installed
+  Claude SDK's forwarded classes. Inventory proof covers first-party `errorClass`
+  literals, registry references and that installed SDK vocabulary. Unregistered
+  third-party classes still appear as `unknown` in the default outgoing review;
+  the wire field remains free-form. This additive export ships as a patch under
+  the maintainer's explicit 0.41.1 batch instruction, an exception to the ordinary
+  additive-minor rule.
 - **`authAction`** is set only on a Claude subscription's auth failure:
   `relogin`, `check_account` or `check_config`, as
   `subscriptionAuthAction(errorClass)` maps it, with

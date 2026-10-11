@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { TurnErrorCard } from "@schlessera/brain-ui-kit";
-import { PROTOCOL_REV, SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, PROTOCOL_REV, SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import type { ChatMessage } from "../../stores/chat-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -8,6 +8,8 @@ import { failurePresentation, redactProviderMessage, providerMessageInclusion } 
 import { DiagnosticReview } from "../report/diagnostic-review.js";
 
 type Review = { mode: "copy" | "report"; initial: string };
+
+const REPORT_CLASSES: ReadonlySet<string> = new Set(Object.values(FIRST_PARTY_FAILURE_CLASSES));
 
 /** Count down to the reported absolute reset; replay never starts a new delay. */
 function useResetCountdown(resetsAt: number | undefined) {
@@ -59,7 +61,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
     { k: "class", v: failure.errorClass },
   ];
   function openReview(mode: Review["mode"]) {
-    const knownClass = /^(authentication_failed|oauth_org_not_allowed|account_on_hold|billing_error|subscription_required|rate_limit|overloaded|server_error|invalid_request|model_not_found|max_output_tokens|unknown)$/.test(failure.errorClass)
+    const knownClass = REPORT_CLASSES.has(failure.errorClass)
       ? failure.errorClass : "unknown";
     const fields = ["brain-kit failed turn", `protocol: ${PROTOCOL_REV}`, `class: ${knownClass}`,
       ...(["claude", "pi"].includes(backend ?? "") ? [`backend: ${backend}`] : []),

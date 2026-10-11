@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
@@ -91,7 +92,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
  */
 function unreportedFailure(outcomeDetail: string | undefined): TurnFailure {
   return {
-    errorClass: "unknown",
+    errorClass: FIRST_PARTY_FAILURE_CLASSES.unknown,
     message: outcomeDetail
       ? `The turn ended with an error (${outcomeDetail}).`
       : "The turn ended with an error.",
