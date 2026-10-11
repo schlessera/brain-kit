@@ -26,7 +26,7 @@ The selected parameters and their dated rulings are:
 | Batching | Fixed window from first eligible arrival; later arrivals do not extend it | [Fixed window](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5944687441) |
 | Interval | 60,000 ms | [60 seconds](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5947665720) |
 | Group | Recipient principal + existing channel + delivery class, across threads | [Cross-thread grouping](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5947756839) |
-| Push eligibility | Current eligible pending approve/choose decisions with score >= 12 | [Inclusive cutoff 12](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5947941215) |
+| Push eligibility | Current eligible pending approve/choose decisions with score >= 12, or a server-marked blocking autonomous escalation | [Inclusive cutoff 12](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5947941215), amended by [#1553](https://github.com/schlessera/brain-kit/issues/1553) on 2026-10-11 |
 | Digest | In-app Actions/FYI contribution at 09:00 and 17:00 | [Twice daily](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5948582687) |
 | Quiet hours | Strict local [22:00, 08:00), including retries; no deadline exception | [Strict pause](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5948714622) |
 | Notification zone | Each client's validated, last reported local IANA zone | [Client-time amendment](https://github.com/schlessera/brain-kit/issues/683#issuecomment-5948836407) |
@@ -46,7 +46,17 @@ age. Stakes are 1–3. Deadline urgency is 3 below 24 hours, 2 below 72 hours,
 this cutoff changes delivery eligibility, not priority or permission authority
 (`inboxPriority`, `packages/ui-server/src/inbox/state.ts:59-72`).
 
-Push and digest delivery classes remain separate. A below-cutoff constituent
+The maintainer's **2026-10-11 option C ruling on #1553** adds a separate
+eligibility rule: when the dispatcher escalates because autonomous work is
+blocked on a decision, that decision can push whatever its score. The validated
+escalation commits an immutable `blocking_escalation` fact in server-owned
+Action context, alongside the blocked work. Model proposals, classifier output
+and client submissions cannot select it. It is not a stakes level, changes no
+priority and adds no wire field. Ordinary decisions retain the inclusive cutoff
+of 12. Quiet hours, fixed batching, current-state checks and per-destination
+receipts apply to both eligibility paths.
+
+Push and digest delivery classes remain separate. An unmarked below-cutoff constituent
 cannot piggyback into a push when a higher-priority Action joins the group.
 FYIs stay digest-only under F9/R13, follow their existing validity/retention
 rules, and never count as waiting decisions or against the Actions cap.
@@ -103,7 +113,7 @@ A waiting episode begins when a new Action becomes pending or an explicit
 snooze-to-pending reactivation occurs. Ordinary clock changes, version changes,
 retry and restart do not create episodes. A still-snoozed Action is ineligible.
 
-Digest B includes only currently eligible **below-cutoff** waiting episodes not
+Digest B includes only currently eligible **below-cutoff, unmarked** waiting episodes not
 already reported in the authenticated client context. An unchanged episode
 reported at 09:00 is omitted at 17:00, although the decision remains in Actions.
 FYIs contribute separate new-only updates under their existing validity and
@@ -145,6 +155,7 @@ sender unless the example changes them.
 | --- | --- |
 | Push-eligible arrivals at 0/20/50 seconds, same or different threads, same principal/channel/class | One notice counting three decisions, eligible at 60 seconds, with the Actions deep link. The deadline is not 110 seconds. An arrival after dispatch begins a new fixed window. Other principals/classes stay separate. |
 | Scores 11 and 12 | 11 stays digest-only; 12 qualifies for push. Fresh medium/no-deadline score 8 and low-stakes/48-hour-deadline score 10 remain digest-only; fresh high/no-deadline score 12 qualifies. FYIs never count or piggyback. |
+| Stakes-1, deadline-free share/CLI work blocked on a dispatcher escalation | Its server-marked decision qualifies at score 4 (at most 9 with age). An ordinary unmarked decision still waits for the digest. Three such escalations in one fixed window yield one "3 actions waiting" push. A pushed blocking episode is excluded from the digest; quiet hours still hold it until local 08:00. |
 | Local 22:00 versus 08:00 | 22:00 is quiet; 08:00 is outside quiet hours. Evaluate every attempt, including retry. |
 | Qualifying arrival at 23:00, recorded deadline at 06:00 | No overnight deadline bypass; wait until 08:00 if still eligible. |
 | Arrival at 21:59:30, fixed deadline 22:00:30 | Defer at dispatch even though arrival preceded quiet hours. |
@@ -218,7 +229,9 @@ The selections accept these tradeoffs; no optimal notification rate was measured
   preserves constituent identity behind the Actions deep link.
 - **Cutoff 8:** includes fresh medium stakes and more low-stakes deadlines.
   Cutoff 12 accepts later digest visibility for those decisions to reduce
-  interruptions, while keeping Actions immediately available.
+  interruptions, while keeping Actions immediately available. The #1553
+  amendment separately admits decisions that block autonomous execution,
+  without widening that score cutoff or letting models choose priority.
 - **Daily morning digest:** updates less often but leaves post-09:00 arrivals
   waiting until the next morning summary. Twice daily adds a 17:00 update.
 - **Deadline exception or server-configured notification zone:** an exception
