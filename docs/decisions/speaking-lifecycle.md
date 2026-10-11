@@ -36,7 +36,8 @@ subscription, with both Anthropic key variables removed. The CLI also
 reports auxiliary Haiku 5.5 use. There were 90 Jev client calls and 183 Claude
 CLI invocations: 180 current-arm runs, one label check and two PR reviews.
 Cost was not measured. PR reviews and their reviewed snapshots are retained
-in the results.
+in the results. Sonnet's corrected-snapshot review approved the no-go;
+its minor disclosure findings and resolutions are recorded there.
 
 The first current-arm matrix was discarded: its semantic case IDs appeared
 in Claude's working directory, potentially hinting at goldens. All 90 runs
@@ -112,8 +113,7 @@ annotations, tolerates punctuation/case and accepts a submission title in
 focus. Mixed-index, focus-date and closure checks were also completed. The
 neutral rerun exposed a false failure on an index labelled “closed”; that
 alias was accepted after a named regression test failed on `archive-index`.
-Every
-arm was rescored from its saved files. The 180 deterministic runs were also
+Every arm was rescored from its saved files. The 180 deterministic runs were also
 replayed from their initial brains, with identical recorded model answers,
 after fixing the writer to append summary history and preserve the prior
 acceptance date during delivery. These scoring/writer corrections used saved
@@ -139,7 +139,13 @@ The delivery rubric requires retaining the prior acceptance and date, which
 the shipped aftermath skill does not explicitly require. Treat those misses
 as failures against this authored preservation rule, not a newly adopted
 product contract. Even crediting the remaining delivery miss would give the
-current arm at most 66/69 field effects, against Jev's 45/69. The cleaner outcome and
+current arm at most 66/69 field effects. The closure rubric also requires
+archiving submission files, whereas the shipped aftermath skill says to
+archive the conference files “at minimum status.md”. Crediting both partial
+closures as well would give at most 68/69, against Jev's 45/69. These are
+authored preservation/closure requirements, not a new product contract.
+No calibrated confidence gate was evaluated; the no-go applies to this
+ungated direct-Choice candidate, not every gated variant. The cleaner outcome and
 submission-target gaps also support the no-go independently of that rubric.
 The writer, initial trees and scorer were developed together, so the owner
 baseline establishes feasibility rather than independent production proof.

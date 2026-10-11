@@ -335,6 +335,49 @@
     "prReviews": 2,
     "jev": 90
   },
+  "review": {
+    "verdict": "approve",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "docs/decisions/speaking-lifecycle.md",
+        "reason": "The sensitivity bound only covers the delivery rubric (at most 66/69). Two of the four held-out current-arm field failures are the held-close reps 0 and 2. They fail on `not-archived`/`relevance` for the two submission files. The shipped conference-aftermath skill (SKILL.md ~L53) says to archive the conference's files, 'at minimum status.md', so leaving submissions active is arguably allowed by the skill. Like the delivery rule, this is a scorer-defined contract, and the doc doesn't say so. The current arm's 65/69 may be understated by up to 3 more runs, so the best case is about 68/69. That still leaves a gap of more than 20 runs against Jev's 45/69, so the no-go is unaffected. The disclosure should name closure alongside delivery."
+      },
+      {
+        "severity": "minor",
+        "file": "docs/decisions/speaking-lifecycle.md",
+        "reason": "The doc says 'PR reviews and their reviewed snapshots are retained in the results'. The results JSON contains only the discarded-matrix first review (`discardedCurrent.review`), not the second review or its snapshot. `calls.claude` is already 183 in the saved file, which counts a review that could not yet have been recorded. The 183 total is internally consistent (90 + 90 + 1 + 2), but 'retained' overstates what is stored."
+      },
+      {
+        "severity": "minor",
+        "file": "evals/846-speaking-lifecycle/run.ts",
+        "reason": "Jev runs with no confidence gate (a documented design choice, threshold null). The false stand-in acceptances came at confidence of about 0.25\u20130.29, and the outcome probabilities were close (0.40 accepted vs 0.36 unclear). A floor like the 0.4 used in the triage-classifier decision would likely have turned these into abstentions. The no-go is therefore specific to ungated direct Choices. The doc says 'one fixed Choice formulation' but does not mention that a gate was not evaluated."
+      },
+      {
+        "severity": "minor",
+        "file": "evals/846-speaking-lifecycle/score.ts",
+        "reason": "Index and status checks are alias-regex based. The `(?:was|previously|\u2026)` stripping and the 'last keyword wins' outcome parsing can misclassify unusual phrasing. The offline tests cover the known aliases. No held-out Jev or current result visibly depends on this, so it is an unquantified false-failure risk, not an error."
+      }
+    ],
+    "limits": [
+      "I had only Read, Grep and Glob, so I recomputed figures by reading and counting rows in the JSON, not by executing scripts. I did not run the test file or re-execute scoring, and I could not re-verify the mutation check (removing the unclear-write veto) or the closed-index regression fail-then-fix sequence. I read the test assertions and they match the described behaviour.",
+      "I did not inspect raw Claude reports, changed Markdown, or the discarded first matrix beyond its stored summary and review, as stated. Field verdicts rest on the scorer applied to saved trees, which I could not re-run.",
+      "I read pr.diff only up to line 329 and read the working-copy files directly instead. I did not diff the working copies against the diff. I only grepped jev.ts and the two skill files, not read them end to end.",
+      "The owner arm's 69/69 is mechanically circular: the writer, initial trees and scorer were developed together. The doc says so, and it establishes feasibility only.",
+      "The corpus is 23 authored held-out cases with correlated repetitions, no confidence intervals and no real-user prevalence. The 20-case 'submission target' denominator was chosen after seeing the current arm's report-target quirk. It is disclosed, the broader counts are kept, and it favours the current arm, so it does not inflate the no-go.",
+      "Jev's field quality is also bounded by the deterministic writer (which the owner arm shares) while the current arm writes via an LLM. Outcome and target accuracy are the cleaner classifier comparison, and the doc partly acknowledges this.",
+      "The label reviewer is the same model as the incumbent arm, which is disclosed. The new cases were authored before label review and before any Jev call, per the doc, and I cannot verify the ordering."
+    ],
+    "summary": "I recomputed the headline and reliability figures from the saved JSON and they match the doc. Held-out outcome correct: current 69, Jev 61 (counted directly), owner 69. Field effects: current 65, Jev 45 (counted directly), owner 69. The current arm's 4 failures are deliver rep0, close rep0 and rep2, and mixed-date rep0. Vetoes: current 1 (deliver rep0 wrote talks/memory.md, which is the held-deliver talk and so a real protected-file write), Jev 0 (counted directly). Reported-target correct: current 58/69 and 58/60 on outcome messages, since held-revision reps0\u20131 reported 'first' where 'none' was expected and the nine operation runs reported 'none'. Jev: 48/69 reported-target correct and 42/60 on outcome messages. Unclear: 27/33/27. No-write: 18/40/18 (Jev counted directly). Classification-pair agreement: 22/21/23. Effect agreement: 20/22/23. Permission-denied sessions: 72/90, from 18 sessions with zero denials. Jev's stand-in runs were unclear once and accepted twice, with no vetoes, as the doc says. All three mixed-date Jev runs abstained with unclear/none. The claude/jev call counts (183/90) are consistent with the breakdown. The scorer's veto logic and the new offline tests are sound: unclear-write, wrong-target, content-loss and protected-file are vetoed per repetition without majority suppression, and missed closure is correctly a quality failure only. The comparison is fair: Jev and current receive the same conventions and operation, the discarded current matrix is disclosed, and neutral numeric directories were used. The no-go follows: Jev trails the current skills by 20 field-effect runs and by 16 outcome-target runs (42/60 vs 58/60), and the gap survives crediting every contestable rubric item. The findings are minor disclosure gaps: closure shares the delivery rubric's skill-contract weakness, 'reviews retained' overstates what is stored, and gating was not evaluated. None of them changes the conclusion. Approve.",
+    "reviewedCommit": "b98722fe039dee3773bf26ec0915e45a30fdd6d8",
+    "model": "claude-sonnet-5-5",
+    "resolutions": [
+      "Disclosed the stricter submission-archive rubric alongside delivery; sensitivity bound is 68/69 when all three contestable runs are credited.",
+      "Stored this completed corrected-snapshot review here; the discarded-matrix review remains in discardedCurrent.review.",
+      "Explicitly limited the no-go to ungated direct Choices; no confidence gate was evaluated.",
+      "Retained the explicit lexical-alias/known-phrasing scoring limit and offline regression coverage."
+    ]
+  },
   "results": [
     {"id":"tune-direct","split":"tuning","arm":"owner","repetition":1,"answer":{"outcome":"accepted","target":"first"},"score":{"outcomeCorrect":true,"targetCorrect":true,"fieldsCorrect":true,"invalid":false,"abstention":false,"failures":[],"vetoes":[],"changed":["conferences/ogygia-council-2026/submission-raft-readiness.md","conferences/ogygia-council-2026/status.md","conferences/_index.md","talks/_proposals.md","context/current-focus.md"]},"error":null},
     {"id":"tune-direct","split":"tuning","arm":"owner","repetition":0,"answer":{"outcome":"accepted","target":"first"},"score":{"outcomeCorrect":true,"targetCorrect":true,"fieldsCorrect":true,"invalid":false,"abstention":false,"failures":[],"vetoes":[],"changed":["conferences/ogygia-council-2026/submission-raft-readiness.md","conferences/ogygia-council-2026/status.md","conferences/_index.md","talks/_proposals.md","context/current-focus.md"]},"error":null},
