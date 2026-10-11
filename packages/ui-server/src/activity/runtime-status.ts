@@ -50,7 +50,7 @@ export type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
  * every chat, voice and handoff turn needs, or the restricted one an
  * autonomous turn needs.
  */
-export type WorkerHostMode = keyof WorkerHostStatus;
+export type WorkerHostMode = "ordinary" | "restricted";
 
 export interface RuntimeStatusSnapshot {
   /** One entry per backend whose runtime was probed at boot. */
@@ -87,6 +87,11 @@ export interface RuntimeStatus {
    * outcome per mode and each change after it, never a repeat.
    */
   recordWorkerHost(mode: WorkerHostMode, probe: WorkerHostProbe, trigger: WorkerHostCheck["trigger"]): void;
+  /**
+   * The server runs as uid 0 (#1638): logs `warning` once and keeps it on
+   * the worker host status for as long as the process lives.
+   */
+  recordRootServer(warning: string): void;
   snapshot(): RuntimeStatusSnapshot;
 }
 
@@ -179,10 +184,15 @@ export function createRuntimeStatus(
           attributes: { ...attributes, "worker_host.requirement": check.requirement },
         });
     },
+    recordRootServer(warning) {
+      if (workerHost.rootServer) return;
+      workerHost.rootServer = { warning };
+      log?.emit({ severityText: "WARN", body: warning, attributes: { "worker_host.root_server": true } });
+    },
     snapshot() {
       return {
         boot,
-        ...(workerHost.ordinary || workerHost.restricted ? { workerHost: { ...workerHost } } : {}),
+        ...(workerHost.ordinary || workerHost.restricted || workerHost.rootServer ? { workerHost: { ...workerHost } } : {}),
         ...(lastObserved ? { lastObserved } : {}),
         ...(lastAuthFailure ? { lastAuthFailure } : {}),
       };

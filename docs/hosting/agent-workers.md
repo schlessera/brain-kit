@@ -202,8 +202,25 @@ and share its network namespace. There the worker can also read every
 root-owned file on that root, such as `/etc/shadow`, SSH host keys and
 root's stored credentials. It can also connect to the Unix sockets a
 root-owned daemon listens on, because connecting is not a write the read-only
-mount refuses. Run the server as a dedicated non-root user. The measurements are in
+mount refuses. Abstract Unix sockets have no file to check at all: the
+worker reaches them through the shared network namespace, and their peers
+see it as uid 0. The measurements are in
 [the container fresh-/proc decision](../decisions/container-fresh-proc.md#what-systempathsunconfined-costs).
+
+**The full worker boundary needs a non-root server.** The read-only `/proc`
+above is a second layer, not a substitute: it stops a root worker's writes,
+not its reads or its socket connections. Run the server as a dedicated
+non-root user. The hosting template's
+[container privilege model](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md)
+is one way to do it: a `brain` uid for the server and a separate `agent` uid.
+
+A root-run server still boots and serves turns, but it says so (#1638). It
+logs a warning once at boot, `/api/status` keeps it as
+`runtime.workerHost.rootServer`
+([contract](../integration-contract/http.md#root-server-warning-additive-1638)),
+and the app shows a standing notice above the composer that links this
+section. The warning names what a root-run worker keeps: it can read
+root-owned files and connect to root-owned and abstract Unix sockets.
 
 ## Measured host-component matrix
 

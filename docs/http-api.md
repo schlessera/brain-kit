@@ -314,6 +314,11 @@ re-records the mode it probed. It never admits or refuses a turn: each turn
 runs its own probe. **POST /api/status/worker-host** is protected, accepts no
 body, re-runs the boot's probes and returns the same `workerHost` object
 ([contract](integration-contract/http.md#worker-host-status-additive-1632)).
+While the server runs as uid 0, `workerHost` also carries
+`rootServer: { warning }` (#1638): the boot log's warning that its workers can
+read root-owned files and connect to root-owned and abstract Unix sockets.
+The server is not refused for it
+([contract](integration-contract/http.md#root-server-warning-additive-1638)).
 
 `runtime` reports observed chat runtime and optional sync state, using the
 [runtime identity declarations](../packages/ui-server/src/activity/runtime-status.ts)

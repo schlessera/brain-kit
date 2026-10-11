@@ -32,7 +32,17 @@ does not change.
 4. **A root-run server's worker gets its whole `/proc` read-only** (#1629,
    ruled 2026-10-11, see [what `systempaths=unconfined` costs](#what-systempathsunconfined-costs)).
    Root servers still qualify; running as non-root is recommended.
-5. **Container requirements are documented per probe step** in
+5. **What a root-run server's worker keeps is warned about, not covered**
+   (#1638, ruled 2026-10-11). The read-only `/proc` stops its writes, not its
+   reads or socket connections: it can still read root-only `/proc` files,
+   root-owned files on the host root and connect to root-owned and abstract
+   Unix sockets. No `/proc` covers, host-root masks or socket-directory masks
+   are added, and the server is still not refused. Instead it warns once at
+   boot and persistently on `/api/status` and in the app, and the
+   [host boundary doc](../hosting/agent-workers.md#running-the-server-as-root)
+   states that the full worker boundary needs a non-root server. A worker uid
+   separate from the server's belongs to the governed-writable design (#1636).
+6. **Container requirements are documented per probe step** in
    [the host boundary doc](../hosting/agent-workers.md#running-the-server-in-a-docker-container),
    with the measured tuple added to its matrix.
 

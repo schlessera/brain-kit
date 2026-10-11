@@ -8657,6 +8657,9 @@ signatures (every public export and the types it is made of)
     export interface WorkerHostStatus {
         ordinary?: WorkerHostCheck;
         restricted?: WorkerHostCheck;
+        rootServer?: {
+            warning: string;
+        };
     }
   WrappedKillOptions (packages/ui-sdk/src/server/exec-wrapper.ts)
     export interface WrappedKillOptions {
