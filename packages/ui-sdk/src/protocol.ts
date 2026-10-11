@@ -1117,6 +1117,38 @@ export interface TurnFailure {
   authAction?: SubscriptionAuthAction;
 }
 
+type FirstPartyFailureClass =
+  | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
+  | "verification_required" | "billing_error" | "subscription_required"
+  | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
+  | "invalid_request" | "model_not_found" | "max_output_tokens"
+  | "cloud_credential_error" | "worker_host_unsupported" | "unknown";
+
+/**
+ * First-party failure classes, shared by emitters and reviewed diagnostics.
+ * Keys and values match so emitters can name a class without a separate literal
+ * list. TurnFailure.errorClass remains free-form; unregistered classes must not
+ * enter the default outgoing diagnostic text.
+ */
+export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailureClass]: Class }> = Object.freeze({
+  authentication_failed: "authentication_failed",
+  oauth_org_not_allowed: "oauth_org_not_allowed",
+  account_on_hold: "account_on_hold",
+  verification_required: "verification_required",
+  billing_error: "billing_error",
+  subscription_required: "subscription_required",
+  auth_failure: "auth_failure",
+  rate_limit: "rate_limit",
+  overloaded: "overloaded",
+  server_error: "server_error",
+  invalid_request: "invalid_request",
+  model_not_found: "model_not_found",
+  max_output_tokens: "max_output_tokens",
+  cloud_credential_error: "cloud_credential_error",
+  worker_host_unsupported: "worker_host_unsupported",
+  unknown: "unknown",
+});
+
 /**
  * A model call that failed and will be retried (additive; #575), on a
  * `status: thinking` frame while the turn is still running. Every field but

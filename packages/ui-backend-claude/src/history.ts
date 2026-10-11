@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import {
   listSessions as sdkListSessions,
   getSessionMessages as sdkGetSessionMessages,
@@ -248,11 +249,11 @@ const SYNTHETIC_MODEL = "<synthetic>";
  * not a failure and replays as text.
  */
 const API_ERROR_TEXTS: ReadonlyArray<{ pattern: RegExp; errorClass: string }> = [
-  { pattern: /^Not logged in\b/, errorClass: "authentication_failed" },
-  { pattern: /^Failed to authenticate\b/, errorClass: "authentication_failed" },
-  { pattern: /^Invalid API key\b/, errorClass: "authentication_failed" },
-  { pattern: /^Credit balance is too low\b/, errorClass: "billing_error" },
-  { pattern: /^API Error\b/, errorClass: "unknown" },
+  { pattern: /^Not logged in\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.authentication_failed },
+  { pattern: /^Failed to authenticate\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.authentication_failed },
+  { pattern: /^Invalid API key\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.authentication_failed },
+  { pattern: /^Credit balance is too low\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.billing_error },
+  { pattern: /^API Error\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.unknown },
 ];
 
 /** What Claude Code writes when a request is aborted: a cancellation. */

@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -319,12 +320,12 @@ export function createClaudeTurnRunner(options: {
                 code: "CLAUDE_AUTH",
                 message,
                 failure: {
-                  errorClass: "subscription_required",
+                  errorClass: FIRST_PARTY_FAILURE_CLASSES.subscription_required,
                   message,
                   authAction: subscriptionAuthAction("subscription_required"),
                 },
               };
-              reportActivity({ kind: "auth_failure", errorClass: "subscription_required", message: reason });
+              reportActivity({ kind: "auth_failure", errorClass: FIRST_PARTY_FAILURE_CLASSES.subscription_required, message: reason });
               options.log("warn", "subscription check refused the turn", {
                 "profile.id": profile.id,
                 reason,

@@ -677,7 +677,7 @@ The brain's git history stays the durable record of its content.
   (`export class CompletedResponseUsage`, `packages/ui-backend-claude/src/usage.ts:11`)
   at `message_stop`. Pi reports usage at `message_end`.
 - **Today those events are sent only for autonomous turns**
-  (`kind: "autonomous_usage"`, `packages/ui-backend-claude/src/stream-adapter.ts:72`).
+  (`kind: "autonomous_usage"`, `packages/ui-backend-claude/src/stream-adapter.ts:73`).
   They become a general `usage` frame for every turn. Adding a new frame kind
   to the protocol is an additive contract change.
 - **The Activity recorder and its rollups** price those events under the
@@ -696,7 +696,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:422`).
+  `stream-adapter.ts:423`).
 - **Unpriced models.** A USD limit cannot be evaluated when the price is
   unknown. The turn is recorded as unpriced and a token limit is the
   enforceable alternative. Unknown is never treated as zero, and it never
@@ -825,7 +825,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:53`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:54`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -837,7 +837,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:273`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:275`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;

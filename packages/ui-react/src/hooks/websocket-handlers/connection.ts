@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessageHandlerMap } from "./types.js";
 
 type ConnectionFrame =
@@ -89,7 +90,7 @@ export const connectionFrameHandlers = {
     if (context.buffer()?.isStreaming || msg.failure) {
       context.state.failAssistantMessage(
         context.key,
-        msg.failure ?? { errorClass: "unknown", message: msg.message },
+        msg.failure ?? { errorClass: FIRST_PARTY_FAILURE_CLASSES.unknown, message: msg.message },
         context.frameTurnId,
         msg.failure !== undefined
       );

@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describeRetry } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage, TurnFailure, TurnRetry } from "@schlessera/brain-ui-sdk/server";
@@ -68,7 +69,7 @@ export function failureFromPiError(errorMessage: string | undefined): TurnFailur
 
 function classify(text: string): { status?: number; errorClass: string } {
   const match = /^([1-5]\d\d)(?=[\s:])/.exec(text.trim());
-  if (!match) return { errorClass: "unknown" };
+  if (!match) return { errorClass: FIRST_PARTY_FAILURE_CLASSES.unknown };
   const status = Number(match[1]);
   return { status, errorClass: classForStatus(status) };
 }
@@ -78,10 +79,10 @@ function classify(text: string): { status?: number; errorClass: string } {
  * statuses whose meaning does not depend on the provider are mapped.
  */
 function classForStatus(status: number): string {
-  if (status === 400) return "invalid_request";
-  if (status === 401) return "authentication_failed";
-  if (status === 429) return "rate_limit";
-  if (status === 529) return "overloaded";
-  if (status >= 500) return "server_error";
-  return "unknown";
+  if (status === 400) return FIRST_PARTY_FAILURE_CLASSES.invalid_request;
+  if (status === 401) return FIRST_PARTY_FAILURE_CLASSES.authentication_failed;
+  if (status === 429) return FIRST_PARTY_FAILURE_CLASSES.rate_limit;
+  if (status === 529) return FIRST_PARTY_FAILURE_CLASSES.overloaded;
+  if (status >= 500) return FIRST_PARTY_FAILURE_CLASSES.server_error;
+  return FIRST_PARTY_FAILURE_CLASSES.unknown;
 }

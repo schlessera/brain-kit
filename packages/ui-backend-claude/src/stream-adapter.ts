@@ -1,3 +1,4 @@
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describeRetry } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -359,7 +360,7 @@ export class StreamAdapter {
   private resultFailure(text: string | undefined, apiStatus: number | null | undefined): TurnFailure {
     const status = typeof apiStatus === "number" ? apiStatus : this.apiError?.status;
     const message = this.apiError?.message ?? (text?.trim() || "The model call failed.");
-    return this.observedFailure(this.failure(this.apiError?.errorClass ?? "unknown", message, status));
+    return this.observedFailure(this.failure(this.apiError?.errorClass ?? FIRST_PARTY_FAILURE_CLASSES.unknown, message, status));
   }
 
   private observedFailure(failure: TurnFailure): TurnFailure {
