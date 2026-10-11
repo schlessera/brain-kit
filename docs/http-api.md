@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 119 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 120 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -128,6 +128,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/status/worker-host` | S | Re-run the agent worker host probe and return what it recorded | React "Check again" and independent monitoring; additive #1632 ([contract](integration-contract/http.md#worker-host-status-additive-1632)). Admits no turn. |
 | POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
@@ -152,7 +153,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 119 declared endpoints are mounted regardless of backend, renderer or
+All 120 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -303,6 +304,16 @@ jobs. `activeSession` means any active turn, not simply an open socket.
 series have name, kind (counter/updowncounter/histogram/gauge), numeric
 value and scalar attributes; histogram value is the observation count.
 Operational reads can fail with the common 500.
+
+`runtime.workerHost` is whether this host can run agent workers (#1632):
+`{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus
+`requirement` when unavailable. `checkedAt` is ISO UTC; `trigger` is `"boot"`,
+`"turn"` or `"check"`, naming what ran the latest real probe. Boot probes
+`ordinary`, and `restricted` only while autonomous work is enabled; every turn
+re-records the mode it probed. It never admits or refuses a turn: each turn
+runs its own probe. **POST /api/status/worker-host** is protected, accepts no
+body, re-runs the boot's probes and returns the same `workerHost` object
+([contract](integration-contract/http.md#worker-host-status-additive-1632)).
 
 `runtime` reports observed chat runtime and optional sync state, using the
 [runtime identity declarations](../packages/ui-server/src/activity/runtime-status.ts)

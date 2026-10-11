@@ -218,6 +218,10 @@ Original fragment identities remain available at this entry point.
 
 - [Typed status software identity (additive, #598)](integration-contract/http.md#typed-status-software-identity-additive-598) (original line 1986).
 
+<a id="worker-host-status-additive-1632"></a>
+
+- [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
+
 <a id="internal-queue-poke-additive"></a>
 
 - [Internal Queue poke (additive)](integration-contract/http.md#internal-queue-poke-additive) (original line 1998).

@@ -20,6 +20,7 @@ const checks: Record<string, Check> = {
   "POST /api/hygiene/review": { init: json("POST", { operation: "pause" }), body: { review: { version: 1, status: "paused" }, action: null } },
   "POST /api/hygiene/review/preview": { init: json("POST", { itemId: "missing", optionId: "link-note", expectedVersion: 1, input: "notes/arrival.md" }), status: 409, body: { error: "preview_refused" } },
   "GET /api/status": { body: { healthy: true, version: "dev", software: { sourceCommit: "dev" } } },
+  "POST /api/status/worker-host": { init: { method: "POST" }, verify: async (r) => { const b = await r.json(); expect(b.ordinary).toMatchObject({ trigger: "check" }); expect(typeof b.ordinary.available).toBe("boolean"); } },
   "POST /api/auth/login": { init: json("POST", { password: "wrong-fixture-password" }), status: 401, body: { error: "Invalid credentials" } },
   "POST /api/auth/logout": { init: { method: "POST" }, body: { ok: true } },
   "GET /api/auth/methods": { body: { password: false, passkey: true } },

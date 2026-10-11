@@ -945,6 +945,7 @@ signatures (every public export and the types it is made of)
             message: string;
             success: boolean;
         }>;
+        checkWorkerHost: () => Promise<WorkerHostStatus>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1112,6 +1113,9 @@ signatures (every public export and the types it is made of)
                 name: string;
             }>;
             healthy: boolean;
+            runtime?: {
+                workerHost?: WorkerHostStatus;
+            };
             software?: {
                 release: string;
                 sourceCommit: string;
@@ -1315,6 +1319,7 @@ signatures (every public export and the types it is made of)
             message: string;
             success: boolean;
         }>;
+        checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1482,6 +1487,9 @@ signatures (every public export and the types it is made of)
                 name: string;
             }>;
             healthy: boolean;
+            runtime?: {
+                workerHost?: import("@schlessera/brain-ui-sdk").WorkerHostStatus;
+            };
             software?: {
                 release: string;
                 sourceCommit: string;

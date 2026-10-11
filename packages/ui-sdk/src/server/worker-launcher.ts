@@ -95,7 +95,8 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
 
 export class WorkerHostError extends BackendRequestError {
   readonly errorClass = "worker_host_unsupported";
-  constructor(requirement: string) {
+  /** The probe's named requirement alone, for status reporting (#1632). */
+  constructor(readonly requirement: string) {
     super(`Agent worker boundary unavailable: ${requirement}. ${WORKER_HOST_ROUTE}`);
     this.name = "WorkerHostError";
   }

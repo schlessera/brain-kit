@@ -31,6 +31,7 @@ import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
+import { WorkerHostNotice } from "./worker-host-notice.js";
 import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
 
 /** The hint when the work context could not be written to this device (#1014). */
@@ -724,6 +725,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           {insertNotice}
         </div>
         <div className="mx-auto max-w-3xl">
+          {/* While the host cannot run agent turns (#1632): says so before a
+              send, without blocking one. */}
+          <WorkerHostNotice />
           {effortNotice && <div className="mb-2"><InlineToast text={effortNotice} target="" effect="" undoLabel="" tone="amber" /></div>}
           {/* Anything shared from the OS waits here for a tap. Above the
               composer, so it reads as something to act on rather than a

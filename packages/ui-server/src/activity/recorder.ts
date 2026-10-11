@@ -40,7 +40,7 @@ import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 export interface TurnRecorderDeps {
   store: ActivityStore;
   /** Where the runtime a turn reported, and its auth failures, are kept for /api/status. */
-  runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven">>;
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;

@@ -34,7 +34,7 @@ export interface ActivityRuntime {
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
   /** Where each turn's runtime report and auth failures are kept for /api/status. */
-  runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven">>;
+  runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

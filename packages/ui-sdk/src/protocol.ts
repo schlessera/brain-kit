@@ -1514,6 +1514,30 @@ export interface CronJobStatus {
   lastError: string | null;
 }
 
+/**
+ * The latest real probe of the agent worker boundary for one mode (#1632):
+ * when it finished, what started it (boot, a turn's own gate, or an explicit
+ * check), and whether the host could establish the boundary. Unavailable
+ * carries the probe's named requirement, the same text a refused turn names.
+ * A passing check never admits a turn: every turn runs its own probe.
+ */
+export type WorkerHostCheck = {
+  /** ISO time the probe finished. */
+  checkedAt: string;
+  trigger: "boot" | "turn" | "check";
+} & ({ available: true } | { available: false; requirement: string });
+
+/**
+ * Whether this host can run agent workers (#1632). `ordinary` is the
+ * boundary every chat, voice and handoff turn needs; `restricted` is the
+ * autonomous envelope, probed at boot only while autonomous work is enabled.
+ * A mode nothing has probed yet is absent.
+ */
+export interface WorkerHostStatus {
+  ordinary?: WorkerHostCheck;
+  restricted?: WorkerHostCheck;
+}
+
 export interface SystemStatus {
   healthy: boolean;
   uptime: number;
@@ -1524,6 +1548,12 @@ export interface SystemStatus {
   lastSync: CronJobStatus | null;
   cronJobs: CronJobStatus[];
   activeSession: boolean;
+  /**
+   * What the server knows about the agent runtime. Typed here only for the
+   * worker host (#1632); its other members are described in the HTTP
+   * reference. Absent from a server that does not report its runtime.
+   */
+  runtime?: { workerHost?: WorkerHostStatus };
 }
 
 /**
