@@ -279,6 +279,7 @@ async function executeAutonomousTurn(
     // write lock, then settle before another connection can claim cleanup.
     deps.db.transaction(() => {
       lifetime.release();
+      if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
       recorder.finish(outcome);
       if (yielded) finishYield(deps.db, input.turnId);
     }).immediate();

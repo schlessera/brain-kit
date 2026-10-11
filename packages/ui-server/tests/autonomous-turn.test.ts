@@ -192,6 +192,68 @@ describe("server-selected autonomous turn", () => {
       expect(attempt).toBe(2);
     } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
   });
+  for (const kind of ["escalation", "yield"] as const) for (const boundary of [true, false])
+    test(`${kind} settles completed API responses with ${boundary ? "no in-flight" : "an uncertain request"} allowance`, async () => {
+      const f = setup(async req => {
+        req.bridge.activity?.({ kind: "autonomous_usage", atToolBoundary: boundary,
+          usage: { inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+            perModel: { fixture: { inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } } } });
+        if (kind === "yield") req.autonomous!.onYield!("path:harbor");
+        else req.bridge.checkpointPermission!(permission);
+        expect(req.signal.aborted).toBe(true);
+        // This is Claude's synthesized cancellation: no final usage.
+        req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 0 });
+      }, true, { api: true });
+      try {
+        await runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input);
+        expect(f.db.query("SELECT observed_cost_usd, charged_cost_usd FROM inbox_budget_reservations WHERE run_id = 'run'").get())
+          .toEqual({ observed_cost_usd: 0.3, charged_cost_usd: boundary ? 0.3 : 3.3 });
+      } finally { f.db.close(); }
+    });
+
+  test("completed checkpoint receipts never erase a larger backend-reported spend", async () => {
+    const f = setup(async req => {
+      req.bridge.activity?.({ kind: "autonomous_usage", atToolBoundary: true,
+        usage: { perModel: { fixture: { inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } } } });
+      req.bridge.checkpointPermission!(permission);
+      req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "cancelled", isError: false,
+        durationMs: 1, numTurns: 0, costUsd: 4 });
+    }, true, { api: true });
+    try {
+      await runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input);
+      expect(f.db.query("SELECT observed_cost_usd, charged_cost_usd FROM inbox_budget_reservations WHERE run_id = 'run'").get())
+        .toEqual({ observed_cost_usd: 0.3, charged_cost_usd: 4 });
+    } finally { f.db.close(); }
+  });
+
+  test("a crash before usage retains the full API reservation", async () => {
+    const f = setup(async () => { throw new Error("fixture runtime crash"); }, true, { api: true });
+    try {
+      await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input)).rejects.toThrow("fixture runtime crash");
+      expect(f.db.query("SELECT observed_cost_usd, charged_cost_usd FROM inbox_budget_reservations WHERE run_id = 'run'").get())
+        .toEqual({ observed_cost_usd: null, charged_cost_usd: 3 });
+    } finally { f.db.close(); }
+  });
+
+  test("completed usage cannot release a failed checkpoint or an external cancellation", async () => {
+    for (const crash of [true, false]) {
+      const controller = new AbortController();
+      const f = setup(async req => {
+        req.bridge.activity?.({ kind: "autonomous_usage", atToolBoundary: true,
+          usage: { perModel: { fixture: { inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } } } });
+        if (crash) req.bridge.checkpointPermission!(permission);
+        else controller.abort();
+      }, true, { api: true });
+      try {
+        const run = runAutonomousTurn({ ...f, checkpoint: () => { throw new Error("checkpoint crash"); } }, { ...f.input, signal: controller.signal });
+        if (crash) await expect(run).rejects.toThrow("checkpoint crash");
+        else await run;
+        expect(f.db.query("SELECT observed_cost_usd, charged_cost_usd FROM inbox_budget_reservations WHERE run_id = 'run'").get())
+          .toEqual({ observed_cost_usd: null, charged_cost_usd: 3 });
+      } finally { f.db.close(); }
+    }
+  });
+
   test("unsupported backends and revoked principals reject before runtime acquisition", async () => {
     let starts = 0;
     const f = setup(async () => { starts++; }, undefined);
