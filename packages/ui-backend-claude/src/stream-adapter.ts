@@ -8,7 +8,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
-import { usageFromResult } from "./usage.js";
+import { usageFromResult, CompletedResponseUsage } from "./usage.js";
 
 /**
  * Stateful adapter that converts Claude SDK streaming messages to our
@@ -37,6 +37,7 @@ export class StreamAdapter {
   private apiError: TurnFailure | null = null;
   private retryAttempts = 0;
   private resetsAt: number | undefined;
+  private readonly completedUsage = new CompletedResponseUsage();
 
 
   constructor(
@@ -66,6 +67,10 @@ export class StreamAdapter {
         // at block granularity via the activity channel.
         if (parentToolUseId) break;
         const event = msg.event;
+        if (this.options.autonomousUsage) {
+          const receipt = this.completedUsage.observe(event);
+          if (receipt) this.report({ kind: "autonomous_usage", ...receipt });
+        }
 
         if (event.type === "content_block_start") {
           const block = event.content_block;
@@ -379,6 +384,8 @@ export class StreamAdapter {
 }
 
 export interface StreamAdapterOptions {
+  /** Restricted autonomous accounting; no additional client frames. */
+  autonomousUsage?: boolean;
   /**
    * The turn runs on the Claude subscription, so an auth failure carries the
    * subscription's `authAction` (#254).

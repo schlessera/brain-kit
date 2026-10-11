@@ -319,9 +319,21 @@ export function settleInboxBudgetRun(db: Database, runId: string, status: "settl
     ? (rollup?.effective_cost_usd != null && rollup.billing_mode === "api" ? rollup.effective_cost_usd : unpriced ? null : cost) : null;
   let charged = billing === "subscription" ? 0 : observed ?? (usable && complete ? cost : row.reserved_cost_usd);
   if (billing !== "subscription") {
+    // A checkpoint unwinds a sequential restricted tool loop. A receipt at
+    // its completed tool-response boundary has no inference in flight (zero
+    // allowance). Otherwise one request may be unfinished: retain the whole
+    // frozen operation estimate as its conservative allowance, PLUS known
+    // completed spend. This is an admission estimate, not an invoice ceiling;
+    // observed overruns are never clipped. Crashes never receive this marker.
+    if (attrs["brain.usage.completed_responses"] === true && usable && complete) {
+      charged = Math.max(charged, cost) + (attrs["brain.usage.at_tool_boundary"] === true ? 0
+        : Math.max(row.reserved_cost_usd, frozen?.missingUsageCostUsd ?? row.reserved_cost_usd));
+    }
     if (!usable || !complete || confirmedBilling === null)
       charged = Math.max(charged, cost, row.reserved_cost_usd, frozen?.missingUsageCostUsd ?? row.reserved_cost_usd);
     if (root?.cost_usd != null) charged = Math.max(charged, root.cost_usd);
+    const reportedCost = attrs["brain.usage.reported_cost_usd"];
+    if (typeof reportedCost === "number" && Number.isFinite(reportedCost) && reportedCost >= 0) charged = Math.max(charged, reportedCost);
     if ((unpriced || frozen?.rates == null) && rollup?.effective_cost_usd == null) unpricedNotice(db, row, row.model, now);
   }
   // Recovery with incomplete work retains the whole amount in addition to any
