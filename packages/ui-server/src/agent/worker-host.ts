@@ -47,3 +47,20 @@ export function requireWorkerHostRecorded(brainPath: string, mode: WorkerHostMod
   const probe = probeWorkerHostRecorded(brainPath, mode, runtime, "turn");
   if (!probe.ok) throw new WorkerHostError(probe.requirement);
 }
+
+/**
+ * What the boot log and `/api/status` say while the server runs as uid 0
+ * (#1638). Its workers run as uid 0 too, without capabilities and with a
+ * read-only `/proc` (#1629), but they keep what root can do without writing.
+ */
+export const ROOT_SERVER_WARNING = "The server runs as root (uid 0), so its agent workers do too. "
+  + "A root-run worker can read root-owned files and connect to root-owned and abstract Unix sockets. "
+  + "Run the server as a non-root user for the full worker boundary (docs/hosting/agent-workers.md#running-the-server-as-root).";
+
+/**
+ * Whether this process runs as root, by real or effective uid: the same test
+ * the worker launcher uses to give a root worker a read-only `/proc` (#1629).
+ */
+export function serverRunsAsRoot(): boolean {
+  return process.getuid?.() === 0 || process.geteuid?.() === 0;
+}

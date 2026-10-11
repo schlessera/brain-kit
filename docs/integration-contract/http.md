@@ -91,6 +91,22 @@ with `worker_host_unsupported` naming the requirement
 ([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1632#issuecomment-6112509133)).
 Clients must tolerate either mode being absent.
 
+<a id="root-server-warning-additive-1638"></a>
+
+### Root server warning (additive, #1638)
+
+`WorkerHostStatus` gains `rootServer: { warning }`, present only while the
+server runs as uid 0 (real or effective). Its workers then run as uid 0 too
+and keep what root can do without writing: they can read root-owned files and
+connect to root-owned and abstract Unix sockets. `warning` is the sentence the
+boot log emits once, as a `WARN`, and names exactly that. It appears on
+`GET /api/status` as `runtime.workerHost.rootServer` and in the answer of
+`POST /api/status/worker-host`, and stays for the life of the process. The
+server is not refused for running as root
+([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1638)).
+The app shows a standing notice above the composer while it is present.
+Clients must tolerate it being absent.
+
 <a id="internal-queue-poke-additive"></a>
 
 ### Internal Queue poke (additive)

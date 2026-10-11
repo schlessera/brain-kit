@@ -10,7 +10,7 @@ import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
-import { WORKER_HOST_DOCS_URL, WorkerHostNotice } from "../../src/components/chat/worker-host-notice.js";
+import { ROOT_SERVER_DOCS_URL, WORKER_HOST_DOCS_URL, WorkerHostNotice } from "../../src/components/chat/worker-host-notice.js";
 import { failurePresentation } from "../../src/lib/turn-failure.js";
 
 afterEach(cleanup);
@@ -66,6 +66,25 @@ describe("the worker host notice", () => {
       expect(view.container.innerHTML).toBe("");
       cleanup();
     }
+  });
+
+  test("a root-run server keeps a notice that names what agent turns can reach, with no re-check (#1638)", async () => {
+    const warning = "The server runs as root (uid 0), so its agent workers do too.";
+    const { view } = mount({ status: () => ({ ...UP, rootServer: { warning } }) });
+    const notice = await waitFor(() => view.getByRole("status"));
+    expect(notice.hasAttribute("data-root-server-notice")).toBe(true);
+    expect(notice.textContent).toContain("This server runs as root.");
+    expect(notice.textContent).toContain("read root-owned files and connect to root-owned and abstract Unix sockets");
+    const link = view.getByRole("link");
+    expect(link.getAttribute("href")).toBe(ROOT_SERVER_DOCS_URL);
+    expect(ROOT_SERVER_DOCS_URL).toEndWith("#running-the-server-as-root");
+    expect(view.queryByRole("button")).toBeNull();
+  });
+
+  test("a root-run server whose host also fails shows both notices", async () => {
+    const { view } = mount({ status: () => ({ ...DOWN, rootServer: { warning: "root" } }) });
+    await waitFor(() => expect(view.getAllByRole("status")).toHaveLength(2));
+    expect(view.container.querySelector("[data-worker-host-requirement]")!.textContent).toBe(FRESH_PROC);
   });
 
   test("a turn refused for the host re-reads the status, so the notice appears without a reload", async () => {

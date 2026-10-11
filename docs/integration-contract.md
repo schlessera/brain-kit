@@ -222,6 +222,10 @@ Original fragment identities remain available at this entry point.
 
 - [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
 
+<a id="root-server-warning-additive-1638"></a>
+
+- [Root server warning (additive, #1638)](integration-contract/http.md#root-server-warning-additive-1638).
+
 <a id="internal-queue-poke-additive"></a>
 
 - [Internal Queue poke (additive)](integration-contract/http.md#internal-queue-poke-additive) (original line 1998).

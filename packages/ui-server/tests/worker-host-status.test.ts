@@ -4,7 +4,7 @@
  * boot, and nothing here admits a turn: every turn runs its own probe, which
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -24,6 +24,16 @@ function probeAnswers(...answers: WorkerHostProbe[]) {
   return probe;
 }
 const workerHostOf = async (response: Response) => ((await response.json()) as SystemStatus).runtime?.workerHost;
+
+// The server's uid is faked for every test, non-root unless a test says
+// otherwise, so the exact status shapes below hold under any test runner uid.
+let uids: Array<{ mockRestore(): void }> = [];
+function runAs(uid: number, euid = uid) {
+  for (const spy of uids) spy.mockRestore();
+  uids = [spyOn(process, "getuid").mockReturnValue(uid), spyOn(process, "geteuid").mockReturnValue(euid)];
+}
+beforeEach(() => runAs(1000));
+afterEach(() => { for (const spy of uids) spy.mockRestore(); uids = []; });
 
 describe("boot probe", () => {
   test("a failing host boots anyway, logs the named requirement once, and /api/status reports it", async () => {
@@ -109,5 +119,51 @@ describe("recorded outcome", () => {
     expect(observability.logs.find({ severity: "INFO" })).toHaveLength(1);
     runtime.recordWorkerHost("ordinary", { ok: false, requirement: "bubblewrap is missing" }, "turn");
     expect(observability.logs.find({ severity: "WARN" })).toHaveLength(2);
+  });
+});
+
+describe("a root-run server (#1638)", () => {
+  // The worker host probe is stubbed, so nothing here runs as root.
+  const KEEPS = "can read root-owned files and connect to root-owned and abstract Unix sockets";
+  const rootWarnings = (observability: ReturnType<typeof createRecordingObservability>) =>
+    observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes("runs as root"));
+
+  test("boots, warns once in the log, and keeps the warning on /api/status and through Check again", async () => {
+    probeAnswers({ ok: true });
+    runAs(0);
+    const observability = createRecordingObservability();
+    const t = await createTestApp({ appOptions: { observability } });
+    try {
+      expect((await t.fetch("/api/health")).status).toBe(200);
+      const warnings = rootWarnings(observability);
+      expect(warnings).toHaveLength(1);
+      expect(String(warnings[0]!.body)).toContain(KEEPS);
+      const workerHost = await workerHostOf(await t.fetch("/api/status"));
+      expect(workerHost?.rootServer).toEqual({ warning: String(warnings[0]!.body) });
+      expect(workerHost?.ordinary).toMatchObject({ available: true, trigger: "boot" });
+      const checked = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
+      expect(checked.rootServer?.warning).toContain(KEEPS);
+      expect(rootWarnings(observability)).toHaveLength(1);
+    } finally { await t.teardown(); }
+  });
+
+  test("an effective uid of 0 is enough", async () => {
+    probeAnswers({ ok: true });
+    runAs(1000, 0);
+    const t = await createTestApp();
+    try {
+      expect((await workerHostOf(await t.fetch("/api/status")))?.rootServer?.warning).toContain(KEEPS);
+    } finally { await t.teardown(); }
+  });
+
+  test("a non-root server reports no root warning", async () => {
+    probeAnswers({ ok: true });
+    runAs(1000);
+    const observability = createRecordingObservability();
+    const t = await createTestApp({ appOptions: { observability } });
+    try {
+      expect((await workerHostOf(await t.fetch("/api/status")))?.rootServer).toBeUndefined();
+      expect(rootWarnings(observability)).toHaveLength(0);
+    } finally { await t.teardown(); }
   });
 });

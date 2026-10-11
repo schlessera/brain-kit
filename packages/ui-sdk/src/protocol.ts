@@ -1536,6 +1536,13 @@ export type WorkerHostCheck = {
 export interface WorkerHostStatus {
   ordinary?: WorkerHostCheck;
   restricted?: WorkerHostCheck;
+  /**
+   * Present only while the server runs as uid 0 (#1638). Its workers do too,
+   * and keep what root can do without writing: read root-owned files and
+   * connect to root-owned and abstract Unix sockets. `warning` says so, in
+   * the words the boot log uses. The server is not refused for it.
+   */
+  rootServer?: { warning: string };
 }
 
 export interface SystemStatus {

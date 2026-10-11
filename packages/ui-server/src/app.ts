@@ -8,7 +8,7 @@ import { join } from "path";
 import { ambientExecConfig, resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
-import { probeWorkerHostRecorded } from "./agent/worker-host.js";
+import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
@@ -440,6 +440,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // restricted envelope only matters while autonomous work can run.
   const workerHostModes: WorkerHostMode[] = dispatcher ? ["ordinary", "restricted"] : ["ordinary"];
   for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot");
+  // A root-run server still boots (#1629, #1638), but its workers keep root's
+  // reads and Unix-socket reach: warned once here, and kept on the status.
+  if (serverRunsAsRoot()) activity.runtime.recordRootServer(ROOT_SERVER_WARNING);
   // Scheduled-task definitions and ledger (#914). Storage only: no dispatcher
   // is wired, so every task reports dispatch_disabled until #915/#689.
   const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;

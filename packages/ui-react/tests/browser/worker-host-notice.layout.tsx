@@ -10,7 +10,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { ClientMessage, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { Composer } from "../../src/components/chat/composer.js";
-import { WORKER_HOST_DOCS_URL } from "../../src/components/chat/worker-host-notice.js";
+import { ROOT_SERVER_DOCS_URL, WORKER_HOST_DOCS_URL } from "../../src/components/chat/worker-host-notice.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 
@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 afterAll(() => styles.remove());
 
-async function mount(width: number, theme: "light" | "dark") {
+async function mount(width: number, theme: "light" | "dark", workerHost: WorkerHostStatus = DOWN, checked: WorkerHostStatus = UP) {
   frame = { width: innerWidth, height: innerHeight };
   await page.viewport(width, 800);
   previousTheme = document.documentElement.getAttribute("data-theme");
@@ -48,8 +48,8 @@ async function mount(width: number, theme: "light" | "dark") {
   const checks: string[] = [];
   const root = createBrainUiRoot({ storage: null, request: async (input, init) => {
     const url = String(input);
-    if (url.endsWith("/api/status/worker-host")) { checks.push(init?.method ?? "GET"); return Response.json(UP); }
-    if (url.endsWith("/api/status")) return Response.json({ healthy: true, runtime: { boot: [], workerHost: DOWN } });
+    if (url.endsWith("/api/status/worker-host")) { checks.push(init?.method ?? "GET"); return Response.json(checked); }
+    if (url.endsWith("/api/status")) return Response.json({ healthy: true, runtime: { boot: [], workerHost } });
     return Response.json({ providers: [], backends: {} });
   } });
   root.stores.ui.setState({ theme });
@@ -94,5 +94,31 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const)
     await userEvent.click(check);
     await expect.poll(() => host.querySelector("[data-worker-host-notice]")).toBeNull();
     expect(checks).toEqual(["POST"]);
+  });
+}
+
+// A root-run server (#1638): the warning stands above the composer, wraps at
+// phone width, and leaves the composer usable. Turns still run.
+const ROOT: WorkerHostStatus = { ...UP, rootServer: { warning: "The server runs as root (uid 0), so its agent workers do too." } };
+for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const) {
+  test(`${width} ${theme}: the root server notice sits above a usable composer`, async () => {
+    const { host, frames } = await mount(width, theme, ROOT, ROOT);
+    await expect.poll(() => host.querySelector("[data-root-server-notice]")).not.toBeNull();
+    expect(host.querySelector("[data-worker-host-notice]")).toBeNull();
+    const notice = host.querySelector<HTMLElement>("[data-root-server-notice]")!;
+    const composer = host.querySelector<HTMLElement>("[data-composer]")!;
+    const box = notice.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(width);
+    expect(box.bottom).toBeLessThanOrEqual(composer.getBoundingClientRect().top);
+    expect(notice.scrollWidth).toBeLessThanOrEqual(notice.clientWidth + 1);
+    expect(notice.textContent).toContain("This server runs as root.");
+    const link = notice.querySelector<HTMLAnchorElement>("a")!;
+    expect(link.href).toBe(ROOT_SERVER_DOCS_URL);
+    expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(box.right);
+
+    await userEvent.fill(page.getByRole("textbox"), "Where is Ithaca?");
+    await userEvent.click(page.getByRole("button", { name: "Send" }));
+    await expect.poll(() => frames.some(f => f.type === "chat_message")).toBe(true);
   });
 }
