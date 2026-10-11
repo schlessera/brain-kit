@@ -366,6 +366,30 @@ describe("createModelPricing route-aware resolution", () => {
 });
 
 describe("createModelPricing snapshot fallback", () => {
+  // Independently transcribed from Claude's published base/5m-cache prices
+  // on 2026-10-11, in USD per token (not read from the snapshot under test).
+  test.each([
+    ["claude-fable-5-1", 1e-5, 5e-5, 2.5e-7, 1.25e-5],
+    ["claude-opus-5-5", 4e-6, 2e-5, 2e-7, 5e-6],
+    ["claude-sonnet-5-5", 2e-6, 1e-5, 1e-7, 2.5e-6],
+    ["claude-haiku-5-5", 1e-7, 5e-7, 1e-8, 1.25e-7],
+    ["claude-sonnet-4-6", 3e-6, 1.5e-5, 3e-7, 3.75e-6],
+    ["claude-opus-4-6", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+  ] as const)("published Claude base rates for %s resolve offline as estimates", async (
+    model, input, output, cacheRead, cacheWrite
+  ) => {
+    const pricing = createModelPricing({ brainPath, enabled: true, fetchImpl: failingFetch });
+    const expected = { input, output, cacheRead, cacheWrite, source: "snapshot", estimate: true } as const;
+
+    // Cold construction resolves synchronously without a cache or fetch.
+    expect(pricing.resolve(model)).toEqual(expected);
+    expect(pricing.resolve(model, "direct")).toEqual(expected);
+    await pricing.ensureFresh();
+    // A failed catalog refresh keeps those same offline estimates available.
+    expect(pricing.state().error).toContain("network down");
+    expect(pricing.resolve(model, "direct")).toEqual(expected);
+  });
+
   test("AE4: no cache + fetch failing → the bundled snapshot serves, flagged estimate", async () => {
     const pricing = createModelPricing({ brainPath, fetchImpl: failingFetch });
     await pricing.ensureFresh();
