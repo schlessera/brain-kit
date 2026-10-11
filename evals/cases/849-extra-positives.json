@@ -1,0 +1,500 @@
+{
+  "issue": 849,
+  "cases": [
+    {
+      "id": "added-cfp-ithaca",
+      "set": "added-positive",
+      "split": "tuning",
+      "entity": "Ithaca council",
+      "domain": "cfp",
+      "source": "Ithaca council hypothetical 2028 notice. CFP closes 2028-01-01T18:00Z. Council starts 2028-01-12 and ends 2028-01-14. Bio maximum 100 code points; talk slot 20 minutes. Submit proposals at https://ithaca.example/submit. CFP questions: programme@ithaca.example. Travel booking 2027-12-01 is unrelated. Footer support@ithaca.example handles account problems.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "deadline": {
+          "role": "span",
+          "text": "2028-01-01T18:00Z",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-01-01",
+            "instant": "2028-01-01T18:00:00.000Z"
+          }
+        },
+        "event_start": {
+          "role": "span",
+          "text": "2028-01-12",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-01-12",
+            "instant": null
+          }
+        },
+        "event_end": {
+          "role": "span",
+          "text": "2028-01-14",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-01-14",
+            "instant": null
+          }
+        },
+        "bio_limit": {
+          "role": "span",
+          "text": "100 code points",
+          "occurrence": 0,
+          "value": {
+            "max": 100,
+            "unit": "codepoints"
+          }
+        },
+        "talk_duration": {
+          "role": "span",
+          "text": "20 minutes",
+          "occurrence": 0,
+          "value": {
+            "seconds": 1200
+          }
+        },
+        "cfp_url": {
+          "role": "span",
+          "text": "https://ithaca.example/submit",
+          "occurrence": 0,
+          "value": "https://ithaca.example/submit"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "programme@ithaca.example",
+          "occurrence": 0,
+          "value": "programme@ithaca.example"
+        }
+      }
+    },
+    {
+      "id": "added-cfp-pylos",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Pylos council",
+      "domain": "cfp",
+      "source": "Pylos council hypothetical 2028 notice. CFP closes 2028-02-01T18:00Z. Council starts 2028-02-12 and ends 2028-02-14. Bio maximum 110 code points; talk slot 25 minutes. Submit proposals at https://pylos.example/submit. CFP questions: programme@pylos.example. Travel booking 2027-12-01 is unrelated. Footer support@pylos.example handles account problems.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "deadline": {
+          "role": "span",
+          "text": "2028-02-01T18:00Z",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-02-01",
+            "instant": "2028-02-01T18:00:00.000Z"
+          }
+        },
+        "event_start": {
+          "role": "span",
+          "text": "2028-02-12",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-02-12",
+            "instant": null
+          }
+        },
+        "event_end": {
+          "role": "span",
+          "text": "2028-02-14",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-02-14",
+            "instant": null
+          }
+        },
+        "bio_limit": {
+          "role": "span",
+          "text": "110 code points",
+          "occurrence": 0,
+          "value": {
+            "max": 110,
+            "unit": "codepoints"
+          }
+        },
+        "talk_duration": {
+          "role": "span",
+          "text": "25 minutes",
+          "occurrence": 0,
+          "value": {
+            "seconds": 1500
+          }
+        },
+        "cfp_url": {
+          "role": "span",
+          "text": "https://pylos.example/submit",
+          "occurrence": 0,
+          "value": "https://pylos.example/submit"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "programme@pylos.example",
+          "occurrence": 0,
+          "value": "programme@pylos.example"
+        }
+      }
+    },
+    {
+      "id": "added-cfp-aeaea",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Aeaea council",
+      "domain": "cfp",
+      "source": "Aeaea council hypothetical 2028 notice. CFP closes 2028-03-01T18:00Z. Council starts 2028-03-12 and ends 2028-03-14. Bio maximum 120 code points; talk slot 30 minutes. Submit proposals at https://aeaea.example/submit. CFP questions: programme@aeaea.example. Travel booking 2027-12-01 is unrelated. Footer support@aeaea.example handles account problems.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "deadline": {
+          "role": "span",
+          "text": "2028-03-01T18:00Z",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-03-01",
+            "instant": "2028-03-01T18:00:00.000Z"
+          }
+        },
+        "event_start": {
+          "role": "span",
+          "text": "2028-03-12",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-03-12",
+            "instant": null
+          }
+        },
+        "event_end": {
+          "role": "span",
+          "text": "2028-03-14",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-03-14",
+            "instant": null
+          }
+        },
+        "bio_limit": {
+          "role": "span",
+          "text": "120 code points",
+          "occurrence": 0,
+          "value": {
+            "max": 120,
+            "unit": "codepoints"
+          }
+        },
+        "talk_duration": {
+          "role": "span",
+          "text": "30 minutes",
+          "occurrence": 0,
+          "value": {
+            "seconds": 1800
+          }
+        },
+        "cfp_url": {
+          "role": "span",
+          "text": "https://aeaea.example/submit",
+          "occurrence": 0,
+          "value": "https://aeaea.example/submit"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "programme@aeaea.example",
+          "occurrence": 0,
+          "value": "programme@aeaea.example"
+        }
+      }
+    },
+    {
+      "id": "added-cfp-ogygia",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Ogygia council",
+      "domain": "cfp",
+      "source": "Ogygia council hypothetical 2028 notice. CFP closes 2028-04-01T18:00Z. Council starts 2028-04-12 and ends 2028-04-14. Bio maximum 130 code points; talk slot 35 minutes. Submit proposals at https://ogygia.example/submit. CFP questions: programme@ogygia.example. Travel booking 2027-12-01 is unrelated. Footer support@ogygia.example handles account problems.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "deadline": {
+          "role": "span",
+          "text": "2028-04-01T18:00Z",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-04-01",
+            "instant": "2028-04-01T18:00:00.000Z"
+          }
+        },
+        "event_start": {
+          "role": "span",
+          "text": "2028-04-12",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-04-12",
+            "instant": null
+          }
+        },
+        "event_end": {
+          "role": "span",
+          "text": "2028-04-14",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-04-14",
+            "instant": null
+          }
+        },
+        "bio_limit": {
+          "role": "span",
+          "text": "130 code points",
+          "occurrence": 0,
+          "value": {
+            "max": 130,
+            "unit": "codepoints"
+          }
+        },
+        "talk_duration": {
+          "role": "span",
+          "text": "35 minutes",
+          "occurrence": 0,
+          "value": {
+            "seconds": 2100
+          }
+        },
+        "cfp_url": {
+          "role": "span",
+          "text": "https://ogygia.example/submit",
+          "occurrence": 0,
+          "value": "https://ogygia.example/submit"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "programme@ogygia.example",
+          "occurrence": 0,
+          "value": "programme@ogygia.example"
+        }
+      }
+    },
+    {
+      "id": "added-cfp-sparta",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Sparta council",
+      "domain": "cfp",
+      "source": "Sparta council hypothetical 2028 notice. CFP closes 2028-05-01T18:00Z. Council starts 2028-05-12 and ends 2028-05-14. Bio maximum 140 code points; talk slot 40 minutes. Submit proposals at https://sparta.example/submit. CFP questions: programme@sparta.example. Travel booking 2027-12-01 is unrelated. Footer support@sparta.example handles account problems.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "deadline": {
+          "role": "span",
+          "text": "2028-05-01T18:00Z",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-05-01",
+            "instant": "2028-05-01T18:00:00.000Z"
+          }
+        },
+        "event_start": {
+          "role": "span",
+          "text": "2028-05-12",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-05-12",
+            "instant": null
+          }
+        },
+        "event_end": {
+          "role": "span",
+          "text": "2028-05-14",
+          "occurrence": 0,
+          "value": {
+            "date": "2028-05-14",
+            "instant": null
+          }
+        },
+        "bio_limit": {
+          "role": "span",
+          "text": "140 code points",
+          "occurrence": 0,
+          "value": {
+            "max": 140,
+            "unit": "codepoints"
+          }
+        },
+        "talk_duration": {
+          "role": "span",
+          "text": "40 minutes",
+          "occurrence": 0,
+          "value": {
+            "seconds": 2400
+          }
+        },
+        "cfp_url": {
+          "role": "span",
+          "text": "https://sparta.example/submit",
+          "occurrence": 0,
+          "value": "https://sparta.example/submit"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "programme@sparta.example",
+          "occurrence": 0,
+          "value": "programme@sparta.example"
+        }
+      }
+    },
+    {
+      "id": "added-job-ithaca",
+      "set": "added-positive",
+      "split": "tuning",
+      "entity": "Ithaca harbour",
+      "domain": "job",
+      "source": "Ithaca harbour seeks a stores keeper. Salary EUR 130,000\u2013140,000 per year. Apply for this role at https://ithaca.example/crew/apply; recruitment contact crew@ithaca.example. Signing bonus EUR 2,000. Footer support@ithaca.example handles account problems only.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "salary": {
+          "role": "span",
+          "text": "EUR 130,000\u2013140,000 per year",
+          "occurrence": 0,
+          "value": {
+            "currency": "EUR",
+            "minMinor": 13000000,
+            "maxMinor": 14000000,
+            "period": "year"
+          }
+        },
+        "apply_url": {
+          "role": "span",
+          "text": "https://ithaca.example/crew/apply",
+          "occurrence": 0,
+          "value": "https://ithaca.example/crew/apply"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "crew@ithaca.example",
+          "occurrence": 0,
+          "value": "crew@ithaca.example"
+        }
+      }
+    },
+    {
+      "id": "added-job-pylos",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Pylos harbour",
+      "domain": "job",
+      "source": "Pylos harbour seeks a stores keeper. Salary EUR 140,000\u2013150,000 per year. Apply for this role at https://pylos.example/crew/apply; recruitment contact crew@pylos.example. Signing bonus EUR 2,000. Footer support@pylos.example handles account problems only.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "salary": {
+          "role": "span",
+          "text": "EUR 140,000\u2013150,000 per year",
+          "occurrence": 0,
+          "value": {
+            "currency": "EUR",
+            "minMinor": 14000000,
+            "maxMinor": 15000000,
+            "period": "year"
+          }
+        },
+        "apply_url": {
+          "role": "span",
+          "text": "https://pylos.example/crew/apply",
+          "occurrence": 0,
+          "value": "https://pylos.example/crew/apply"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "crew@pylos.example",
+          "occurrence": 0,
+          "value": "crew@pylos.example"
+        }
+      }
+    },
+    {
+      "id": "added-job-aeaea",
+      "set": "added-positive",
+      "split": "held-out",
+      "entity": "Aeaea harbour",
+      "domain": "job",
+      "source": "Aeaea harbour seeks a stores keeper. Salary EUR 150,000\u2013160,000 per year. Apply for this role at https://aeaea.example/crew/apply; recruitment contact crew@aeaea.example. Signing bonus EUR 2,000. Footer support@aeaea.example handles account problems only.",
+      "context": {
+        "referenceDate": "2026-07-12",
+        "intendedEdition": "2028",
+        "calendarValues": "hypothetical validation, not canonical world events"
+      },
+      "gold": {
+        "salary": {
+          "role": "span",
+          "text": "EUR 150,000\u2013160,000 per year",
+          "occurrence": 0,
+          "value": {
+            "currency": "EUR",
+            "minMinor": 15000000,
+            "maxMinor": 16000000,
+            "period": "year"
+          }
+        },
+        "apply_url": {
+          "role": "span",
+          "text": "https://aeaea.example/crew/apply",
+          "occurrence": 0,
+          "value": "https://aeaea.example/crew/apply"
+        },
+        "contact_email": {
+          "role": "span",
+          "text": "crew@aeaea.example",
+          "occurrence": 0,
+          "value": "crew@aeaea.example"
+        }
+      }
+    }
+  ],
+  "exclude": [
+    "held-relative"
+  ],
+  "corrections": {
+    "held-no-event": {
+      "event_start": {
+        "role": "unclear"
+      },
+      "event_end": {
+        "role": "unclear"
+      }
+    },
+    "held-hourly": {
+      "salary": {
+        "role": "span",
+        "text": "GBP 60.50\u201370.25 per hour",
+        "occurrence": 0,
+        "value": {
+          "currency": "GBP",
+          "minMinor": 6050,
+          "maxMinor": 7025,
+          "period": "hour"
+        }
+      }
+    }
+  }
+}
