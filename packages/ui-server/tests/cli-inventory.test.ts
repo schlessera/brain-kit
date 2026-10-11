@@ -21,6 +21,7 @@ const available: Record<string, string> = {
 // within its namespace; this inventory enforces versions, not valid usage.
 const commandFlags: Record<string, Record<string, string>> = {
   search: { "--type": "0.33.0", "--tag": "0.33.0", "--limit": "0.33.0", "--mode": "0.33.0" },
+  scratch: { "--pins-file": "0.42.0" }, // #1656, additive input for retained-answer pins.
   stats: { "--history": "0.40.0" },
   list: { "--type": "0.33.0", "--tag": "0.33.0", "--status": "0.33.0", "--relevance": "0.33.0", "--limit": "0.33.0" },
   sync: { "--human": "0.33.0" },

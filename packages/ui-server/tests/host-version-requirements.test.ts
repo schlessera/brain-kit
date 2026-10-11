@@ -13,7 +13,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture(version = "0.41.0") {
+function fixture(version = "0.42.0") {
   const root = mkdtempSync(join(tmpdir(), "host-version-"));
   roots.push(root);
   const calls = join(root, "calls.jsonl");
@@ -58,14 +58,14 @@ describe("host version requirements at app startup", () => {
     });
   }
   test("below an explicit host floor refuses, despite satisfying the package floor", async () => {
-    const f = fixture("0.41.0");
-    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.42.0" } })).rejects.toThrow("host versionRequirements.brainCli");
+    const f = fixture("0.42.0");
+    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.43.0" } })).rejects.toThrow("host versionRequirements.brainCli");
     expect(f.invocations()).toEqual([["--version"]]);
     expect(existsSync(f.config.dbPath)).toBe(false);
   });
   test("a weaker host floor cannot lower the package floor", async () => {
     const f = fixture("0.32.9");
-    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.1.0" } })).rejects.toThrow("0.41.0");
+    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.1.0" } })).rejects.toThrow("0.42.0");
     expect(existsSync(f.config.dbPath)).toBe(false);
   });
   test("explicit unknown refuses while default unknown logs a warning and boots", async () => {

@@ -269,6 +269,7 @@ signatures (every public export and the types it is made of)
         skillsSync(): Promise<string>;
         scratchPrune(opts?: {
             signal?: AbortSignal;
+            pinsFile?: string;
         }): Promise<string>;
     }
   BrainDbHandle (packages/ui-server/src/db/brain-db.ts)
@@ -542,7 +543,7 @@ signatures (every public export and the types it is made of)
   MAX_ARCHIVE_BYTES (packages/ui-server/src/skills/install.ts)
     const MAX_ARCHIVE_BYTES: number;
   MIN_BRAIN_CLI_VERSION (packages/ui-server/src/brain/client.ts)
-    const MIN_BRAIN_CLI_VERSION: "0.41.0";
+    const MIN_BRAIN_CLI_VERSION: "0.42.0";
   MIN_BRAIN_SCHEMA_VERSION (packages/ui-server/src/db/brain-db.ts)
     const MIN_BRAIN_SCHEMA_VERSION: 3;
   MetricPoint (packages/ui-server/src/observability/types.ts)

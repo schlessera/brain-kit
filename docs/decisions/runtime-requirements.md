@@ -202,7 +202,8 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 
 **CLI floor correction, 2026-10-11 ([#1623](https://github.com/schlessera/brain-kit/issues/1623)):**
 The initial 0.33.0 floor above is historical. The existing hygiene review calls
-commands and flags first shipped in 0.41.0; the server now requires that version,
+commands and flags first shipped in 0.41.0. The server required that version for
+hygiene review; #1656 raises the current floor to 0.42.0 for scratch pin input,
 with an invocation inventory guarding future changes. The original minimum
 composition and unknown-version policy still bind. See the
 [integration contract classification](../integration-contract.md#content-cli-minimum-correction-patch-1623).

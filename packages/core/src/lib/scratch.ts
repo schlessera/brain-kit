@@ -28,6 +28,7 @@ import { randomBytes } from "crypto";
 import {
   closeSync,
   constants,
+  fstatSync,
   existsSync,
   linkSync,
   lstatSync,
@@ -380,6 +381,50 @@ export interface ScratchReport {
   files: number;
 }
 
+/** Server-managed pin snapshot. The directory marks brains with retained chat history. */
+export const SCRATCH_PINS_FILE = ".brain/scratch-pins/pins.json";
+
+export interface ScratchPruneReport extends ScratchReport {
+  pinned: { files: number; bytes: number };
+  overageBytes: number;
+  /** Unknown pins suspend all deletion; never treat a failed read as an empty set. */
+  pinError?: string;
+}
+
+function readScratchPins(root: string, pinsFile?: string): Set<string> {
+  const path = resolve(root, pinsFile ?? SCRATCH_PINS_FILE);
+  // A standalone brain has no retained server conversations. Once the server
+  // creates this directory, even a missing snapshot must suspend pruning.
+  if (!pinsFile && !lstatSync(dirname(path), { throwIfNoEntry: false })) {
+    if (lstatSync(join(root, ".brain/scratch-pins-required"), { throwIfNoEntry: false })) throw new Error("managed scratch pin data is missing");
+    return new Set();
+  }
+  if (realpathSync(dirname(path)) !== dirname(path) || lstatSync(path).isSymbolicLink()) {
+    throw new Error("scratch pin data is redirected");
+  }
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let data: Record<string, unknown>;
+  try {
+    if (!fstatSync(fd).isFile()) throw new Error("scratch pin data is not a regular file");
+    data = JSON.parse(readFileSync(fd, "utf8")) as Record<string, unknown>;
+  } finally { closeSync(fd); }
+  if (data.version !== 1 || data.ready !== true || !data.sessions || typeof data.sessions !== "object" || Array.isArray(data.sessions)) {
+    throw new Error("scratch pin data is incomplete or invalid");
+  }
+  const paths = new Set<string>();
+  for (const values of Object.values(data.sessions)) {
+    if (!Array.isArray(values)) throw new Error("invalid scratch pin session");
+    for (const value of values) {
+      if (typeof value !== "string" || !value.startsWith(`${SCRATCH_DIR}/`) ||
+          value.split("/").some(part => !part || part === "." || part === "..") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) {
+        throw new Error("invalid scratch pin path");
+      }
+      paths.add(value);
+    }
+  }
+  return paths;
+}
+
 interface Entry {
   abs: string;
   bytes: number;
@@ -545,8 +590,8 @@ function removeEmptyDirs(root: string, scratch: string, dir: string): void {
 export function pruneScratch(
   root: string,
   now: number = Date.now(),
-  { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES }: { ttlMs?: number; maxBytes?: number } = {},
-): ScratchReport {
+  { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile }: { ttlMs?: number; maxBytes?: number; pinnedPaths?: ReadonlySet<string>; pinsFile?: string } = {},
+): ScratchPruneReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
   const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
@@ -556,8 +601,19 @@ export function pruneScratch(
   // file it could not remove (reported in `failed`), one it left alone, one
   // it did not need to touch.
   const left: Entry[] = [];
+  let pinError: string | undefined;
   /** Try to remove; true when the bytes are gone from disk (removed, or found gone). */
   const remove = (entry: Entry, reason: ScratchRemoval["reason"]): boolean => {
+    // A server can publish a new retained answer while a CLI prune runs.
+    // Re-read immediately before removal, so a late pin or lost snapshot
+    // suspends this deletion too, within the existing one-syscall path window.
+    try {
+      pins = currentPins();
+      if (pins.has(rel(entry.abs))) { left.push(entry); return false; }
+    } catch (error) {
+      pinError = error instanceof Error ? error.message : String(error);
+      left.push(entry); return false;
+    }
     const outcome = removeFile(root, dir, entry.abs);
     if (outcome === "removed") {
       removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason });
@@ -569,9 +625,19 @@ export function pruneScratch(
     return false;
   };
   const entries = listFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+  let pins: ReadonlySet<string>;
+  const currentPins = () => new Set([...readScratchPins(rootReal), ...(pinsFile ? readScratchPins(rootReal, pinsFile) : []), ...(pinnedPaths ?? [])]);
+  try {
+    // Explicit pins only add protection; they cannot bypass the durable set.
+    pins = currentPins();
+  } catch (error) {
+    const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+    return { removed, failed, bytes, files: entries.length, pinned: { files: 0, bytes: 0 },
+      overageBytes: Math.max(0, bytes - maxBytes), pinError: error instanceof Error ? error.message : String(error) };
+  }
   const candidates: Entry[] = [];
   for (const entry of entries) {
-    if (now - entry.mtimeMs > ttlMs) remove(entry, "age");
+    if (!pins.has(rel(entry.abs)) && now - entry.mtimeMs > ttlMs) remove(entry, "age");
     else candidates.push(entry);
   }
   // The cap counts everything still there, the files that would not go
@@ -579,14 +645,17 @@ export function pruneScratch(
   // oldest, so the cap is met whenever the removable files allow it.
   let total = [...left, ...candidates].reduce((sum, e) => sum + e.bytes, 0);
   for (const entry of candidates) {
-    if (total <= maxBytes) {
+    if (pins.has(rel(entry.abs)) || total <= maxBytes) {
       left.push(entry);
       continue;
     }
     if (remove(entry, "size")) total -= entry.bytes;
   }
   removeEmptyDirs(root, dir, dir);
-  return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length };
+  const pinned = left.filter(entry => pins.has(rel(entry.abs)));
+  return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length,
+    pinned: { files: pinned.length, bytes: pinned.reduce((sum, entry) => sum + entry.bytes, 0) },
+    overageBytes: Math.max(0, total - maxBytes), ...(pinError ? { pinError } : {}) };
 }
 
 /** Empty the scratch area entirely. Refuses a redirected scratch. */

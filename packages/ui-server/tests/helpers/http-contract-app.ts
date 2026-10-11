@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { version } from "@schlessera/brain-ui-server/package.json";
+import { MIN_BRAIN_CLI_VERSION as version } from "../../src/brain/client";
 import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 
 import { createApp, type CreateAppOptions } from "../../src/app";

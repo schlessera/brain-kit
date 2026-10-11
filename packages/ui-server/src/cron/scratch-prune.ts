@@ -35,6 +35,7 @@ export type Every = (check: () => void, ms: number) => () => void;
 export function startScratchPrune(options: {
   brain: Pick<BrainClient, "scratchPrune">;
   log?: Logger;
+  pins?: { file: string; refresh(signal: AbortSignal): Promise<void> };
   every?: Every;
   intervalMs?: number;
   deadlineMs?: number;
@@ -57,9 +58,19 @@ export function startScratchPrune(options: {
     );
     if (typeof deadline === "object" && "unref" in deadline) deadline.unref();
     active = controller;
-    inFlight = brain
-      .scratchPrune({ signal: controller.signal })
-      .then(() => undefined)
+    inFlight = (async () => {
+      if (options.pins) await options.pins.refresh(controller.signal);
+      controller.signal.throwIfAborted();
+      return brain.scratchPrune({ signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });
+    })()
+      .then((output) => {
+        try {
+          const report = JSON.parse(output) as { overageBytes?: number; pinned?: { files: number; bytes: number } };
+          if (report.overageBytes && report.overageBytes > 0) log?.emit({ severityText: "WARN",
+            body: "scratch remains over its size cap; retained conversation pins were preserved",
+            attributes: { "scratch.overage_bytes": report.overageBytes, "scratch.pinned_bytes": report.pinned?.bytes ?? 0 } });
+        } catch { /* Legacy human-output CLI; failures are handled below. */ }
+      })
       .catch((error: unknown) => {
         log?.emit({
           severityText: "WARN",

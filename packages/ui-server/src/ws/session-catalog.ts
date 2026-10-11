@@ -30,6 +30,8 @@ import { bindTurnEvents } from "../governance/events.js";
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
+  /** Scratch links in backend-persisted answers, before next-turn pruning. */
+  recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
   /** Observed terminal metadata at its backend-normalized assistant position. */
   recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
   attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
@@ -139,7 +141,7 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
      backend_id = COALESCE(excluded.backend_id, backend_id)`;
 
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
-export function createSessionCatalog(db: () => Database, log?: Logger): SessionCatalog {
+export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void }): SessionCatalog {
   // Persistence stays non-throwing — losing one accounting row must not kill
   // the turn — but never silent: a full disk or locked database would
   // otherwise drop every session record with nothing anywhere.
@@ -154,6 +156,10 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
     });
   };
   return {
+    recordScratchPins(sessionId, backendId, messages) {
+      try { scratchPins?.record(sessionId, backendId, messages); }
+      catch (err) { reportWriteFailure(sessionId, err); }
+    },
     recordTurnFailure(sessionId, backendId, record) {
       try { saveTurnFailure(db(), sessionId, backendId, record); }
       catch (err) { reportWriteFailure(sessionId, err); }

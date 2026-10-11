@@ -74,7 +74,7 @@ export interface BrainClient {
   /** Run `brain skills sync` — re-materialize every agent's skill links. */
   skillsSync(): Promise<string>;
   /** Run `brain scratch prune` — the periodic pass over the scratch area (#310). An aborted signal kills the child. */
-  scratchPrune(opts?: { signal?: AbortSignal }): Promise<string>;
+  scratchPrune(opts?: { signal?: AbortSignal; pinsFile?: string }): Promise<string>;
 }
 
 interface ExecResult {
@@ -85,10 +85,10 @@ interface ExecResult {
 
 /**
  * First core release with every command/flag this server invokes: hygiene
- * next/resolve/check/undo and fingerprint-bound dispositions require 0.41.0.
+ * next/resolve/check/undo require 0.41.0; scratch pin input requires 0.42.0.
  * tests/cli-inventory.test.ts guards this floor as invocations change.
  */
-export const MIN_BRAIN_CLI_VERSION = "0.41.0";
+export const MIN_BRAIN_CLI_VERSION = "0.42.0";
 
 /**
  * argv prefix for invoking the brain CLI inside `brainPath`.
@@ -430,7 +430,8 @@ export function createBrainClient(opts: {
     },
 
     async scratchPrune(opts) {
-      const result = await execBrain(["scratch", "prune"], opts?.signal);
+      const args = ["scratch", "prune", ...(opts?.pinsFile ? ["--pins-file", opts.pinsFile, "--json"] : [])];
+      const result = await execBrain(args, opts?.signal);
       if (result.exitCode !== 0) {
         throw new Error(
           `brain scratch prune failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`

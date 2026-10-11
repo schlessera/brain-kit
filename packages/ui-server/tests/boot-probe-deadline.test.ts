@@ -51,7 +51,7 @@ async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, ki
 const SETTLEMENT_MARGIN_MS = 1_500;
 describe("boot probe deadline", () => {
   test("brain rejects a printed version when a TERM-ignoring command outlives its deadline", async () => {
-    const f = fixture("0.41.0");
+    const f = fixture("0.42.0");
     // Also exercise the ordinary, unwrapped CLI launch.
     delete f.wrapper;
     const result = await probe("brain", f);
@@ -62,7 +62,7 @@ describe("boot probe deadline", () => {
   for (const kind of ["brain", "claude"] as const) {
     for (const mode of ["missing", "failing", "hung", "noop"] as const) {
       test(`${kind} bounds cleanup with a ${mode} killer`, async () => {
-        const f = fixture(kind === "brain" ? "0.41.0" : "2.0.0 (Claude Code)");
+        const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)");
         const killer = mode === "missing" ? join(f.dir, "absent") : executable(join(f.dir, "killer"),
           mode === "failing" ? "exit 3" : mode === "noop" ? "exit 0" : `echo $$ > '${f.dir}/helper.pid'\nexec sleep 8`);
         const result = await probe(kind, f, killer);
@@ -89,7 +89,7 @@ describe("boot probe deadline", () => {
       });
     }
     test(`${kind} bounds inherited output pipes after the probe process exits`, async () => {
-      const f = fixture(kind === "brain" ? "0.41.0" : "2.0.0 (Claude Code)", `sleep 8 &\necho $! > descendant.pid\nexit 0`);
+      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)", `sleep 8 &\necho $! > descendant.pid\nexit 0`);
       delete f.wrapper;
       const result = await probe(kind, f);
       const text = kind === "brain" ? result.logs.map(log => String(log.body)).join("\n") : String(result.error);
@@ -99,7 +99,7 @@ describe("boot probe deadline", () => {
       expect(text).toContain("Giving up waiting");
     });
     test(`${kind} calls the group killer at the deadline while the probe is alive`, async () => {
-      const f = fixture(kind === "brain" ? "0.41.0" : "2.0.0 (Claude Code)");
+      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)");
       const killer = executable(join(f.dir, "killer"), `state=dead\nkill -0 "$1" 2>/dev/null && state=alive\necho "$1 $2 $state" > '${f.dir}/killer.log'\nkill -"$2" -"$1"`);
       const result = await probe(kind, f, killer);
       const pid = readFileSync(join(f.dir, "probe.pid"), "utf8").trim();

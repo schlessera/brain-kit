@@ -38,6 +38,14 @@ above: the newly refused combination already lacked required capabilities. The
 server's command/flag inventory checks its floor against recorded CLI availability
 versions.
 
+## Retained scratch links (additive, 0.42.0, #1656)
+
+Scratch prune accepts pin snapshots and reports pinned files and remaining overage,
+as specified in the [CLI contract](integration-contract/cli.md). ui-server now
+requires a content CLI of at least 0.42.0 for `scratch prune --pins-file`.
+This supersedes the 0.41.0 floor above for the new server; earlier hygiene
+commands retain their original availability versions.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

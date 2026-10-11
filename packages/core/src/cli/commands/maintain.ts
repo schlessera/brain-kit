@@ -173,7 +173,8 @@ export const maintainCommand: CoreCommand = {
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);
-      const summary = `removed ${pruned.removed.length} file(s), ${pruned.files} file(s) and ${pruned.bytes} bytes left`;
+      if (pruned.pinError) throw new Error(`scratch pruning suspended: ${pruned.pinError}`);
+      const summary = `removed ${pruned.removed.length} file(s), ${pruned.files} file(s) and ${pruned.bytes} bytes left; ${pruned.pinned.files} pinned file(s), ${pruned.overageBytes} bytes over cap`;
       report.push({
         step: "scratch",
         result:
