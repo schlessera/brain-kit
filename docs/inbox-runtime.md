@@ -115,9 +115,10 @@ acceptance examples through the dispatcher: AE1–AE5, AE7–AE9 and AE11–AE15
 AE6 and AE10 are deferred to v2. An arrival that T1 cannot route, for
 example without a classification key, stays queued until it expires; the
 agent tier never runs unrouted work. Intake assigns stakes 1 and no deadline,
-which stays below the push cutoff of 12, so the dispatcher's own decisions
-reach the twice-daily digest rather than an immediate push
-(the ruling is requested on #1553).
+which stays below the push cutoff of 12. Under the 2026-10-11 ruling on #1553,
+the dispatcher marks decisions that block autonomous work as push-eligible
+regardless of score. They use the existing fixed window, quiet hours and
+aggregate payload; ordinary unmarked decisions remain digest-only below 12.
 
 ## Runtime token file
 

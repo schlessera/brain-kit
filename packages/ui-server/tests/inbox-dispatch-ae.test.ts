@@ -6,7 +6,7 @@
  * deterministic backend stands in for the model; real runtimes are proven in
  * tests/autonomous-app.test.ts. AE6 and AE10 are deferred to v2.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { createActivityStore } from "../src/activity/store.js";
+import { createPushSender } from "../src/activity/push-sender.js";
 import { createInboxIntake } from "../src/inbox/intake.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxRuntime, INBOX_STALE_MS } from "../src/inbox/runtime.js";
@@ -24,6 +25,8 @@ import { createInboxDispatcher } from "../src/inbox/dispatcher.js";
 import { createInboxOperationEnvelope } from "../src/inbox/envelope.js";
 import { createInboxAction, INBOX_ACTION_CAP } from "../src/inbox/actions.js";
 import { createActionNotifier } from "../src/inbox/notify.js";
+import { inboxPriority } from "../src/inbox/state.js";
+import { exportInboxSnapshot, restoreInboxSnapshot } from "../src/inbox/snapshot.js";
 import type { FetchLike } from "../src/classification/jev-client.js";
 
 const choice = (route: string) => ({ type: "choice", choice: route, confidence: 0.9,
@@ -35,12 +38,17 @@ const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
 type Script = (req: StartTurnRequest) => Promise<void>;
-function world(options: { turns?: number; spendUsd?: number; apiKey?: string | null } = {}) {
+function world(options: { turns?: number; spendUsd?: number; apiKey?: string | null; at?: number; answer?: Record<string, unknown> } = {}) {
   const root = mkdtempSync(join(tmpdir(), "brain-dispatch-ae-"));
   mkdirSync(join(root, "notes"), { recursive: true });
   const db = createUiDb(join(root, "ui.sqlite"));
   let offset = 0;
-  const now = () => Date.now() + offset;
+  const originalNow = Date.now;
+  const now = () => (options.at ?? originalNow()) + offset;
+  if (options.at !== undefined) {
+    const clock = spyOn(Date, "now").mockImplementation(now);
+    cleanup.push(() => clock.mockRestore());
+  }
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 30 * 24 * 3600 });
   const intake = createInboxIntake(db, root);
   const turns: StartTurnRequest[] = [];
@@ -58,7 +66,7 @@ function world(options: { turns?: number; spendUsd?: number; apiKey?: string | n
   const fetch: FetchLike = async (_url, init) => {
     const ids = Object.keys((JSON.parse(String(init.body)) as { questions: Record<string, unknown> }).questions);
     batches.push(ids);
-    return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 100, output_tokens: 10 }, answers: Object.fromEntries(ids.map(id => [id, choice("needs_agent")])) });
+    return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 100, output_tokens: 10 }, answers: Object.fromEntries(ids.map(id => [id, options.answer ?? choice("needs_agent")])) });
   };
   const budget = { config: { spendUsd: options.spendUsd ?? 50, turns: options.turns ?? 1000, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.00001 },
     pricing: { resolve: () => ({ input: 0.000001, output: 0.000001, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" as const }) } };
@@ -76,6 +84,29 @@ function world(options: { turns?: number; spendUsd?: number; apiKey?: string | n
   const fyis = () => store.snapshot().items.filter(i => i.queue === "actions" && i.type === "fyi") as InboxActionItem[];
   return { root, db, principal, intake, turns, scripts, batches, runtime, store, resolver, cli, decisions, fyis, activity,
     advance: (ms: number) => { offset += ms; }, now, arms: () => arms };
+}
+
+/** Real subscription, notifier and sender; capture only the push transport. */
+function notifications(w: ReturnType<typeof world>) {
+  const sent: Array<{ title: string }> = [];
+  const sender = createPushSender(w.db, { send: async (_sub, payload) => { sent.push(JSON.parse(payload)); } });
+  const notices = createActionNotifier(w.db, { now: w.now });
+  const client = { principalId: w.principal.id, clientId: "" };
+  const endpoint = "https://push.example.test/odysseus-phone";
+  expect(sender.subscribe({ endpoint, keys: { p256dh: "p256dh", auth: "auth" } }, w.principal.id)).toBe(true);
+  notices.reportZone(client, "UTC", endpoint, w.now());
+  const deliver = async () => { notices.enroll(); return sender.deliverActions(notices, w.now()); };
+  return { notices, client, sent, deliver };
+}
+
+function ordinaryDecision(w: ReturnType<typeof world>, threadId: string) {
+  const id = "ordinary-decision";
+  const proposal = { id, dedupKey: id, threadId, queue: "actions" as const, type: "choose" as const,
+    status: "pending" as const, version: 1, createdAt: w.now(), updatedAt: w.now(), expiresAt: w.now() + 24 * HOUR,
+    payload: { title: "Penelope considers the loom", detail: "Review when convenient." },
+    options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" as const } }] };
+  createInboxAction(w.db, proposal, [], { now: w.now() });
+  return id;
 }
 
 describe("acceptance examples through the production dispatcher", () => {
@@ -221,17 +252,112 @@ describe("acceptance examples through the production dispatcher", () => {
   });
 
   test("AE14: three escalations in one window join one notice aggregate", async () => {
-    const w = world();
+    const w = world({ at: Date.UTC(2026, 6, 12, 10) });
+    const n = notifications(w);
     for (const text of ["Penelope asks for the loom.", "Telemachus asks for a ship.", "Eumaeus asks about the swine."]) await w.cli(text);
     await w.runtime.tick();
     expect(w.decisions()).toHaveLength(3);
     const episodes = w.db.query("SELECT COUNT(*) AS n FROM inbox_notice_episodes WHERE ended_at IS NULL").get() as { n: number };
     expect(episodes.n, "AE14_EPISODES").toBe(3);
-    // Intake assigns stakes 1, below the push cutoff of 12: the three wait in one digest.
-    const notices = createActionNotifier(w.db, { now: w.now });
-    notices.reportZone({ principalId: w.principal.id, clientId: "" }, "UTC", undefined, w.now());
-    const digest = notices.digest({ principalId: w.principal.id, clientId: "" }, w.now() + 13 * HOUR) as { status: string; latest?: { waiting: unknown[] } };
-    expect(digest.latest?.waiting, "AE14_ONE_AGGREGATE").toHaveLength(3);
+    expect(await n.deliver(), "AE14_FIXED_WINDOW").toBe(0);
+    w.advance(59_999);
+    expect(await n.deliver(), "AE14_NOT_EARLY").toBe(0);
+    w.advance(1);
+    expect(await n.deliver(), "AE14_ONE_AGGREGATE").toBe(1);
+    expect(n.sent, "AE14_THREE_ACTIONS_WAITING").toEqual([{ title: "3 actions waiting", body: "Open Actions to decide.", tag: "brain-actions", url: "/#/activity" }]);
+    w.advance(7 * HOUR);
+    expect(await n.deliver(), "AE14_NO_REPEAT").toBe(0);
+    expect(n.notices.digest(n.client).latest?.waiting, "AE14_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
+  });
+
+  for (const source of ["share", "cli"] as const) test(`${source} blocking escalation pushes below cutoff; ordinary decision stays in digest`, async () => {
+    const w = world({ at: Date.UTC(2026, 6, 12, 10) });
+    const n = notifications(w);
+    const itemId = source === "share"
+      ? (await w.intake.share({ text: "Penelope asks for the loom.", files: [] }, w.principal)).itemId
+      : await w.cli("Penelope asks for the loom.");
+    await w.runtime.tick();
+    const [action] = w.decisions();
+    const thread = w.store.getThread(action!.threadId)!;
+    expect(thread).toMatchObject({ source, stakes: 1 });
+    expect(thread.deadline).toBeUndefined();
+    expect(inboxPriority(thread.stakes, thread.deadline, action!.createdAt, 0, w.now()), "LOW_SCORE_UNCHANGED").toBe(4);
+    expect(w.store.getItem(itemId)).toMatchObject({ status: "blocked", blockedByItemId: action!.id });
+    const ordinary = ordinaryDecision(w, thread.id);
+    expect(await n.deliver()).toBe(0);
+    w.advance(60_000);
+    expect(await n.deliver(), "BLOCKING_ESCALATION_PUSH").toBe(1);
+    expect(n.sent.map(p => p.title)).toEqual(["1 action waiting"]);
+    expect(n.notices.digest(n.client).latest?.waiting.map(e => e.itemId), "ORDINARY_ONLY_DIGEST").toEqual([ordinary]);
+  });
+
+  test("blocking escalation obeys quiet hours and resumes at 08:00", async () => {
+    const w = world({ at: Date.UTC(2026, 6, 12, 22) });
+    const n = notifications(w);
+    await w.cli("Telemachus asks for a ship.");
+    await w.runtime.tick();
+    await n.deliver();
+    w.advance(60_000);
+    expect(await n.deliver(), "BLOCKING_QUIET_HOURS").toBe(0);
+    w.advance(10 * HOUR - 60_001);
+    expect(await n.deliver(), "BLOCKING_STILL_QUIET").toBe(0);
+    w.advance(1);
+    expect(await n.deliver(), "BLOCKING_MORNING_PUSH").toBe(1);
+    expect(n.sent.map(p => p.title)).toEqual(["1 action waiting"]);
+  });
+
+  test("hostile model proposal cannot set the blocking escalation marker", async () => {
+    const w = world({ at: Date.UTC(2026, 6, 12, 10),
+      answer: { ...choice("needs_user"), blockingEscalation: true, blocking_escalation: 1, stakes: 3 } });
+    const n = notifications(w);
+    const itemId = await w.cli("Penelope considers the loom.");
+    await w.runtime.tick();
+    expect(w.batches, "HOSTILE_MODEL_CALLED").toEqual([[`${itemId}.route`]]);
+    const [action] = w.decisions();
+    const id = action!.id;
+    expect(w.db.query("SELECT blocking_escalation FROM inbox_action_contexts WHERE item_id = ?").get(id), "HOSTILE_PROPOSAL_NO_MARKER").toEqual({ blocking_escalation: 0 });
+    expect(await n.deliver()).toBe(0);
+    w.advance(60_000);
+    expect(await n.deliver(), "HOSTILE_PROPOSAL_NO_PUSH").toBe(0);
+    expect(n.notices.digest(n.client).latest?.waiting.map(e => e.itemId)).toEqual([id]);
+    expect(w.store.getThread(action!.threadId)?.stakes, "HOSTILE_STAKES_UNCHANGED").toBe(1);
+    expect(w.turns).toEqual([]);
+  });
+
+  test("blocking eligibility and push receipts survive operational export/restore", async () => {
+    const w = world({ at: Date.UTC(2026, 6, 12, 10) });
+    const n = notifications(w);
+    await w.cli("Penelope asks for the loom.");
+    await w.runtime.tick();
+    const [action] = w.decisions();
+    await n.deliver();
+    const beforeSend = await exportInboxSnapshot(w.db, w.root, w.now());
+    const restoredRoot = mkdtempSync(join(tmpdir(), "brain-blocking-restore-"));
+    cleanup.push(() => rmSync(restoredRoot, { recursive: true, force: true }));
+    const path = join(restoredRoot, "ui.sqlite");
+    w.advance(60_000);
+    await restoreInboxSnapshot(beforeSend, path, restoredRoot, w.now());
+    const restored = createUiDb(path);
+    cleanup.push(() => restored.close());
+    const restoredNotices = createActionNotifier(restored, { now: w.now });
+    expect(restored.query("SELECT blocking_escalation FROM inbox_action_contexts WHERE item_id = ?").get(action!.id), "RESTORED_BLOCKING_MARKER").toEqual({ blocking_escalation: 1 });
+    const sent: string[] = [];
+    const sender = createPushSender(restored, { send: async (_sub, payload) => { sent.push(JSON.parse(payload).title); } });
+    restoredNotices.enroll();
+    expect(await sender.deliverActions(restoredNotices, w.now()), "RESTORED_BLOCKING_PUSH").toBe(1);
+    expect(sent).toEqual(["1 action waiting"]);
+    const afterSend = await exportInboxSnapshot(restored, restoredRoot, w.now());
+    const receiptRoot = mkdtempSync(join(tmpdir(), "brain-blocking-receipt-"));
+    cleanup.push(() => rmSync(receiptRoot, { recursive: true, force: true }));
+    const receiptPath = join(receiptRoot, "ui.sqlite");
+    await restoreInboxSnapshot(afterSend, receiptPath, receiptRoot, w.now());
+    const receiptDb = createUiDb(receiptPath);
+    cleanup.push(() => receiptDb.close());
+    const receiptNotices = createActionNotifier(receiptDb, { now: w.now });
+    const receiptSender = createPushSender(receiptDb, { send: async () => { throw new Error("Known success must never be resent"); } });
+    receiptNotices.enroll();
+    expect(await receiptSender.deliverActions(receiptNotices, w.now()), "RESTORED_NO_REPEAT").toBe(0);
+    expect(receiptNotices.digest(n.client).latest?.waiting, "RESTORED_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
   });
 
   test("AE15: twenty arrivals with three 200 KB items are clipped per item, batched and all answered", async () => {
