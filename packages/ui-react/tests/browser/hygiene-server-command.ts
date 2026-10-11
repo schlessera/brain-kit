@@ -220,6 +220,8 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         if ((await patch()).read.review.status !== "complete") throw new Error("server must independently confirm empty selection before browser completion");
         await a.getByText("Review complete", { exact: true }).first().waitFor({ timeout: 5000 });
         await b.getByText("Review complete", { exact: true }).first().waitFor({ timeout: 5000 });
+        // Visibility precedes the strip's scheduled focus handoff.
+        await a.locator("[data-hygiene-complete]:focus").waitFor();
         if (await a.evaluate(() => document.activeElement?.textContent) !== "Review complete") throw new Error("confirmed completion must focus its heading");
         if (await b.evaluate(() => document.activeElement?.id) !== "typing") throw new Error("remote completion must preserve typing focus");
         const settled = await patch();

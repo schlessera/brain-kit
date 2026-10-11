@@ -346,5 +346,12 @@ counters. A subsequent evidence edit and server restart return the dismissed
 finding with its token-change receipt, while an unrelated heading edit preserves
 a different dismissal. Dismissed validation errors still fail the actual CLI.
 
+Completion visibility precedes its scheduled keyboard-focus handoff. The native
+loop holds the mounted completion's animation frames, observes confirmed server
+completion and the visible heading, then releases the frame before asserting
+focus. A second device enters an editable target between mounting and frame
+execution; completion must preserve that focus. No fixed delay or retry substitutes
+for either observation.
+
 This human-started loop establishes no autonomous production enablement. The
 shared Queue/Actions decision and its complete-system gate remain separate.
