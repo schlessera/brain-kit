@@ -42,6 +42,8 @@ const aliases = {
   notebook: notebookPath,
 };
 const newEntries = [join(policyDir, "new.md"), join(brainPath, "Context/Policies/crew.md")];
+/** The worker's writable areas inside the brain (#1626): attacked from inside, never a route to policy. */
+const writableAreas = [join(brainPath, ".brain/scratch"), join(brainPath, "workspaces/ithaca")];
 
 function manifest(dir: string, base = dir, out: Record<string, string> = {}): Record<string, string> {
   for (const name of readdirSync(dir).sort()) {
@@ -66,7 +68,7 @@ function filesContaining(dir: string, needle: string, out: string[] = []): strin
 
 /** Shared attempt code for executors that run before the first tool event. */
 const attemptSource = `
-const __aliases = ${JSON.stringify(Object.values(aliases))}, __entries = ${JSON.stringify(newEntries)};
+const __aliases = ${JSON.stringify(Object.values(aliases))}, __entries = ${JSON.stringify(newEntries)}, __areas = ${JSON.stringify(writableAreas)};
 function __attempt(fs) {
   const results = [];
   const run = (op, path, fn) => { try { fn(); results.push({ op, path, ok: true }); } catch (e) { results.push({ op, path, ok: false, code: e.code }); } };
@@ -81,13 +83,25 @@ function __attempt(fs) {
     run("mkdir", path, () => fs.mkdirSync(path.replace(/\.md$/, "-dir")));
     run("create", path, () => fs.writeFileSync(path, ${JSON.stringify(ESCAPE)}));
   }
+  // From inside each writable area: a symlink written through, a hardlink and
+  // a rename into the area. The created link is removed whatever happens.
+  const areaWritable = [];
+  for (const dir of __areas) {
+    let writable = true; try { fs.accessSync(dir, fs.constants.W_OK); } catch { writable = false; }
+    areaWritable.push(writable);
+    const link = dir + "/policy-link-" + process.pid;
+    run("area-symlink-write", link, () => { fs.symlinkSync(${JSON.stringify(policyPath)}, link);
+      try { fs.appendFileSync(link, ${JSON.stringify(ESCAPE)}); } finally { fs.unlinkSync(link); } });
+    run("area-hardlink", dir, () => fs.linkSync(${JSON.stringify(policyPath)}, dir + "/policy-hardlink-" + process.pid));
+    run("area-rename", dir, () => fs.renameSync(${JSON.stringify(policyPath)}, dir + "/crew.md"));
+  }
   const scratch = process.env.BRAIN_WORKER_SCRATCH;
   const policy = fs.statSync(${JSON.stringify(policyPath)});
   const aliased = [];
   const walk = dir => { for (const name of fs.readdirSync(dir)) { const p = dir + "/" + name; const s = fs.lstatSync(p);
     if (s.isDirectory()) walk(p); else if (s.dev === policy.dev && s.ino === policy.ino) aliased.push(p); } };
   if (scratch) walk(scratch);
-  return { results, scratchAliases: aliased, scratch: Boolean(scratch) };
+  return { results, scratchAliases: aliased, scratch: Boolean(scratch), areaWritable };
 }`;
 
 async function outer(): Promise<void> {
@@ -99,6 +113,7 @@ async function outer(): Promise<void> {
   const index = core.openDatabase(context.dbPath);
   await core.indexAll(index, { root: brainPath, taxonomy: context.taxonomy, force: true, quiet: true }); index.close();
   mkdirSync(policyDir, { recursive: true }); mkdirSync(hostScratch, { recursive: true });
+  for (const dir of writableAreas) mkdirSync(dir, { recursive: true });
   writeFileSync(policyPath, POLICY);
   writeFileSync(notebookPath, JSON.stringify({ cells: [{ cell_type: "markdown", id: "crew", source: [POLICY], metadata: {} }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
   writeFileSync(targetPath, TARGET);
@@ -112,7 +127,10 @@ async function outer(): Promise<void> {
   for (const file of ["race-dir/log.md", "race-hard.md", "race-sym.md", "race-ancestor/keep.md"])
     writeFileSync(join(brainPath, "notes", file), `---\ntype: note\n---\nOdysseus guards ${file}.\n`);
   // Case 7: an indirect script and a nested script, both inside the brain.
-  const writes = Object.values(aliases).concat(newEntries).map(p => `printf '${ESCAPE}' >> '${p}' 2>&1 || echo "denied ${p}"`).join("\n");
+  const writes = Object.values(aliases).concat(newEntries).map(p => `printf '${ESCAPE}' >> '${p}' 2>&1 || echo "denied ${p}"`)
+    .concat(writableAreas.flatMap(dir => [`ln '${policyPath}' '${dir}/policy-hardlink' 2>&1 || echo "denied hardlink into ${dir}"`,
+      `ln -s '${policyPath}' '${dir}/policy-symlink' 2>&1 && { printf '${ESCAPE}' >> '${dir}/policy-symlink' 2>&1 || echo "denied symlink write in ${dir}"; rm -f '${dir}/policy-symlink'; }`]))
+    .join("\n");
   writeFileSync(join(brainPath, "indirect-write.sh"), `${writes}\nprintf 'Odysseus scratch succeeds' > "\${BRAIN_WORKER_SCRATCH:-/tmp/brain-worker-scratch}/raft.txt" && cat "\${BRAIN_WORKER_SCRATCH:-/tmp/brain-worker-scratch}/raft.txt"\n`);
   writeFileSync(join(brainPath, "nested-write.sh"), `bash -c 'bash ${join(brainPath, "indirect-write.sh")}' & wait\n`);
   writeFileSync(join(brainPath, "attack.py"), ATTACK_PY);
