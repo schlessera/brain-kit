@@ -10,6 +10,13 @@ identity, fingerprint and disposition definitions that implement it are in
 [What the implementation defines](#what-the-implementation-defines) (#1024);
 selection is defined in [the selection contract](../integration-contract/package-api.md#hygiene-selection-additive-1026) (#1026). The review interface remains separate work.
 
+> **2026-10-10 — Implementation context (the review interface above).** The
+> human-started review interface is now implemented in Actions. Its start,
+> pause, resume, refresh and read operations, confirmed dispositions and
+> check-only interrupted-write recovery are specified in
+> [the review contract](../integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
+> The deterministic policy in this record still binds.
+
 The [shared Queue/Actions decision](async-collaboration.md) continues to govern
 durable Action identity, validated effects, authorization, idempotency and
 recovery. Hygiene review consumes that lifecycle without replacing #51's complete
@@ -322,3 +329,29 @@ requires Resume to admit a card; Refresh cannot resume that path.
 The supported operation and read-only targeted CLI projection are defined in
 [the human-review contract](../integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
 React consumes those operations and never selects or counts the replacement.
+
+
+## Browser, server and CLI proof
+
+The [native Odysseus loop](../../packages/ui-react/tests/browser/hygiene-loop.layout.tsx)
+uses the shipped Actions controls, real server routes and stream, durable
+SQLite state and actual CLI subprocesses at 320px and 1280px. Its fixture pins
+the corpus clock and filesystem times while leaving detection, selection,
+repair and validation real. It verifies exact field/choice/Undo bytes, joined
+provenance, deterministic ordering, stale and failed checks, pause/reload/
+reconnect, two-device serialization and a server kill after publication before
+the outcome transaction. Recovery checks the interrupted effect without a
+second resolve. Completion receives keyboard focus and retains the disposition
+counters. A subsequent evidence edit and server restart return the dismissed
+finding with its token-change receipt, while an unrelated heading edit preserves
+a different dismissal. Dismissed validation errors still fail the actual CLI.
+
+Completion visibility precedes its scheduled keyboard-focus handoff. The native
+loop holds the mounted completion's animation frames, observes confirmed server
+completion and the visible heading, then releases the frame before asserting
+focus. A second device enters an editable target between mounting and frame
+execution; completion must preserve that focus. No fixed delay or retry substitutes
+for either observation.
+
+This human-started loop establishes no autonomous production enablement. The
+shared Queue/Actions decision and its complete-system gate remain separate.

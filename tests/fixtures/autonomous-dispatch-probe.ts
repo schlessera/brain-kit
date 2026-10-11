@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "../..");
-const [adapter, scenario, root] = process.argv.slice(2) as ["claude" | "pi", "exact" | "input" | "path" | "tool", string];
+const [adapter, scenario, root] = process.argv.slice(2) as ["claude" | "pi", "exact" | "input" | "path" | "tool" | "settlement", string];
 const brainPath = join(root, "brain");
 const receiptPath = join(root, "receipt.json");
 const KEY = "sk-odysseus-fixture-relay-key";
@@ -62,6 +62,13 @@ async function main(): Promise<void> {
     // One tool call per turn, then a closing text once a result came back.
     const chosen = messages.includes("tool_result") || kind === "other" ? null : kind === "follow-up" ? followUp : proposal;
     const reply = ++calls;
+    // Hold the continuation before any usage arrives. Unlike the old fixture,
+    // it cannot race the checkpoint abort with a complete final result.
+    if (scenario === "settlement" && !chosen) return new Response(new ReadableStream({
+      start(controller) {
+        request.signal.addEventListener("abort", () => { try { controller.close(); } catch {} }, { once: true });
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
     const events: unknown[] = [{ type: "message_start", message: { id: `msg_${reply}`, type: "message", role: "assistant", model: "claude-sonnet-4-6",
       content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }];
     if (chosen) events.push({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `toolu_${reply}`, name: chosen.name, input: {} } },
@@ -107,7 +114,7 @@ async function main(): Promise<void> {
   const proposed = decisions();
   const approve = proposed.find(action => action.options.some(option => option.id === "apply"));
   let followUpId: string | undefined;
-  if (approve) {
+  if (approve && scenario !== "settlement") {
     const envelope = createInboxOperationEnvelope(db);
     const request = { type: "inbox_resolve" as const, itemId: approve.id, optionId: "apply" };
     followUpId = createInboxResolver(db, { allowedOperations: envelope }).resolve(principal.id, request).followUpId;
@@ -124,7 +131,7 @@ async function main(): Promise<void> {
     arrival: store.getItem(arrival.itemId), followUp: followUpId ? store.getItem(followUpId) : null,
     executes: store.snapshot().items.filter(item => item.queue === "queue" && item.type === "execute").length,
     files: { note: read(NOTE), suitors: read("notes/suitors.md"), existing: read(EXISTING) === existing ? "unchanged" : read(EXISTING) },
-    reservations: db.query("SELECT purpose, status, charged_turns FROM inbox_budget_reservations ORDER BY rowid").all(),
+    reservations: db.query("SELECT purpose, status, charged_turns, observed_cost_usd, charged_cost_usd, reserved_cost_usd FROM inbox_budget_reservations ORDER BY rowid").all(),
     checkpoints: db.query("SELECT facts_json FROM inbox_checkpoints WHERE id NOT LIKE 'triage-%' ORDER BY rowid").all()
       .map(row => JSON.parse((row as { facts_json: string }).facts_json).operations) }));
   await runtime.close(); await intake.close(); upstream.stop(true); db.close();

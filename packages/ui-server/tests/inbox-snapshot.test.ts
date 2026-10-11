@@ -104,7 +104,6 @@ async function world() {
   notices.enroll(AT);
   const attempt = notices.beginAttempt({ endpoint, principalId: principal.id }, AT + 60_000)!;
   notices.finishAttempt(attempt.attemptId, "success", AT + 60_000);
-  expect(notices.digest(ctx(principal), AT).status).toBe("ready");
   store.openReviewThread("hygiene-review");
   const hygiene: InboxActionItem = { id: "hygiene-action", dedupKey: "hygiene-action", threadId: "hygiene-review", queue: "actions", type: "choose", status: "pending", version: 1, createdAt: AT, updatedAt: AT, expiresAt: AT + YEAR,
     payload: { title: "Review the Ithaca route", detail: "journeys/return-to-ithaca.md" },
@@ -115,6 +114,12 @@ async function world() {
   db.query("INSERT INTO hygiene_review VALUES (1, ?)").run(JSON.stringify({ version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0, pendingActionId: hygiene.id }));
   db.query("INSERT INTO hygiene_effect_attempts (id, item_id, principal_id, request_json, effect_json, status, result_json) VALUES (?, ?, ?, ?, ?, 'finished', ?)").run("hygiene-attempt", hygiene.id, principal.id,
     JSON.stringify({ type: "inbox_resolve", itemId: hygiene.id, optionId: "check" }), JSON.stringify(hygiene.options[0]!.effect), JSON.stringify({ status: "still_detected", id: "ithaca-link" }));
+  // Escalations are push class even at low stakes. Populate digest coverage
+  // with the ordinary, unmarked hygiene decision instead of a blocked turn.
+  const digest = notices.digest(ctx(principal), AT);
+  expect(digest.status).toBe("ready");
+  if (digest.status !== "ready") throw new Error("Fixture digest is missing");
+  expect(digest.latest?.waiting.map(entry => entry.itemId)).toEqual([hygiene.id]);
   writeFileSync(join(root, "content.md"), "Odysseus's content stays in git.");
   return { root, path, db, store, principal, budget, records };
 }

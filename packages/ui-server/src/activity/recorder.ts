@@ -51,6 +51,8 @@ export interface TurnRecorder {
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
   observeActivity(event: BackendActivityEvent): void;
+  /** Successful server checkpoint followed by a normal backend unwind. */
+  recordAutonomousStop(): void;
   /** Record that this turn's principal was revoked while work kept running. */
   recordPrincipalRevocation(principalId: string): void;
   /** Record a live follow-up that joined this already-running turn. */
@@ -112,6 +114,9 @@ export function createTurnRecorder(
   let resultOutcome: SpanOutcome | null = null;
   let resultUsage: SpanUsage | undefined;
   let resultAttrs: Record<string, unknown> | undefined;
+  let completedUsage: TurnUsage | undefined;
+  let atToolBoundary = false;
+  let autonomousStop = false;
   let principalRevocationRecorded = false;
   /** An auth failure was reported: whatever the result frame claims, the run failed. */
   let authFailed = false;
@@ -226,6 +231,9 @@ export function createTurnRecorder(
             break;
           }
           case "tool_result": {
+            // After the tool returns, the runtime may start another request
+            // before any response header/message_start is visible to us.
+            atToolBoundary = false;
             // endSpan is write-once: a span already closed (a denial landed
             // the outcome first) rejects this as a no-op, and an unknown
             // span id is equally a no-op — no bookkeeping set needed.
@@ -272,6 +280,12 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         switch (event.kind) {
+          case "autonomous_usage": {
+            if (turn.origin !== "autonomous") break;
+            completedUsage = structuredClone(event.usage);
+            atToolBoundary = event.atToolBoundary;
+            break;
+          }
           case "autonomous_identity": {
             ensureRoot();
             store.patchSpan(rootSpanId, { attrs: { "brain.runtime.session_id": event.runtimeSessionId,
@@ -447,6 +461,8 @@ export function createTurnRecorder(
       });
     },
 
+    recordAutonomousStop() { autonomousStop = true; },
+
     finish(disposition) {
       guard(() => {
         if (finished) return;
@@ -463,6 +479,16 @@ export function createTurnRecorder(
             : authFailed
               ? "error"
               : (resultOutcome ?? disposition);
+        // A server checkpoint is an expected cancellation, not a crash. The
+        // runtime's cancelled result may omit usage (Claude) or include an
+        // unfinished answer (pi). Completed responses are the lower bound.
+        if (autonomousStop && disposition === "cancelled" && completedUsage) {
+          const reportedCost = resultUsage?.costUsd;
+          resultUsage = usageFromTurnUsage(completedUsage);
+          resultAttrs = { ...resultAttrs, "gen_ai.usage.per_model": completedUsage.perModel,
+            "brain.usage.completed_responses": true, "brain.usage.at_tool_boundary": atToolBoundary,
+            ...(reportedCost != null ? { "brain.usage.reported_cost_usd": reportedCost } : {}) };
+        }
         store.endSpan(rootSpanId, {
           outcome,
           usage: resultUsage,

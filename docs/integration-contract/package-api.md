@@ -189,6 +189,16 @@ frames internally. Exactly one terminal result ends an established runtime turn;
 pre-identity failures may end on a bare error. Principal revocation aborts work
 visibly. No client/model wire payload selects this mode or its authority.
 
+The additive server-only `BackendActivityEvent` variant `autonomous_usage`
+contains `{ usage: TurnUsage, atToolBoundary: boolean }`: cumulative usage of
+completed top-level responses and whether the restricted sequential runtime is
+still at that response's tool-execution boundary. It never claims a whole-turn
+invoice and adds no client frame. Claude counts Messages API `message_stop`
+receipts; pi counts completed assistant `message_end` receipts, excluding aborted
+and error answers. Server checkpoint settlement uses these receipts as described
+in the [budget guide](../inbox-budget.md). Backends without this optional reporting
+retain conservative missing-receipt settlement.
+
 The Activity origin vocabulary adds `"autonomous"` for spans and run rollups.
 The SDK schemas accept it, and existing origin filtering selects these runs
 without including interactive or cron work. Runtime identity, usage and principal

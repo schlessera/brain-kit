@@ -11,7 +11,7 @@ coordinator.
 
 The autonomous runner calls a synchronous checkpoint callback before denying
 a permission and aborting the backend. The writer
-(`escalateInbox`, `packages/ui-server/src/inbox/escalate.ts:21-53`) verifies the current
+(`escalateInbox`, `packages/ui-server/src/inbox/escalate.ts:21-55`) verifies the current
 claim/version, lease, run and principal-bound active reservation. One immediate
 SQLite transaction appends the checkpoint, validates and inserts the Action,
 and blocks the source item. Checkpoint facts retain the requested operation,

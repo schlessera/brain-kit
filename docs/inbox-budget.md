@@ -98,6 +98,20 @@ at least the reservation and any larger observed lower bound. An empty map or
 one zero field is not proof of a free call. Complete explicit zero usage is
 zero; confirmed subscription billing is also zero dollars while counting turns.
 
+Successful escalation/yield checkpoints are expected cancellations. First-party
+restricted backends report cumulative completed-response receipts through Activity.
+The server uses them only after a successful checkpoint, cancellation and normal
+backend unwind, recording their priced cost as the observed lower bound. At a
+completed tool-response boundary the sequential runtime has no inference request
+in flight, so the allowance is zero. A new response start or tool result clears
+that boundary: another request may already be underway before its headers arrive.
+In that uncertain case the charged amount is completed spend **plus one frozen
+operation estimate**, used as a conservative single-request allowance. This bound
+is an admission estimate under the existing ruling, not an enforced provider
+invoice ceiling; known spend and overruns are never clipped. Missing/incomplete
+receipts, failed checkpoints, external cancellation, revocation and crashes keep
+the existing whole-reservation rule. Unknown pricing/billing stays conservative.
+
 Actual runtime billing evidence overrides the selected classification. An
 observed API call cannot be erased by an expected subscription classification;
 explicitly unknown billing remains unknown and charged conservatively.

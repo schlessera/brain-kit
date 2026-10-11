@@ -249,12 +249,18 @@ Durable waiting decisions reach their recipients under the
   `ActionDigestSummary` is `{ generatedAt, slotAt, timeZone, waiting, updates }`,
   exported with `ActionDigestEntry` and `ActionDigestState` from
   `@schlessera/brain-ui-sdk/protocol`. `waiting` lists new or reawakened
-  below-cutoff decisions (`{ itemId, threadId, title, episodeId }`); `updates`
+  below-cutoff decisions without the server's blocking-escalation marker
+  (`{ itemId, threadId, title, episodeId }`); `updates`
   lists new FYIs. Generation is not a delivery or read receipt.
 - **Persistence.** Migration `031_inbox_notifications.sql` adds the episode,
   window, constituent, attempt, digest and coverage relations and the
   `push_subscriptions.time_zone` columns. They are authoritative operational
   state, included in the operational backup and the store's export.
+  Migration `037_blocking_escalation.sql` adds an immutable server-owned
+  blocking-escalation marker to Action context. Under #1553 it permits a
+  dispatcher decision blocking autonomous work to push at any score; quiet
+  hours, batching and receipts still apply. The marker is never accepted from
+  model/client output and adds no wire or notification payload field.
 
 Existing activity intents, their payloads, suppression, retry and digest
 coverage are unchanged.
