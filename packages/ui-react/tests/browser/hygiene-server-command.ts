@@ -11,7 +11,7 @@ type Op =
   | { op: "set"; id: string; patch: Record<string, unknown> }
   | { op: "stop"; id: string }
   | { op: "ax"; selector: string }
-  | { op: "native"; id: string; width: number; theme: string; completion?: "fix" | "check" | "dismiss" | "later" }
+  | { op: "native"; id: string; width: number; theme: string; completion?: "fix" | "check" | "dismiss" | "later"; limitReload?: "both" }
   | { op: "capture"; name: string; selector: string };
 const servers = new Map<
   string,
@@ -159,6 +159,24 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         }
         await route.continue();
       });
+      if (p.limitReload) {
+        const a = await context.newPage();
+        await a.goto(`${origin}/c5-native`);
+        await a.locator('[data-hygiene-limit="L1"]').waitFor();
+        await a.getByRole("button", { name: "Resume hygiene review: bring back the set-aside finding", exact: true }).click();
+        await a.locator('[data-hygiene-limit="L3"]').waitFor();
+        await a.reload();
+        await a.locator('[data-hygiene-limit="L1"]').waitFor();
+        if (await a.locator('[data-hygiene-limit="L3"]').count()) throw new Error("reload retained device-local L3");
+        await fetch(`${s.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ makeRoom: true }) });
+        await a.getByRole("button", { name: "Resume hygiene review: bring back the set-aside finding", exact: true }).press("Enter");
+        await a.locator("[data-hygiene-title]:focus").waitFor();
+        await a.reload();
+        await a.locator("[data-hygiene-id]").first().waitFor();
+        if (await a.locator("[data-hygiene-limit]").count()) throw new Error("active reload lost L2");
+        if (diagnostics.length) throw new Error(diagnostics.join("\n"));
+        return { reload: "L1/L2", localRepeat: "L3" };
+      }
       if (p.completion) {
         const patch = async (body: Record<string, unknown> = {}) => {
           const response = await fetch(`${s.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -202,6 +220,8 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         if ((await patch()).read.review.status !== "complete") throw new Error("server must independently confirm empty selection before browser completion");
         await a.getByText("Review complete", { exact: true }).first().waitFor({ timeout: 5000 });
         await b.getByText("Review complete", { exact: true }).first().waitFor({ timeout: 5000 });
+        // Visibility precedes the strip's scheduled focus handoff.
+        await a.locator("[data-hygiene-complete]:focus").waitFor();
         if (await a.evaluate(() => document.activeElement?.textContent) !== "Review complete") throw new Error("confirmed completion must focus its heading");
         if (await b.evaluate(() => document.activeElement?.id) !== "typing") throw new Error("remote completion must preserve typing focus");
         const settled = await patch();
@@ -229,7 +249,7 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
       await a.getByText("Hygiene review paused", { exact: true }).waitFor({ timeout: 5000 });
       if ((await a.locator("[data-hygiene-id]").first().getAttribute("data-hygiene-id")) !== id)
         throw new Error("native reload changed the pending Action");
-      await a.getByRole("button", { name: "Resume", exact: true }).click();
+      await a.getByRole("button", { name: "Resume hygiene review", exact: true }).click();
       await a.getByText("● Hygiene review · 1 of 2 open", { exact: true }).waitFor({ timeout: 5000 });
       await a.evaluate(() => (window as unknown as { __c5Reconnect(): void }).__c5Reconnect());
       await a.getByText("● Hygiene review · 1 of 2 open", { exact: true }).waitFor({ timeout: 5000 });

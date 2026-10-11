@@ -75,6 +75,9 @@ export function useHygieneReview() {
   const commandRequest = useRef(0);
   const awaited = useRef<{ id: string; version: number } | null>(null);
   const [focus, setFocus] = useState(0);
+  const [resumeFocus, setResumeFocus] = useState(0);
+  const resumeAwaited = useRef(false);
+  const [reRetiredReceipt, setReRetiredReceipt] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     const token = ++request.current;
     try {
@@ -97,6 +100,8 @@ export function useHygieneReview() {
   useEffect(() => {
     setRead(IDLE);
     setLoading(false);
+    setReRetiredReceipt(null);
+    resumeAwaited.current = false;
     return () => {
       request.current++;
       commandRequest.current++;
@@ -106,18 +111,26 @@ export function useHygieneReview() {
     async (op: HygieneReviewCommand["operation"]) => {
       const token = ++request.current;
       const commandToken = ++commandRequest.current;
+      const previousReceipt = read.review.pauseReason?.retirementReceiptId;
       setLoading(true);
       setError(null);
       try {
         const next = await root.api.hygieneCommand(op);
+        if (commandToken !== commandRequest.current) return;
         if (token === request.current) setRead(next);
+        if (op === "resume") {
+          const reason = next.review.pauseReason;
+          setReRetiredReceipt(next.review.status === "paused" && reason?.kind === "actions-limit" &&
+            reason.retirementReceiptId !== previousReceipt ? reason.retirementReceiptId : null);
+          resumeAwaited.current = next.review.status === "active";
+        }
       } catch {
         if (token === request.current) setError("Couldn't load the review. Check the connection and try again.");
       } finally {
         if (commandToken === commandRequest.current) setLoading(false);
       }
     },
-    [root]
+    [root, read.review.pauseReason]
   );
   useEffect(() => {
     if (!startRequested) return;
@@ -149,6 +162,12 @@ export function useHygieneReview() {
   }, [items, read]);
   const streamed = read.review.pendingActionId ? items[read.review.pendingActionId] : undefined;
   const action = streamed?.queue === "actions" ? streamed : read.action;
+  useEffect(() => {
+    if (loading || !resumeAwaited.current || read.review.status !== "active" || !read.review.pendingActionId || streamed?.queue !== "actions" || streamed.status !== "pending") return;
+    resumeAwaited.current = false;
+    setFocus((n) => n + 1);
+    setResumeFocus((n) => n + 1);
+  }, [read, streamed, loading]);
   // A disposition delta can arrive before CLI selection settles. Completion
   // changes only the REST review, so keep reading that transient gap on every
   // connected device. These reads never select or replay the disposition.
@@ -175,6 +194,9 @@ export function useHygieneReview() {
     command,
     refresh,
     focus,
+    resumeFocus,
+    setAsideAgain: read.review.status === "paused" && !!reRetiredReceipt &&
+      read.review.pauseReason?.retirementReceiptId === reRetiredReceipt,
     onSent: (id: string) => {
       awaited.current = { id, version: root.stores.inbox.getState().items[id]?.version ?? 0 };
     },
@@ -197,6 +219,8 @@ export function HygieneReviewStrip({
 }) {
   const root = useBrainUiRoot();
   const [laterOpen, setLaterOpen] = useState(false);
+  const resumeButton = useRef<HTMLButtonElement>(null);
+  const restoreResumeFocus = useRef(false);
   const items = useInboxStore((s) => s.items);
   const outcomes = useInboxStore((s) => s.outcomes);
   const foreign = Object.entries(outcomes).some(
@@ -237,6 +261,19 @@ export function HygieneReviewStrip({
     .at(-1);
   const snoozeTime = snoozeReceipt ? (items[snoozeReceipt[0]] as InboxActionItem | undefined)?.waitUntil : undefined;
   const blocker = r.blocker;
+  const limited = r.status === "paused" && r.pauseReason?.kind === "actions-limit";
+  const retired = r.pauseReason ? items[r.pauseReason.retiredActionId] : undefined;
+  const retiredFinding = retired?.queue === "actions" ? retired.hygiene?.finding : undefined;
+  const retiredTitle = typeof retiredFinding?.title === "string" ? retiredFinding.title :
+    retired?.queue === "actions" ? retired.payload.title : undefined;
+  const retiredPath = typeof retiredFinding?.path === "string" ? retiredFinding.path : undefined;
+  useEffect(() => {
+    if (c.loading || !restoreResumeFocus.current) return;
+    restoreResumeFocus.current = false;
+    // Native disabled buttons lose focus while busy. Restore only the initiating
+    // button, and only if the user has not moved to another control meanwhile.
+    if (limited && document.activeElement === document.body) resumeButton.current?.focus();
+  }, [c.loading, limited]);
   return (
     <div data-hygiene-review="" className="flex flex-col gap-3">
       {showStart && (r.status === "idle" || r.status === "complete") ? (
@@ -254,7 +291,33 @@ export function HygieneReviewStrip({
           <TextButton label="Try again" onClick={() => void c.refresh()} />
         </Callout>
       ) : null}
-      {r.status === "active" || r.status === "paused" ? (
+      {limited ? (
+        <div role="status" data-hygiene-limit={c.setAsideAgain ? "L3" : "L1"}>
+          <Callout tone={c.setAsideAgain ? "gold" : "neutral"} variant="boxed">
+            <span className="flex flex-wrap items-start gap-x-3 gap-y-1">
+              <span className="min-w-0 flex-1" style={{ flexBasis: 200, overflowWrap: "anywhere" }}>
+                <span className="block" style={{ color: color.ink, fontWeight: 600 }}>
+                  {c.setAsideAgain ? "Still paused · Actions is still full" : "Hygiene review paused · Actions is full"}
+                </span>
+                <span className="block">
+                  {c.setAsideAgain
+                    ? "Resume brought the finding back, but it was set aside again straight away. Answer or dismiss a few decisions below, then resume."
+                    : "Newer decisions filled Actions, so the current finding was set aside. Nothing was fixed, dismissed or snoozed."}
+                </span>
+                {retiredTitle ? <span className="mt-1 block" style={{ fontFamily: font.mono, fontSize: 10, color: color.inkMute }}>
+                  Set aside: {retiredTitle}{retiredPath ? ` · ${retiredPath}` : ""}
+                </span> : null}
+              </span>
+              <TextButton ref={resumeButton} label={c.loading ? "Resuming…" : "Resume"}
+                ariaLabel="Resume hygiene review: bring back the set-aside finding"
+                disabled={c.loading} style={{ minHeight: 44 }} onClick={() => {
+                  restoreResumeFocus.current = document.activeElement === resumeButton.current;
+                  void c.command("resume");
+                }} />
+            </span>
+          </Callout>
+        </div>
+      ) : r.status === "active" || r.status === "paused" ? (
         <div
           data-hygiene-strip=""
           className="flex flex-wrap items-center gap-2 rounded-[10px] border border-border-subtle px-3 py-1 text-xs"
@@ -266,6 +329,7 @@ export function HygieneReviewStrip({
           </span>
           <TextButton
             label={r.status === "paused" ? "Resume" : "Pause"}
+            ariaLabel={r.status === "paused" ? "Resume hygiene review" : undefined}
             disabled={c.loading}
             onClick={() => void c.command(r.status === "paused" ? "resume" : "pause")}
           />

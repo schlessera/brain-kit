@@ -8,6 +8,7 @@ import { reviewUrgency, selectHygieneNext } from "../src/lib/hygiene-next";
 import { repairDetection, repairHandlers } from "../src/lib/hygiene-repair";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { hygieneCliClock } from "./hygiene-clock";
 
 const NOW = new Date("2026-07-12T12:00:00Z");
 const roots: string[] = [];
@@ -188,26 +189,32 @@ describe("hygiene next real CLI", () => {
     expect(refused.code).toBe(1); expect(refused.stderr).toContain("--finding needs an ID and --dry-run");
   });
 
-  test("C4 can discover every available broken-link handler through hygiene next", async () => {
+  test.each([
+    ["forward", "2026-07-11T23:59:59.500Z", "2026-07-12T00:00:00.500Z"],
+    ["backward", "2026-07-12T00:00:00.500Z", "2026-07-11T23:59:59.500Z"],
+  ])("C4 can discover every available broken-link handler through hygiene next (%s across UTC midnight)", async (_direction, firstHostInstant, secondHostInstant) => {
+    // Host clocks straddle midnight, but discovery and both library reads
+    // share the corpus instant. Parent Date and scheduling remain untouched.
+    const runAt = hygieneCliClock(root());
     const r = root();
     write(r, "brain.config.json", "{}");
     write(r, "journeys/return-to-ithaca.md", doc("Odysseus visits [[Eumaios hut]]."));
     write(r, "places/eumaeus-hut.md", doc("The swineherd's hut.").replace("title: Return to Ithaca", "title: Eumaios hut"));
-    const reconciled = await runCli(r, ["hygiene", "reconcile", "--json"]);
-    expect(reconciled.code).toBe(0);
-    const { findings } = await repairDetection(context(r), new Date());
+    const reconciled = await runAt(r, ["hygiene", "reconcile", "--json"], NOW.toISOString(), firstHostInstant);
+    expect(reconciled.code, reconciled.stderr).toBe(0);
+    const { findings } = await repairDetection(context(r), NOW);
     const finding = findings.get(hygieneId("broken-link", "journeys/return-to-ithaca.md", "Eumaios hut"))!;
     const expected = repairHandlers(context(r), finding);
     expect(expected.map(h => h.name)).toEqual(["link-suggested", "link-note", "link-text"]);
     const before = snapshot(r);
-    const result = await runCli(r, ["hygiene", "next", "--json"]);
-    expect(result.code).toBe(0);
+    const result = await runAt(r, ["hygiene", "next", "--json"], NOW.toISOString(), secondHostInstant);
+    expect(result.code, result.stderr).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(Array.isArray(out.finding.handlers)).toBe(true);
     expect(out.finding.handlers).toEqual(expected);
     expect(out.finding.handlers[0].suggestedPath).toBe("places/eumaeus-hut.md");
     const { handlers: _handlers, ...selection } = out.finding;
-    const selected = selectHygieneNext(r, findings, readHygieneLog(r), new Date());
+    const selected = selectHygieneNext(r, findings, readHygieneLog(r), NOW);
     expect(selection).toEqual(selected.finding);
     expect(out.counts).toEqual(selected.counts);
     expect(selection.handler).toBe("manual");
@@ -216,6 +223,8 @@ describe("hygiene next real CLI", () => {
     const durable = (files: Record<string, string>) => Object.fromEntries(Object.entries(files)
       .filter(([path]) => !path.startsWith("brain.db") && path !== "context/hygiene/last-run.md"));
     expect(durable(snapshot(r))).toEqual(durable(before));
+    expect(readFileSync(join(r, "context/hygiene/open.md"), "utf8"))
+      .toContain("**First seen**: 2026-07-12 · **Last seen**: 2026-07-12");
   });
 
   for (const match of ["absent", "ambiguous"]) test(`${match} suggestion keeps both explicit broken-link choices`, async () => {

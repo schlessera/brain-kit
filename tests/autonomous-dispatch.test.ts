@@ -59,6 +59,19 @@ function proposed(r: any, adapter: string): void {
 }
 
 for (const adapter of ["claude", "pi"] as const) describe(`${adapter} follow-up scope through the production dispatcher`, () => {
+  test("an escalated API turn retains completed response usage without a final provider result", async () => {
+    const r = await probe(adapter, "settlement");
+    expect(r.proposed).toHaveLength(1);
+    const execution = r.reservations.find((x: any) => x.purpose === "execute");
+    expect(execution.status).toBe("settled");
+    expect(execution.observed_cost_usd, "COMPLETED_RESPONSE_COST").toBe(0.000008);
+    const calls = r.requests.filter((q: any) => q.kind === "agent-tier").length;
+    expect(calls, "RESTRICTED_SEQUENTIAL_REQUESTS").toBe(adapter === "claude" ? 2 : 1);
+    expect(execution.charged_cost_usd, "UNCERTAIN_CONTINUATION_COVERED").toBe(adapter === "claude" ? 0.062008 : 0.000008);
+    expect(execution.charged_cost_usd, "KNOWN_SPEND_COVERED").toBeGreaterThanOrEqual(execution.observed_cost_usd);
+    expect(execution.charged_cost_usd, "BOUNDED_REQUEST_ALLOWANCE").toBeLessThanOrEqual(execution.observed_cost_usd + execution.reserved_cost_usd);
+  }, TIMEOUT);
+
   test("the approved follow-up applies exactly the authorized operation once", async () => {
     const r = await probe(adapter, "exact");
     proposed(r, adapter);

@@ -239,6 +239,13 @@ export type ActivityQueryResult = Record<string, unknown>;
  */
 export type BackendActivityEvent =
   | {
+      /** Cumulative completed responses only; never an invoice for the whole turn. */
+      kind: "autonomous_usage";
+      usage: import("../protocol.js").TurnUsage;
+      /** The sequential runtime is executing tools from a fully received response. */
+      atToolBoundary: boolean;
+    }
+  | {
       /** Runtime identity without advertising a resumable interactive session. */
       kind: "autonomous_identity";
       runtimeSessionId: string;

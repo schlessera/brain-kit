@@ -33,6 +33,7 @@ import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { validate } from "../src/lib/validate";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { hygieneCliClock } from "./hygiene-clock";
 
 const DOC = "journeys/return-to-ithaca.md";
 const NOW = new Date("2026-07-12T09:00:00Z");
@@ -387,16 +388,31 @@ describe("brain hygiene dismiss/snooze (fresh processes)", () => {
   });
 
   test("a snooze holds until its due time, then the unchanged finding returns", async () => {
+    // Child completion can take arbitrarily long: eligibility depends only
+    // on these explicit corpus instants, never a 2.5-second host deadline.
+    const scratch = makeTempBrain({ empty: true });
+    roots.push(scratch);
+    const runAt = hygieneCliClock(scratch);
     const root = brain();
-    const fp = (await reconcileCli(root)).detected.find((d: { id: string }) => d.id === BROKEN_ID).fingerprint;
-    const until = new Date(Date.now() + 2500).toISOString();
-    const snoozed = await cli(root, "hygiene", "snooze", BROKEN_ID, "--until", until, "--expect-fingerprint", fp);
-    expect({ code: snoozed.code, stderr: snoozed.stderr }).toMatchObject({ code: 0 });
-    expect(snoozed.out).toMatchObject({ status: "snoozed", until });
-    expect(await reconcileCli(root)).toMatchObject({ snoozed: 1, reopened: 0 });
-    await Bun.sleep(Math.max(0, Date.parse(until) - Date.now()) + 100);
-    expect(await reconcileCli(root)).toMatchObject({ snoozed: 0, reopened: 1, invalidated: 0 });
-    expect((await listCli(root)).find((e) => e.id === BROKEN_ID)).toMatchObject({ state: "open", disposition: null });
+    const cliAt = async (now: Date, ...args: string[]) => {
+      const result = await runAt(root, ["hygiene", ...args, "--json"], now.toISOString());
+      expect(result.code, result.stderr).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    const fp = (await cliAt(NOW, "reconcile")).detected.find((d: { id: string }) => d.id === BROKEN_ID).fingerprint;
+    const until = at(2500).toISOString();
+    const snoozed = await cliAt(NOW, "snooze", BROKEN_ID, "--until", until, "--expect-fingerprint", fp);
+    expect(snoozed).toMatchObject({ status: "snoozed", until });
+    expect(await cliAt(at(2499), "reconcile"), "snooze remains not due one millisecond before until")
+      .toMatchObject({ snoozed: 1, reopened: 0 });
+    const beforeDue = await cliAt(at(2499), "next");
+    expect(beforeDue.finding?.id, "not-due snooze is excluded from selection").not.toBe(BROKEN_ID);
+    expect(beforeDue.counts.snoozed).toBe(1);
+    expect(await cliAt(at(2500), "reconcile"), "unchanged snooze reopens at its exact due instant")
+      .toMatchObject({ snoozed: 0, reopened: 1, invalidated: 0 });
+    expect((await cliAt(at(2500), "list")).entries.find((e: { id: string }) => e.id === BROKEN_ID))
+      .toMatchObject({ state: "open", disposition: null, fingerprint: fp });
+    expect((await cliAt(at(2500), "next")).finding?.id, "due unchanged finding is eligible again").toBe(BROKEN_ID);
   });
 
   test("a stale --expect-fingerprint exits non-zero with a structured refusal and writes nothing", async () => {

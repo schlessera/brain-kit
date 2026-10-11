@@ -131,6 +131,7 @@ export function createClaudeTurnRunner(options: {
 
     const adapter = new StreamAdapter(req.bridge.activity, {
       subscriptionAuth: profile.billing !== "api",
+      autonomousUsage: req.autonomous?.containment === "restricted",
     });
     const reportActivity = (event: BackendActivityEvent): void => {
       try {
