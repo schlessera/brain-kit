@@ -105,7 +105,10 @@ describe("failed-turn outgoing class allowlist", () => {
     failLive({ errorClass, message: "Odysseus: turn refused." });
     const view = renderAssistant();
     const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
-    for (const action of ["Copy details", "Report a bug"]) {
+    // A host refusal is the operator's to fix, so its card offers no Report (#1632); Copy still carries the class.
+    const actions = errorClass === "worker_host_unsupported" ? ["Copy details"] : ["Copy details", "Report a bug"];
+    if (errorClass === "worker_host_unsupported") expect(view.queryByRole("button", { name: "Report a bug" })).toBeNull();
+    for (const action of actions) {
       fireEvent.click(view.getByRole("button", { name: action }));
       const body = (view.getByRole("textbox", { name: "Exact outgoing text" }) as HTMLTextAreaElement).value;
       expect(body).toBe(`brain-kit failed turn\nprotocol: 5\nclass: ${expected}`);

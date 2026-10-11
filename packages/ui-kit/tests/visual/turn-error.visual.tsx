@@ -116,7 +116,10 @@ for (const errorClass of ["worker_host_unsupported", "auth_failure", "third_part
   test(`review retains only registered failure classes: ${errorClass}`, async () => {
     const el = mount({ errorClass, message: "Odysseus: turn refused." });
     const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
-    for (const action of ["Copy details", "Report a bug"]) {
+    // A host refusal is the operator's to fix, so its card offers no Report (#1632); Copy still carries the class.
+    const refusal = errorClass === "worker_host_unsupported";
+    if (refusal) expect(button(el, "Report a bug")).toBeUndefined();
+    for (const action of refusal ? ["Copy details"] : ["Copy details", "Report a bug"]) {
       await userEvent.click(button(el, action));
       const dialog = document.querySelector<HTMLDialogElement>("dialog")!;
       expect(dialog.querySelector<HTMLTextAreaElement>("textarea")!.value)
