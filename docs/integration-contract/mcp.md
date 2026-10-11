@@ -156,7 +156,15 @@ errors; dry-run forms and read-only commands remain available. Machine mode emit
 `{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
 tool: string } }`. The message states that the brain is read-only here and names
 `brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
-hosted effect, including the Claude spelling. Nothing is staged or replayed;
+hosted effect, including the Claude spelling. The `tool` field keeps that value
+for every command. Additively since #1626, the pre-check asks about the
+directory a command writes: `brain scratch` and a `brain render` sent to
+`--scratch` (or rendering stdin without `--out`) check `.brain/scratch/`,
+which a hosted worker binds writable, so they run there. For `brain render`
+and `brain image` into the read-only brain the message names `--scratch` as
+the route and says to link the printed path; when `.brain/scratch/` is
+read-only as well it says nothing written now is kept. For `brain scratch` it
+says the scratch area is read-only and nothing was removed. Nothing is staged or replayed;
 read-only commands continue to work. Writable index connections retain SQLite WAL
 sidecars after clean close, so a read-only mount can read the checkpointed index
 without recreating sidecars. Human mode prints the same message to stderr.
