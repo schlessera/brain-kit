@@ -10,9 +10,12 @@ import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
 
 /** Validate before either archive or live storage is addressed. */
 export function resumedSessionId(args: string[]): string | undefined {
+  // The Agent SDK passes `--resume=<id>` as one token; accept the two-token
+  // CLI form as well.
+  const joined = args.find(arg => arg.startsWith("--resume="));
   const position = args.indexOf("--resume");
-  if (position === -1) return undefined;
-  const id = args[position + 1] ?? "";
+  if (joined === undefined && position === -1) return undefined;
+  const id = joined !== undefined ? joined.slice("--resume=".length) : args[position + 1] ?? "";
   validateSessionId(id);
   return id;
 }

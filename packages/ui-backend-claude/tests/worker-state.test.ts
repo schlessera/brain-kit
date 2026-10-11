@@ -58,6 +58,13 @@ test("resume parsing refuses a path and a missing id", () => {
   expect(() => resumedSessionId(["--resume"])).toThrow("UUID");
   expect(resumedSessionId(["--resume", ID])).toBe(ID);
 });
+test("resume parsing reads the Agent SDK's single-token --resume=<id> form", () => {
+  // The SDK builds `--resume=${id}` (sdk.mjs); a parser that only knows the
+  // two-token form copies no transcript and the real CLI cannot resume.
+  expect(resumedSessionId(["--output-format", "stream-json", `--resume=${ID}`, "--verbose"])).toBe(ID);
+  expect(() => resumedSessionId(["--resume=../x"])).toThrow("UUID");
+  expect(resumedSessionId(["--continue"])).toBeUndefined();
+});
 test("settings that cannot fit fail as worker_host_unsupported before any copy", () => {
   const write = spyOn(fs, "writeFileSync");
   try {

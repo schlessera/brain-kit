@@ -679,7 +679,11 @@ test("1279 ↔ 1280: an open Sessions drawer becomes the pane with focus in it, 
 
 for (const width of [390, 1440] as const) {
   test(`${width}: session capacity failure opens the reviewed handoff`, async (ctx) => {
-    const s = await mount(ctx, width, 640, "dark");
+    // Mount empty and open Ithaca with only this history, as mount() would:
+    // a second full history merges with the mounted one instead of replacing
+    // it, which leaves the failure far above a bottom-pinned conversation.
+    const s = await mount(ctx, width, 640, "dark", { empty: true });
+    flushSync(() => s.ui.stores.chat.getState().setActiveSession(ITHACA.id));
     // Put another backend and another same-backend model first: recovery
     // must use the pinned source profile, not roster order or backend alone.
     flushSync(() => s.ui.stores.provider.setState({
@@ -711,6 +715,10 @@ for (const width of [390, 1440] as const) {
     flushSync(() => s.ui.stores.provider.setState({
       available: [{ id: "opus", label: "Claude Opus", backendId: "claude" }],
     }));
+    // Two messages draft no summary, and nothing starts without a handoff
+    // text: write one, as a person would.
+    const draft = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+    await userEvent.fill(draft, "Odysseus continues the voyage home: Calypso still owes the sailcloth.");
     const start = () => [...document.querySelectorAll<HTMLElement>("[data-bk-button]")]
       .find(el => el.getAttribute("aria-label") === "Start new chat on Claude Opus");
     await expect.poll(start).toBeDefined();
