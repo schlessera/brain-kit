@@ -627,11 +627,17 @@ Older peers ignore these additions and show the failure without Retry.
 
 <a id="cross-backend-handoff-additive-61"></a>
 
-### Cross-backend handoff (additive, #61)
+### Session handoff (additive, #61, #1621)
 
-A session never changes backend. Continuing it on another backend creates a
-new linked session seeded with a reviewed summary and brain-file references
+A session never changes backend. A handoff to any available profile, including
+one on the source's own backend, creates a new linked session seeded with a
+reviewed summary and brain-file references
 ([decision](../decisions/session-handoff.md)).
+
+The 2026-10-11 ruling on #1621 removes the same-backend refusal: this is
+**additive behavior**, shipped in a minor. It adds no wire fields and changes
+no message shapes. A same-backend handoff always creates a distinct session;
+it never resumes or mutates the source session.
 
 ```
 HANDOFF_MAX_CHARS = 4000            HANDOFF_MAX_REFERENCES = 8
@@ -650,8 +656,8 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
 
 - **Creation.** `chat_message.handoff` is honored only on a message without
   `sessionId`, attachments, files or local exchanges, with nonempty `text` of
-  at most `HANDOFF_MAX_CHARS` and a `providerId` whose backend differs from
-  the source's. `handoffId` matches `[A-Za-z0-9_-]{8,128}`. Before anything
+  at most `HANDOFF_MAX_CHARS` and a `providerId` naming an available profile
+  on any backend, including the source's. `handoffId` matches `[A-Za-z0-9_-]{8,128}`. Before anything
   starts, the host checks that the source session is in its catalog and that
   every reference is an existing browseable brain file (contained, no dot
   segment, no database or lockfile). Any failure is an `error` frame with code

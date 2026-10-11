@@ -1,7 +1,7 @@
 import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
 mockWorkerHostForSdkStream();
 /**
- * Cross-backend handoff (#61), through the real socket path and both real
+ * Session handoff (#61), through the real socket path and both real
  * backend adapters with keyless scripted runtimes: Claude's SDK `query` is a
  * generator, pi's runtime is a scripted session. Covers creation, the
  * idempotent key under a dropped acknowledgement, failed creation and retry,
@@ -241,6 +241,8 @@ function handoffRows(r: Rig, handoffId: string) {
 }
 
 const PAIRS = [
+  { source: "claude", destination: "claude", profile: "claude" },
+  { source: "pi", destination: "pi", profile: "default" },
   { source: "claude", destination: "pi", profile: "default" },
   { source: "pi", destination: "claude", profile: "claude" },
 ] as const;
@@ -262,14 +264,16 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     const source = seedSource(r, pair.source);
     const ws = r.open();
     r.send(ws, chat(source, "h-create-0001"));
-    await until(() => ws.frames.some((f) => f.type === "result"));
+    await until(() => ws.frames.some((f) => f.type === "result" || f.code === "HANDOFF_REJECTED"));
+    expect(ws.frames.filter((f) => f.code === "HANDOFF_REJECTED")).toEqual([]);
 
     const info = ws.frames.find((f) => f.type === "session_info")!;
     expect(info.backendId).toBe(pair.destination);
     expect(info.requestId).toBe("req-h-create-0001");
     expect(info.sessionId).not.toBe(source);
     expect(r.starts[pair.destination]).toHaveLength(1);
-    expect(r.starts[pair.source]).toHaveLength(0);
+    if (pair.source !== pair.destination) expect(r.starts[pair.source]).toHaveLength(0);
+    expect(r.starts[pair.destination][0]!.sessionId).toBeUndefined();
     const expected = "Odysseus is sailing home; Penelope keeps the house.\n\nReferences:\n- plans/ithaca.md";
     expect(r.starts[pair.destination].map((start) => start.prompt)).toEqual([expected]);
     if (pair.destination === "pi") expect(r.scripts.pi.prompts).toEqual([expected]);
@@ -352,13 +356,12 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     expect(r.scripts[pair.destination].sessions).toBe(1);
   });
 
-  test("refuses before starting anything: own backend, unknown source, unreadable or missing references, over-long text, an existing session", async () => {
+  test("refuses before starting anything: unavailable profile, unknown source, unreadable or missing references, over-long text, an existing session", async () => {
     const r = rig();
     const source = seedSource(r, pair.source);
     const ws = r.open();
-    const sameBackend = pair.source === "claude" ? "claude" : "default";
     const cases: Frame[] = [
-      chat(source, "h-refuse-0001", { providerId: sameBackend }),
+      chat(source, "h-refuse-0001", { providerId: "unavailable-profile" }),
       chat("not-a-session", "h-refuse-0002"),
       chat(source, "h-refuse-0003", { handoff: { handoffId: "h-refuse-0003", sourceSessionId: source, references: [".git/config"] } }),
       chat(source, "h-refuse-0004", { handoff: { handoffId: "h-refuse-0004", sourceSessionId: source, references: ["plans/penelope.md"] } }),
@@ -369,7 +372,7 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     for (const frame of cases) r.send(ws, frame);
     await until(() => ws.frames.filter((f) => f.code === "HANDOFF_REJECTED").length === cases.length);
     const messages = Object.fromEntries(ws.frames.filter((f) => f.code === "HANDOFF_REJECTED").map((f) => [f.requestId, f.message]));
-    expect(messages["req-h-refuse-0001"]).toContain("own backend");
+    expect(messages["req-h-refuse-0001"]).toContain("Choose an available profile");
     expect(messages["req-h-refuse-0002"]).toContain("isn't known");
     expect(messages["req-h-refuse-0003"]).toContain(".git/config");
     expect(messages["req-h-refuse-0004"]).toContain("plans/penelope.md");

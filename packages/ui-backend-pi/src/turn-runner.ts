@@ -25,6 +25,8 @@ import {
   type TurnUsageAccumulator,
 } from "./usage.js";
 
+import { SessionTooLargeError } from "./worker-protocol.js";
+
 const BACKEND_ID = "pi";
 
 export function createPiTurnRunner(
@@ -42,9 +44,20 @@ export function createPiTurnRunner(
       throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
     }
     // acquire() claims the session (per-session busy) and validates caller
-    // input. On any throw — BackendBusyError / BackendRequestError — nothing
-    // has been emitted and the promise REJECTS, per the startTurn contract.
-    const { entry, isNew } = await pool.acquire(req);
+    // input. Caller errors reject before frames; a session size refusal uses
+    // the same classified terminal failure as an overflow during the turn.
+    let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
+    try { acquired = await pool.acquire(req); }
+    catch (error) {
+      if (!(error instanceof SessionTooLargeError)) throw error;
+      const failure = { errorClass: error.errorClass, message: error.message };
+      if (req.sessionId) {
+        req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "error", isError: true,
+          durationMs: Date.now() - startedAt, numTurns: 0, failure });
+      } else req.bridge.emit({ type: "error", code: "agent_error", message: error.message, failure });
+      return;
+    }
+    const { entry, isNew } = acquired;
     const { session, turnContext } = entry;
     const sessionId = session.sessionId;
     // Scope every frame this turn emits to its session so a multiplexed client
@@ -150,7 +163,9 @@ export function createPiTurnRunner(
       failed = true;
       if (!cancelled) {
         emit({ type: "error", code: "agent_error", message: errorMessage(err) });
-        thrown = failureFromPiError(errorMessage(err));
+        thrown = err instanceof SessionTooLargeError
+          ? { errorClass: err.errorClass, message: err.message }
+          : failureFromPiError(errorMessage(err));
       }
     } finally {
       // An SDK abort can finish prompt() before a subprocess/tool body exits.

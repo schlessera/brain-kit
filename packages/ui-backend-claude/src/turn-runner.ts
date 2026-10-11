@@ -14,7 +14,7 @@ import {
   BackendRequestError,
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
-import { requireWorkerHost, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
@@ -36,6 +36,9 @@ import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
 import { resolveExecConfig } from "./config/env.js";
 import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
+
+import { SessionTooLargeError } from "./worker-state.js";
+import { archiveIdleSessions } from "./transcript-archive.js";
 
 const BACKEND_ID = "claude";
 
@@ -206,6 +209,7 @@ export function createClaudeTurnRunner(options: {
     let ackGraceTimer: ReturnType<typeof setTimeout> | undefined;
     /** Every turn's input, autonomous or not, so cleanup always ends it. */
     let turnInput: TurnInput | undefined;
+    let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
     /**
      * Set when the subscription check refused the turn before its prompt was
@@ -280,6 +284,7 @@ export function createClaudeTurnRunner(options: {
         log: options.log,
       });
       finishWorker = sdkTurn.finishWorker;
+      archiveEnv = sdkTurn.options.env;
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = (turnInput = createTurnInput(sdkTurn.prompt));
       if (!req.autonomous) turn.input = input;
@@ -536,11 +541,12 @@ export function createClaudeTurnRunner(options: {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
       } else {
-        emit({
-          type: "error",
-          code: "CLAUDE_ERROR",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        if (err instanceof WorkerHostError || err instanceof SessionTooLargeError) {
+          refused = { code: "CLAUDE_ERROR", message: err.message,
+            failure: { errorClass: err.errorClass, message: err.message } };
+        } else {
+          emit({ type: "error", code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) });
+        }
         emitTerminal("error");
       }
     } finally {
@@ -553,6 +559,12 @@ export function createClaudeTurnRunner(options: {
       // result never streamed, e.g. an aborted turn) and free the busy slot.
       turnLock.close();
       activeTurns.delete(turnKey);
+      if (!req.autonomous) await archiveIdleSessions({
+        brainPath: options.backend.brainPath, env: archiveEnv,
+        listSessionsFn: options.backend.listSessionsFn,
+        activeSessionIds: () => new Set(activeTurns.keys()),
+        log: (message, error) => options.log("warn", message, { error: String(error) }),
+      });
       }
     }
   }

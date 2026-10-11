@@ -65,6 +65,40 @@ lists its cases. A passing host probe alone still does not establish that proof.
 Interactive and voice workers share the host network namespace and see a
 read-only host root. Autonomous turns use the restricted envelope below.
 
+## Claude runtime state and transcript archival
+
+Each ordinary Claude turn copies settings, credentials and the account file
+into a private runtime-state tmpfs directory under `/dev/shm`. Transcript state
+is session-scoped: a resume copies only that session's JSONL and companion
+folder; a new conversation copies no transcripts. After teardown, only changed
+JSONL files for the resumed or newly created sessions are persisted. Other
+saved sessions are untouched.
+
+The host's `/dev/shm` must fit the settings plus the largest resumed session,
+with room for concurrent workers and transcript growth. Docker's default is
+64 MiB; increase it with `--shm-size` when needed. The backend checks free space
+before copying, reserving the larger of 16 MiB or 25% of the resumed transcript
+for turn growth and CLI files. Settings plus the 16 MiB minimum reserve that cannot fit refuse with `worker_host_unsupported`;
+a session that exceeds available space or the 128 MiB state bound refuses with
+`session_too_large`. Its error card offers **Continue in a new conversation**
+through the existing reviewed handoff flow.
+
+After a non-autonomous turn, the Claude backend checks at most once per 24 hours
+for sessions idle more than 30 days, using the newest modification time across
+their JSONL and companion folder. Running sessions are excluded. It gzip-archives
+old sessions under `<config>/transcript-archive/<project>/<id>/` and keeps their
+SDK title and timestamps in `index.json`. Durable archive files and the atomic
+index precede removal of live files; interrupted moves retain recoverable copies.
+Archive failures are logged and never fail the turn.
+
+Archived conversations remain in history. Reading or resuming one restores its
+original bytes to the live project folder, refreshes its modification time,
+and removes the archive entry. Autonomous state stays empty and nonpersistent.
+
+Pi also bounds each session's serialized initialization and snapshots to 16 MiB,
+reserving the larger of 1 MiB or 25% of initialization bytes before launch;
+an oversized session or mid-turn snapshot fails with `session_too_large`.
+
 ## The restricted envelope for autonomous turns (#676)
 
 `runAutonomousTurn` sends every autonomous turn with
