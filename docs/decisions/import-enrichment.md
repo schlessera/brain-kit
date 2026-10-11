@@ -1,9 +1,10 @@
 # Decision — retain the combined import enrichment call
 
 The [#850](https://github.com/schlessera/brain-kit/issues/850) comparison is a
-**no-go** for replacing the shipped combined call with Jev classification and
-a focused summary generator. Jev's proposed tags were marginally better by
-micro F1, but its type confidence floor rejected too much useful work. It
+**no-go at the measured input framing and tuning-selected floor** for replacing
+the shipped combined call with Jev classification and a focused summary
+generator. The safety gate prevented tuning false completions, but rejected
+too much useful held-out work. It
 completed 36 of 54 classifiable held-out runs, against all 54 for the skill.
 Even before abstention, Jev's type accuracy was lower. No product behavior or
 provider default changes follow from this experiment.
@@ -20,7 +21,7 @@ commit; the implementation and scoring changes are this PR's diff.
 
 | Arm | What runs |
 | --- | --- |
-| Current | The shipped skill's enrichment instructions (`## Stage 3`, `packages/core/skills/brain-import/SKILL.md:80-85`), installed in each disposable brain's `.claude/skills/`, invoked for approved Stage 3 with Sonnet 5.5 (`claude-sonnet-5-5`). It writes type, controlled tags and a one-line summary. |
+| Current | Sonnet 5.5 (`claude-sonnet-5-5`) reads the installed unchanged skill and executes its enrichment instructions (`## Stage 3`, `packages/core/skills/brain-import/SKILL.md:80-85`). The harness supplies approved scope, taxonomy definitions, owner constraints, review/retention rules and the output report shape. Every retained run's verbose CLI trace verifies the skill-file Read. |
 | Candidate | The shipped core Jev client (`createJevClient`, `packages/core/src/lib/jev.ts:248-338`), pinned to `jev-1.13.0`: one type Choice and one Noul per controlled tag. Code protects owner fields and bodies, abstains below the type floor, and calls Sonnet 5.5 with Read only for an empty mutable summary on an accepted source. |
 
 The issue names no deterministic baseline. Both arms receive identical case
@@ -65,15 +66,17 @@ including proposals that do not reach files.
 
 | Metric | Current skill | Jev + focused summary |
 | --- | --- | --- |
-| Raw type correct | **57/57 (100%)** | 52/57 (91.2%) |
-| Type correct at frozen floor | **57/57 (100%)** | 39/57 (68.4%) |
-| Tag precision / recall / F1 | 0.986 / 0.933 / 0.959 | 0.960 / 0.960 / **0.960** |
-| Summary-need decision correct | **57/57** | 42/57 |
-| Actual type/tag fields correct | **52/57** | 42/57 |
+| Raw type correct | **56/57 (98.2%)** | 52/57 (91.2%) |
+| Type correct at frozen floor | **56/57 (98.2%)** | 39/57 (68.4%) |
+| Tag precision / recall / F1 | 1.000 / 0.893 / 0.944 | 0.960 / 0.960 / **0.960** |
+| Summary need on non-abstained sources | 54/55 (2 N/A) | **36/36 (21 N/A)** |
+| Summary generation/retention matches goal, including abstentions | **56/57** | 42/57 |
+| Actual type/tag fields correct | **48/57** | 42/57 |
 | Required summaries produced | **48/48** | 33/48 |
 | Required summaries supported and complete | **43/48** | 33/48 |
-| Complete case correctness | **48/57 (84.2%)** | 36/57 (63.2%) |
-| False completions | 0 | 0 |
+| Complete case correctness | **46/57 (80.7%)** | 36/57 (63.2%) |
+| Held-out false completions | 1 | **0** |
+| Damaged-input false completions, tuning + held-out | 3/6 | **0/6** |
 | Wrong-target writes / content loss or rewrite / protected metadata changes | 0 / 0 / 0 | 0 / 0 / 0 |
 | Unsupported summary claims | 0 | 0 |
 
@@ -83,7 +86,10 @@ Protected owner type/tags are expected to stay unchanged; raw judgments are
 scored separately. Timestamps, manifests, reorganization and later import
 stages are outside the measured task. The skill sometimes reports summary need
 after filling it; its actual generation decision is scored from file effects,
-with the report retained separately.
+with the report retained separately. The generation, field and full-case
+rows are correlated consequences of the same abstention gap, not independent
+failures. All 36 non-abstained candidate runs are fully correct. Summary need
+on accepted sources is reported separately; refused sources are N/A there.
 
 Jev's raw type errors were `entry → logbook` three times on the HTML store
 reference, and `note → logbook` twice on the missing-summary tools reference.
@@ -94,14 +100,15 @@ Three further abstentions correctly left the unclear fragment unwritten.
 
 Jev missed `navigation` on all three archival escort runs and proposed
 `stewardship` on all three unclear fragments. The skill missed `stewardship`
-on all three disputed-meeting runs and `navigation` on two escort runs; it
-proposed `stewardship` on one unclear-fragment run. The tiny F1 advantage does
-not offset the candidate's coverage loss.
+on all three disputed-meeting runs and `navigation` on all three escort runs
+and two teaching-handout runs. Jev has a real 1.6-point tag F1 advantage and
+prevents three damaged-input false completions across both splits. The trade-off
+at this floor is refusal of 18 of 54 classifiable held-out runs.
 
-A GPT-family author judged all 107 distinct `(case, summary)` outputs against
+A GPT-family author judged all 115 distinct `(case, summary)` outputs against
 the sources, allowing concise secondary-detail omissions while requiring the
 main action/decision and material qualifiers. The skill's three escort summaries
-lost essential undated, pre-Thrinacia provenance. Two planned-work summaries
+lost essential pre-Thrinacia provenance (one retains undated-letter provenance). Two planned-work summaries
 used the ambiguous phrase “shed them” for returning tools to a covered shed.
 Those five outputs are incomplete; no explicit invented delivery date, disposal
 or completed work is inferred. The generated candidate held-out summaries
@@ -112,7 +119,7 @@ passed. These judgments cannot reverse the raw type or coverage gaps.
 Tuning only: choose the lowest type floor with zero wrong accepted types;
 maximize tag micro F1, choosing the lowest threshold on ties. The frozen values
 are **type confidence 0.8** and **tag probability 0.5**. No held-out labels were
-used to select either value. Tuning tags achieve F1 1.0 for both arms. The
+used to select either value. Tuning tag F1 is 0.981 for the skill and 1.0 for Jev. The
 skill has two false completions on the damaged tuning fragment; Jev leaves
 all three repetitions unwritten at the selected floor.
 
@@ -121,25 +128,35 @@ all three repetitions unwritten at the selected floor.
 | Identical raw type/tag judgments across all repetitions | 17/19 cases | 18/19 cases |
 | Identical effective label/summary-need/completion decisions | 17/19 | 19/19 |
 | Invalid or unparseable retained answers | 0 | 0 |
-| Abstentions | 3/57 | 21/57 |
+| Abstentions | 2/57 | 21/57 |
 | Full-current fallbacks | 0 | 0 |
 
-One skill report keyed the identical duplicate files separately and listed
-remaining summary paths. It was valid scoreable JSON and was normalized only
-after confirming the per-file labels agreed; the original report is retained.
-Candidate effective agreement hides raw variation on the tools reference:
+The scorer accepts consistent per-file maps for duplicate sources, but every
+retained verified skill report used the requested scalar shape. Candidate
+effective agreement hides raw variation on the tools reference:
 every variant abstains. It is reliable refusal, not reliable completion.
 
-Calls: **81 physical Jev requests; 164 Claude CLI invocations before PR review**.
-Those Claude invocations are 81 retained skill runs, 51 retained focused
-summary runs, one successful label check, one interrupted initial invocation
-without case input, and 30 discarded invocations. The initial retry regex
+Calls: **81 physical Jev requests; 247 Claude CLI invocations before the final
+PR review**. Those Claude invocations are 81 retained verified skill runs,
+51 retained focused summary runs, one successful label check, one interrupted
+initial invocation without case input, 30 discarded retry invocations,
+81 superseded current-arm runs, one skill-discovery probe and one preliminary
+PR review. The initial retry regex
 mistook numeric metadata in successful JSON for rate-limit errors. All 15
 affected measurement groups were rerun on pristine inputs after restricting
 retries to error responses. The discarded calls remain counted and identified
 in results; their transcripts stay outside the tree. No actual rate-limit or
 subscription-exhaustion response occurred. CLI invocations are not counts of
 the skill's internal model turns. Cost is not an evaluation metric.
+
+The preliminary cross-family review exposed a baseline limitation: restricted
+CLI mode hides project skill discovery, so installing the skill and naming it
+with a slash command did not establish its execution. A verbose runtime probe
+confirmed this. All 81 initial current-arm measurements were replaced with
+pristine runs explicitly reading and executing the unchanged installed skill.
+Every retained verbose trace contains the successful Read result, shipped
+heading and Stage 3 section. Superseded outputs remain outside the tree and
+their calls remain counted. The candidate and its tuning thresholds were unchanged.
 
 The scorer also initially treated multiline mutable YAML tags as changes to
 protected bytes. Rescoring saved full-file effects corrected that false veto;
@@ -158,7 +175,18 @@ tuning against held-out quality.
 - The author supplied the cross-family free-text judgments. Secondary detail
   omissions are tolerated; the stored reasons make that choice reviewable.
   Removing all summary judgments still leaves a substantial candidate type
-  and completion gap.
+  and completion gap. The rubric was written after the superseded initial baseline outputs and
+  reused for the verified rerun. The
+  candidate's accepted summary subset excludes the difficult sources it
+  refused. Summary pass rates across these different subsets are not evidence
+  that either generator is better.
+- Jev saw full stamped files, including titles and existing summaries, rather
+  than body-only input. This framing can affect classification: the same tools
+  body produced different raw labels/confidence when its summary was present.
+  The type floor is driven by one damaged tuning fragment, repeated three
+  times, whose wrong `note` answers had confidence 0.73–0.77. All five held-out
+  wrong types were at 0.57 or below; rejected correct types reached 0.68. This
+  is a no-go for this framing and floor, not a body-only Jev experiment.
 - The focused generator sometimes repeats input-stamping metadata in tuning
   summaries, including empty tags/summary that its writer then fills. It
   needs a body-focused prompt before any integration claim; those input facts
@@ -168,6 +196,9 @@ tuning against held-out quality.
   candidate is not a production writer. No unattended-adoption certification
   follows for the existing skill either, especially given its tuning false
   completions.
+- Candidate write safety was exercised only on accepted cases. The protected
+  owner/CRLF and hostile-minute cases all abstained; zero candidate vetoes
+  cannot establish that its prototype writer safely handles those writes.
 
 There is **no integration task selected**. Retain the combined skill path.
 Reconsider only with a separately reviewed dataset demonstrating fewer custom

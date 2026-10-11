@@ -15,6 +15,9 @@ logged-in subscription, with both Anthropic API-key variables removed by the
 harness. Each case/repetition gets a disposable brain with the shipped
 `brain-import` skill installed under `.claude/skills/`. Claude's restricted
 file tools operate within that brain; the current arm can read, edit and write.
+Restricted mode suppresses project skill discovery, so the prompt explicitly
+reads and executes the installed skill. Verbose JSON verifies that Read in
+every retained current run; an installed-but-unread skill does not qualify.
 The focused summary call has only Read. At most two Claude CLI processes run
 concurrently; rate limits back off and subscription exhaustion stops dispatch.
 `calls.claude` counts CLI invocations, including the label check and the
@@ -44,6 +47,8 @@ The manifest is outside this experiment's scope.
 The skill sometimes reports whether a summary is still needed after writing
 it. The scorer retains that report but scores its actual generation decision
 from before/after file contents. Nonempty supplied summaries are retained.
+`summaryNeedOnAccepted` reports summary need on non-abstained sources;
+`summaryNeedCorrect` includes declined generation and thus also measures coverage.
 
 A GPT-family judge scores each distinct `(case, summary)` against source text,
 salient facts and prohibited claims; exact golden wording is not required.
