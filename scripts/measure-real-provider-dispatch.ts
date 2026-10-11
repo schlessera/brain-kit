@@ -139,7 +139,7 @@ async function server(name: ProfileName, root: string, mode: "dry" | "live", pri
       injected.push((request.headers.get("x-api-key") ?? request.headers.get("authorization")?.replace(/^Bearer /i, "")) === credential);
       const body = await request.json() as { max_tokens?: number; messages?: Array<{ role: string }>; tools?: Array<{ name: string }> };
       if (typeof body.max_tokens === "number") fixtureMaxTokens.push(body.max_tokens);
-      const write = (body.tools ?? []).map(t => t.name).find(n => /write_file$/.test(n));
+      const write = (body.tools ?? []).map(t => t.name).find(n => n.endsWith("write_file"));
       const step = (body.messages ?? []).filter(m => m.role === "assistant").length;
       const call = step === 0 && write ? { name: write, input: { path: NOTE, expectedBaseHash: null, content: "Penelope keeps the loom.\n" } } : null;
       const events: unknown[] = [{ type: "message_start", message: { id: "msg_dry", type: "message", role: "assistant", model: MODEL, content: [],
