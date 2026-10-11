@@ -5,6 +5,8 @@ import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
+import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_XDG_DIRS,
+  type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -26,6 +28,12 @@ export interface WorkerLaunch {
    * envelope instead of the host root. Absent for interactive and voice turns.
    */
   restricted?: RestrictedEnvelope;
+  /**
+   * The writable areas resolved by `prepareWorkerSandbox` for this worker
+   * (#1626). The same object renders the agent's sandbox note, so the mounts
+   * and the note cannot disagree. Absent: only the per-turn scratch is writable.
+   */
+  sandbox?: WorkerSandbox;
 }
 
 export interface RestrictedEnvelope {
@@ -141,21 +149,140 @@ export function workerCommand(input: WorkerLaunch): string[] {
       throw new WorkerHostError("runtime state must be a separate, non-aliasing tmpfs directory outside the brain and scratch");
     }
   }
+  const writable = sandboxMounts(input, brain, scratch, state);
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
     ...(input.restricted ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted ? [] : ["--ro-bind", "/", "/"]),
+    // Before every other mount, so the brain, area and state binds land on top of it.
+    ...writable.home,
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev", "--tmpfs", "/tmp",
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     "--ro-bind", brain, brain,
     ...(input.restricted ? maskedGit(brain) : []),
-    "--tmpfs", scratch, "--clearenv"];
+    "--tmpfs", scratch, ...writable.binds, "--clearenv"];
   if (state) argv.push("--bind", state, state);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
-  argv.push("--setenv", "BRAIN_WORKER_SCRATCH", scratch,
+  argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", brain, "--", ...input.command);
   return argv;
+}
+
+/** Whether `path` is `dir` or lies below it. */
+const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+
+/**
+ * The bubblewrap arguments for a resolved sandbox, re-checked against this
+ * launch: the sandbox must be for this brain and envelope, each writable area
+ * must still be a real directory at its own path in the brain, and the home it
+ * was resolved for must still be the worker's `$HOME`. A mismatch refuses the
+ * launch rather than binding something the agent's note does not describe.
+ */
+function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, state: string | undefined) {
+  const out = { home: [] as string[], binds: [] as string[], env: [] as string[] };
+  const sandbox = input.sandbox;
+  if (!sandbox) return out;
+  if (sandbox.brain !== brain || sandbox.restricted !== Boolean(input.restricted)) {
+    throw new WorkerHostError("the worker sandbox was resolved for another brain or envelope");
+  }
+  if (sandbox.restricted && (sandbox.areas.length || sandbox.home)) {
+    throw new WorkerHostError("a restricted worker has no writable areas or home");
+  }
+  for (const { name, mount } of sandbox.areas) {
+    if (!mount.writable) continue;
+    const path = mount.path;
+    const info = lstatSync(path, { throwIfNoEntry: false });
+    if (path !== join(brain, WORKER_AREAS[name]) || !info?.isDirectory() || realpathSync(path) !== path
+      || within(path, scratch) || within(scratch, path) || (state !== undefined && (within(path, state) || within(state, path)))) {
+      throw new WorkerHostError(`the writable ${name} area must be a real directory at its own path inside the brain`);
+    }
+    out.binds.push("--bind", path, path);
+  }
+  const home = sandbox.home;
+  if (home?.mode === "overlay") {
+    const given = input.env.HOME;
+    if (!given || !isAbsolute(given) || !existsSync(given) || realpathSync(given) !== home.path) {
+      throw new WorkerHostError("the worker's HOME is not the home its sandbox was resolved for");
+    }
+    out.home.push("--overlay-src", home.path, "--tmp-overlay", home.path);
+  } else if (home?.mode === "xdg") {
+    out.binds.push(...Object.values(WORKER_XDG_DIRS).flatMap(dir => ["--dir", dir]));
+    out.env.push(...Object.entries(WORKER_XDG_DIRS).flatMap(([key, dir]) => ["--setenv", key, dir]));
+  }
+  return out;
+}
+
+/**
+ * Whether `--tmp-overlay` works over `home` on this host: bubblewrap 0.11 or
+ * later, not installed setuid, and a kernel that permits overlayfs in an
+ * unprivileged user namespace. Measured with the real launcher by writing
+ * through the overlay, then checking from outside that the host home is
+ * unchanged.
+ */
+export function probeHomeOverlay(brain: string, home: string): true | string {
+  const marker = `.brain-home-overlay-probe-${process.pid}-${Date.now()}`;
+  const target = join(home, marker);
+  let argv: string[];
+  try {
+    argv = workerCommand({ brainPath: brain, env: { HOME: home },
+      command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
+      sandbox: { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "overlay", path: home } } });
+  } catch (error) { return error instanceof Error ? error.message : String(error); }
+  const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
+  if (existsSync(target)) {
+    rmSync(target, { force: true });
+    return "an overlay write reached the host home";
+  }
+  if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
+  return true;
+}
+
+export interface PrepareWorkerSandboxOptions {
+  restricted?: boolean;
+  /** The `HOME` the worker will be given. Absent or unusable: the XDG fallback. */
+  home?: string;
+  /** Which writable areas this worker gets. Default: all of them. */
+  areas?: readonly WorkerAreaName[];
+  /** Test seam for the overlay probe; production uses the real one. */
+  probeOverlay?: (brain: string, home: string) => true | string;
+}
+
+/**
+ * Resolves this worker's writable areas and home once. The backends pass the
+ * result to the launcher and render the agent's note from the same object. A
+ * restricted (autonomous) turn gets none of them: its envelope is unchanged.
+ */
+export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSandboxOptions = {}): WorkerSandbox {
+  let brain: string;
+  try { brain = realpathSync(brainPath); } catch {
+    // Nothing to bind; the launch itself refuses a missing brain.
+    const reason = "the brain directory does not exist";
+    return { brain: brainPath, restricted: Boolean(options.restricted), scratchAliasesRemoved: [],
+      areas: options.restricted ? [] : (options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])).map(name => ({ name, mount: { writable: false, reason, missing: true } })),
+      ...(options.restricted ? {} : { home: { mode: "xdg", reason } }) };
+  }
+  if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
+  const areas: WorkerArea[] = [];
+  let removed: string[] = [];
+  for (const name of options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])) {
+    if (name === "scratch") {
+      const scratch = resolveScratchMount(brain);
+      removed = scratch.removed;
+      areas.push({ name, mount: scratch.mount });
+    } else areas.push({ name, mount: resolveWorkspacesMount(brain) });
+  }
+  let home: WorkerHome;
+  const requested = options.home;
+  const real = requested && isAbsolute(requested) && existsSync(requested) ? realpathSync(requested) : undefined;
+  if (!real) home = { mode: "xdg", reason: "HOME is unset or missing" };
+  else if (!statSync(real).isDirectory() || real === "/" || within("/tmp", real) || within(brain, real)) {
+    home = { mode: "xdg", reason: "HOME is not a separate directory outside the brain and /tmp" };
+  } else {
+    const probed = (options.probeOverlay ?? probeHomeOverlay)(brain, real);
+    home = probed === true ? { mode: "overlay", path: real } : { mode: "xdg", reason: probed };
+  }
+  return { brain, restricted: false, areas, scratchAliasesRemoved: removed, home };
 }
 
 /** Private trusted bootstrap. It validates/clears descriptors before exec. */

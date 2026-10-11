@@ -18,3 +18,7 @@ export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER,
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
+export { prepareWorkerSandbox, probeHomeOverlay } from "./server/worker-launcher.js";
+export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
+export { workerSandboxNote, workerSandboxWarnings, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
+export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome } from "./server/worker-sandbox.js";
