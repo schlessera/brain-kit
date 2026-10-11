@@ -10,12 +10,15 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { packageRoot } from "../src/package-version";
 import { claudeImports, measureInstructions } from "../src/lib/instructions-weight";
 
 const temps: string[] = [];
 function tempDir(): string {
   const d = mkdtempSync(join(tmpdir(), "brain-weight-"));
   temps.push(d);
+  mkdirSync(join(d, "node_modules/@schlessera"), { recursive: true });
+  symlinkSync(packageRoot(), join(d, "node_modules/@schlessera/brain"));
   return d;
 }
 afterAll(() => {

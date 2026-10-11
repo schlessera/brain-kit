@@ -21,6 +21,7 @@ function git(root: string, args: string[]): string {
 test("mounted module settings use the real CLI, authenticated principals, validator, revision and one-file commit", async () => {
   const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: SECRET, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
   try {
+    symlinkSync(resolve(import.meta.dir, "../../../node_modules/@schlessera"), join(t.brainPath, "node_modules/@schlessera"));
     symlinkSync(resolve(import.meta.dir, "../../../node_modules/zod"), join(t.brainPath, "node_modules/zod"));
     mkdirSync(join(t.brainPath, "modules/catalog"), { recursive: true });
     writeFileSync(join(t.brainPath, "modules/catalog/module.ts"), `import {z} from "zod";
