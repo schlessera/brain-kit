@@ -1851,7 +1851,7 @@
       "family": "disputed-meeting",
       "format": "parallel-testimony",
       "body": "Meeting recollections about the hall record\nAntinous says a proposal was put forward. A separate unsigned line claims a vote was taken but gives no outcome and no adopted wording. No authenticated resolution survives, and the two accounts have not been reconciled.",
-      "type": "unclear",
+      "type": "note",
       "tags": [
         "council",
         "stewardship"
@@ -1893,10 +1893,17 @@
         "stewardship"
       ],
       "expectedChangedFiles": {
-        "combined": {},
-        "classification": {},
-        "hybrid": {}
-      }
+        "combined": {
+          "import/source-export/document.md": "---\ntitle: 'Antinous source'\n# The original custody comment stays.\ntype: note\ntags: [council, stewardship]\nsummary: \"Antinous's meeting recollections do not establish authenticated adoption of the hall-record proposal.\"\nstatus: draft\ncreated: '2026-07-10'\nupdated: '2026-07-12'\nsource_marker: 'keep exactly'\n---\n\nMeeting recollections about the hall record\nAntinous says a proposal was put forward. A separate unsigned line claims a vote was taken but gives no outcome and no adopted wording. No authenticated resolution survives, and the two accounts have not been reconciled.\n"
+        },
+        "classification": {
+          "import/source-export/document.md": "---\ntitle: 'Antinous source'\n# The original custody comment stays.\ntype: note\ntags: [council, stewardship]\nsummary: \"\"\nstatus: draft\ncreated: '2026-07-10'\nupdated: '2026-07-12'\nsource_marker: 'keep exactly'\n---\n\nMeeting recollections about the hall record\nAntinous says a proposal was put forward. A separate unsigned line claims a vote was taken but gives no outcome and no adopted wording. No authenticated resolution survives, and the two accounts have not been reconciled.\n"
+        },
+        "hybrid": {
+          "import/source-export/document.md": "---\ntitle: 'Antinous source'\n# The original custody comment stays.\ntype: note\ntags: [council, stewardship]\nsummary: \"Antinous's meeting recollections do not establish authenticated adoption of the hall-record proposal.\"\nstatus: draft\ncreated: '2026-07-10'\nupdated: '2026-07-12'\nsource_marker: 'keep exactly'\n---\n\nMeeting recollections about the hall record\nAntinous says a proposal was put forward. A separate unsigned line claims a vote was taken but gives no outcome and no adopted wording. No authenticated resolution survives, and the two accounts have not been reconciled.\n"
+        }
+      },
+      "summaryNeed": true
     }
   ]
 }
