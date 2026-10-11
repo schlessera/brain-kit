@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useEffect } from "react";
+import { ImageOff } from "lucide-react";
 
 import type { BrainUiRoot } from "../../root.js";
+import { ZoomableImage } from "../images/zoomable-image.js";
 import {
   isInternalRepoDir,
   isInternalRepoPath,
+  scratchPath,
   useFileStore,
 } from "../../stores/file-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
@@ -23,10 +26,92 @@ export function repoImageSrc(src: string, root: BrainUiRoot): string {
   const rel = trimmed.replace(/^\.\//, "").replace(/^\/+/, "");
   return `${root.apiBase()}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
 }
+/**
+ * Whether a scratch reference's file is gone (#1657). Anything outside the
+ * scratch area answers false without asking the server. A scratch file is
+ * checked once per store; until the answer arrives, and whenever the check
+ * cannot tell, the reference keeps its ordinary form.
+ */
+export function useScratchExpired(path: string | undefined): boolean {
+  const scratch = scratchPath(path);
+  const status = useFileStore((s) => (scratch ? s.scratchFiles[scratch] : undefined));
+  const check = useFileStore((s) => s.checkScratchFile);
+  useEffect(() => {
+    if (scratch && !status) void check(scratch);
+  }, [scratch, status, check]);
+  return status === "expired";
+}
+
+/**
+ * A link whose scratch file has been cleared (#1657). The words stay, as
+ * inert text, followed by a muted "expired": nothing to click that would
+ * only open an error. It keeps the link role, marked unavailable, so a screen
+ * reader still meets it as the link it was, named with the label.
+ */
+export function ExpiredFileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <span role="link" aria-disabled="true" className="brain-file-link--expired" style={style} title="This file is no longer available.">
+      <span className="brain-file-link-words">{children ?? path}</span>
+      <span className="brain-expired-label"> expired</span>
+    </span>
+  );
+}
+
+/**
+ * An image whose scratch file has been cleared (#1657): a small placeholder
+ * in place of a broken picture, with the alt text when there is one and the
+ * same muted "expired". It is a `span` because markdown images sit inside
+ * paragraphs.
+ */
+export function ExpiredImage({ alt }: { alt?: string }) {
+  const words = alt?.trim();
+  return (
+    <span role="img" aria-label={`${words || "Image"}, expired`} className="brain-expired-image" title="This image is no longer available.">
+      <ImageOff aria-hidden="true" className="brain-expired-image-icon" />
+      {words ? <span className="brain-expired-image-alt">{words}</span> : null}
+      <span className="brain-expired-label">expired</span>
+    </span>
+  );
+}
+
+/**
+ * A markdown image. One under scratch that fails to load is checked; if its
+ * file is gone it becomes `ExpiredImage`. A failure for any other reason, and
+ * every image outside scratch, keeps the browser's own broken image.
+ */
+export function MarkdownImage({ src, alt, imgProps, root }: {
+  src: string;
+  alt?: string;
+  imgProps?: Omit<React.ComponentPropsWithoutRef<"img">, "src" | "alt" | "className">;
+  root: BrainUiRoot;
+}) {
+  const scratch = scratchPath(src);
+  const expired = useFileStore((s) => (scratch ? s.scratchFiles[scratch] === "expired" : false));
+  const check = useFileStore((s) => s.checkScratchFile);
+  if (expired) return <ExpiredImage alt={alt} />;
+  return (
+    <ZoomableImage
+      src={repoImageSrc(src, root)}
+      alt={alt}
+      className="my-2 max-w-full cursor-zoom-in rounded"
+      imgProps={{
+        ...imgProps,
+        loading: "lazy",
+        onError: (event) => {
+          imgProps?.onError?.(event);
+          if (scratch) void check(scratch);
+        },
+      }}
+    />
+  );
+}
+
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
 export function FileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
+  const expired = useScratchExpired(path);
+  if (expired) return <ExpiredFileLink path={path} style={style}>{children}</ExpiredFileLink>;
   return (
     <a
       href={`#/files/${path}`}

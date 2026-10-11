@@ -79,7 +79,7 @@ does a replayed session show?
 
 **Targets.** A one-line chip paints about 29px. Its target reaches 8px past
 the paint on every side (`.answer-chip::before`,
-`packages/ui-react/src/theme.css:622-626`), and the chips sit 16px apart on
+`packages/ui-react/src/theme.css:678-682`), and the chips sit 16px apart on
 both axes, which is D34's half-the-gap limit. The hairline is an inset shadow,
 not a border, so the reach is measured from the paint.
 `tests/answer-suggestions-targets.test.tsx` lays the row out in real Chrome

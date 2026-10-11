@@ -145,7 +145,7 @@ issue, so this entry fixes the behaviour and not the look.
 
 **Question.** D48 puts every model-authored link card behind `classifyLink`.
 A markdown link in the answer's prose gets none of it. The `a` override
-(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:170-181`)
+(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:162-173`)
 draws every link that is not a repo path as a bare
 `<a target="_blank" rel="noopener noreferrer">`. The only filter is
 react-markdown's default `urlTransform`, which strips `javascript:` and
@@ -239,7 +239,7 @@ it found, and what neither said:
   Chrome test asserts.
 - **Link text is never linkified, accepted or withheld.** The text passes
   that turn repo paths and wikilinks into links stand down inside any prose
-  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:47-57`),
+  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:46-56`),
   because an anchor inside an anchor is not HTML either. The same wrapper
   had been writing react-markdown's `node` object into the DOM as
   `node="[object Object]"`, and no longer does.
@@ -274,3 +274,43 @@ does not duplicate labels and source-supplied markers cannot bypass policy.
 The renderer verifies disclosure in the final media mode and finished PDF; HTML attributes alone
 do not prove PDF safety. See the D46 addition above for alternate markup,
 isolation, failure behavior and runtime proof.
+
+## 2026-10-12 — D56: a link to a cleared scratch file reads as expired (#1657)
+
+The maintainer's ruling 6 on #1636 (recorded in
+[governed-writable-workers.md](../governed-writable-workers.md), "Expired
+links") is that a dead link shows as "expired", not as a 404. Files the
+agent makes for a conversation live in `.brain/scratch/`, which is kept for a
+while and then pruned, so a link in an older answer can outlive its file.
+
+- **Only scratch.** A reference under `.brain/scratch/` is checked; anything
+  else keeps its not-found behaviour, because a missing canonical note is a
+  real problem the user should see as one (`scratchPath`,
+  `packages/ui-react/src/stores/file-state.ts:459-465`).
+- **The client asks, once.** No new route: the store sends one `HEAD` on the
+  existing raw files route per scratch file, deduplicated per store. Only a
+  404 counts. A 2xx or a 413 (over the size cap, but there) is present;
+  anything else, including offline or signed out, is not evidence and leaves
+  the ordinary link for a later render to ask again (`checkScratchFile`,
+  `packages/ui-react/src/stores/file-state.ts:354-372`). Images are checked
+  only after they fail to load, since loading is already the check.
+- **The link.** The words stay, as inert text in the file link's face but
+  without its accent and underline, followed by "expired" in the muted mono
+  label D49 uses for a host. Nothing opens: a click would only reach an
+  error. It keeps `role="link"` with `aria-disabled="true"`, so its
+  accessible name is the words followed by "expired".
+- **The image.** A small dashed placeholder, the empty-state hairline, with
+  the alt text and the same label, named by the alt text followed by
+  ", expired" ("Image, expired" without one).
+- **The viewer.** A scratch file that 404s when opened shows the kit's
+  neutral empty state, "This file has expired", with the next step: ask again
+  to make a new one. It is not an alert and not red, since an expired file is
+  the expected end of a kept one.
+- **What is not offered.** No restore (out of scope on #1657) and no mention
+  of scratch, pruning or paths: the user should not need to care where the
+  file lived.
+
+Proof: `tests/expired-scratch-links.test.tsx` (store and component),
+`tests/scratch-links-runtime.test.ts` (a real server deleting a real render)
+and `tests/browser/expired-scratch-links.layout.tsx` (baselines at 320px and
+1280px in both themes) in `packages/ui-react`.

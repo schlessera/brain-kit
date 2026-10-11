@@ -16,7 +16,7 @@ import { MermaidBlock } from "../chat/mermaid-block.js";
 import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
-import { ViewerEmpty, ViewerError, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
+import { ViewerEmpty, ViewerError, ViewerExpired, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
 
 /**
  * The container (S7): reads the file store, builds the share options (they
@@ -28,6 +28,7 @@ export function FileViewer() {
   const content = useFileStore((s) => s.currentContent);
   const loading = useFileStore((s) => s.contentLoading);
   const error = useFileStore((s) => s.contentError);
+  const expired = useFileStore((s) => s.contentExpired);
   const viewMode = useFileStore((s) => s.viewMode);
   const setViewMode = useFileStore((s) => s.setViewMode);
   const setTreeExpanded = useFileStore((s) => s.setTreeExpanded);
@@ -56,7 +57,8 @@ export function FileViewer() {
       <div className="flex-1 overflow-auto">
         {loading && <ViewerLoading />}
         {error && <ViewerError message={error} />}
-        {!loading && !error && content && <ViewerBody content={content} viewMode={viewMode} />}
+        {expired && <ViewerExpired />}
+        {!loading && !error && !expired && content && <ViewerBody content={content} viewMode={viewMode} />}
       </div>
     </div>
   );

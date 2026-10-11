@@ -180,16 +180,37 @@ describe.skipIf(!executablePath)("real scratch output through a chat link and vi
     finally { await context.close(); }
   }, 60_000);
 
-  test("deleting the generated file really reaches the missing-file state", async () => {
-    const file = resolve(brain, files.pdf!);
-    await rename(file, file + ".held");
-    try {
-      const { page, context } = await open("pdf", "markdown", "dark", 1280);
+  // #1657: a scratch file that has been cleared reads as expired, through the
+  // real server's 404, and never as "File not found.".
+  for (const [format, mode] of [["pdf", "markdown"], ["pdf", "prose"], ["png", "image"]] as const) {
+    test(`deleting the generated ${format} shows the ${mode} reference as expired`, async () => {
+      const file = resolve(brain, files[format]!);
+      await rename(file, file + ".held");
       try {
-        expect((await activate(page)).error).toBe("File not found.");
-        expect(await page.getByText("File not found.", { exact: true }).count()).toBe(1);
-        expect((await fetch(`${origin}/api/files/content?${new URLSearchParams({ path: files.pdf!, raw: "1" })}`)).status).toBe(404);
-      } finally { await context.close(); }
-    } finally { await rename(file + ".held", file); }
+        expect((await fetch(`${origin}/api/files/content?${new URLSearchParams({ path: files[format]!, raw: "1" })}`)).status).toBe(404);
+        const { page, context, contentResponses } = await open(format, mode, "dark", 1280);
+        try {
+          const answer = page.locator('section[aria-label="Chat answer"]');
+          const name = mode === "image" ? "Raft reference, expired" : `${mode === "markdown" ? "Preview" : files[format]} expired`;
+          await answer.getByRole(mode === "image" ? "img" : "link", { name, exact: true }).waitFor();
+          expect(await answer.locator("a, img").count()).toBe(0);
+          expect(contentResponses).toContainEqual({ path: files[format]!, status: 404 });
+          // A viewer opened on it anyway says the same, calmly.
+          await page.evaluate((target) => (window as unknown as { __scratchFixture: { open: (path: string) => Promise<void> } }).__scratchFixture.open(target), files[format]!);
+          expect(await page.evaluate("window.__scratchFixture.state()")).toMatchObject({ expired: true, error: null });
+          await page.getByText("This file has expired", { exact: true }).waitFor();
+          expect(await page.getByText("File not found.", { exact: true }).count()).toBe(0);
+        } finally { await context.close(); }
+      } finally { await rename(file + ".held", file); }
+    }, 60_000);
+  }
+
+  test("a missing file outside scratch still reaches the not-found state", async () => {
+    const { page, context } = await open("pdf", "markdown", "dark", 1280);
+    try {
+      await page.evaluate(() => (window as unknown as { __scratchFixture: { open: (path: string) => Promise<void> } }).__scratchFixture.open("notes/raft-reference-gone.md"));
+      expect(await page.evaluate("window.__scratchFixture.state()")).toMatchObject({ expired: false, error: "File not found." });
+      expect(await page.getByText("File not found.", { exact: true }).count()).toBe(1);
+    } finally { await context.close(); }
   }, 60_000);
 });

@@ -501,6 +501,62 @@ a.bk-plink:focus-visible {
   text-decoration-color: color-mix(in srgb, var(--bk-color-teal) 80%, transparent);
 }
 
+/* A scratch file that has been cleared (#1657). The words keep the file
+ * link's family and size so the sentence does not reflow, lose the accent and
+ * the underline because nothing here opens, and are followed by "expired" in
+ * the same quiet mono label a prose link's host uses (D49). Calm, not red:
+ * an expired file is the expected end of a kept one, not a failure. */
+.brain-file-link--expired {
+  color: var(--bk-color-ink-dim);
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  padding: 0 2px;
+  cursor: default;
+}
+.brain-expired-label {
+  color: var(--bk-color-ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 500;
+  font-variant-ligatures: none;
+  white-space: nowrap;
+}
+.brain-file-link--expired .brain-expired-label {
+  /* Relative to the link's own 0.95em, so it matches a prose link's host. */
+  font-size: 0.84em;
+}
+/* A missing scratch image: a small dashed placeholder, the empty-state
+ * hairline, holding the alt text in the prose face (they are the author's
+ * words) and the same mono label. It never grows to the
+ * picture's size, which is unknown once the file is gone. */
+.brain-expired-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0.5rem 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--bk-color-edge);
+  border-radius: 6px;
+  color: var(--bk-color-ink-mute);
+  font-size: 0.9em;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.brain-expired-image-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.brain-expired-image-alt {
+  color: var(--bk-color-ink-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.brain-expired-image .brain-expired-label {
+  font-size: 0.89em;
+}
+
 /* Directory links read slightly differently — italic + folder-cue color */
 .brain-file-link--dir,
 .brain-prose a.brain-file-link--dir {

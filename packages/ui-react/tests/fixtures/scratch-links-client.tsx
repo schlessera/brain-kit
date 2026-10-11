@@ -10,7 +10,8 @@ const files = await fetch("/scratch-fixture.json").then((response) => response.j
 const path = files[params.get("format") ?? "pdf"]!;
 const mode = params.get("mode");
 const content = mode === "code" ? `Preview: \`${path}\``
-  : mode === "markdown" ? `[Preview](${path})` : `Preview: ${path}`;
+  : mode === "markdown" ? `[Preview](${path})`
+  : mode === "image" ? `![Raft reference](${path})` : `Preview: ${path}`;
 const root = createBrainUiRoot({ storage: null });
 const mount = document.getElementById("app");
 if (!mount || !path) throw new Error("Scratch link fixture is empty");
@@ -28,7 +29,8 @@ Object.assign(window, { __scratchFixture: {
   state: () => {
     const state = root.stores.file.getState();
     return { path: state.currentPath, loading: state.contentLoading, error: state.contentError,
-      kind: state.currentContent?.kind, mime: state.currentContent?.mime };
+      kind: state.currentContent?.kind, mime: state.currentContent?.mime, expired: state.contentExpired };
   },
+  open: (target: string) => root.stores.file.getState().openFile(target),
 } });
 window.addEventListener("pagehide", () => root.dispose(), { once: true });

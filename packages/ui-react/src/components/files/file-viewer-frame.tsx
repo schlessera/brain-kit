@@ -97,6 +97,25 @@ export function ViewerError({ message }: { message: string }) {
   );
 }
 
+/**
+ * A scratch file that has been cleared (#1657). Not an error: files made for
+ * a conversation are kept for a while, so this is the expected end of one.
+ * The way forward is to ask for it again.
+ */
+export function ViewerExpired() {
+  return (
+    <EmptyState
+      variant="no-results"
+      icon="file"
+      tone="neutral"
+      title="This file has expired"
+      body="It was kept for a while and has since been cleared. Ask again to make a new one."
+      meta=""
+      minHeight={240}
+    />
+  );
+}
+
 export function ViewerEmpty() {
   return (
     <EmptyState
