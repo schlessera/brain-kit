@@ -495,8 +495,9 @@ opening the server database. The separate `.brain/scratch-pins-required` marker
 keeps missing snapshot directories fail-safe. Missing, invalid or unfinished
 managed snapshots suspend deletion for CLI maintenance and prune-on-write too.
 A retained-session scan and direct history confirmation release pins for deleted/expired sessions;
-failed or aborted scans never release pins. The server logs any remaining cap
-overage until the governance-event store lands.
+failed or aborted scans never release pins. The server records remaining cap
+overage as a `scratch_overage` governance event, with logging as the fallback
+when the event store is unavailable.
 
 **Expired links.** A link whose file is gone renders as "expired", not as a
 404.
@@ -693,7 +694,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:255`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:261`)
   must not feed any budget.
 
 **Enforcement:**

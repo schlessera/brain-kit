@@ -180,3 +180,26 @@ test("an unavailable backend keeps its existing session pins", async () => {
   await pins.refresh(new AbortController().signal); enabled = false; await pins.refresh(new AbortController().signal);
   const result = await runCli(root, ["scratch", "prune", "--json"]); expect(result.code).toBe(0); expect(existsSync(kept)).toBe(true);
 });
+
+test("over-cap pins produce a machine-readable server governance event", async () => {
+  const db = createUiDb(":memory:"), logs = createRecordingObservability();
+  const pruner = startScratchPrune({ db, log: logs.logger("cron"), every: () => () => {}, brain: {
+    scratchPrune: async () => JSON.stringify({ bytes: 100, files: 1, pinned: { files: 1, bytes: 100 }, overageBytes: 20 }),
+  } });
+  try {
+    await pruner.tick();
+    const rows = db.query("SELECT kind, schema_version, actor, session_id, turn_id, payload FROM governance_events").all() as Array<{kind:string;schema_version:number;actor:string;session_id:string|null;turn_id:string|null;payload:string}>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "scratch_overage", schema_version: 1, actor: "server", session_id: null, turn_id: null });
+    expect(JSON.parse(rows[0].payload)).toEqual({ bytes: 100, pinnedFiles: 1, pinnedBytes: 100, overageBytes: 20 });
+    expect(logs.logs.count({ scope: "cron", body: "scratch remains over its size cap" })).toBe(0);
+  } finally { await pruner.close(); db.close(); }
+});
+
+test("failed governance persistence falls back to the overage log", async () => {
+  const db = createUiDb(":memory:"), logs = createRecordingObservability(); db.close();
+  const pruner = startScratchPrune({ db, log: logs.logger("cron"), every: () => () => {}, brain: {
+    scratchPrune: async () => JSON.stringify({ bytes: 100, pinned: { files: 1, bytes: 100 }, overageBytes: 20 }),
+  } });
+  await pruner.tick(); expect(logs.logs.count({ scope: "cron", body: "scratch remains over its size cap" })).toBe(1); await pruner.close();
+});

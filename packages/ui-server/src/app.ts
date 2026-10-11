@@ -357,7 +357,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: observability.logger("agent"),
     });
   const scratchPins = createScratchPins(config.brainPath, registry);
-  const scratchPrune = startScratchPrune({ brain, pins: scratchPins, log: observability.logger("cron") });
+  const scratchPrune = startScratchPrune({ brain, pins: scratchPins, db, log: observability.logger("cron") });
   // The subscription token (#254): boot warnings now, the expiry check daily,
   // and what /api/status says about it.
   const subscription = createSubscriptionMonitor({

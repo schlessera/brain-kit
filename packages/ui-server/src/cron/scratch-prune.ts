@@ -1,3 +1,5 @@
+import type { Database } from "bun:sqlite";
+import { recordGovernanceEvent } from "../governance/events.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { BrainClient } from "../brain/client.js";
 
@@ -35,6 +37,7 @@ export type Every = (check: () => void, ms: number) => () => void;
 export function startScratchPrune(options: {
   brain: Pick<BrainClient, "scratchPrune">;
   log?: Logger;
+  db?: Database;
   pins?: { file: string; refresh(signal: AbortSignal): Promise<void> };
   every?: Every;
   intervalMs?: number;
@@ -65,10 +68,21 @@ export function startScratchPrune(options: {
     })()
       .then((output) => {
         try {
-          const report = JSON.parse(output) as { overageBytes?: number; pinned?: { files: number; bytes: number } };
-          if (report.overageBytes && report.overageBytes > 0) log?.emit({ severityText: "WARN",
-            body: "scratch remains over its size cap; retained conversation pins were preserved",
-            attributes: { "scratch.overage_bytes": report.overageBytes, "scratch.pinned_bytes": report.pinned?.bytes ?? 0 } });
+          const report = JSON.parse(output) as { bytes: number; overageBytes?: number; pinned: { files: number; bytes: number } };
+          if (report.overageBytes && report.overageBytes > 0) {
+            let eventError: unknown;
+            if (options.db) {
+              try {
+                recordGovernanceEvent(options.db, { kind: "scratch_overage", actor: "server", sessionId: null,
+                  turnId: null, model: null, profile: null, payload: { bytes: report.bytes,
+                    pinnedFiles: report.pinned.files, pinnedBytes: report.pinned.bytes, overageBytes: report.overageBytes } });
+                return;
+              } catch (error) { eventError = error; }
+            }
+            log?.emit({ severityText: "WARN", body: "scratch remains over its size cap; retained conversation pins were preserved",
+              attributes: { "scratch.overage_bytes": report.overageBytes, "scratch.pinned_bytes": report.pinned?.bytes ?? 0,
+                ...(eventError ? { "governance.error": eventError instanceof Error ? eventError.message : String(eventError) } : {}) } });
+          }
         } catch { /* Legacy human-output CLI; failures are handled below. */ }
       })
       .catch((error: unknown) => {
