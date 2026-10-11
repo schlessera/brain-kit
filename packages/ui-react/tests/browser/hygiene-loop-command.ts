@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import type { Page } from "playwright";
 import type { BrowserCommand } from "vitest/node";
 import type { HygieneReviewRead, InboxActionItem } from "@schlessera/brain-ui-sdk/protocol";
+import { holdCompletionFrames, releaseCompletionFrames, waitForCompletionFrame } from "./hygiene-completion-frame.js";
 
 type Finding = { id: string; category: string; path: string; sources: Array<{source: string}>; fingerprint: string; severity: string; firstSeen: string };
 const repo = resolve("../..");
@@ -249,7 +250,6 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     await advance(refreshed.id);
     assert.equal(applies().length - priorWrites, 1, "two devices cause exactly one CLI write");
     assert.equal(bytes(main), beforeFailure.replace("type: note\n", "title: Return to Ithaca\ntype: note\ncreated: 2026-07-12\n").replace("[[Eumaeus hut|his hut]]", "his hut"), "choice fix leaves exactly the confirmed bytes");
-    await b.close();
     // The remaining warning pair has equal rank and age; compare published IDs
     // independently, then observe each browser card in that order.
     const pair = detected.filter(f => [changed, "journeys/aeolus.md"].includes(f.path) && f.category === "broken-link").sort((x,y) => x.id < y.id ? -1 : 1);
@@ -276,6 +276,18 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     const manual = await show(a); assert.equal(manual.hygiene!.finding.category, "review-overdue");
     await a.getByRole("button", { name: "Done, check again", exact: true }).click(); await outcome("still_detected");
     assert.equal((await active()).id, manual.id, "manual check does not acknowledge a still-detected warning");
+    // Recovery killed the second device's socket too. Reload, then explicitly
+    // resume the same pending Action so its local focus handoff is exercised.
+    await b.reload();
+    await b.getByRole("button", { name: "Pause", exact: true }).click();
+    await b.getByText("Hygiene review paused", { exact: true }).waitFor();
+    await b.getByRole("button", { name: "Resume hygiene review", exact: true }).click();
+    await show(b);
+    assert.equal((await active()).id, manual.id, "second-device resume retains the pending Action");
+    // Completion focus must respect an editable target, including one entered
+    // after the heading mounts but before its scheduled frame executes.
+    await holdCompletionFrames(a);
+    await holdCompletionFrames(b);
     await a.getByRole("button", { name: "Later ▾", exact: true }).click();
     await a.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click(); await advance(manual.id);
     await poll(state, s => s.read.review.status === "complete", "real CLI selection completes server review");
@@ -287,7 +299,22 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
       await a.getByText("Review complete", { exact: true }).waitFor();
       assert.fail(`server complete but browser remains active until reload: ${JSON.stringify(completed.review)}`);
     }
+    await b.getByText("Review complete", { exact: true }).waitFor();
+    await waitForCompletionFrame(a);
+    await waitForCompletionFrame(b);
+    assert.equal(await a.getByText("Review complete", { exact: true }).evaluate(el => document.activeElement === el), false, "visible completion precedes its held focus frame");
+    await b.evaluate(() => {
+      const input = document.createElement("input");
+      input.id = "completion-typing";
+      document.body.append(input);
+      input.focus();
+      input.value = "Odysseus";
+    });
+    await releaseCompletionFrames(a);
+    await releaseCompletionFrames(b);
     assert.equal(await a.getByText("Review complete", { exact: true }).evaluate(el => document.activeElement === el), true, "completion receives keyboard focus");
+    assert.equal(await b.evaluate(() => document.activeElement?.id), "completion-typing", "completion preserves editable focus at frame execution");
+    await b.close();
     assert.equal((await state()).read.review.status, "complete");
     assert.equal((await state()).read.review.fixed, 3); assert.equal((await state()).read.review.dismissed, 2); assert.equal((await state()).read.review.snoozed, 1);
     await a.screenshot({ path: join(tmpdir(), `c6-complete-${width}.png`) });
