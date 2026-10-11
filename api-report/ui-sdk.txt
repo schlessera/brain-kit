@@ -4441,10 +4441,11 @@ signatures (every public export and the types it is made of)
   BrainReadBasePage (packages/ui-sdk/src/server/brain-read-base.ts)
     export interface BrainReadBasePage extends Totals {
         offset: number;
+        column?: number;
         returnedLines: number;
         text: string;
         nextOffset?: number;
-        truncated?: true;
+        nextColumn?: number;
         hint?: string;
     }
   BrainReadBaseResult (packages/ui-sdk/src/server/brain-read-base.ts)
@@ -8718,6 +8719,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>], "operation">;
   brainReadBaseInput (packages/ui-sdk/src/server/brain-read-base.ts)
     const brainReadBaseInput: z.ZodObject<{
+        column: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
         offset: z.ZodOptional<z.ZodNumber>;
         path: z.ZodString;
@@ -8729,6 +8731,7 @@ signatures (every public export and the types it is made of)
     }, range?: {
         offset?: number;
         limit?: number;
+        column?: number;
     }, budget?: number): BrainReadBaseResult;
   bridgeContractForToolName (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export function bridgeContractForToolName(name: string): (typeof BRIDGE_TOOL_CONTRACTS)[number] | undefined;

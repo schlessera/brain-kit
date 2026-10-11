@@ -864,7 +864,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       if (!turn.bridge?.readBrainBase) throw new Error("No server document-base reader is available.");
       const base = await turn.bridge.readBrainBase(params.path);
       rememberHash(params.path, base.expectedBaseHash);
-      const result = brainReadBaseResult(base, { offset: params.offset, limit: params.limit });
+      const result = brainReadBaseResult(base, { offset: params.offset, limit: params.limit, column: params.column });
       return textResult(JSON.stringify(result), result);
     },
   } satisfies ToolDefinition;

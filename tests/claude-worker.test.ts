@@ -63,3 +63,17 @@ test("aborting an actual Claude mid-tool removes its detached descendant and his
   expect(r.histories[0].flatMap((h: any) => h.toolCalls).some((t: any) => t.name === "Bash")).toBe(true);
   expect(r.survivors, "cancelled PID namespace leaves no detached child").toEqual([]);
 });
+test("an actual Claude runtime gets a large document's base hash inline from brain_read_base, never a spill file (#1624)", async () => {
+  const r = await probe("read-base");
+  const read = r.requests.flatMap((req: any) => req.results ?? []).find((result: any) => result.tool_use_id === "toolu_1");
+  expect(read, "the model received the brain_read_base result").toBeDefined();
+  const text = typeof read.content === "string" ? read.content : read.content.map((c: any) => c.text ?? "").join("");
+  expect(text).toStartWith('{"expectedBaseHash":"');
+  // The runtime may append its own reminder after the compact single-line JSON.
+  const page = JSON.parse(text.split("\n")[0]);
+  expect(page.expectedBaseHash).toMatch(/^[a-f0-9]{64}$/);
+  expect(page.content).toBeUndefined();
+  expect(page.nextOffset).toBeGreaterThan(1);
+  expect(page.bytes).toBeGreaterThan(67_000);
+  expect(r.survivors).toEqual([]);
+});

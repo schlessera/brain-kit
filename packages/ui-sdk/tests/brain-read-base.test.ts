@@ -32,11 +32,21 @@ test("the page budget counts the serialized text and an oversized default read p
   expect(result.hint).toContain(`offset: ${result.nextOffset}`);
 });
 
-test("a single line longer than the budget is cut on a code point and flagged", () => {
-  const doc = `${"☀".repeat(50)}\nAthena\n`;
-  const result = brainReadBaseResult(base(doc), { offset: 1 }, 21);
-  expect(result).toEqual({ expectedBaseHash: hash, bytes: Buffer.byteLength(doc), lines: 2,
-    offset: 1, returnedLines: 1, text: "☀".repeat(21), nextOffset: 2, truncated: true });
+test("a line longer than the budget is cut on a code point and resumes at nextColumn", () => {
+  const doc = `Ithaca\n${"\u{1F30A}".repeat(25)}\nAthena\n`; // each wave is two UTF-16 units
+  const totals = { expectedBaseHash: hash, bytes: Buffer.byteLength(doc), lines: 3 };
+  const first = brainReadBaseResult(base(doc), { offset: 2 }, 21);
+  expect(first).toEqual({ ...totals, offset: 2, returnedLines: 1, text: "\u{1F30A}".repeat(10), nextOffset: 2, nextColumn: 20 });
+  const pages = [brainReadBaseResult(base(doc), {}, 21)];
+  expect(pages[0]).toMatchObject({ text: "Ithaca\n", nextOffset: 2 });
+  for (let page = pages[0]!; "nextOffset" in page && page.nextOffset !== undefined;) {
+    page = brainReadBaseResult(base(doc), { offset: page.nextOffset, column: page.nextColumn }, 21);
+    expect(JSON.stringify((page as { text: string }).text).length - 2).toBeLessThanOrEqual(21);
+    pages.push(page);
+  }
+  expect(pages.map(page => (page as { text: string }).text).join("")).toBe(doc);
+  expect(pages.at(-1)).toEqual({ ...totals, offset: 2, column: 40, returnedLines: 2, text: `${"\u{1F30A}".repeat(5)}\nAthena\n` });
+  expect((pages[0] as { hint?: string }).hint).toContain("offset: 2 to continue");
 });
 
 test("the default budget keeps every result under the Claude harness pass-through size", () => {

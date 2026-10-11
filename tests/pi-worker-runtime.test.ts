@@ -78,6 +78,14 @@ describe("ordinary pi isolated worker", () => {
     expect(r.voyageLog).toBe(whole.replace("patience", "courage"));
     expect(r.running).toEqual([]);
   });
+  test.each(["forge-readbase-path", "forge-readbase-replay"])("refuses a %s document-base request from inside the worker", async scenario => {
+    const r = await probe(scenario);
+    policyUnchanged(r);
+    expect(r.frames.some((f: any) => f.code === "PI_WORKER_RPC_REFUSED"
+      && f.message === "Pi document-base request has no matching server permission decision.")).toBe(true);
+    expect(JSON.stringify(r.frames)).not.toContain("Calypso keeps the hidden route");
+    expect(r.running).toEqual([]);
+  });
   test("a failed host probe refuses before any installed extension factory runs", async () => {
     const r = await probe("failed-host");
     policyUnchanged(r);

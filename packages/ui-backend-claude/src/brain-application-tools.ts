@@ -24,10 +24,10 @@ export function registerBrainApplicationTools(
     description: BRAIN_READ_BASE_DESCRIPTION,
     inputSchema: brainReadBaseInput,
     _meta: { "anthropic/alwaysLoad": true },
-  }, async ({ path, offset, limit }) => {
+  }, async ({ path, ...range }) => {
     // The bridge returns the whole document and its server hash; only the
     // agent-facing result is paged, so no result outgrows the MCP budget.
-    try { return { content: [{ type: "text" as const, text: JSON.stringify(brainReadBaseResult(await bridge.readBrainBase!(path), { offset, limit })) }] }; }
+    try { return { content: [{ type: "text" as const, text: JSON.stringify(brainReadBaseResult(await bridge.readBrainBase!(path), range)) }] }; }
     catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "Read failed." }] }; }
   });
 }
