@@ -20,6 +20,24 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Content CLI minimum correction (patch, #1623)
+
+ui-server requires a content CLI of at least 0.41.0, the first release containing
+all commands and flags its existing features invoke. A detected CLI below 0.41.0
+refuses startup with the required version and an instruction to update the
+content repository's `@schlessera/brain` pin and lockfile before deploying the
+server. The existing unknown-version policy and stricter host minimum
+composition remain as specified in [runtime requirements](decisions/runtime-requirements.md).
+
+This is a patch compatibility correction to the existing version gate: the
+previous 0.33.0 floor admitted combinations that could not execute the shipped
+hygiene review. The exported `MIN_BRAIN_CLI_VERSION` value reflects that
+correction; no CLI, MCP or HTTP field, input shape or interpretation changes. It is neither an
+additive contract feature nor a breaking field/meaning change under the rules
+above: the newly refused combination already lacked required capabilities. The
+server's command/flag inventory checks its floor against recorded CLI availability
+versions.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

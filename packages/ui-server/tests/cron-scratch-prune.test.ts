@@ -239,7 +239,7 @@ describe("BrainUiApp.close", () => {
     writeFileSync(
       join(binDir, "brain"),
       `#!/usr/bin/env bun\n` +
-        `if (process.argv.includes("--version")) { console.log("0.40.0"); process.exit(0); }\n` +
+        `if (process.argv.includes("--version")) { console.log("0.41.0"); process.exit(0); }\n` +
         `import { writeFileSync } from "fs";\n` +
         `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
         `await Bun.sleep(60_000);\n`
@@ -283,7 +283,7 @@ describe("the shared test-app helper", () => {
         writeFileSync(
           join(binDir, "brain"),
           `#!/usr/bin/env bun\n` +
-            `if (process.argv.includes("--version")) { console.log("0.40.0"); process.exit(0); }\n` +
+            `if (process.argv.includes("--version")) { console.log("0.41.0"); process.exit(0); }\n` +
             `import { writeFileSync } from "fs";\n` +
             `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
             `await Bun.sleep(60_000);\n`
