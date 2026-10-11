@@ -14,7 +14,7 @@ bun evals/844-tag-aliases/run.ts labels --scratch "$EVAL_SCRATCH"
 bun evals/844-tag-aliases/run.ts run --scratch "$EVAL_SCRATCH"
 ```
 
-Inspect the label verdicts before running. Fix clear errors or drop ambiguous
+Inspect the label verdicts before running. The run checks unique matching case ids and unanimous agreement. Fix clear errors or drop ambiguous
 cases, then repeat the label check in fresh scratch if inputs changed. All
 33 labels in this run were agreed. Raw CLI outputs and case brains remain in
 scratch; only the single compact results JSON is committed. Completed calls
@@ -28,7 +28,7 @@ proposal mechanically scoreable. Other audit phases are excluded.
 
 Candidate retrieval admits lexical variants, tag acronyms, a shared tag
 component of four or more letters, or two shared context words after a generic
-function-word filter. Every pair is also judged diagnostically, including
+English stop list including common note-writing verbs. Actor names count as shared words. Every pair is also judged diagnostically, including
 retrieval rejects: core Jev Choice receives each orientation in a separate
 request. A proposal requires retrieval, orientation agreement on `same`, and
 both confidences at the tuning-selected floor. The fixed grid selects zero
@@ -51,7 +51,7 @@ measure retrieval over a large real vocabulary or validate unattended writes.
 
 After opening the PR, save `gh pr diff` as `pr.diff` in scratch and run
 `run.ts review --scratch "$EVAL_SCRATCH"` for the cross-family review. Its
-findings and the updated call count join the same results JSON.
+findings and the updated call count join the same dated results JSON. A rerun uses the current UTC date. Review reads that day’s results. The review prompt travels through stdin to avoid operating-system argument limits.
 
 Offline scoring tests:
 

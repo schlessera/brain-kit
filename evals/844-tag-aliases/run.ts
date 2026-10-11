@@ -23,7 +23,7 @@ const criteria = {
 };
 export const expected = (c: Case): Verdict => c.expected.same === null ? "uncertain" : c.expected.same ? "same" : "different";
 export const lexical = (c: Case) => findVariantGroups(new Map([[c.left, 1], [c.right, 1]]), c.config.taxonomy.tags).length > 0;
-// Generic function words only; no entity or held-out tag names in retrieval rules.
+// Generic English stop words and common note-writing verbs. Actor names still count as shared words; no tag names are in this list.
 const stop = new Set("a an the of to in for and or this that who where how as is are was with from on at by his her their each only uses records notes writes lists marks".split(" "));
 function words(s: string): Set<string> {
   return new Set((s.toLowerCase().match(/[a-z]+/g) ?? []).filter(w => w.length > 2 && !stop.has(w)));
@@ -79,6 +79,7 @@ async function main() {
   const scratchArg = args.indexOf("--scratch");
   if (scratchArg < 0 || !args[scratchArg + 1]) throw new Error("Supply --scratch <outside-tree directory>");
   const scratch = resolve(args[scratchArg + 1]);
+  const date = new Date().toISOString().slice(0, 10), resultsFile = join(import.meta.dir, `results-${date}.json`);
   const repo = resolve(import.meta.dir, "../..");
   if (scratch.startsWith(repo + "/")) throw new Error("Scratch must be outside the repository");
   mkdirSync(scratch, { recursive: true });
@@ -116,12 +117,13 @@ async function main() {
     const path = raw(name);
     if (await Bun.file(path).exists()) return Bun.file(path).json();
     for (let attempt = 0; attempt < 5; attempt++) {
-      count("claude");
-      const proc = Bun.spawn(["env", "-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN", "claude", "-p", prompt,
+      if (counts.claude + counts.jev >= 350) throw new Error("350-call stop reached");
+      const proc = Bun.spawn(["env", "-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN", "claude", "-p",
         "--model", "claude-sonnet-5-5", "--output-format", "json", "--json-schema", JSON.stringify(schema),
         "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
         "--tools", current ? "Read,Glob,Grep,Skill,Bash" : "", "--allowedTools", current ? "Read,Glob,Grep,Skill,Bash(brain audit --json),Bash(brain tags --json)" : ""],
-        { cwd, env: { ...localEnv, PATH: bin + ":" + process.env.PATH }, stdout: "pipe", stderr: "pipe" });
+        { cwd, env: { ...localEnv, PATH: bin + ":" + process.env.PATH }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      count("claude"); proc.stdin.write(prompt); proc.stdin.end();
       const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       writeFileSync(join(scratch, name + `-attempt${attempt}.txt`), stdout + "\n" + stderr);
       if (/usage limit|hit your limit|out of extra usage|weekly.*limit|subscription.*limit|limit reached/i.test(stdout + stderr)) { halted = true; throw new Error("Claude subscription usage limit: dispatch stopped"); }
@@ -147,13 +149,15 @@ async function main() {
     const review = await claude("Review this PR diff against issue 844 and the lean evaluation protocol: actual shipped audit skill on Sonnet 5.5, candidate through core Jev 1.13.0 in both orientations, tuning-only floor, three repetitions, any false merge vetoes, all labels checked. Flag scoring bugs, biased comparisons, unsupported claims and concrete missing requirements. Return findings; say none if no actionable finding.\n" + readFileSync(join(scratch, "pr.diff"), "utf8"),
       await brain(null, "pr-review"), "review", { type: "object", properties: { findings: { type: "array", items: { type: "string" } } }, required: ["findings"], additionalProperties: false });
     if (!review.structured_output) throw new Error("PR review did not return a valid answer");
-    const path = join(import.meta.dir, "results-2026-10-11.json"), result = await Bun.file(path).json();
+    const path = resultsFile, result = await Bun.file(path).json();
     result.review = { model: "claude-sonnet-5-5", ...review.structured_output }; result.counts = counts;
     writeFileSync(path, JSON.stringify(result, null, 2) + "\n");
     console.log(JSON.stringify(result.review)); return;
   }
   const labels = await Bun.file(raw("labels")).json();
-  if (labels.structured_output?.verdicts?.length !== cases.length) throw new Error("Missing complete label check");
+  const checked = labels.structured_output?.verdicts as { id: string; verdict: string }[] | undefined;
+  if (!checked || checked.length !== cases.length || new Set(checked.map(v => v.id)).size !== cases.length ||
+    !cases.every(c => checked.some(v => v.id === c.id && v.verdict === "agree"))) throw new Error("Fix or drop disputed cases and repeat the complete label check in fresh scratch");
   const rows: Observation[] = [];
   const currentSchema = { type: "object", properties: { verdict: { enum: ["same", "different", "uncertain"] }, reason: { type: "string" } }, required: ["verdict", "reason"], additionalProperties: false };
   // Two workers maximum, each process completes before its next dispatch.
@@ -202,12 +206,12 @@ async function main() {
   const calibration = await Bun.file(raw("calibration")).json();
   const floor = calibration.floor ?? 2;
   const summary = Object.fromEntries(["current", "candidate", "lexical"].map(arm => [arm, summarize(cases.filter(c => c.split === "held-out"), rows.filter(o => o.arm === arm), floor)]));
-  const results = { issue: 844, date: "2026-10-11", base: Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repo }).stdout.toString().trim(),
+  const results = { issue: 844, date, base: Bun.spawnSync(["git", "merge-base", "HEAD", "origin/main"], { cwd: repo }).stdout.toString().trim(),
     models: { current: "claude-sonnet-5-5", candidate: "jev-1.13.0" }, repetitions: 3, counts, currentExecution,
     labelCheck: labels.structured_output, calibration, summary,
     diagnosticJudgeOnly: summarize(cases.filter(c => c.split === "held-out"), rows.filter(o => o.arm === "candidate").map(o => ({ ...o, eligible: true })), floor),
     rows: rows.map(o => ({ ...o, verdict: admitted(o, floor) })).sort((a, b) => a.arm.localeCompare(b.arm) || a.id.localeCompare(b.id) || a.rep - b.rep) };
-  writeFileSync(join(import.meta.dir, "results-2026-10-11.json"), JSON.stringify(results, null, 2) + "\n");
+  writeFileSync(resultsFile, JSON.stringify(results, null, 2) + "\n");
   console.table(summary);
 }
 if (import.meta.main) await main();

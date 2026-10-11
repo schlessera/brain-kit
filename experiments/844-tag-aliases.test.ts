@@ -38,6 +38,14 @@ describe("lean alias scoring", () => {
     expect(result.contentWrites).toBe(1);
     expect(result.veto).toBe(true);
   });
+  test("no safe tuning floor proposes no aliases; a missing orientation is invalid", () => {
+    const tuning = [fixture("trap", false, "tuning")];
+    const rows = [0, 1, 2].map(rep => row("trap", rep, "same", 1));
+    const floor = calibrate(tuning, rows).floor;
+    expect(floor).toBeNull();
+    expect(admitted(rows[0], floor ?? 2)).toBe("uncertain");
+    expect(admitted({ ...rows[0], orientations: [answer("same")] }, 0)).toBe("invalid");
+  });
   test("unknown positives are destructive; malformed answers stay invalid", () => {
     const invalid: Observation = { id: "unknown", arm: "candidate", rep: 1, verdict: "invalid" };
     const result = summarize([fixture("unknown", null)], [row("unknown", 0, "same"), invalid, row("unknown", 2, "uncertain")], 0);

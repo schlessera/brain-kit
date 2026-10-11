@@ -8,7 +8,7 @@
   },
   "repetitions": 3,
   "counts": {
-    "claude": 100,
+    "claude": 101,
     "jev": 198
   },
   "currentExecution": {
@@ -3483,7 +3483,7 @@
       "arm": "current",
       "rep": 2,
       "verdict": "same",
-      "reason": "The audit reports one tag-noise finding: both tags (landing-place, harbour) are singletons. The two documents describe the same thing in near-identical wording. Left says \"a sheltered landing place where ships moor\", and right says \"the harbour where ships tie up safely\". Both are about Penelope marking a place where ships moor, so the tags are synonyms. Proposed alias merge: landing-place → harbour. Harbour is the more common, canonical term. After the merge both documents would carry `harbour`, which would stop it being a singleton. Nothing was edited or committed. The two staleness warnings (91 days old, threshold 30) are outside this task.",
+      "reason": "The audit reports one tag-noise finding: both tags (landing-place, harbour) are singletons. The two documents describe the same thing in near-identical wording. Left says \"a sheltered landing place where ships moor\", and right says \"the harbour where ships tie up safely\". Both are about Penelope marking a place where ships moor, so the tags are synonyms. Proposed alias merge: landing-place \u2192 harbour. Harbour is the more common, canonical term. After the merge both documents would carry `harbour`, which would stop it being a singleton. Nothing was edited or committed. The two staleness warnings (91 days old, threshold 30) are outside this task.",
       "changed": []
     },
     {
@@ -3603,7 +3603,7 @@
       "arm": "current",
       "rep": 2,
       "verdict": "same",
-      "reason": "Both usage files describe the same concept. left.md says Penelope calls the overnight sentry duty a \"vigil\", and right.md says Penelope calls the same duty \"the night watch\". Each tag appears on exactly one document, so the audit flags both as singleton tag-noise. I propose merging them into one canonical tag, with `night-watch` → `vigil` or the reverse; the choice is the user's. Nothing was edited or committed. The two staleness warnings (91 days old) are outside this task.",
+      "reason": "Both usage files describe the same concept. left.md says Penelope calls the overnight sentry duty a \"vigil\", and right.md says Penelope calls the same duty \"the night watch\". Each tag appears on exactly one document, so the audit flags both as singleton tag-noise. I propose merging them into one canonical tag, with `night-watch` \u2192 `vigil` or the reverse; the choice is the user's. Nothing was edited or committed. The two staleness warnings (91 days old) are outside this task.",
       "changed": []
     },
     {
@@ -4123,7 +4123,7 @@
       "arm": "current",
       "rep": 1,
       "verdict": "same",
-      "reason": "Both docs describe the same concept (guest care: bathing, feeding, housing visitors). left.md explicitly says \"GC as guest care\", so gc is an abbreviation of guest-care. Each tag is used by exactly one document (the audit's tag-noise finding), so merging loses no filtering. Proposal, with no edits made: alias gc → guest-care by retagging left.md from [gc] to [guest-care]. Both files are also stale (91 days), which is outside this task.",
+      "reason": "Both docs describe the same concept (guest care: bathing, feeding, housing visitors). left.md explicitly says \"GC as guest care\", so gc is an abbreviation of guest-care. Each tag is used by exactly one document (the audit's tag-noise finding), so merging loses no filtering. Proposal, with no edits made: alias gc \u2192 guest-care by retagging left.md from [gc] to [guest-care]. Both files are also stale (91 days), which is outside this task.",
       "changed": []
     },
     {
@@ -4752,5 +4752,36 @@
       "rep": 2,
       "verdict": "different"
     }
+  ],
+  "review": {
+    "model": "claude-sonnet-5-5",
+    "reviewedHead": "267f2caf10d3359fe9e631153162083bd58c47ee",
+    "findings": [
+      "Retrieval filter is tuned to the fixtures. `run.ts` calls the stop list \"generic function words only\", but it includes template verbs and nouns such as `uses records notes writes lists marks`. The shared-word rule also counts character names (Penelope, Nestor, Menelaus) as shared context words. The filter's behaviour on the sparse and unknown pairs therefore depends on the authored templates, and the decision doc admits the rule was written with the public cases in view. The \"safe filtering\" of the sparse and unknown pairs, and the 0 false merges it produces, are not evidence about real vocabularies. The comment and README wording should be corrected, or the filter should be frozen before the ten new held-out cases are written.",
+      "The \"held-out\" set is not clean. The preserved cases were visible when the retrieval rule was written, and the ten new cases were authored by the same party as the harness. The decision doc says only that the rule was written \"with the public cases in view\". The no-go also rests on one case (`ithaca-disjoint-context`, 3 of 30 trials). The label reviewer itself called that case weaker evidence, and it is also the only case where Jev and Current differ on recall. The headline \"no-go\" is stronger than this sensitivity supports. The doc should either report recall with and without that case, or soften the decision to \"not shown to be adequate\".",
+      "The label check is a weak gate. The prompt sends the goldens to the reviewer, which invites anchoring, and the reviewer is Sonnet 5.5, the same model as the Current arm. All 33 labels came back `agree`. The `run` path checks only `verdicts.length === cases.length`. It does not check that ids match the cases, that every verdict is `agree`, or that the label check was run on the current case file. A `wrong` or `ambiguous` verdict, or a case edited after the check, would not stop the run. The README relies on manual inspection for this.",
+      "The doc says the cross-family PR review \"is recorded in the same results JSON, including its additional invocation\". The committed results JSON has no `review` field, and `counts.claude` is 100, which excludes any review call. As submitted, the claim is unsupported and the call-count statement is inconsistent. The `review` mode also uses Sonnet 5.5, the same model as the Current arm, so it is not independent of that arm's family.",
+      "The `fallbacks` metric is hard-coded to `0` in `summarize`. It is never measured, yet the reliability table presents it as an observed result. The metric should be derived from the Jev result outcome or model field, or removed from the table.",
+      "The Current arm is told the exact pair (`For the pair ${c.left} / ${c.right}`) in a two-document brain. This makes the audit's discovery trivial, and the doc admits ordinary multi-phase audit discovery is unmeasured. The unmeasured discovery phase and the information-unmatched comparison are stated only under limits. The headline table (100% vs 90%) and the \"shipped audit skill\" label still read as if they measure the product path. The table caption should state \"pair-prompted, report-only\".",
+      "The Jev repetitions send identical requests, and the results show near-identical probabilities across reps. The \"23/23 agreement\" and \"stable\" claims for Candidate are therefore close to a single sample, not three independent repetitions. The \"cases agreeing across all repetitions\" comparison between Current (22/23) and Candidate (23/23) is biased toward Candidate. It should be flagged as non-comparable.",
+      "The tuning split cannot choose a floor. There were 0 tuning false merges at every floor, so the only selection pressure was recall, and the minimum floor (0) won by tie-break. The doc says this, but it also presents the floor as \"tuning-selected\" and says \"Proposal requires ... both confidences at the tuning-selected floor\". The floor-selection requirement is vacuous in this run, and no evidence is given that the floor protects against false merges.",
+      "Minor reproducibility problems in `run.ts`. `base` is taken from `git rev-parse HEAD` of the working checkout, but the doc says \"from main <sha>\". The results file name and date are hard-coded. Failed Claude results are cached to disk before the error check, so a resume never retries them. `contentWrites` checks only the original document bytes, not new files, config or db changes.",
+      "The offline tests do not cover `eligible()` (retrieval rules), the `lexical` baseline, the no-safe-floor path (`floor ?? 2`), or an invalid orientation count. These are the pieces most likely to bias the comparison."
+    ],
+    "responses": [
+      "Corrected stop-list wording; actor-name overlap and template sensitivity are explicit. No real-vocabulary safety claim is made.",
+      "Added unblinded nominal-split wording and sensitivity: excluding the disjoint case gives both arms 27/27 recall, zero false merges. No-go means replacement adequacy not established under the declared rubric.",
+      "Run now verifies unique matching IDs and unanimous agreement. Golden anchoring is disclosed. Changed inputs require fresh scratch and label review; no freeze layer was introduced. Actual measured labels were complete and unchanged.",
+      "Review findings and call are now recorded. The reviewer differs from the GPT author as required, while sharing the current arm family; that dependence is disclosed.",
+      "Zero fallbacks is a property of the harness: no fallback code path exists. Documentation now says zero by construction; provider failures do not imply fallback calls.",
+      "Added pair-prompted, report-only to the headline caption. Full audit discovery remains unmeasured.",
+      "Agreement is descriptive. Identical Jev requests, correlated repetitions and unequal effective variation are explicitly disclosed; no superior-reliability claim is made.",
+      "Clarified that no tested tuning floor had a false merge, so this run establishes no safety benefit from confidence filtering.",
+      "Base now uses merge-base with origin/main; date and result filename use UTC run day. Cached completed failures remain invalid observations; changed runs need fresh scratch. Limits now identify original-document-only change scoring. Fixed the PR review argument limit using stdin.",
+      "Added scoring tests for no safe floor and missing orientation. Predicate-only generator/baseline tests were not added: user explicitly restricts unit tests to non-trivial scoring; actual evaluation exercises these paths on all cases, and lexical code is shipped unchanged."
+    ]
+  },
+  "executionNotes": [
+    "The first PR-review process failed to launch because the diff exceeded the operating-system argument limit. No Claude call was dispatched for that launch; stdin transport fixed it."
   ]
 }
