@@ -44,7 +44,9 @@ afterEach(() => {
 
 /** The note for this brain and home, from the generator itself. */
 function expectedNote(): string {
-  return worker.workerSandboxNote(worker.prepareWorkerSandbox(brain, { home }));
+  // Its limits list comes from the same resolved plan each launch applies (#1660).
+  return worker.workerSandboxNote(worker.prepareWorkerSandbox(brain, { home }),
+    { limits: worker.workerNoteLimits(worker.launchLimits({}).status) });
 }
 
 function claudeAppend(): string {
@@ -79,7 +81,7 @@ async function piInitNote(): Promise<string> {
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });

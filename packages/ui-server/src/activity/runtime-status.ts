@@ -22,7 +22,7 @@ import {
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
-import type { WorkerHostCheck, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { WorkerHostCheck, WorkerHostStatus, WorkerLimitsStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { Logger } from "@opentelemetry/api-logs";
 
@@ -92,6 +92,12 @@ export interface RuntimeStatus {
    * the worker host status for as long as the process lives.
    */
   recordRootServer(warning: string): void;
+  /**
+   * The resource limits workers run under (#1660), re-read with every probe.
+   * Logs the first answer and each change: what is enforced, and a warning
+   * for each limit this host cannot enforce.
+   */
+  recordWorkerLimits(limits: WorkerLimitsStatus): void;
   snapshot(): RuntimeStatusSnapshot;
 }
 
@@ -184,6 +190,19 @@ export function createRuntimeStatus(
           attributes: { ...attributes, "worker_host.requirement": check.requirement },
         });
     },
+    recordWorkerLimits(limits) {
+      const previous = workerHost.limits;
+      workerHost.limits = limits;
+      if (previous && JSON.stringify(previous) === JSON.stringify(limits)) return;
+      log?.emit({ severityText: "INFO",
+        body: `agent workers run under resource limits: ${limits.enforced.map(e => `${e.limit}=${e.value} (${e.source})`).join(", ") || "none"}`,
+        attributes: { "worker_host.limits.enforced": limits.enforced.map(e => e.limit).join(",") } });
+      for (const { limit, reason } of limits.absent) {
+        if (reason.startsWith("turned off")) continue;
+        log?.emit({ severityText: "WARN", body: `agent worker ${limit} limit is not enforced on this host: ${reason} (docs/hosting/agent-workers.md#resource-limits)`,
+          attributes: { "worker_host.limit": limit, "worker_host.limit_reason": reason } });
+      }
+    },
     recordRootServer(warning) {
       if (workerHost.rootServer) return;
       workerHost.rootServer = { warning };
@@ -192,7 +211,7 @@ export function createRuntimeStatus(
     snapshot() {
       return {
         boot,
-        ...(workerHost.ordinary || workerHost.restricted || workerHost.rootServer ? { workerHost: { ...workerHost } } : {}),
+        ...(workerHost.ordinary || workerHost.restricted || workerHost.rootServer || workerHost.limits ? { workerHost: { ...workerHost } } : {}),
         ...(lastObserved ? { lastObserved } : {}),
         ...(lastAuthFailure ? { lastAuthFailure } : {}),
       };

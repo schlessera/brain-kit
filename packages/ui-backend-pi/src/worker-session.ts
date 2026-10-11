@@ -7,8 +7,8 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
-import { launchAgentWorker, prepareWorkerSandbox, requireWorkerHost, restrictedReadPaths, workerSandboxNote, workerSandboxWarnings,
-  WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { createLimitTracker, launchAgentWorker, launchLimits, prepareWorkerSandbox, requireWorkerHost, restrictedReadPaths,
+  workerNoteLimits, WorkerResourceLimitError, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -80,12 +80,14 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let child: ReturnType<typeof launchAgentWorker>;
   let sandboxNote: string;
   try {
-    // One resolution feeds the worker's mounts and the note its agent reads (#1626).
+    // One resolution feeds the worker's mounts and the note its agent reads (#1626),
+    // and one its resource limits and the note's limits section (#1660).
     const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
-    sandboxNote = workerSandboxNote(sandbox);
+    const limits = launchLimits({});
+    sandboxNote = workerSandboxNote(sandbox, { limits: workerNoteLimits(limits.status) });
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     child = launchAgentWorker({ brainPath: backend.brainPath,
-      command: [process.execPath, entry], env: workerEnv, sandbox,
+      command: [process.execPath, entry], env: workerEnv, sandbox, limits,
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
   } catch (error) { envelope?.relay.stop(); throw error; }
@@ -94,6 +96,30 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
+  // Each new host-limit hit is reported next to the step that caused it (#1660).
+  const freshLimitHits = createLimitTracker();
+  const reportLimitHits = (): void => {
+    const fresh = freshLimitHits(child.limitReport());
+    if (!fresh.length) return;
+    try { turnContext.bridge?.activity?.({ kind: "resource_limit", limits: fresh, fatal: false }); } catch { /* observability only */ }
+  };
+  /**
+   * Once the worker has exited: the limit that ended it, as the turn's
+   * failure. Settled once, however many paths ask, and bounded: a worker that
+   * closed its protocol but did not exit is not a limit's doing.
+   */
+  let limitSettlement: Promise<WorkerResourceLimitError | undefined> | undefined;
+  const limitEnded = (): Promise<WorkerResourceLimitError | undefined> => limitSettlement ??= (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const exited = await Promise.race([child.exited.then(() => true),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), 3_000); })]);
+    clearTimeout(timer);
+    if (!exited) return undefined;
+    const report = child.limitReport();
+    if (!report.fatal) { reportLimitHits(); return undefined; }
+    try { turnContext.bridge?.activity?.({ kind: "resource_limit", limits: report.hits, fatal: true }); } catch { /* observability only */ }
+    return new WorkerResourceLimitError(report.hits);
+  })();
   const send = (value: unknown) => sendPipe(child.stdin, value);
   function live(): void {
     if (!active || ended || !turnContext.bridge || !turnContext.signal || turnContext.signal.aborted) {
@@ -101,6 +127,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
   }
   function fail(reason: unknown): void {
+    // The first failure is the turn's: a later path cannot reclassify it.
+    if (error) return;
     error = reason instanceof Error ? reason : new Error(String(reason));
     ended = true;
     ready.reject(error); done.reject(error);
@@ -261,6 +289,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       } else if (msg.type === "event") {
         if (!active) throw new Error("Pi worker emitted an event outside the turn");
         if (msg.event.type === "tool_execution_end") {
+          reportLimitHits();
           const receipt = applications.get(msg.event.toolCallId);
           if (receipt) {
             msg.event.result = receipt.output ? { content: receipt.output.content.map(part => ({ ...part })), details: receipt.output.details } : { content: [{ type: "text", text: JSON.stringify(receipt.result) }], details: receipt.result };
@@ -278,13 +307,27 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         persist();
       } else if (msg.type === "done") {
         if (!active) throw new Error("Pi worker completed an inactive turn");
+        // Hits after the last tool step, or in a turn without one, still count.
+        reportLimitHits();
         cost = msg.cost; ended = true;
         if (msg.error) done.reject(new Error(msg.error)); else done.resolve();
       } else throw msg.errorClass === "session_too_large" ? new SessionTooLargeError() : new BackendRequestError(msg.message);
     }
-    if (!ended) throw new Error(`Pi worker exited before completion: ${diagnostic || "protocol closed"}`);
-  })().catch(fail);
-  void child.exited.then(code => { if (!ended) fail(new BackendRequestError(`Pi worker exited (${code}): ${diagnostic}`)); });
+    if (!ended) throw (await limitEnded()) ?? new Error(`Pi worker exited before completion: ${diagnostic || "protocol closed"}`);
+  })().catch(async error => {
+    // A worker a limit killed mid-message ends the protocol with a partial
+    // message: if the worker is gone, settle the limit before blaming the
+    // protocol. A live worker that broke the protocol is stopped at once.
+    if (ended) return fail(error);
+    const exited = await Promise.race([child.exited.then(() => true), Bun.sleep(250).then(() => false)]);
+    fail((exited ? await limitEnded() : undefined) ?? error);
+  });
+  void child.exited.then(async code => {
+    // The reader sees the worker's last frames first: an error it parsed, or
+    // the limit that ended the worker, outranks a generic exit.
+    await Promise.race([received, Bun.sleep(1_000)]);
+    if (!ended) fail((await limitEnded()) ?? new BackendRequestError(`Pi worker exited (${code}): ${diagnostic}`));
+  });
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
   try {

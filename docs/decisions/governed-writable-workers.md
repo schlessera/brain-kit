@@ -661,7 +661,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:195`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:200`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:518`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -776,7 +776,7 @@ Reaching a cap is recorded as a governance event and as a roadblock.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:225`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:231`).
 
 **What changes:**
 
@@ -836,7 +836,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:62`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:72`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -848,7 +848,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:411`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:519`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -878,8 +878,14 @@ sockets and fails on any socket not on that list.
 
 Each `governed` or `strict` worker gets limits that always apply:
 
-- **`rlimit`s**, set by the trusted bootstrap before `execve`: address space,
+- **`rlimit`s**, set before the worker command's `execve`: private memory,
   number of processes, file size and open files. They need no privilege.
+  `prlimit` sets them as the first program inside the worker's user
+  namespace, where `RLIMIT_NPROC` counts only the worker's own tasks. The
+  memory bound is `RLIMIT_DATA`, not `RLIMIT_AS`: Chromium reserves over a
+  terabyte of address space and failed under every `RLIMIT_AS` that would
+  bound anything (#1660,
+  [measurements](../hosting/agent-workers.md#resource-limits)).
 - **A cgroup v2 limit** on CPU, memory and pids, but only when the host
   delegates a cgroup to the server. Docker and rootless hosts may not. The boot
   probe (#1632) reports which limits are in force. Like the namespaces, a
@@ -962,7 +968,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:36`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:37`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:

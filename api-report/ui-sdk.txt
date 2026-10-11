@@ -310,6 +310,9 @@ export "." (./src/index.ts)
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
+  type WorkerLimitName
+  type WorkerLimitSource
+  type WorkerLimitsStatus
   composeHandoffText
   isBillingMode
   isFailureOutcome
@@ -724,6 +727,9 @@ export "./client" (./src/client/index.ts)
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
+  type WorkerLimitName
+  type WorkerLimitSource
+  type WorkerLimitsStatus
   bridgeContractForToolName
   composeHandoffText
   createAsrClient
@@ -771,6 +777,7 @@ export "./internal" (./src/internal.ts)
   WORKER_AREAS
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
+  WORKER_LIMITS_ENV
   WORKER_SCRATCH
   WORKER_XDG_DIRS
   type WorkerArea
@@ -780,10 +787,15 @@ export "./internal" (./src/internal.ts)
   type WorkerHostProbe
   type WorkerHostProbeOptions
   type WorkerLaunch
+  type WorkerLimitHit
+  type WorkerLimitReport
+  type WorkerLimitsPlan
+  type WorkerLimitsStatus
   type WorkerMount
   type WorkerNoteFacts
   type WorkerNoteLimit
   type WorkerProfile
+  WorkerResourceLimitError
   type WorkerSandbox
   applyClassification
   archivesDocument
@@ -792,10 +804,15 @@ export "./internal" (./src/internal.ts)
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
+  createLimitTracker
+  describeLimitHits
   execWrapperSpawnOptions
   hasWebSearchCredential
   launchAgentWorker
+  launchLimits
+  limitFailureMessage
   loadedSdkIdentity
+  mergeLimitReports
   observeClassification
   piMaskFilename
   piReportedMaskPath
@@ -812,6 +829,9 @@ export "./internal" (./src/internal.ts)
   webSearchBrief
   webSearchProvider
   workerHostBoundary
+  workerLimitsPlan
+  workerLimitsStatus
+  workerNoteLimits
   workerProfile
   workerSandboxNote
   workerSandboxWarnings
@@ -1134,6 +1154,9 @@ export "./protocol" (./src/protocol.ts)
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
+  type WorkerLimitName
+  type WorkerLimitSource
+  type WorkerLimitsStatus
   composeHandoffText
   isBillingMode
   isFailureOutcome
@@ -1770,6 +1793,9 @@ export "./server" (./src/server/index.ts)
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
+  type WorkerLimitName
+  type WorkerLimitSource
+  type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
   assertLiveConversationProvider
@@ -4221,6 +4247,15 @@ signatures (every public export and the types it is made of)
         kind: "auth_failure";
         errorClass: string;
         message?: string;
+    } | {
+        kind: "resource_limit";
+        limits: Array<{
+            limit: "processes" | "data" | "file_size" | "memory" | "pids" | "cpu";
+            source: "rlimit" | "cgroup";
+            value: number;
+            events: number | null;
+        }>;
+        fatal: boolean;
     };
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
@@ -5175,6 +5210,11 @@ signatures (every public export and the types it is made of)
         readonly description: "Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override.";
         readonly name: "BRAIN_WORKER_LAUNCH";
         readonly required: "trusted worker bootstrap only";
+    }, {
+        readonly default: "processes=4096, data and memory=half the server's memory (physical, or a lower cgroup cap above it), file_size=16GiB, open_files=65536, pids=4096, cpu=all CPUs but one, cgroup=on";
+        readonly description: "Resource limits for each agent worker, as comma-separated name=value pairs over the defaults: processes, data, file_size and open_files (rlimits), memory, pids and cpu (the per-worker cgroup, when the host delegates one), and cgroup=on|off. Sizes take KiB, MiB, GiB or TiB; `unlimited` turns one limit off. A malformed entry refuses agent turns and names the entry. See docs/hosting/agent-workers.md#resource-limits.";
+        readonly name: "BRAIN_UI_WORKER_LIMITS";
+        readonly required: false;
     }];
   EXEC_KILLER_ENV (packages/ui-sdk/src/server/exec-wrapper.ts)
     const EXEC_KILLER_ENV: "BRAIN_UI_EXEC_KILLER";
@@ -5246,7 +5286,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "unknown";
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;
@@ -8688,6 +8728,24 @@ signatures (every public export and the types it is made of)
         rootServer?: {
             warning: string;
         };
+        limits?: WorkerLimitsStatus;
+    }
+  WorkerLimitName (packages/ui-sdk/src/protocol.ts)
+    export type WorkerLimitName = "processes" | "data" | "file_size" | "open_files" | "memory" | "pids" | "cpu";
+  WorkerLimitSource (packages/ui-sdk/src/protocol.ts)
+    export type WorkerLimitSource = "rlimit" | "cgroup";
+  WorkerLimitsStatus (packages/ui-sdk/src/protocol.ts)
+    export interface WorkerLimitsStatus {
+        enforced: Array<{
+            limit: WorkerLimitName;
+            source: WorkerLimitSource;
+            value: number;
+        }>;
+        absent: Array<{
+            limit: WorkerLimitName;
+            source: WorkerLimitSource;
+            reason: string;
+        }>;
     }
   WrappedKillOptions (packages/ui-sdk/src/server/exec-wrapper.ts)
     export interface WrappedKillOptions {

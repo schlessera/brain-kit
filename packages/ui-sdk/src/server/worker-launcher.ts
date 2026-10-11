@@ -7,6 +7,9 @@ import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_XDG_DIRS,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
+import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
+  type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
+import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -34,6 +37,13 @@ export interface WorkerLaunch {
    * and the note cannot disagree. Absent: only the per-turn scratch is writable.
    */
   sandbox?: WorkerSandbox;
+  /**
+   * The resource limits this worker runs under (#1660), resolved once by
+   * `workerLimitsPlan` so the agent's note and the launch cannot disagree.
+   * Absent: the launcher resolves the host's limits itself. No launch runs
+   * without them.
+   */
+  limits?: WorkerLimitsPlan;
 }
 
 export interface RestrictedEnvelope {
@@ -111,6 +121,15 @@ export class WorkerHostError extends BackendRequestError {
   }
 }
 
+/** A host resource limit ended the worker (#1660); the message names the limit. */
+export class WorkerResourceLimitError extends BackendRequestError {
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.worker_resource_limit;
+  constructor(readonly hits: WorkerLimitHit[]) {
+    super(limitFailureMessage(hits));
+    this.name = "WorkerResourceLimitError";
+  }
+}
+
 /**
  * A worker runs as the server's kernel uid. For uid 0, the host-global files
  * of its fresh procfs (sysctls such as `kernel.core_pattern`, `/proc/acpi`,
@@ -123,6 +142,25 @@ export class WorkerHostError extends BackendRequestError {
  */
 function rootProcCover(): string[] {
   return process.getuid?.() === 0 || process.geteuid?.() === 0 ? ["--remount-ro", "/proc"] : [];
+}
+
+/** The launch's limits, or the host's. A malformed configuration is a named host requirement. */
+export function launchLimits(input: Pick<WorkerLaunch, "limits">): WorkerLimitsPlan {
+  if (input.limits) return input.limits;
+  try { return workerLimitsPlan(); } catch (error) {
+    throw new WorkerHostError(`${WORKER_LIMITS_ENV} is malformed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * The trusted first program inside the worker's namespaces: `prlimit` sets
+ * every rlimit, soft and hard, then execs the worker command. It runs inside
+ * so that `RLIMIT_NPROC` counts only the worker's own tasks (worker-limits.ts).
+ */
+function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
+  if (!plan.rlimits.length) return [];
+  if (!plan.prlimit) throw new WorkerHostError(PRLIMIT_REQUIREMENT);
+  return [plan.prlimit, ...prlimitArgs(plan.rlimits), "--"];
 }
 
 /** The only argv builder used by both live workers and the actual host probe. */
@@ -165,7 +203,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (state) argv.push("--bind", state, state);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", brain, "--", ...input.command);
+    "--chdir", brain, "--", ...rlimitPrefix(launchLimits(input)), ...input.command);
   return argv;
 }
 
@@ -294,26 +332,86 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   return { brain, restricted: false, areas, scratchAliasesRemoved: removed, home };
 }
 
-/** Private trusted bootstrap. It validates/clears descriptors before exec. */
-export function workerBootstrap(input: WorkerLaunch): { command: string[]; env: Record<string, string> } {
+/**
+ * Private trusted bootstrap. It validates/clears descriptors, joins the
+ * worker's cgroup when it has one, and only then execs the launcher.
+ */
+export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command: string[]; env: Record<string, string> } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
+  const { limits: _limits, ...launch } = input;
   return { command: [process.execPath, entry], env: {
-    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...input, argv: workerCommand(input) }),
+    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv: workerCommand(input), ...(cgroup ? { cgroup } : {}) }),
   } };
 }
 
-/** All three protocol channels are new pipes. No stdio/extra-fd override exists. */
+/** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
+const FATAL_OOM_WINDOW_MS = 1_000;
+
+/**
+ * All three protocol channels are new pipes. No stdio/extra-fd override exists.
+ * `limitReport()` says which limits the worker has hit so far and, once it
+ * has exited, whether one of them ended it (#1660).
+ */
 export function launchAgentWorker(input: WorkerLaunch) {
-  const boot = workerBootstrap(input);
-  const pipes = createWorkerPipes();
+  const plan = launchLimits(input);
+  let cgroup: WorkerCgroup | undefined;
+  if (plan.cgroup.available) {
+    try { cgroup = createWorkerCgroup(plan.cgroup, plan.limits); } catch (error) {
+      // This launch was promised its cgroup limits, so it does not run without
+      // them. Later plans, the status and the agent's note say they are absent.
+      const reason = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
+      workerCgroupHostFailed(reason);
+      throw new WorkerHostError(`the worker's cgroup could not be created (${reason}); the next turn runs without cgroup limits and says so`);
+    }
+  }
+  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
+    pipes = createWorkerPipes();
+    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
     const child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
     const streams = pipes.streams();
-    return { ...streams, pid: child.pid, exited: child.exited, kill: (signal?: NodeJS.Signals) => child.kill(signal) };
-  } catch (error) { pipes.cleanup(); throw error; }
+    let killed = false;
+    let final: WorkerLimitReport | undefined;
+    // When the worker's own memory limit last fired and an OOM kill last
+    // happened, from a fresh cgroup's zero counters. A worker's death (exit
+    // 137) is the limit's doing only if both happened just before it: a
+    // command the limit killed earlier, which the worker survived, is not.
+    const memory = { counters: { oom: 0, oomKill: 0 }, limitAt: -Infinity, killAt: -Infinity };
+    const watchMemory = () => {
+      if (!cgroup) return;
+      const now = cgroup.memoryCounters(), at = performance.now();
+      if (now.oom > memory.counters.oom) memory.limitAt = at;
+      if (now.oomKill > memory.counters.oomKill) memory.killAt = at;
+      memory.counters = now;
+    };
+    const memoryWatch = cgroup ? setInterval(watchMemory, FATAL_OOM_WINDOW_MS / 4) : undefined;
+    memoryWatch?.unref?.();
+    // The rlimits make a step fail inside the worker (EAGAIN, ENOMEM, EFBIG)
+    // without a record the server can read; the cgroup counts its hits.
+    const report = (exitCode?: number | null): WorkerLimitReport => {
+      if (final) return final;
+      const hits = cgroup?.hits() ?? [];
+      let fatal = false;
+      if (exitCode === 137 && !killed) {
+        watchMemory();
+        const recent = performance.now() - FATAL_OOM_WINDOW_MS;
+        fatal = memory.limitAt >= recent && memory.killAt >= recent;
+      }
+      return { hits, fatal };
+    };
+    const exited = child.exited.then(code => {
+      clearInterval(memoryWatch);
+      final = report(code);
+      if (cgroup) final.peak = cgroup.peak();
+      cgroup?.remove();
+      return code;
+    });
+    return { ...streams, pid: child.pid, exited, limits: plan, limitReport: () => report(),
+      kill: (signal?: NodeJS.Signals) => { killed = true; return child.kill(signal); } };
+  } catch (error) { pipes?.cleanup(); cgroup?.remove(); throw error; }
 }
 
 export type WorkerHostProbe = { ok: true } | { ok: false; requirement: string };
@@ -352,7 +450,16 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       chmodSync(relayDir, 0o700);
       restricted = { readPaths: [process.execPath], inferenceDir: relayDir };
     }
+    // The worker must see each rlimit the plan sets, as its hard limit (#1660).
+    const limits = launchLimits({});
+    const rows = { processes: "Max processes", data: "Max data size", file_size: "Max file size", open_files: "Max open files" };
+    const expected = limits.rlimits.map(({ limit, value }) => [rows[limit], value] as const);
     const program = `import {writeFileSync,readFileSync,existsSync} from "node:fs";
+      const table=readFileSync("/proc/self/limits","utf8").split("\\n");
+      for(const [row,value] of ${JSON.stringify(expected)}){
+        const fields=(table.find(l=>l.startsWith(row))??"").slice(row.length).trim().split(/\\s+/);
+        if(fields[0]!==String(value)||fields[1]!==String(value)) process.exit(5);
+      }
       let denied=false; try {writeFileSync(${JSON.stringify(target)},"changed")} catch {denied=true}
       const scratch=process.env.BRAIN_WORKER_SCRATCH+"/positive";
       writeFileSync(scratch,"Odysseus: scratch works.");
@@ -361,7 +468,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       if(links.join()!=="lo") process.exit(2);
       if(!existsSync(${JSON.stringify(WORKER_INFERENCE_DIR)})) process.exit(4);` : ""}
       console.log("worker-boundary-pass");`;
-    const boot = workerBootstrap({ brainPath, command: [process.execPath, "-e", program], env: {}, restricted });
+    const boot = workerBootstrap({ brainPath, command: [process.execPath, "-e", program], env: {}, restricted, limits });
     const pipes = createWorkerPipes();
     try {
       const child = Bun.spawnSync(boot.command, { env: boot.env, stdin: pipes.child[0],
@@ -374,6 +481,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
         if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
         const what = child.exitCode === 2 ? "a private network namespace with only loopback"
           : child.exitCode === 4 ? "the inference relay mount"
+          : child.exitCode === 5 ? "the worker's resource limits (prlimit)"
           : "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation";
         throw new Error(`${what} failed (${detail})`);
       }

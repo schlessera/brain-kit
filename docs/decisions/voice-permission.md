@@ -55,7 +55,7 @@ functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:26`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:109-134`)
+`packages/ui-backend-claude/src/sdk-options.ts:112-137`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:55`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -228,7 +228,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:426-431`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:109-134`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:112-137`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 Module tools are admitted only by exact name, never by their own annotations,
 as [module-mcp-tools.md §6](module-mcp-tools.md#6-annotations-and-permissions)
@@ -368,7 +368,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:339` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:340` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -381,7 +381,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:334`; `drainPendingForTurn`, `:339`),
+(`abortController.abort()`, `run-session.ts:335`; `drainPendingForTurn`, `:340`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -460,7 +460,7 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:436-451`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:465-480`),
 fed from the bridge's
 `recorded()` wrapper
 (`const recorded`, `packages/ui-server/src/ws/bridge.ts:230-245`).
@@ -487,8 +487,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:27`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:109`, and what it
-becomes, `allowedTools: allowed`, `:192`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:112`, and what it
+becomes, `allowedTools: allowed`, `:197`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:388`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:404`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

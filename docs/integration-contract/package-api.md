@@ -199,6 +199,15 @@ and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
 
+The additive server-only `BackendActivityEvent` variant `resource_limit`
+(#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
+turn's worker, `{ limit, source, value, events }`, reported next to the step
+that caused it, and once more with `fatal: true` when a limit ended the worker.
+Both shipped backends report it and fail such a turn with
+`worker_resource_limit`. The host records it on the run's root span and as a
+`resource_limit` governance event (#1651)
+([wire](wire.md)). It adds no client frame.
+
 The Activity origin vocabulary adds `"autonomous"` for spans and run rollups.
 The SDK schemas accept it, and existing origin filtering selects these runs
 without including interactive or cron work. Runtime identity, usage and principal

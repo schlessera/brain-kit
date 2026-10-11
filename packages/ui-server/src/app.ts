@@ -429,6 +429,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       pushSender: activity.pushSender,
       query: activity.query,
       runtime: activity.runtime,
+      governance: activity.governance,
     },
   });
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath,

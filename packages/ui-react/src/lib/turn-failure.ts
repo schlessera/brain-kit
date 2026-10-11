@@ -10,6 +10,8 @@ const HEADLINES: Record<string, string> = {
   invalid_request: "The provider rejected this request.",
   model_not_found: "This model is unavailable on the backend.",
   max_output_tokens: "The answer reached its length limit and stopped.",
+  // #1660: the host's per-worker limit, named in the message, ended the agent.
+  worker_resource_limit: "The agent hit this server's resource limit and was stopped.",
 };
 
 /** Class-driven copy; a class never establishes whether tools already ran. */
@@ -41,9 +43,10 @@ export function failurePresentation(failure: TurnFailure) {
   return {
     headline: HEADLINES[failure.errorClass] ?? "This turn failed.",
     explanation: failure.errorClass === "max_output_tokens" ? "The partial answer above is kept."
+      : failure.errorClass === "worker_resource_limit" ? "Any partial answer and tool activity above are kept. The limit it hit is named below; a smaller request may fit."
       : "Any partial answer and tool activity above are kept. The provider's message is available below.",
     operator: false, tone: TRANSIENT.has(failure.errorClass) ? "gold" as const : "red" as const,
-    retry: ["rate_limit", "overloaded", "server_error", "unknown"].includes(failure.errorClass),
+    retry: ["rate_limit", "overloaded", "server_error", "worker_resource_limit", "unknown"].includes(failure.errorClass),
     report: failure.errorClass === "invalid_request" || !HEADLINES[failure.errorClass],
   };
 }

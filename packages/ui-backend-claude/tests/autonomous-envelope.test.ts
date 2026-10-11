@@ -46,9 +46,10 @@ describe("autonomous Claude envelope", () => {
     expect(options.tools).toBeUndefined();
     expect(options.persistSession).toBe(false);
     expect(Object.keys(options.mcpServers ?? {})).toEqual(["brain-ui"]);
-    // The sandbox note is rendered by the server from the worker's mounts (#1626), never from content.
+    // The sandbox note is rendered by the server from the worker's mounts (#1626), and the
+    // resource-limit note from the launch's own limits (#1660), never from content.
     expect(options.systemPrompt).toEqual([expect.stringContaining("brain-kit autonomous instructions v1"),
-      expect.stringContaining("This is a restricted (autonomous) turn"), "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"]);
+      expect.stringMatching(/This is a restricted \(autonomous\) turn[\s\S]*Limits in this turn:/), "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"]);
   });
 
   test("the worker environment holds a placeholder and the relay route, never the credential or host variables", () => {

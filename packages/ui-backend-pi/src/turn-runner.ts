@@ -7,6 +7,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec } from "./profiles.js";
@@ -163,7 +164,8 @@ export function createPiTurnRunner(
       failed = true;
       if (!cancelled) {
         emit({ type: "error", code: "agent_error", message: errorMessage(err) });
-        thrown = err instanceof SessionTooLargeError
+        // A worker a host limit ended keeps that class and the limit's name (#1660).
+        thrown = err instanceof SessionTooLargeError || err instanceof WorkerResourceLimitError
           ? { errorClass: err.errorClass, message: err.message }
           : failureFromPiError(errorMessage(err));
       }

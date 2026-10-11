@@ -8,16 +8,16 @@
  * re-records the latest outcome on the runtime status, so `/api/status` and
  * the client say what the newest real probe found.
  */
-import { requireWorkerHost, WorkerHostError, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { requireWorkerHost, WorkerHostError, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 
 import type { RuntimeStatus, WorkerHostMode } from "../activity/runtime-status.js";
 import type { WorkerHostCheck } from "@schlessera/brain-ui-sdk/protocol";
 
-type Recorder = Partial<Pick<RuntimeStatus, "recordWorkerHost">> | undefined;
+type Recorder = Partial<Pick<RuntimeStatus, "recordWorkerHost" | "recordWorkerLimits">> | undefined;
 
 /**
- * Runs the real probe for `mode` and records its outcome. Returns the
- * outcome; never throws.
+ * Runs the real probe for `mode` and records its outcome, with the resource
+ * limits workers run under (#1660). Returns the outcome; never throws.
  */
 export function probeWorkerHostRecorded(
   brainPath: string,
@@ -36,6 +36,7 @@ export function probeWorkerHostRecorded(
       : error instanceof Error ? error.message : String(error) };
   }
   runtime?.recordWorkerHost?.(mode, probe, trigger);
+  runtime?.recordWorkerLimits?.(workerLimitsStatus());
   return probe;
 }
 

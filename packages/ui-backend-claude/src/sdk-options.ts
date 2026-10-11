@@ -26,6 +26,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWorkerSpawn } from "./worker-spawn.js";
+import { launchLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
@@ -42,6 +43,8 @@ export interface ClaudeSdkTurn {
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
   finishWorker(): Promise<void>;
+  /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
+  workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
 }
 
 /**
@@ -140,8 +143,10 @@ function assembleClaudeSdkTurn(
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted: Boolean(envelope), home: childEnv.HOME });
-  const sandboxNote = workerSandboxNote(sandbox);
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
+  // The same for its resource limits (#1660).
+  const limits = launchLimits({});
+  const sandboxNote = workerSandboxNote(sandbox, { limits: workerNoteLimits(limits.status) });
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -231,7 +236,7 @@ function assembleClaudeSdkTurn(
   // Every runtime-owned executor enters the worker. An optional host exec
   // wrapper runs inside it and can never replace the filesystem boundary.
   const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal,
-    envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox);
+    envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox, limits);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their
@@ -273,6 +278,7 @@ function assembleClaudeSdkTurn(
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : worker.finish,
+    workerLimits: { current: worker.limits, settled: worker.settledLimits },
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(prompt, req.attachments)

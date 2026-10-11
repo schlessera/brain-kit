@@ -320,6 +320,10 @@ While the server runs as uid 0, `workerHost` also carries
 read root-owned files and connect to root-owned and abstract Unix sockets.
 The server is not refused for it
 ([contract](integration-contract/http.md#root-server-warning-additive-1638)).
+`workerHost.limits` (#1660) lists the resource limits every worker runs
+under: `enforced` entries `{ limit, source, value }` and `absent` entries
+`{ limit, source, reason }`
+([contract](integration-contract/http.md#worker-resource-limits-additive-1660)).
 
 `runtime` reports observed chat runtime and optional sync state, using the
 [runtime identity declarations](../packages/ui-server/src/activity/runtime-status.ts)

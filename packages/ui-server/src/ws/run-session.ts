@@ -60,6 +60,7 @@ function recordPendingCancellations(
           {
             store: host.activity.store,
             ...(host.activity.runtime ? { runtime: host.activity.runtime } : {}),
+            ...(host.activity.governance ? { governance: host.activity.governance } : {}),
             onWrite: () => host.activity!.stream.pump(),
             log: host.log,
           },
@@ -380,6 +381,7 @@ async function runRetainedSession(
             {
               store: host.activity.store,
               ...(host.activity.runtime ? { runtime: host.activity.runtime } : {}),
+              ...(host.activity.governance ? { governance: host.activity.governance } : {}),
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
             },
@@ -388,6 +390,7 @@ async function runRetainedSession(
               sessionId: turn.sessionId,
               principalId: turn.principalId,
               ...billing,
+              ...(work?.posture === "voice" ? { posture: "voice" as const } : {}),
             }
           )
         : undefined;

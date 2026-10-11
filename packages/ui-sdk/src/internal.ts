@@ -1,5 +1,5 @@
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
-export { launchAgentWorker, requireWorkerHost, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH } from "./server/worker-launcher.js";
+export { launchAgentWorker, launchLimits, requireWorkerHost, WorkerResourceLimitError, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH } from "./server/worker-launcher.js";
 export type { WorkerLaunch, WorkerHostProbe } from "./server/worker-launcher.js";
 export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";
 export { SUBPROCESS_ENV } from "./server/subprocess-env.js";
@@ -22,3 +22,6 @@ export { prepareWorkerSandbox, probeHomeOverlay } from "./server/worker-launcher
 export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
 export { workerProfile, workerSandboxNote, workerSandboxWarnings, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
 export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile } from "./server/worker-sandbox.js";
+export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
+  workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
+export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";

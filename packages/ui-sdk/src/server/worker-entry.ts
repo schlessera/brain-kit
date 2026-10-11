@@ -1,5 +1,5 @@
 /** Trusted bootstrap only: no adapter, SDK, extension or worker module is imported here. */
-import { closeSync, fstatSync, readFileSync, readdirSync, readlinkSync, writeSync } from "node:fs";
+import { closeSync, fstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync, writeSync } from "node:fs";
 import { workerLaunchPayload } from "../config/env.js";
 
 try {
@@ -25,8 +25,14 @@ try {
     }
     descriptors.push(fd);
   }
-  const config = JSON.parse(workerLaunchPayload() ?? "null") as { argv: string[] } | null;
+  const config = JSON.parse(workerLaunchPayload() ?? "null") as { argv: string[]; cgroup?: string } | null;
   if (!config?.argv[0]) throw new Error("missing server-owned launcher arguments");
+  // Join the worker's own cgroup (#1660) before any worker process exists, so
+  // none ever runs outside its limits. The server created it for this launch.
+  if (config.cgroup !== undefined) {
+    if (!config.cgroup.startsWith("/") || config.cgroup.split("/").includes("..")) throw new Error("invalid worker cgroup");
+    writeFileSync(`${config.cgroup}/cgroup.procs`, String(process.pid));
+  }
   // Close every non-protocol descriptor explicitly. New runtime descriptors
   // carry CLOEXEC; execve discards them too. No agent code exists in this process.
   for (const fd of descriptors) closeSync(fd);

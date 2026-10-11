@@ -22,6 +22,7 @@ import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { keepSubscriptionProof } from "../agent/subscription.js";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
+import { recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
 import { getDetailRetentionDays } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
@@ -46,6 +47,8 @@ export interface ActivityRuntime {
   runtime: RuntimeStatus;
   /** The agent-facing read seam (bridge.queryActivity). */
   query(query: ActivityQuery): ActivityQueryResult;
+  /** The governance-event writer (#1651), for the turn recorders. Throws on an invalid event. */
+  governance(input: GovernanceEventInput): void;
   close(): void;
 }
 
@@ -182,6 +185,7 @@ export function createActivityRuntime(
     actionNotices,
     runtime: createRuntimeStatus(undefined, log, (at) => keepSubscriptionProof(db, at)),
     query: (query) => runActivityQuery(db, store, query, notifier),
+    governance: (input) => { recordGovernanceEvent(db, input); },
     close() {
       clearInterval(tick);
       stream.close();
