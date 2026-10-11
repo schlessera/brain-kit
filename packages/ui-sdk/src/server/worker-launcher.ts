@@ -166,6 +166,16 @@ export function launchAgentWorker(input: WorkerLaunch) {
 
 export type WorkerHostProbe = { ok: true } | { ok: false; requirement: string };
 
+/**
+ * bubblewrap's own refusal when the kernel will not mount a fresh procfs for
+ * the worker's PID namespace. Inside a user namespace the kernel allows that
+ * mount only while the parent /proc has no masked or covered paths, and
+ * Docker masks several by default (docs/decisions/container-fresh-proc.md).
+ */
+const FRESH_PROC_REFUSED = /Can't mount proc on \S+: Operation not permitted/;
+const FRESH_PROC_REQUIREMENT = "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths;"
+  + " in Docker, run the container with --security-opt systempaths=unconfined";
+
 export interface WorkerHostProbeOptions {
   /** Also establish the restricted envelope: a private network namespace and an explicit read envelope. */
   restricted?: boolean;
@@ -208,10 +218,12 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       const output = readFileSync(pipes.parent[1], "utf8");
       const errors = readFileSync(pipes.parent[2], "utf8");
       if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden) {
+        const detail = errors.trim().slice(0, 400);
+        if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
         const what = child.exitCode === 2 ? "a private network namespace with only loopback"
           : child.exitCode === 4 ? "the inference relay mount"
           : "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation";
-        throw new Error(`${what} failed (${errors.trim().slice(0, 400)})`);
+        throw new Error(`${what} failed (${detail})`);
       }
     } finally { pipes.cleanup(); }
     return { ok: true };

@@ -115,6 +115,58 @@ system directories and installed packages, so this needs a host process that
 listens inside one of them. Hostile content cannot create such a listener. Keep
 host daemons' sockets out of the brain directory on a hosted install.
 
+## Running the server in a Docker container
+
+Docker's defaults stop the worker at three separate launcher steps. Each needs
+its own option, and the probe refuses at the first step that fails, quoting
+bubblewrap. The measurements, the alternatives to a fresh `/proc` and why
+each was rejected are in the
+[container fresh-/proc decision](../decisions/container-fresh-proc.md).
+
+| Launcher step | Refusal without the option | What the container needs |
+| --- | --- | --- |
+| bubblewrap is installed | `bubblewrap is missing` | bubblewrap in the image. 0.9 is eligible. |
+| Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
+| Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |
+| Mount the worker's fresh `/proc` | "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths; in Docker, run the container with --security-opt systempaths=unconfined" | `--security-opt systempaths=unconfined`. Inside a user namespace the kernel mounts a new procfs only when the parent `/proc` has no covered paths, and Docker covers several by default. No other option fixes this step. |
+| (AppArmor hosts) mounts inside the namespace | Not measured. Docker's `docker-default` profile contains `deny mount`. | `--security-opt apparmor=unconfined`, or an AppArmor profile that allows the worker's mounts. |
+
+Derive the seccomp profile from Docker's default profile for your Docker
+version, adding one rule:
+
+```sh
+jq '.syscalls += [{"names":["clone","mount","umount2","unshare","pivot_root"],"action":"SCMP_ACT_ALLOW"}]' \
+  default.json > worker-seccomp.json
+docker run --user 1000:1000 \
+  --security-opt seccomp=worker-seccomp.json \
+  --security-opt systempaths=unconfined …
+```
+
+`--security-opt seccomp=unconfined` also passes, but it disables every
+syscall filter rather than five. Do not add `--cap-add SYS_ADMIN` or
+`--privileged`: neither is needed once seccomp allows these calls, and adding
+`SYS_ADMIN` did not fix the `/proc` step in any measured combination.
+
+**What these options cost.** The seccomp rule lets processes in the container
+create user namespaces and mount inside them. That is the kernel surface any
+bare-metal host that allows unprivileged user namespaces already exposes, and
+the boundary requires it. `systempaths=unconfined` costs more. It removes
+Docker's covers over `/proc/kcore`, `/proc/keys`, `/proc/timer_list`,
+`/proc/sched_debug`, `/proc/acpi`, `/proc/scsi`, `/sys/firmware` and others.
+It also removes the read-only remounts of `/proc/sys`, `/proc/sysrq-trigger`,
+`/proc/irq`, `/proc/bus` and `/proc/fs`. The worker gets its own procfs
+either way, so its boundary does not change. What widens is what the server and anything else in the
+container can reach. As container root, `/proc/sysrq-trigger` and `/proc/sys`
+passed the write check once unmasked, and a worker of a root-run server could
+write a host sysctl (#1629). **Run the server as a non-root user.** A
+non-root container user could read only its own `/proc/keys` entries and could
+write none of these files.
+
+Qualify the container on the host that will run it, with the real probe.
+Kernels and container runtimes differ in what they mount over `/proc`. The
+report behind #1622 failed on one Docker host and passed with the same options
+on a WSL2 host.
+
 ## Measured host-component matrix
 
 These rows qualify the launcher/probe component. Where a row says so, the
@@ -129,6 +181,7 @@ per-turn capability check; an OS name alone never admits a turn.
 | --- | --- | --- | --- | --- |
 | Linux x86_64, measured 2026-10-10 | `7.2.5-3-omarchy` / `1.4.2` / `0.12.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain Btrfs (`0x9123683e`); isolated scratch tmpfs (`0x01021994`) | Runnable bubblewrap; permitted unprivileged user/mount/PID/IPC/UTS namespaces; fresh proc/dev; `mkfifo`; Linux proc descriptor metadata and Bun execve. Actual probe, hardlink/scratch-alias bytes and membership checks, scratch readback, stdio/descriptor refusals, and active-gate turn regressions passed. The integrated proof `tests/policy-write-boundary.test.ts` (all 14 tests, both adapters) passed on this tuple on 2026-10-10. |
 | Ubuntu 24.04 CI x86_64, measured 2026-10-10 | `6.17.0-1022-azure` / `1.4.2` / `0.9.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain ext4 (`0xef53`, confirmed with findmnt); isolated scratch tmpfs (`0x01021994`) | Same capabilities as the Linux row above. All seven real launcher/probe tests and all six refusal/authority gate tests passed in [the automatic unit job](https://github.com/schlessera/brain-kit/actions/runs/38014138934/job/114100926349). The exact tuple is retained in its logs/artifact; this component receipt is distinct from the full PR verdict. The integrated proof `tests/policy-write-boundary.test.ts` (all 14 tests, both adapters) passed on this tuple in [its automatic unit job](https://github.com/schlessera/brain-kit/actions/runs/38053535597/job/114217419653) on 2026-10-10; `tmp/policy-boundary-probe.json` in that job's artifact records the tuple. |
+| Docker 29.7.2 container, Ubuntu 24.04 image, on Linux x86_64, measured 2026-10-11 | `7.2.5-3-omarchy` / `1.4.2` / `0.9.0` | Claude adapter `0.41.0`, Agent SDK `0.3.293`, native Claude Code `2.1.292`; pi adapter `0.41.0`, coding-agent `0.99.2` | Launcher tests: brain Btrfs bind mount (`0x9123683e`). Integrated proof: brain on the container's overlayfs (`0x794c7630`). Scratch tmpfs (`0x01021994`) | Same capabilities as the Linux row, with the [container options above](#running-the-server-in-a-docker-container): the derived seccomp profile and `systempaths=unconfined`, run as a non-root user, no added capabilities, on a host without AppArmor. The actual probe passed in both modes. The component proof passed (84 tests across the five files), as did `tests/policy-write-boundary.test.ts` (all 14 tests, both adapters) and `tests/autonomous-containment.test.ts` (all 4) with `packages/ui-sdk/tests/inference-relay.test.ts`. Without `systempaths=unconfined` the probe refused at the `/proc` step. With Docker's default seccomp profile it refused at namespace creation, or at `pivot_root` with `SYS_ADMIN` added. |
 | Native macOS / Windows | No qualified tuple | No qualified runtime pair | No qualified backing filesystems | Refused before writer initialization: required Linux namespaces unavailable. |
 
 No new WSL2 tuple has passed this implementation's checks. WSL2 may qualify
