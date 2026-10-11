@@ -13,6 +13,7 @@ somebody already learn the hard way?*
 | --- | --- |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
+| [tag-aliases.md](tag-aliases.md) | No-go for the tested semantic alias pipeline: Jev recognizes the aliases, but candidate retrieval misses one found by the shipped audit skill. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D53, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, the navigation, session-tracker and per-session draft design, ghost-text loading, and offline continuity with committed recording boundaries and measured browser limits. |
 | [public-website.md](public-website.md) | Why the product site uses static Astro, canonical Markdown with stable routes and verified automatic repository-controlled GitHub Pages updates. |
