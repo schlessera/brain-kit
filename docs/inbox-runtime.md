@@ -120,6 +120,43 @@ the dispatcher marks decisions that block autonomous work as push-eligible
 regardless of score. They use the existing fixed window, quiet hours and
 aggregate payload; ordinary unmarked decisions remain digest-only below 12.
 
+## Escalation settlement in v1
+
+The maintainer's [2026-10-11 ruling on #1582](https://github.com/schlessera/brain-kit/issues/1582#issuecomment-6106721700)
+keeps the current conservative allowance. After a successful escalation or
+yield checkpoint and normal backend unwind, cumulative completed-response
+receipts establish an observed lower bound on API spend. If a continuation
+may be in flight, settlement charges that completed spend **plus one frozen
+operation estimate** as the single-request allowance. A larger backend-reported
+cost remains fully charged. Settlement never clips known spend to the original
+reservation or day cap (`settleInboxBudgetRun`,
+`packages/ui-server/src/inbox/budget.ts:281-350`).
+
+At a completed tool-response boundary the sequential restricted runtime has
+no inference in flight, so its allowance is zero. A tool result or new response
+start clears that boundary: Claude can send a continuation before its next
+`message_start` arrives. The absence of response headers or partial usage
+does not establish that the request was free. The existing offline
+installed-runtime test (`test("an escalated API turn retains completed response usage without a final provider result"`,
+`tests/autonomous-dispatch.test.ts:62-73`) holds the continuation open before
+any usage arrives. It observes $0.000008 completed spend and charges Claude
+$0.062008, including the $0.062 allowance; pi stops at the completed boundary
+and charges $0.000008 in the same fixture. These are fixture accounting values,
+not real-provider measurements.
+
+The allowance uses the admission's frozen pricing and conservative estimate;
+it is not an enforced provider invoice ceiling. Some Claude escalations can
+still consume most of the configured day cap, so this rule does not guarantee
+capacity relief. Missing or incomplete receipts, failed checkpoints, external
+cancellation, revocation and genuine crashes retain the conservative fallback.
+Unknown pricing or billing cannot become guessed zero. The
+[budget guide](inbox-budget.md#settlement-unknown-costs-and-recovery) describes
+the unchanged settlement and recovery rules, and the
+[budget decision](decisions/async-collaboration.md#uncertain-continuation-allowance--2026-10-11)
+records why v1 retains this allowance. Per-request relay accounting awaits real
+usage data and a new ruling; the reserved real-provider verification on #1548
+and production enablement remain separate.
+
 ## Runtime token file
 
 Set `BRAIN_UI_INBOX_POKE_TOKEN_FILE` to an absolute file path in a private
