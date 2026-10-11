@@ -482,10 +482,10 @@ bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:545`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:590`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:57`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted.
 
 The server scans retained backend histories before pruning and records stored
@@ -494,7 +494,7 @@ assistant links at turn boundaries. Its session-keyed snapshot is
 opening the server database. The separate `.brain/scratch-pins-required` marker
 keeps missing snapshot directories fail-safe. Missing, invalid or unfinished
 managed snapshots suspend deletion for CLI maintenance and prune-on-write too.
-A complete retained-session scan releases pins for deleted/expired sessions;
+A retained-session scan and direct history confirmation release pins for deleted/expired sessions;
 failed or aborted scans never release pins. The server logs any remaining cap
 overage until the governance-event store lands.
 

@@ -606,7 +606,7 @@ export function pruneScratch(
   const remove = (entry: Entry, reason: ScratchRemoval["reason"]): boolean => {
     // A server can publish a new retained answer while a CLI prune runs.
     // Re-read immediately before removal, so a late pin or lost snapshot
-    // suspends this deletion too, within the existing one-syscall path window.
+    // suspends this deletion too, before the safe filesystem removal.
     try {
       pins = currentPins();
       if (pins.has(rel(entry.abs))) { left.push(entry); return false; }
