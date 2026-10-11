@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:99-132`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:100-133`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -61,6 +61,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
+| `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |
 | `GET /api/health` | `mounted supported handler: GET /api/health` | H |
 | `GET /api/hygiene/review` | `mounted supported handler: GET /api/hygiene/review` | HY |
 | `POST /api/hygiene/review` | `mounted supported handler: POST /api/hygiene/review` | HY |
@@ -306,6 +307,15 @@ checks both nonempty priced and mixed-knownness fixtures
 - `an outage is not cached, so it does not become permanent` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`an outage is not cached, so it does not become permanent`, `packages/ui-server/tests/geo-route.test.ts:188-203`)
 - `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:228-236`)
 - `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:263-270`)
+
+**GV — Governance events.**
+
+- `governance events reject unauthenticated requests` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events reject unauthenticated requests`, `packages/ui-server/tests/governance-events-http.test.ts:38-46`)
+- `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
+- `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
+- `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:139-153`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:155-164`)
 
 **N — Speech grants.**
 

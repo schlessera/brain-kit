@@ -17,6 +17,7 @@ import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
+import { createGovernanceRoutes } from "./routes/governance.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
 import { createTranscriptionStore } from "./voice/transcription-store.js";
 import { createVoiceRoutes } from "./routes/voice.js";
@@ -679,6 +680,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
   app.route("/api", createModuleRoutes(brain));
+  app.route("/api", createGovernanceRoutes({ db }));
   app.route(
     "/api",
     createSkillRoutes({

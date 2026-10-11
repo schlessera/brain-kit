@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 120 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review and governance-event routes mounted by `createApp`: 121 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -69,6 +69,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
+| GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
 | GET | `/api/graph/clusters` | I | Read clustered presentation graph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/discovery` | I | Read root-based discovery subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/maintenance` | I | Read graph maintenance findings | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
@@ -153,7 +154,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 120 declared endpoints are mounted regardless of backend, renderer or
+All 121 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -955,3 +956,85 @@ bind independent clients.
 is rechecked against the durable principal. These routes run only deterministic
 CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
 See [the wire shapes and error codes](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
+
+## Governance events (additive, #1651)
+
+**GET /api/governance/events** is protected and read-only. It returns the
+machine-readable records the host keeps of every sandbox or governance
+intervention in a turn: promotions, policy blocks and confirmations, read-only
+refusals, quarantines, budget and scope limits, egress denials, `strict`
+fallbacks, revert conflicts, outward actions, taint, unavailable providers,
+worker resource limits and
+classified roadblocks ([decision](decisions/governed-writable-workers.md#roadblocks-and-governance-events-tracked-not-noise)).
+Nothing renders them to the user. They live in the server's own database, never
+in `brain.db` or the brain, and are kept with the session's catalog row rather
+than with the pruned Activity span detail: pruning span detail leaves them, and
+deleting a session deletes them. An event whose turn never named a session (a
+new conversation refused before it started, a crash before `session_info`) has
+`sessionId: null` and is kept for 90 days.
+
+Query parameters, each optional and combined with AND: `session` (one session
+id), `turn` (one turn id), `kind` (repeatable or comma-separated kinds from the
+table below; an unknown kind is 400), `after` (an event id; only later events
+are returned) and `limit` (1–500, default 100). The answer is 200
+`{ events, nextAfter }`, ordered by `id`, with `Cache-Control: no-store`.
+`nextAfter` is the last event's `id` when the page is full, so more may follow,
+and `null` otherwise. A malformed parameter is 400 `{ error }`; a storage
+failure is 500 `{ error }`.
+
+Each event is `{ id, sessionId, turnId, at, kind, schemaVersion, actor, model,
+profile, payload }`:
+
+- `id` is a positive integer, increasing in write order.
+- `sessionId` and `turnId` name the session and turn the event belongs to, or
+  are `null`. An event written before its session had a catalog row gains the
+  `sessionId` when the turn's `session_info` arrives. For `revert_conflict`,
+  `turnId` is the reverted turn.
+- `at` is epoch milliseconds.
+- `actor` is who caused it: `interactive`, `voice` or `autonomous` for a turn
+  of that posture; `user` for a person acting outside a turn, such as a revert;
+  `server` for the server acting on its own, such as boot reconciliation; and
+  `external` for a change made outside any turn or server path.
+- `model` is the turn's model id and `profile` its worker profile
+  (`governed`, `strict` or `restricted`); either is `null` when it does not
+  apply.
+- `payload` is an object whose fields depend on `kind` and `schemaVersion`.
+
+The server validates every payload against its kind's schema when it is
+written, so a stored record always matched its version. A payload change that
+is not purely additive bumps the kind's `schemaVersion`; stored events keep the
+version they were written with and are returned as stored. Clients must ignore
+unknown kinds and unknown payload fields, and should read a payload only for a
+`schemaVersion` they know. Until a release emits a kind, its version 1 payload
+may still change.
+
+### Governance event kinds
+
+Counts and byte sizes are non-negative integers. Amounts are non-negative
+finite numbers. A policy `rule` is `{ list, index, pattern, reason? }`: the
+policy list that matched, the entry's position in it, its pattern and its
+reason. `policyHash` is the governing policy's hash, or `null` under the
+built-in defaults. `source` on a limit is `policy` or `default`. Tool inputs
+are capped at 8192 characters, and `inputTruncated` says whether the recorded
+`input` was cut.
+
+| Kind | Version | Fields | Meaning |
+| --- | --- | --- | --- |
+| `promotion` | 1 | `source`, `destination`, `bytes`, `originalLink`, `rewrittenLink` | A linked turn-temp file was copied into `.brain/scratch/turns/<turnId>/` and its link rewritten. `destination` is brain-relative. |
+| `promotion_refused` | 1 | `source`, `originalLink`, `reason`, `bytes`, `limitBytes` | A linked turn-temp file was not copied and its link was left unchanged. `reason` is `file_too_large`, `turn_too_large`, `not_regular_file`, `symlink`, `multiple_links`, `missing` or `io_error`; `bytes` and `limitBytes` may be `null`. |
+| `policy_block` | 1 | `tool`, `input`, `inputTruncated`, `rule`, `policyHash` | A tool call refused by a `commands.deny` rule. |
+| `policy_confirm` | 1 | `tool`, `input`, `inputTruncated`, `rule`, `decision`, `policyHash` | A tool call that matched a `commands.confirm` rule. `decision` is `approved`, `declined`, `timed_out` or `cancelled`. |
+| `read_only_refusal` | 1 | `path`, `protection`, `code`, `tool`, `alternative` | A write refused because the path is protected or the profile is read-only. `protection` is `tier_a`, `tier_b`, `policy_protect`, `strict_profile` or `restricted_profile`; `code` is `EROFS`, `EACCES`, `EBUSY` or `null`; `alternative` is the allowed route the refusal named. |
+| `quarantine` | 1 | `path`, `tier`, `entry`, `bytes`, `trigger`, `objectId` | A protected file that appeared during a turn was moved into the journal quarantine. `tier` is `A` or `B`; `entry` is `file`, `directory`, `symlink` or `other`; `trigger` is `turn_end` or `boot_recovery`; `objectId` names the quarantined copy. |
+| `quarantine_reconciliation` | 1 | `trigger`, `reconciledTurnIds`, `quarantined`, `masked` | One reconciliation pass. `trigger` is `boot_recovery` or `launch`; `masked` lists the paths a launching worker saw masked. |
+| `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
+| `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
+| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `continued`, `stopped`, `voice_stopped` or `turn_ended`. |
+| `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`. |
+| `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
+| `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
+| `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write` or `outward_host_connect`; `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
+| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command` or `unclassified_command`. |
+| `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider it could not reach without a key. `degradedTo` names the fallback used, such as `keyword_search`, or is `null`. |
+| `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data` or `cpu`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
+| `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. Each failure is `{ toolCallId, signature, category }`, and `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` or `capability`. `waste` is `{ tokens, costUsd, ms }`; unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |

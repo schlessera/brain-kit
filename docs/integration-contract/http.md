@@ -107,6 +107,31 @@ server is not refused for running as root
 The app shows a standing notice above the composer while it is present.
 Clients must tolerate it being absent.
 
+<a id="governance-events-additive-1651"></a>
+
+### Governance events (additive, #1651)
+
+Authenticated `GET /api/governance/events` reads the governance events the
+server keeps with session history: one machine-readable record per sandbox or
+governance intervention in a turn. It filters by `session`, `turn` and `kind`
+and pages with `after` and `limit`, answering `{ events, nextAfter }` in id
+order. Each event is `{ id, sessionId, turnId, at, kind, schemaVersion, actor,
+model, profile, payload }`. The [HTTP specification](../http-api.md#governance-events-additive-1651)
+holds the parameters, the errors, the attribution values and every kind's
+payload fields.
+
+The kinds and each kind's payload are versioned separately. A payload change
+that is not purely additive bumps that kind's `schemaVersion`, and stored
+events keep the version they were written with, so a new version or a new
+kind is an additive change. Clients must ignore unknown kinds and unknown
+payload fields. A kind no release emits yet may still change its version 1
+payload before its emitter ships.
+
+The events are host operational state in the server's own database. They are
+never written to `brain.db` or the brain, never authoritative for anything,
+and never shown to the user. They survive the Activity span-detail prune and
+are deleted with their session.
+
 <a id="internal-queue-poke-additive"></a>
 
 ### Internal Queue poke (additive)

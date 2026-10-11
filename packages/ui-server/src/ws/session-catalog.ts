@@ -22,6 +22,7 @@ import {
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
+import { bindTurnEvents } from "../governance/events.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -120,6 +121,12 @@ export interface SessionCatalog {
   sessionLabel?(sessionId: string): { label: string; source: string } | null;
   /** Store a session's pill label and its source hash; a missing row stores nothing. */
   saveSessionLabel?(sessionId: string, label: string, source: string): void;
+  /**
+   * Attach the turn's governance events recorded before its session had a
+   * catalog row (#1651). Called once `session_info` has persisted the row.
+   * Never throws.
+   */
+  bindGovernanceEvents?(turnId: string, sessionId: string): void;
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -345,6 +352,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
       } catch (err) {
         reportWriteFailure(sessionId, err);
       }
+    },
+
+    bindGovernanceEvents(turnId, sessionId) {
+      try { bindTurnEvents(db(), turnId, sessionId); }
+      catch (err) { reportWriteFailure(sessionId, err); }
     },
 
     addSessionCost(sessionId, costUsd) {

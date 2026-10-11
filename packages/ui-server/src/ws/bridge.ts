@@ -106,6 +106,8 @@ export function makeBridge(
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        // Governance events recorded before the row existed join it now (#1651).
+        catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
         // The session's pill label follows its latest request (#1004), asked
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {
