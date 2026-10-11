@@ -2,7 +2,7 @@
 
 A waiting decision is visible in the Actions destination as soon as it exists.
 Notices only tell a person that decisions are waiting: a counted web push for
-higher-priority work and the Actions/FYI contribution to the in-app digest for
+higher-priority work or blocking autonomous escalations and the Actions/FYI contribution to the in-app digest for
 the rest. Neither grants authority or resolves anything. The policy and its
 binding examples are the [Action notification decision](decisions/action-notifications.md);
 the wire additions are in the [integration contract](integration-contract/wire.md#action-notices-additive-683).
@@ -17,7 +17,7 @@ Persisted instants come from the server clock.
 A waiting episode starts when a decision (`approve` or `choose`) becomes
 pending: a new Action, or an explicit snooze-to-pending reactivation. The store
 records it in the same transaction as that transition
-(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:206-224`);
+(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:207-225`);
 leaving pending ends it. Version changes, retries, restarts and elapsed time
 never start one. Decisions already pending when the migration runs begin their
 first episode then.
@@ -27,7 +27,11 @@ first episode then.
 The activity runtime's 20-second tick calls `enroll()`. It recomputes each
 open episode's current state inside one transaction: pending (not snoozed),
 unexpired, undeleted, in an open thread, with the existing priority score at
-zero attempts. A score of 12 or more is push class. Each recipient principal
+zero attempts. A score of 12 or more is push class. A dispatcher escalation
+that blocks autonomous work also qualifies at any score: migration
+`037_blocking_escalation.sql` adds an immutable server-owned marker to its
+Action context. The validated escalation supplies it; no model or client
+field can set it, and stakes and wire shapes stay unchanged. Each recipient principal
 (a usable owner of a bound push subscription) gets the episode once. An arrival is dated
 when the episode became eligible (its start, for a decision eligible from the
 outset; the observing tick, for a later promotion), so the tick cadence cannot
@@ -35,7 +39,7 @@ move it out of its window. The first eligible arrival opens a fixed 60-second
 window for that principal; later
 arrivals join it without moving the deadline, and an arrival at or after the
 deadline opens the next window. Thread identity is kept on each constituent,
-not in the grouping key. Below-cutoff decisions and FYIs never join a window.
+not in the grouping key. Unmarked below-cutoff decisions and FYIs never join a window.
 
 Delivery runs after activity intents on the same reentrancy guard
 (`deliverActions`, `packages/ui-server/src/activity/push-sender.ts:287-336`).
@@ -80,7 +84,7 @@ configured-zone rules.
 For a context with a usable zone it finds the latest local 09:00 or 17:00.
 The card refetches after each zone report, so a first report shows its
 summary without a reload. If
-no summary exists for that slot it stores one, listing below-cutoff waiting
+no summary exists for that slot it stores one, listing unmarked below-cutoff waiting
 episodes and FYIs not yet reported to this context, and commits their
 coverage in the same immediate transaction. Missed slots produce one current
 summary, not a replay, and include older unreported work regardless of age.
@@ -89,6 +93,10 @@ so coverage never advances without a stored summary. An episode reported at
 09:00 is omitted at 17:00 but stays in Actions; a later push remains possible
 if its score reaches 12. Activity digest coverage and retention are separate
 and unchanged.
+
+Blocking escalations use the push class, so they do not contribute a second
+waiting count to the digest after being pushed. Their episodes and delivery
+receipts follow the same quiet-hours, retry and backup rules.
 
 ## Verification boundary
 

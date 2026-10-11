@@ -460,7 +460,7 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:422-437`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:436-451`),
 fed from the bridge's
 `recorded()` wrapper
 (`const recorded`, `packages/ui-server/src/ws/bridge.ts:228-243`).
@@ -494,7 +494,7 @@ named entry in that mechanism.
 **#51's U15 originally chose availability control for the same bypass reason.**
 The current plan still specifies *"Tool **availability** control (`tools`) or a
 measured enforced membership"*
-(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1225-1227`).
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1231-1233`).
 The plan is #51's design record. It was written before #141 and #154 measured
 the runtime paths described below; those measurements strengthen the argument
 for removing a tool's availability rather than leaving its execution reachable.
@@ -503,7 +503,7 @@ for removing a tool's availability rather than leaving its execution reachable.
 was trivial is superseded. Its resource loader and inline extension gate expose
 more than the curated tool roster, so both first-party runtimes need executable
 boundary proof
-(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1238-1242`).
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1244-1248`).
 This correction does not choose a second enforcement mechanism or weaken the
 voice/unattended membership requirement below.
 
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:381`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:388`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

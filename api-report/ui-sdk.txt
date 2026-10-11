@@ -4125,6 +4125,10 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "autonomous_usage";
+        usage: import("../protocol.js").TurnUsage;
+        atToolBoundary: boolean;
+    } | {
         kind: "autonomous_identity";
         runtimeSessionId: string;
         backendId: string;

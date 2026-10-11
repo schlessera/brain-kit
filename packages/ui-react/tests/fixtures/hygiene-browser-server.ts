@@ -8,6 +8,7 @@ import { createUiDb } from "../../../ui-server/src/db/client.js";
 import { createPrincipal } from "../../../ui-server/src/db/principals.js";
 import { createHygieneReview } from "../../../ui-server/src/inbox/hygiene-review.js";
 import { createHygieneReviewRoutes } from "../../../ui-server/src/routes/hygiene-review.js";
+import { createInboxAction, INBOX_ACTION_CAP } from "../../../ui-server/src/inbox/actions.js";
 import { createInboxStore } from "../../../ui-server/src/inbox/store.js";
 import { createInboxStream } from "../../../ui-server/src/inbox/stream.js";
 import type { AppEnv } from "../../../ui-server/src/app-env.js";
@@ -207,7 +208,8 @@ const brain = {
     throw new Error(`unsupported fixture operation: ${op}`);
   },
 } as unknown as BrainClient;
-const now = () => Date.UTC(2026, 6, 12, 9);
+let clock = Date.UTC(2026, 6, 12, 9);
+const now = () => clock;
 const review = createHygieneReview(db, { brain, now });
 const store = createInboxStore(db, { now }),
   stream = createInboxStream(store, db, undefined, review.resolver);
@@ -241,6 +243,28 @@ app.post("/fixture", async (c) => {
   if (p.release) {
     hold?.();
     hold = undefined;
+  }
+  if (p.longFinding) {
+    const current = review.read().action;
+    if (current) store.commit([{ kind: "hygiene_update", itemId: current.id, expectedVersion: current.version,
+      options: current.options, hygiene: { ...current.hygiene!, finding: { ...current.hygiene!.finding,
+        title: "Broken link to [[Aeolus]] on the return voyage through the islands and every harbor",
+        path: "journeys/return-to-ithaca/" + "long-harbor-name-".repeat(10) + ".md" } } }]);
+  }
+  if (p.fillActions) {
+    for (let i = 0; i < INBOX_ACTION_CAP; i++) {
+      const id = `voyage-${i}`, threadId = `voyage-thread-${i}`, at = clock + 1000 + i;
+      store.openReviewThread(threadId);
+      createInboxAction(db, { id, dedupKey: id, threadId, queue: "actions", type: "choose", status: "pending", version: 1,
+        createdAt: at, updatedAt: at, expiresAt: Number.MAX_SAFE_INTEGER,
+        payload: { title: "Add Telemachus to the household index", detail: "Review the voyage decision." },
+        options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] }, [], { now: at });
+    }
+  }
+  if (p.makeRoom) {
+    const item = store.getItem("voyage-0");
+    if (item?.status === "pending") store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "dismissed" }]);
+    clock += 10000;
   }
   if (p.start) await review.command(principal.id, "start");
   return c.json({ calls, read: review.read(), reads, selecting: !!releaseNext });
