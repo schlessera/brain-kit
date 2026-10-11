@@ -159,16 +159,26 @@ The cover is limited to uid 0. A non-root worker writes no host-global file
 through its procfs either way, and a read-only `/proc` breaks nested user
 namespaces: as uid 1500, `unshare -U -r` failed on `/proc/self/uid_map` with
 `EROFS`, and Chromium aborted with "No usable sandbox!", while both work
-without the cover. The real Claude and pi runtimes ran the policy-write-boundary,
-autonomous-containment, inference-relay and host-gate proofs (96 tests) with
-the cover forced on for every worker.
+without the cover.
 
-What a root worker keeps is root's authority over what it can reach without a
-write. It can read root-only `/proc` files: `/proc/slabinfo`,
-`/proc/timer_list`, `/proc/vmallocinfo`, `/proc/pagetypeinfo` and the TCP
-Fast Open key. In interactive and voice turns it can connect to a root-owned
-daemon's Unix socket on the read-only host root. The host doc therefore still
-recommends running the server as a non-root user.
+The real Claude and pi runtimes run with a read-only `/proc`. In a local-only
+mutation, the cover was forced on for every worker, and seven suites passed
+as uid 1000 in the container: 96 tests across policy-write-boundary,
+autonomous-containment, inference-relay, worker-host-gate, run-session,
+autonomous-turn and ws-handoff. Those suites were not run with the runtimes
+as a uid-0 worker. The test harness's own outer bubblewrap runs without a
+user namespace, and as root it covers `/proc` paths, so the kernel refuses
+every nested fresh procfs before the launcher's cover is reached. The uid-0
+evidence is the launcher's own tests and the real probe.
+
+What a root worker keeps is root's authority over everything it can reach
+without a write. It can read root-only `/proc` files: `/proc/slabinfo`,
+`/proc/timer_list`, `/proc/vmallocinfo`, `/proc/pagetypeinfo` and the TCP Fast
+Open key. In interactive and voice turns, which see the host root read-only,
+it passes the owner check on every root-owned file there. It can read `/etc/shadow`, host keys and
+root's stored credentials, and it can connect to a root-owned daemon's Unix
+socket. The host doc therefore still recommends running the server as a
+non-root user. Whether to narrow this further is #1638.
 
 ### Not measured here
 

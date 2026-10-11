@@ -185,13 +185,14 @@ worker cannot use them. Chromium refuses to run as root without
 `--no-sandbox` either way.
 
 Running the server as root still qualifies, but it is not recommended. The
-worker keeps root's authority over what it can reach without writing to the
-filesystem. That includes the root-only `/proc` files it can read, such as
-`/proc/slabinfo` and `/proc/timer_list`. In interactive and voice turns, which
-see the host root read-only and share its network namespace, it also includes
-the Unix sockets a root-owned daemon listens on, because connecting to a
-socket is not a write the read-only mount refuses. Run the server as a
-dedicated non-root user. The measurements are in
+worker keeps root's authority over everything it can reach without writing.
+It can read root-only `/proc` files, such as `/proc/slabinfo` and
+`/proc/timer_list`. Interactive and voice turns see the host root read-only
+and share its network namespace. There the worker can also read every
+root-owned file on that root, such as `/etc/shadow`, SSH host keys and
+root's stored credentials. It can also connect to the Unix sockets a
+root-owned daemon listens on, because connecting is not a write the read-only
+mount refuses. Run the server as a dedicated non-root user. The measurements are in
 [the container fresh-/proc decision](../decisions/container-fresh-proc.md#what-systempathsunconfined-costs).
 
 ## Measured host-component matrix

@@ -160,6 +160,8 @@ describe("real bubblewrap worker launcher", () => {
   test.each(["host root", "restricted"] as const)("a %s worker writes no kernel interface through its /proc", async (mode) => {
     const f = fixture();
     try {
+      // Every path counts, per-process directories included: /proc/<pid>/net
+      // belongs to the host network namespace outside the restricted envelope.
       const program = `import {accessSync,constants,lstatSync,readdirSync,readFileSync,writeFileSync} from "node:fs";
         const writable=[];
         const walk=(dir)=>{let names;try{names=readdirSync(dir)}catch{return}
@@ -169,8 +171,7 @@ describe("real bubblewrap worker launcher", () => {
             if(info.isDirectory())walk(path)}};
         walk("/proc");
         let sysctl="written";try{writeFileSync("/proc/sys/kernel/panic",readFileSync("/proc/sys/kernel/panic"))}catch(e){sysctl=e.code}
-        console.log(JSON.stringify({sysctl,global:writable.filter(p=>!/^\\/proc\\/(\\d+|self|thread-self)\\//.test(p)),
-          own:writable.some(p=>/^\\/proc\\/\\d+\\/uid_map$/.test(p))}));`;
+        console.log(JSON.stringify({sysctl,writable,own:writable.some(p=>/^\\/proc\\/\\d+\\/uid_map$/.test(p))}));`;
       const relay = join(f.root, "relay"); mkdirSync(relay); chmodSync(relay, 0o700);
       const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { HOME: "/tmp" },
         ...(mode === "restricted" ? { restricted: { readPaths: [process.execPath], inferenceDir: relay } } : {}) });
@@ -178,7 +179,7 @@ describe("real bubblewrap worker launcher", () => {
       const [code, output, errors] = await Promise.all([worker.exited, collect(worker.stdout), collect(worker.stderr)]);
       expect(errors).toBe(""); expect(code).toBe(0);
       const seen = JSON.parse(output);
-      if (process.getuid!() === 0) expect(seen, "ROOT_PROC_READ_ONLY").toEqual({ sysctl: "EROFS", global: [], own: false });
+      if (process.getuid!() === 0) expect(seen, "ROOT_PROC_READ_ONLY").toEqual({ sysctl: "EROFS", writable: [], own: false });
       else expect(seen, "NON_ROOT_PROC").toMatchObject({ sysctl: "EACCES", own: true });
     } finally { f.cleanup(); }
   });
@@ -187,13 +188,15 @@ describe("real bubblewrap worker launcher", () => {
     const f = fixture();
     const uid = spyOn(process, "getuid"), euid = spyOn(process, "geteuid");
     try {
-      const procCover = (id: number) => {
-        uid.mockReturnValue(id); euid.mockReturnValue(id);
+      const procCover = (id: number, effective = id) => {
+        uid.mockReturnValue(id); euid.mockReturnValue(effective);
         const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: {} });
         const at = argv.indexOf("--proc");
         return argv.slice(at, at + 4).join(" ");
       };
       expect(procCover(0)).toBe("--proc /proc --remount-ro /proc");
+      expect(procCover(1000, 0)).toBe("--proc /proc --remount-ro /proc");
+      expect(procCover(0, 1000)).toBe("--proc /proc --remount-ro /proc");
       expect(procCover(1000)).toBe("--proc /proc --dev /dev");
     } finally { uid.mockRestore(); euid.mockRestore(); f.cleanup(); }
   });
