@@ -116,7 +116,10 @@ async function world() {
     JSON.stringify({ type: "inbox_resolve", itemId: hygiene.id, optionId: "check" }), JSON.stringify(hygiene.options[0]!.effect), JSON.stringify({ status: "still_detected", id: "ithaca-link" }));
   // Escalations are push class even at low stakes. Populate digest coverage
   // with the ordinary, unmarked hygiene decision instead of a blocked turn.
-  expect(notices.digest(ctx(principal), AT).latest?.waiting.map(entry => entry.itemId)).toEqual([hygiene.id]);
+  const digest = notices.digest(ctx(principal), AT);
+  expect(digest.status).toBe("ready");
+  if (digest.status !== "ready") throw new Error("Fixture digest is missing");
+  expect(digest.latest?.waiting.map(entry => entry.itemId)).toEqual([hygiene.id]);
   writeFileSync(join(root, "content.md"), "Odysseus's content stays in git.");
   return { root, path, db, store, principal, budget, records };
 }

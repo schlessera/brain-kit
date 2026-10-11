@@ -24,7 +24,7 @@ import { createInboxResolver } from "../src/inbox/resolve.js";
 import { createInboxDispatcher } from "../src/inbox/dispatcher.js";
 import { createInboxOperationEnvelope } from "../src/inbox/envelope.js";
 import { createInboxAction, INBOX_ACTION_CAP } from "../src/inbox/actions.js";
-import { createActionNotifier } from "../src/inbox/notify.js";
+import { createActionNotifier, type ActionNoticePayload, type ActionNotifier, type NoticeClient } from "../src/inbox/notify.js";
 import { inboxPriority } from "../src/inbox/state.js";
 import { exportInboxSnapshot, restoreInboxSnapshot } from "../src/inbox/snapshot.js";
 import type { FetchLike } from "../src/classification/jev-client.js";
@@ -88,7 +88,7 @@ function world(options: { turns?: number; spendUsd?: number; apiKey?: string | n
 
 /** Real subscription, notifier and sender; capture only the push transport. */
 function notifications(w: ReturnType<typeof world>) {
-  const sent: Array<{ title: string }> = [];
+  const sent: ActionNoticePayload[] = [];
   const sender = createPushSender(w.db, { send: async (_sub, payload) => { sent.push(JSON.parse(payload)); } });
   const notices = createActionNotifier(w.db, { now: w.now });
   const client = { principalId: w.principal.id, clientId: "" };
@@ -97,6 +97,13 @@ function notifications(w: ReturnType<typeof world>) {
   notices.reportZone(client, "UTC", endpoint, w.now());
   const deliver = async () => { notices.enroll(); return sender.deliverActions(notices, w.now()); };
   return { notices, client, sent, deliver };
+}
+
+function waiting(notices: ActionNotifier, client: NoticeClient) {
+  const state = notices.digest(client);
+  expect(state.status).toBe("ready");
+  if (state.status !== "ready" || !state.latest) throw new Error("Fixture digest is missing");
+  return state.latest.waiting;
 }
 
 function ordinaryDecision(w: ReturnType<typeof world>, threadId: string) {
@@ -267,7 +274,7 @@ describe("acceptance examples through the production dispatcher", () => {
     expect(n.sent, "AE14_THREE_ACTIONS_WAITING").toEqual([{ title: "3 actions waiting", body: "Open Actions to decide.", tag: "brain-actions", url: "/#/activity" }]);
     w.advance(7 * HOUR);
     expect(await n.deliver(), "AE14_NO_REPEAT").toBe(0);
-    expect(n.notices.digest(n.client).latest?.waiting, "AE14_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
+    expect(waiting(n.notices, n.client), "AE14_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
   });
 
   for (const source of ["share", "cli"] as const) test(`${source} blocking escalation pushes below cutoff; ordinary decision stays in digest`, async () => {
@@ -288,7 +295,7 @@ describe("acceptance examples through the production dispatcher", () => {
     w.advance(60_000);
     expect(await n.deliver(), "BLOCKING_ESCALATION_PUSH").toBe(1);
     expect(n.sent.map(p => p.title)).toEqual(["1 action waiting"]);
-    expect(n.notices.digest(n.client).latest?.waiting.map(e => e.itemId), "ORDINARY_ONLY_DIGEST").toEqual([ordinary]);
+    expect(waiting(n.notices, n.client).map(e => e.itemId), "ORDINARY_ONLY_DIGEST").toEqual([ordinary]);
   });
 
   test("blocking escalation obeys quiet hours and resumes at 08:00", async () => {
@@ -319,7 +326,7 @@ describe("acceptance examples through the production dispatcher", () => {
     expect(await n.deliver()).toBe(0);
     w.advance(60_000);
     expect(await n.deliver(), "HOSTILE_PROPOSAL_NO_PUSH").toBe(0);
-    expect(n.notices.digest(n.client).latest?.waiting.map(e => e.itemId)).toEqual([id]);
+    expect(waiting(n.notices, n.client).map(e => e.itemId)).toEqual([id]);
     expect(w.store.getThread(action!.threadId)?.stakes, "HOSTILE_STAKES_UNCHANGED").toBe(1);
     expect(w.turns).toEqual([]);
   });
@@ -357,7 +364,7 @@ describe("acceptance examples through the production dispatcher", () => {
     const receiptSender = createPushSender(receiptDb, { send: async () => { throw new Error("Known success must never be resent"); } });
     receiptNotices.enroll();
     expect(await receiptSender.deliverActions(receiptNotices, w.now()), "RESTORED_NO_REPEAT").toBe(0);
-    expect(receiptNotices.digest(n.client).latest?.waiting, "RESTORED_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
+    expect(waiting(receiptNotices, n.client), "RESTORED_NO_DIGEST_DOUBLE_COUNT").toEqual([]);
   });
 
   test("AE15: twenty arrivals with three 200 KB items are clipped per item, batched and all answered", async () => {
