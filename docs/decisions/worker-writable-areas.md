@@ -72,7 +72,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:255-292`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:256-293`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:387-414`).
@@ -80,7 +80,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:181-213`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:182-214`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -139,7 +139,7 @@ turn.
 **`$HOME`.** `probeHomeOverlay` runs the real launcher with
 `--overlay-src $HOME --tmp-overlay $HOME`, writes a file through it and checks
 from outside that the host home did not change
-(`export function probeHomeOverlay`, `packages/ui-sdk/src/server/worker-launcher.ts:222-238`).
+(`export function probeHomeOverlay`, `packages/ui-sdk/src/server/worker-launcher.ts:223-239`).
 On success the overlay is mounted before every other bind, so the brain, the
 areas and the runtime state land on top of it. On failure, or when `$HOME` is
 unset, `/`, under `/tmp` or inside the brain, the worker gets the XDG fallback
