@@ -5,7 +5,28 @@ import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { launchAgentWorker, requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { createClaudeWorkerState } from "./worker-state.js";
+import { restoreArchivedSession } from "./transcript-archive.js";
+import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
+
+/** Validate before either archive or live storage is addressed. */
+export function resumedSessionId(args: string[]): string | undefined {
+  // The Agent SDK passes `--resume=<id>` as one token; accept the two-token
+  // CLI form as well.
+  const joined = args.find(arg => arg.startsWith("--resume="));
+  const position = args.indexOf("--resume");
+  if (joined === undefined && position === -1) return undefined;
+  const id = joined !== undefined ? joined.slice("--resume=".length) : args[position + 1] ?? "";
+  validateSessionId(id);
+  return id;
+}
+
+/** The restore and snapshot are one synchronous operation before native spawn. */
+export function prepareClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>, args: string[],
+  options: Parameters<typeof createClaudeWorkerState>[2] = {}) {
+  const resume = options.ephemeral ? undefined : resumedSessionId(args);
+  if (resume) restoreArchivedSession(resume, { brainPath, env });
+  return createClaudeWorkerState(brainPath, env, { ...options, resume });
+}
 
 /**
  * `restricted` selects the autonomous envelope (#676): a private network
@@ -19,7 +40,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
       requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
       immediateSignal.throwIfAborted();
-      const state = createClaudeWorkerState(brainPath, env, { ephemeral: Boolean(restricted) });
+      const state = prepareClaudeWorkerState(brainPath, env, args, { ephemeral: Boolean(restricted) });
       const emitter = new EventEmitter();
       let worker: ReturnType<typeof launchAgentWorker>;
       try {

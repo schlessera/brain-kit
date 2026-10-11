@@ -1,5 +1,5 @@
 /**
- * Cross-backend handoff (#61, docs/decisions/session-handoff.md).
+ * Session handoff (#61, docs/decisions/session-handoff.md).
  *
  * A conversation never changes backend. Continuing it elsewhere creates a
  * NEW session on the chosen backend, seeded with a summary the user reviewed
@@ -147,10 +147,7 @@ export async function startHandoff(
     const providers = await host.registry.listAllProviders();
     const destination = msg.providerId ? providers.find((profile) => profile.id === msg.providerId) : undefined;
     const backend = destination ? await host.registry.getBackendForProfile(destination.id) : undefined;
-    if (!destination || !backend) return refuse(host, ws, msg, "Choose an available profile on another backend.");
-    if (backend.id === sourceBackendId) {
-      return refuse(host, ws, msg, "That profile runs on this chat's own backend. Start a new chat there instead.");
-    }
+    if (!destination || !backend) return refuse(host, ws, msg, "Choose an available profile.");
     const references = [...new Set(handoff.references)].slice(0, HANDOFF_MAX_REFERENCES);
     const checked = await checkHandoffReferences(host.brainPath, references);
     const blocked = checked.filter((reference) => reference.state !== "readable");

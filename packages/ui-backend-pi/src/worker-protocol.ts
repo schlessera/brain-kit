@@ -1,8 +1,24 @@
+import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
 
 // Internal protocol. A worker can propose inputs, never a decision or authority.
 export const PI_PIPE_MAX_BYTES = 16 * 1024 * 1024;
+export const sessionReserveBytes = (payloadSize: number): number => Math.max(1024 * 1024, Math.ceil(payloadSize / 4));
+export class SessionTooLargeError extends BackendRequestError {
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
+  constructor() {
+    super("This conversation exceeds the pi worker session size limit. Continue in a new conversation.");
+    this.name = "SessionTooLargeError";
+  }
+}
+
+/** Use the exact UTF-8 wire size, including framing, before launching a worker. */
+export function checkSessionSize(init: unknown): void {
+  const size = Buffer.byteLength(JSON.stringify(init) + "\n");
+  if (size + sessionReserveBytes(size) > PI_PIPE_MAX_BYTES) throw new SessionTooLargeError();
+}
 const input = z.record(z.string(), z.unknown());
 const id = z.number().int().positive();
 const text = z.string();
@@ -48,13 +64,16 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
     toolCallId: text, toolName: text, input }).strict(),
   z.object({ type: z.literal("snapshot"), entries: z.array(transcriptEntry) }).strict(),
   z.object({ type: z.literal("done"), cost: usageNumber, error: text.optional() }).strict(),
-  z.object({ type: z.literal("error"), message: text }).strict(),
+  z.object({ type: z.literal("error"), message: text, errorClass: z.literal("session_too_large").optional() }).strict(),
 ]);
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {
   const line = JSON.stringify(value) + "\n";
-  if (Buffer.byteLength(line) > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
+  if (Buffer.byteLength(line) > PI_PIPE_MAX_BYTES) {
+    if ((value as { type?: string } | null)?.type === "snapshot") throw new SessionTooLargeError();
+    throw new Error("Pi worker protocol payload exceeds its bound.");
+  }
   pipe.write(line);
 }
 

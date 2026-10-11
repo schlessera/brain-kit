@@ -304,7 +304,7 @@ Original fragment identities remain available at this entry point.
 
 <a id="cross-backend-handoff-additive-61"></a>
 
-- [Cross-backend handoff (additive, #61)](integration-contract/wire.md#cross-backend-handoff-additive-61) (original line 2919).
+- [Session handoff (additive, #61, #1621)](integration-contract/wire.md#cross-backend-handoff-additive-61) (original line 2919).
 
 <a id="unavailable-profiles-additive-1044"></a>
 

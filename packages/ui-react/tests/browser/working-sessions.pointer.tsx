@@ -676,3 +676,55 @@ test("1279 ↔ 1280: an open Sessions drawer becomes the pane with focus in it, 
   await expect.poll(() => stripItems(s).length, { message: "the pill returns below 1280" }).toBe(1);
   expect(pane(s)).toBeNull();
 });
+
+for (const width of [390, 1440] as const) {
+  test(`${width}: session capacity failure opens the reviewed handoff`, async (ctx) => {
+    // Mount empty and open Ithaca with only this history, as mount() would:
+    // a second full history merges with the mounted one instead of replacing
+    // it, which leaves the failure far above a bottom-pinned conversation.
+    const s = await mount(ctx, width, 640, "dark", { empty: true });
+    flushSync(() => s.ui.stores.chat.getState().setActiveSession(ITHACA.id));
+    // Put another backend and another same-backend model first: recovery
+    // must use the pinned source profile, not roster order or backend alone.
+    flushSync(() => s.ui.stores.provider.setState({
+      available: [
+        { id: "codex", label: "Codex", backendId: "pi" },
+        { id: "sonnet", label: "Claude Sonnet", backendId: "claude" },
+        { id: "opus", label: "Claude Opus", backendId: "claude" },
+      ],
+      pinnedId: "opus", loaded: true,
+    }));
+    s.socket.deliver({ type: "session_info", sessionId: ITHACA.id, isNew: false, backendId: "claude", providerId: "opus" });
+    s.socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: [
+      { role: "user", content: "Plan the return to Ithaca.", toolCalls: [] },
+      { role: "assistant", content: "", toolCalls: [], failure: { errorClass: "session_too_large", message: "Conversation exceeds runtime state capacity" } },
+    ] });
+    const action = () => [...s.host.querySelectorAll<HTMLElement>("[data-turn-failure] [data-bk-button]")]
+      .find(el => el.textContent?.includes("Continue in a new conversation"));
+    await expect.poll(action).toBeDefined();
+    await press(s, action()!, pointer());
+    expect(s.ui.stores.handoff.getState().sheet?.sourceSessionId).toBe(ITHACA.id);
+    await expect.poll(() => document.querySelector('[aria-label="Cancel handoff"]')).not.toBeNull();
+    const select = document.querySelector<HTMLSelectElement>('select')!;
+    expect(select.value, "recovery preselects the source profile").toBe("opus");
+    expect(select.selectedOptions[0]!.textContent).toBe("Claude Opus · new conversation · claude");
+    expect(select.options).toHaveLength(3);
+    expect(document.activeElement, "review starts at the destination").toBe(select);
+    expect(s.socket.frames("chat_message"), "opening review sends no new conversation").toHaveLength(0);
+    // Also works on a single-backend host; review still precedes the send.
+    flushSync(() => s.ui.stores.provider.setState({
+      available: [{ id: "opus", label: "Claude Opus", backendId: "claude" }],
+    }));
+    // Two messages draft no summary, and nothing starts without a handoff
+    // text: write one, as a person would.
+    const draft = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+    await userEvent.fill(draft, "Odysseus continues the voyage home: Calypso still owes the sailcloth.");
+    const start = () => [...document.querySelectorAll<HTMLElement>("[data-bk-button]")]
+      .find(el => el.getAttribute("aria-label") === "Start new chat on Claude Opus");
+    await expect.poll(start).toBeDefined();
+    await press(s, start()!, pointer());
+    expect(s.socket.frames("chat_message")).toHaveLength(1);
+    expect(s.socket.frames("chat_message")[0]).toMatchObject({ providerId: "opus", handoff: { sourceSessionId: ITHACA.id } });
+    expect(s.socket.frames("chat_message")[0].sessionId).toBeUndefined();
+  });
+}

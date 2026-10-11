@@ -69,7 +69,10 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
       ...(failure.authAction ? ["", SUBSCRIPTION_AUTH_INSTRUCTIONS[failure.authAction]] : [])];
     setReview({ mode, initial: fields.join("\n") });
   }
+  const canContinue = failure.errorClass === "session_too_large" && Boolean(sessionId);
   const actions = [
+    ...(canContinue ? [{ label: "Continue in a new conversation", primary: true, disabled: busy,
+      onClick: () => root.stores.handoff.getState().open(sessionId!, crypto.randomUUID(), { preferSourceProfile: true }) }] : []),
     // Retry is wired below to the host's retained original request, rather
     // than reconstructing an attachment-bearing prompt from count-only history.
     ...(latest && presentation.retry && message.retryOfTurnId ? [{ label: uncertain ? "Check delivery" : busy ? "Retrying…" : resetSeconds > 0 ? `Retry · in ${resetSeconds}s` : "Retry", primary: true, disabled: busy || (!uncertain && resetSeconds > 0), onClick: () => {
@@ -78,7 +81,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
       const result = root.connection.retryTurn(message.retryOfTurnId!);
       if (result === "refused") setNotice("Couldn't send. Check the connection and try again.");
     }}] : []),
-    { label: failure.authAction ? "Copy instructions" : "Copy details", primary: !presentation.retry || !latest || !message.retryOfTurnId, disabled: busy,
+    { label: failure.authAction ? "Copy instructions" : "Copy details", primary: !canContinue && (!presentation.retry || !latest || !message.retryOfTurnId), disabled: busy,
       onClick: () => openReview("copy") },
     ...(presentation.report || (failure.errorClass === "server_error" && repeated) ? [{ label: "Report a bug", disabled: busy, onClick: () => openReview("report") }] : []),
   ];

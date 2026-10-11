@@ -11,6 +11,7 @@ const screen = { get q() { return within(document.body); } };
 
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { TurnError } from "../../src/components/chat/turn-error.js";
 import { HandoffSheet } from "../../src/components/chat/handoff-sheet.js";
 import { HandoffCard } from "../../src/components/chat/handoff-links.js";
 import type { ChatMessage } from "../../src/stores/chat-state.js";
@@ -107,6 +108,40 @@ function typeInto(field: HTMLElement, value: string) {
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
 describe("opening the review", () => {
+  test("session_too_large preselects the source profile, even after other profiles in the roster", async () => {
+    const { root, socket } = setup({ summarize: false });
+    act(() => root.stores.provider.setState({
+      available: [
+        { id: "codex", label: "Codex", backendId: "pi" },
+        { id: "sonnet", label: "Claude Sonnet", backendId: "claude" },
+        { id: "claude", label: "Claude Opus", backendId: "claude" },
+      ],
+    }));
+    const failed: ChatMessage = { ...message("assistant", ""), failure: { errorClass: "session_too_large", message: "Conversation exceeds runtime state capacity" } };
+    render(<BrainUiProvider root={root}><TurnError message={failed} latest /></BrainUiProvider>);
+    fireEvent.click(screen.q.getByRole("button", { name: "Continue in a new conversation" }));
+    await flush();
+    const select = screen.q.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("claude");
+    expect(select.selectedOptions[0]!.textContent).toBe("Claude Opus · new conversation · claude");
+    expect(socket.frames().some((f) => f.type === "chat_message")).toBe(false);
+    fireEvent.click(start());
+    const sent = socket.frames().filter((f) => f.type === "chat_message");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ providerId: "claude", handoff: { sourceSessionId: "src" } });
+    expect(sent[0]!.sessionId).toBeUndefined();
+  });
+
+  test("a single-backend host can start a reviewed handoff on its own profile", async () => {
+    const { root, socket } = setup({ summarize: false });
+    act(() => root.stores.provider.setState({ available: [{ id: "claude", label: "Claude Opus", backendId: "claude" }] }));
+    open(root);
+    await flush();
+    expect((screen.q.getByRole("combobox") as HTMLSelectElement).value).toBe("claude");
+    fireEvent.click(start());
+    expect(socket.frames().filter((f) => f.type === "chat_message").map((f) => f.providerId)).toEqual(["claude"]);
+  });
+
   test("drafts without a model first, then runs one summary on the source's backend and shows it, with its cost", async () => {
     const { root, socket } = setup();
     open(root);
@@ -123,8 +158,9 @@ describe("opening the review", () => {
     expect(screen.q.getByText("summarized by Claude Opus · $0.03")).toBeTruthy();
     expect(screen.q.getByText("plans/ithaca.md")).toBeTruthy();
     expect(screen.q.getByRole("combobox")).toBe(document.activeElement as HTMLElement);
-    // Only other-backend profiles are offered.
-    expect([...screen.q.getByRole("combobox").querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Codex · pi · spends"]);
+    expect((screen.q.getByRole("combobox") as HTMLSelectElement).value).toBe("codex");
+    // The source profile is offered; ordinary entry keeps its other-backend default.
+    expect([...screen.q.getByRole("combobox").querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Claude Opus · new conversation · claude", "Codex · pi · spends"]);
   });
 
   test("an unknown cost reads unknown, never $0", async () => {
@@ -186,6 +222,7 @@ describe("a configured profile that cannot run (#1044)", () => {
     await flush();
     expect(options().map((o) => [o.textContent, o.disabled])).toEqual([
       ["Claude Opus · claude", false],
+      ["Codex · new conversation · pi", false],
       ["Ithaca proxy · claude — needs credentials", true],
     ]);
     const select = screen.q.getByRole("combobox") as HTMLSelectElement;
@@ -197,7 +234,7 @@ describe("a configured profile that cannot run (#1044)", () => {
   });
 
   test("as the only choice, Start stays disabled with the reason and nothing is sent", async () => {
-    const { socket } = fromPi([{ id: "codex", label: "Codex", backendId: "pi" }]);
+    const { socket } = fromPi([]);
     await flush();
     expect(options().map((o) => [o.textContent, o.disabled])).toEqual([
       ["Ithaca proxy · claude — needs credentials", true],
@@ -209,13 +246,17 @@ describe("a configured profile that cannot run (#1044)", () => {
     expect(socket.frames().some((f) => f.type === "chat_message")).toBe(false);
   });
 
-  test("a profile on the source's own backend is not offered, unavailable or not", async () => {
+  test("own-backend profiles are offered, with unavailable ones disabled", async () => {
     setup({ summarize: false });
     const root = roots.at(-1)!;
     act(() => root.stores.provider.setState({ unavailable: [proxy] }));
     open(root);
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["Codex · pi · spends"]);
+    expect(options().map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Claude Opus · new conversation · claude", false],
+      ["Codex · pi · spends", false],
+      ["Ithaca proxy · claude — needs credentials", true],
+    ]);
   });
 });
 

@@ -1,4 +1,4 @@
-# Continuing a conversation on another backend
+# Continuing in a new conversation
 
 A session is pinned to the backend that owns its transcript: resumed sessions
 route by their stored backend id, and the composer locks its picker once a
@@ -11,13 +11,19 @@ approved the interaction design with three residual choices settled.
 
 ## Decision: a new linked session, seeded with a reviewed handoff
 
-Continuing elsewhere creates a distinct session on the chosen backend. Its
+Handoff creates a distinct session on the chosen profile's backend. Its
 first user message is a summary the user reviewed and edited, followed by the
 brain files they kept as references. The source session is unchanged: its
 history, backend, accounting and usability stay exactly as they were, and it
 gains a forward marker. The destination's first message renders as a handoff
 card that links back and says plainly that the chat knows only what the card
 says.
+
+The maintainer's 2026-10-11 ruling on #1621 also permits the source's own
+backend and profile. This closes the recovery dead end on a single-backend
+host when a transcript is too large. The reviewed summary starts a fresh
+conversation on that model; it never resumes the oversized source session.
+This removes a refusal and is an additive contract change, shipped in a minor.
 
 Alternatives rejected:
 
@@ -100,19 +106,24 @@ failing closed, a retry still finds the destination.
   [`handoff-links.tsx`](../../packages/ui-react/src/components/chat/handoff-links.tsx),
   and the snapshot and fallback rules in
   [`lib/handoff.ts`](../../packages/ui-react/src/lib/handoff.ts).
-- Wire: [integration contract, cross-backend handoff](../integration-contract/wire.md#cross-backend-handoff-additive-61).
+- Wire: [integration contract, session handoff](../integration-contract/wire.md#cross-backend-handoff-additive-61).
 
 ## Profiles that cannot run
 
-The To list offers the runnable profiles on other backends, then the
+The To list offers all runnable profiles, including the source's own, then the
 configured ones that cannot run now, disabled with their reason printed
 (`needs credentials`). The host reports those apart from the runnable roster
 (#1044, ruled 2026-10-06), so routing and every client that reads the roster
 keep its "runnable now" meaning. The reason is a closed enum and the client
 owns its copy; no backend detail, such as a key name, reaches the sheet.
-`host offline` stays client-derived. The entry points are unchanged: they
-still need a runnable profile on another backend, so opening the sheet never
-starts a priced summary for a handoff that could not start.
+`host offline` stays client-derived. The source profile is labelled
+`new conversation`. The `session_too_large` action opens the review with that
+profile preselected when available. Ordinary entry keeps its existing
+other-backend default; if none is available, the sheet can select an available
+same-backend profile. An unavailable profile is never selected over a runnable
+one. The existing model-picker, session-menu and palette entries remain
+cross-backend shortcuts; recovery opens the sheet directly, including on a
+single-backend host.
 
 ## Known limits
 

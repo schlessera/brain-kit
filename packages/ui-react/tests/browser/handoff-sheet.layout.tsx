@@ -6,7 +6,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 
-// The cross-backend handoff review (#61) in real Chromium: the real ChatPage
+// The session handoff review (#61) in real Chromium: the real ChatPage
 // with a seeded source conversation, at the phone and desktop widths, in both
 // themes. Only transports are fixtures; no backend or network is reached.
 class FixtureSocket {
@@ -119,7 +119,7 @@ for (const c of cases) {
     expect(panel.left, "no horizontal overflow, left").toBeGreaterThanOrEqual(0);
     expect(panel.height, "the measured surface is the sheet itself").toBeGreaterThan(300);
     expect(panel.top, "the sheet starts on screen").toBeGreaterThanOrEqual(0);
-    const title = [...dialog.querySelectorAll("span, h2")].find((e) => e.textContent === "Continue on another backend" && e.getBoundingClientRect().height > 0)!;
+    const title = [...dialog.querySelectorAll("span, h2")].find((e) => e.textContent === "Continue in a new conversation" && e.getBoundingClientRect().height > 0)!;
     expect(title.getBoundingClientRect().top, "the title is on screen").toBeGreaterThanOrEqual(0);
     expect(panel.bottom, "the sheet ends on screen").toBeLessThanOrEqual(c.height + 0.5);
     expect(panel.right, "no horizontal overflow, right").toBeLessThanOrEqual(c.width + 0.5);
@@ -137,6 +137,7 @@ for (const c of cases) {
     }
     // A configured profile that cannot run is listed, disabled, with its reason.
     expect([...to.options].map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Claude Opus · new conversation · claude", false],
       ["Codex · gpt-5.5 · pi · spends", false],
       ["Ithaca proxy · gpt-5.5 · pi — needs credentials", true],
     ]);

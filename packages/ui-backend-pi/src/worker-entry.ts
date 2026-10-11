@@ -12,7 +12,7 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
+import { SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
 
 interface Init {
@@ -44,8 +44,21 @@ function rpc(method: Extract<PiWorkerMessage, { type: "rpc" }>["method"], toolNa
     send({ type: "rpc", id, method, toolName, toolCallId, input });
   });
 }
-function snapshot(): void {
-  if (manager) send({ type: "snapshot", entries: [manager.getHeader(), ...manager.getEntries()] });
+let snapshotFailed = false;
+function snapshot(): boolean {
+  if (snapshotFailed) return false;
+  try {
+    if (manager) send({ type: "snapshot", entries: [manager.getHeader(), ...manager.getEntries()] });
+    return true;
+  } catch (error) {
+    if (!(error instanceof SessionTooLargeError)) throw error;
+    // Subscribers and queued microtasks have no prompt rejection handler.
+    // Send one bounded terminal error; the parent tears down this worker.
+    snapshotFailed = true;
+    controller.abort();
+    send({ type: "error", message: error.message, errorClass: error.errorClass });
+    return false;
+  }
 }
 async function initialize(init: Init): Promise<void> {
   const state = join(WORKER_SCRATCH, "pi-state");
@@ -115,6 +128,7 @@ async function initialize(init: Init): Promise<void> {
   const opened = init.resume ? await runtime.openSession(init.sessionId, init.env) : await runtime.newSession(init.profileId, init.env);
   session = opened.session;
   session.subscribe(event => {
+    if (snapshotFailed) return;
     if (event.type === "message_end" || event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "auto_retry_start"
       || event.type === "message_update" && ["text_delta", "thinking_delta"].includes(event.assistantMessageEvent.type)) {
       send({ type: "event", event });
@@ -159,11 +173,11 @@ try {
     } else if (msg.type === "prompt") {
       void session!.prompt(msg.text, msg.options).then(async () => {
         await syncAuth();
-        snapshot(); send({ type: "done", cost: session!.getSessionStats().cost });
+        if (snapshot()) send({ type: "done", cost: session!.getSessionStats().cost });
       }, async error => {
         await syncAuth();
-        snapshot(); send({ type: "done", cost: session!.getSessionStats().cost, error: String(error) });
-      }).catch(error => send({ type: "error", message: String(error) }));
+        if (snapshot()) send({ type: "done", cost: session!.getSessionStats().cost, error: String(error) });
+      }).catch(error => { if (!snapshotFailed) send({ type: "error", message: String(error) }); });
     } else if (msg.type === "followUp") {
       void session!.prompt(msg.text, { ...msg.options, streamingBehavior: "followUp" });
     } else throw new Error("Unknown server message");

@@ -26,10 +26,10 @@ test("Claude state snapshot cannot share an inode with the brain and only persis
     state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved });
     const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
     mkdirSync(join(state.path, project), { recursive: true });
-    writeFileSync(join(state.path, project, "raft.jsonl"), "Odysseus transcript\n");
+    writeFileSync(join(state.path, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Odysseus transcript\n");
     writeFileSync(join(state.path, "settings.json"), "untrusted settings");
     state.persist();
-    expect(readFileSync(join(saved, project, "raft.jsonl"), "utf8")).toBe("Odysseus transcript\n");
+    expect(readFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "utf8")).toBe("Odysseus transcript\n");
     expect(readFileSync(join(saved, "settings.json"), "utf8")).toBe("{}");
     expect(workerCommand({ brainPath: brain, statePath: state.path, command: [process.execPath], env: {} })).toContain(state.path);
     expect(() => workerCommand({ brainPath: brain, statePath: saved, command: [process.execPath], env: {} })).toThrow("non-aliasing tmpfs");
@@ -56,9 +56,9 @@ test("worker transcript export refuses symlinks and concurrent saved-state overw
     expect(() => state.persist()).toThrow(); expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
     rmSync(join(state.path, project, "alias.jsonl"));
     mkdirSync(join(saved, project), { recursive: true });
-    writeFileSync(join(saved, project, "raft.jsonl"), "Concurrent transcript"); writeFileSync(join(state.path, project, "raft.jsonl"), "Worker transcript");
+    writeFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Concurrent transcript"); writeFileSync(join(state.path, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Worker transcript");
     expect(() => state.persist()).toThrow("changed concurrently");
-    expect(readFileSync(join(saved, project, "raft.jsonl"), "utf8")).toBe("Concurrent transcript");
+    expect(readFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "utf8")).toBe("Concurrent transcript");
     expect(existsSync(join(saved, project, "alias.jsonl"))).toBe(false);
   } finally { state.cleanup(); rmSync(root, { recursive: true, force: true }); }
 });
