@@ -35,7 +35,9 @@ modified even by the diagnostic itself.
 
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts `/` and the canonical brain read-only, and replaces `/proc`
-and `/dev`. `/tmp` is private tmpfs; the scratch location is a fresh tmpfs,
+and `/dev`. When the server runs as root, the worker's whole `/proc` is
+read-only as well (#1629, see [running as root](#running-the-server-as-root)).
+`/tmp` is private tmpfs; the scratch location is a fresh tmpfs,
 never a writable host bind. Scratch cannot overlap the brain or its ancestors.
 The worker receives only explicit environment entries and
 `BRAIN_WORKER_SCRATCH`. There is no overlay dependency; bubblewrap 0.9 is eligible.
@@ -157,15 +159,41 @@ It also removes the read-only remounts of `/proc/sys`, `/proc/sysrq-trigger`,
 `/proc/irq`, `/proc/bus` and `/proc/fs`. The worker gets its own procfs
 either way, so its boundary does not change. What widens is what the server and anything else in the
 container can reach. As container root, `/proc/sysrq-trigger` and `/proc/sys`
-passed the write check once unmasked, and a worker of a root-run server could
-write a host sysctl (#1629). **Run the server as a non-root user.** A
-non-root container user could read only its own `/proc/keys` entries and could
-write none of these files.
+pass the write check once unmasked. A worker of a root-run server can no
+longer write them (#1629), but the server itself and anything else running as
+container root still can. **Run the server as a non-root user.** A non-root
+container user could read only its own `/proc/keys` entries and could write
+none of these files.
 
 Qualify the container on the host that will run it, with the real probe.
 Kernels and container runtimes differ in what they mount over `/proc`. The
 report behind #1622 failed on one Docker host and passed with the same options
 on a WSL2 host.
+
+## Running the server as root
+
+The worker runs as the server's kernel uid with no capabilities. For uid 0
+that is not enough on its own: most host-global `/proc` files check only the
+file mode, so a root worker could write sysctls such as `kernel.core_pattern`,
+`/proc/acpi/wakeup` or `/proc/dynamic_debug/control` through its fresh procfs.
+A root-run server's worker therefore gets its whole `/proc` read-only
+(`--remount-ro /proc`). Its sysctl writes fail with `EROFS`, and no file under
+its `/proc` passes a write check. Workers of any other uid keep a writable
+`/proc`. They reach no host-global file through it, and nested user
+namespaces, such as Chromium's sandbox, need `/proc/self/uid_map`. A root
+worker cannot use them. Chromium refuses to run as root without
+`--no-sandbox` either way.
+
+Running the server as root still qualifies, but it is not recommended. The
+worker keeps root's authority over everything it can reach without writing.
+It can read root-only `/proc` files, such as `/proc/slabinfo` and
+`/proc/timer_list`. Interactive and voice turns see the host root read-only
+and share its network namespace. There the worker can also read every
+root-owned file on that root, such as `/etc/shadow`, SSH host keys and
+root's stored credentials. It can also connect to the Unix sockets a
+root-owned daemon listens on, because connecting is not a write the read-only
+mount refuses. Run the server as a dedicated non-root user. The measurements are in
+[the container fresh-/proc decision](../decisions/container-fresh-proc.md#what-systempathsunconfined-costs).
 
 ## Measured host-component matrix
 

@@ -1,7 +1,7 @@
 # A fresh /proc for agent workers in a container
 
 The agent worker launcher gives every worker its own user and PID namespaces
-and a fresh procfs (`workerCommand`, `packages/ui-sdk/src/server/worker-launcher.ts:105-143`).
+and a fresh procfs (`workerCommand`, `packages/ui-sdk/src/server/worker-launcher.ts:119-157`).
 Under Docker's default masked `/proc` paths the kernel refuses that procfs
 mount, so every turn on such a host refuses with
 `bwrap: Can't mount proc on /newroot/proc: Operation not permitted` (#1622,
@@ -22,14 +22,17 @@ does not change.
    /proc because the parent /proc has masked or covered paths; in Docker, run
    the container with --security-opt systempaths=unconfined", followed by
    bubblewrap's own line. Every other launch failure keeps the generic list
-   (`FRESH_PROC_REFUSED`, `packages/ui-sdk/src/server/worker-launcher.ts:175`).
+   (`FRESH_PROC_REFUSED`, `packages/ui-sdk/src/server/worker-launcher.ts:189`).
    The match is on bubblewrap's literal message, not a guess from the
    environment: a host that refuses for another reason is not told to change
    Docker options.
 3. **No conditional `--proc`, no fallback.** Launching without a fresh procfs
    when the probe fails would be the weaker profile the all-writer decision
    rules out.
-4. **Container requirements are documented per probe step** in
+4. **A root-run server's worker gets its whole `/proc` read-only** (#1629,
+   ruled 2026-10-11, see [what `systempaths=unconfined` costs](#what-systempathsunconfined-costs)).
+   Root servers still qualify; running as non-root is recommended.
+5. **Container requirements are documented per probe step** in
    [the host boundary doc](../hosting/agent-workers.md#running-the-server-in-a-docker-container),
    with the measured tuple added to its matrix.
 
@@ -122,13 +125,60 @@ Measured with access checks only (nothing was written) in the same image:
 | root | `/proc/sys`, `/proc/sysrq-trigger` read-only; `kcore`, `keys`, `timer_list` covered | `/proc/sysrq-trigger` and `/proc/sys` pass the write check; `/proc/keys` and `/proc/timer_list` readable |
 | uid 1500 | same | `/proc/keys` readable (it lists only the caller's own keys) |
 
-Inside a worker of a **root-run** server the fresh procfs is just as
-exposed: `/proc/sys` was not covered, and writing `kernel.panic` with its
-current value succeeded, so a root-run worker can change host kernel
-settings. A worker of a non-root server was refused. This is not
-Docker-specific (a root-run server on bare metal maps the worker to the same
-kernel uid) and is tracked as #1629. The requirement that follows is in the
-host doc: run the server as a non-root user.
+Inside a worker of a **root-run** server the fresh procfs was just as
+exposed. bubblewrap covered `sysrq-trigger`, `irq` and `bus` but not
+`/proc/sys`, and writing `kernel.panic` with its current value succeeded. A
+worker of a non-root server was refused. This is not Docker-specific: a
+root-run server on bare metal maps the worker to the same kernel uid, and
+most host-global `/proc` files check only the file mode, not a capability.
+
+**Ruling on #1629 (2026-10-11): a root-run server's worker gets its whole
+`/proc` read-only. Root servers still qualify.** `workerCommand` adds
+`--remount-ro /proc` after `--proc /proc` when the server's uid or effective
+uid is 0 (`rootProcCover`, `packages/ui-sdk/src/server/worker-launcher.ts:114-116`).
+Measured as container root with `systempaths=unconfined` and the seccomp
+profile above, with bubblewrap `0.9.0` from the image and the host's `0.12.0`,
+each in the ordinary and the restricted mode:
+
+| Cover after `--proc /proc` | Result for a uid-0 worker |
+| --- | --- |
+| none (the launcher before #1629) | `kernel.panic` same-value write accepted. 977 files outside the per-process directories passed the write check (836 in the restricted envelope), including `kernel.core_pattern`, `kernel.modprobe`, `/proc/acpi/wakeup`, `/proc/dynamic_debug/control`, `/proc/mtrr`, `/proc/pressure/*` and the sound card's `prealloc` and `eld` files. |
+| `--remount-ro /proc/sys` | bubblewrap refuses: `Unable to find "/newroot/proc/sys" in mount table`. It is not a mount point in a fresh procfs. |
+| `--ro-bind /proc/sys /proc/sys` | Sysctl writes fail with `EROFS`, but every non-sysctl file above still passed the write check. A root worker in the host network namespace could also still write that namespace's files under `/proc/<pid>/net`, which no fixed path covers. |
+| `--remount-ro /proc` | Sysctl writes fail with `EROFS`, and no file under `/proc` passes the write check. Writes through `/proc/self/fd/<n>` and `/dev/stdout` still work, because those magic links resolve to the target's own mount. |
+
+A uid-0 worker's other surfaces, audited in the same runs: `/sys` and the
+cgroup tree arrive through the recursive read-only root bind (the restricted
+envelope has neither). `/dev` holds bubblewrap's tmpfs with the `null`,
+`zero`, `full`, `random`, `urandom` and `tty` nodes, a fresh `devpts` and a
+private `/dev/shm`. Other processes' `/proc/<pid>` entries are outside the
+worker's PID namespace. The worker cannot remount, because it has no
+capabilities.
+
+The cover is limited to uid 0. A non-root worker writes no host-global file
+through its procfs either way, and a read-only `/proc` breaks nested user
+namespaces: as uid 1500, `unshare -U -r` failed on `/proc/self/uid_map` with
+`EROFS`, and Chromium aborted with "No usable sandbox!", while both work
+without the cover.
+
+The real Claude and pi runtimes run with a read-only `/proc`. In a local-only
+mutation, the cover was forced on for every worker, and seven suites passed
+as uid 1000 in the container: 96 tests across policy-write-boundary,
+autonomous-containment, inference-relay, worker-host-gate, run-session,
+autonomous-turn and ws-handoff. Those suites were not run with the runtimes
+as a uid-0 worker. The test harness's own outer bubblewrap runs without a
+user namespace, and as root it covers `/proc` paths, so the kernel refuses
+every nested fresh procfs before the launcher's cover is reached. The uid-0
+evidence is the launcher's own tests and the real probe.
+
+What a root worker keeps is root's authority over everything it can reach
+without a write. It can read root-only `/proc` files: `/proc/slabinfo`,
+`/proc/timer_list`, `/proc/vmallocinfo`, `/proc/pagetypeinfo` and the TCP Fast
+Open key. In interactive and voice turns, which see the host root read-only,
+it passes the owner check on every root-owned file there. It can read `/etc/shadow`, host keys and
+root's stored credentials, and it can connect to a root-owned daemon's Unix
+socket. The host doc therefore still recommends running the server as a
+non-root user. Whether to narrow this further is #1638.
 
 ### Not measured here
 

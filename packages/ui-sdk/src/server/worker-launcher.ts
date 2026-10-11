@@ -101,6 +101,20 @@ export class WorkerHostError extends BackendRequestError {
   }
 }
 
+/**
+ * A worker runs as the server's kernel uid. For uid 0, the host-global files
+ * of its fresh procfs (sysctls such as `kernel.core_pattern`, `/proc/acpi`,
+ * `dynamic_debug`, the network namespace's entries under `/proc/<pid>/net`)
+ * check only the file mode, so a worker without capabilities could still
+ * write them (#1629). A root-run server's worker therefore gets the whole
+ * procfs read-only. Other workers keep it writable: they reach no host-global
+ * file through it, and nested user namespaces (Chromium's sandbox) need
+ * `/proc/self/uid_map` (docs/decisions/container-fresh-proc.md).
+ */
+function rootProcCover(): string[] {
+  return process.getuid?.() === 0 || process.geteuid?.() === 0 ? ["--remount-ro", "/proc"] : [];
+}
+
 /** The only argv builder used by both live workers and the actual host probe. */
 export function workerCommand(input: WorkerLaunch): string[] {
   if (process.platform !== "linux") throw new WorkerHostError("Linux namespaces are required");
@@ -130,7 +144,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted ? [] : ["--ro-bind", "/", "/"]),
-    "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+    "--proc", "/proc", ...rootProcCover(), "--dev", "/dev", "--tmpfs", "/tmp",
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     "--ro-bind", brain, brain,
     ...(input.restricted ? maskedGit(brain) : []),
