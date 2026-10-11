@@ -4,7 +4,7 @@ import { readdir } from 'node:fs/promises';
 
 export const snapshotName = '.website-source.json';
 // Only build outputs may change in the isolated publication workspace.
-const generated = [snapshotName, '**/node_modules/**', '**/dist/**', '**/.astro/**', '**/.git/**', 'website/.impeccable/review/**', 'website/test-results/**', 'website/public/assets/demo/**', 'website/public/assets/shares/**', 'website/public/assets/previews/**', 'website/public/assets/product.css', 'website/public/assets/fonts.css', 'website/public/demo/transport.js', 'website/public/demo/api/**'];
+const generated = [snapshotName, '**/node_modules/**', '**/dist/**', '**/.astro/**', '**/.git/**', 'website/.impeccable/review/**', 'website/test-results/**', 'website/public/assets/demo/**', 'website/public/assets/shares/**', 'website/public/assets/previews/**', 'website/public/assets/product.css', 'website/public/assets/fonts.css', 'website/public/demo/transport.js', 'website/public/demo/api/**', 'tmp/workspace-operation/**'];
 export async function sourceInputHash(root: string) {
   const paths: string[] = [];
   async function walk(directory = '') {

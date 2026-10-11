@@ -38,5 +38,8 @@ try {
   await check(clean, snapshot, shares, 'Publication source inputs changed during the build');
   await Bun.write(resolve(root, 'source.txt'), 'unchanged build input\n');
   await check();
+  // The product build takes the workspace output lease (scripts/workspace-lease.mjs).
+  await Bun.write(resolve(root, 'tmp/workspace-operation/output.lock'), '');
+  await check();
   console.log('Publication proof passed: matching artifact accepted; dirty/changed source, wrong website/product/base and stale or mismatched exports refused by the actual publication command.');
 } finally { await rm(root, { recursive: true, force: true }); }
