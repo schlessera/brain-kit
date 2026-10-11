@@ -969,7 +969,12 @@ helper the host provides:
   the kill helper. The helper's protocol
   (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:53`)
   gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
-  resumes the worker's process tree through them (see "Scope caps").
+  resumes the worker through them (see "Scope caps"). Signalling the process
+  group is not enough. `bwrap --new-session` puts the payload in a session and
+  group of its own. So for `STOP` and `CONT`, the helper takes the worker's pid
+  and signals every process in that worker's PID namespace, matched through
+  `/proc/<pid>/ns/pid`. It repeats until a pass finds no process it has not
+  already stopped, which catches anything forked during the pass.
 - **The hosting template owns the packaging.** That means the two fixed uids,
   the setuid identity helper, the kill helper with `STOP` and `CONT`, the
   ownership map, the volume migration and the container proof. Its `docs/decisions/container-privilege.md`
@@ -1016,12 +1021,15 @@ revertible. It is recorded as a governance event and as a roadblock.
   a `0700` directory beside its database and outside every mask, refuses to
   open. Opening a masked path proves nothing: a masked directory opens empty,
   and a hidden one is not proof of ownership;
-- **the positive controls:** the worker can write the brain, scratch and turn
-  temp, read and write its runtime state, and connect to the relay socket.
+- **the positive controls:** the worker can write scratch and turn temp, read
+  and write its runtime state, and connect to the relay socket. The brain
+  check depends on the profile: a write succeeds under `governed` and is
+  refused under `strict`.
 
 If any check fails, `governed` and `strict` are refused, with a named
-host-status reason. Making the sentinel group-readable must make the probe
-refuse; that is the mutation proof. Nothing private to the server is
+host-status reason. The mutation proof makes both the sentinel's directory
+(`0750`) and the file (`0640`) reachable by the group. The worker's open then
+succeeds, and the probe must refuse. Nothing private to the server is
 group-readable.
 
 **Without a helper,** `governed` still runs. A laptop or a single-user server
