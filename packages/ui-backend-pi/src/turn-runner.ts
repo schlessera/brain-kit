@@ -83,6 +83,7 @@ export function createPiTurnRunner(
     };
     const costBefore = snapshotCost(session);
     const usage = createUsageAccumulator();
+    const completedUsage = createUsageAccumulator();
     const failures = createTurnFailureTracker();
     let failed = false;
     let thrown: TurnFailure | null = null;
@@ -100,7 +101,19 @@ export function createPiTurnRunner(
       if (!req.signal.aborted) {
         req.signal.addEventListener("abort", onAbort, { once: true });
       }
-      unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures));
+      unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures, req.autonomous?.containment === "restricted" ? (event) => {
+        if (event.type !== "message_start" && event.type !== "message_end") return;
+        const message = event.message;
+        if (message.role !== "assistant") return;
+        const completed = event.type === "message_end" && message.stopReason !== "aborted" && message.stopReason !== "error";
+        if (completed) completedUsage.observe(event);
+        const receipt = completedUsage.toWire();
+        if (receipt) {
+          try { req.bridge.activity?.({ kind: "autonomous_usage", usage: receipt,
+            atToolBoundary: completed && message.stopReason === "toolUse" }); }
+          catch { /* Observability must not fail the observed turn. */ }
+        }
+      } : undefined));
       // session_info must precede any content frames for a new session.
       if (req.autonomous) {
         try {
@@ -207,10 +220,12 @@ function scopeFrame(msg: ServerMessage, sessionId: string): ServerMessage {
 function makeEventHandler(
   emit: (msg: ServerMessage) => void,
   usage: TurnUsageAccumulator,
-  failures: TurnFailureTracker
+  failures: TurnFailureTracker,
+  observeCompleted?: (event: AgentSessionEvent) => void,
 ) {
   return (event: AgentSessionEvent): void => {
     usage.observe(event);
+    observeCompleted?.(event);
     for (const frame of failures.observe(event)) emit(frame);
     for (const frame of mapPiEvent(event)) emit(frame);
   };
