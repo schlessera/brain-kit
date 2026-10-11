@@ -53,6 +53,11 @@ inference call is needed.
    the release guards; none are removed to save CI minutes. `--all` does not run
    the measurement-harness tests under `experiments/`; those are the separate
    [experiment tier](#the-experiment-tier), run after versioning.
+   The pinned browser projects and the container lease test need a running
+   Docker daemon, not only the `docker` binary the preflight checks. A stopped
+   daemon surfaces late, as `Container did not attempt ownership: failed to
+   connect to the docker API at unix:///var/run/docker.sock`, after the
+   complete suite has already run.
 3. **New package added this cycle?** Build, publish, clean and the CI pack
    loop pick it up from its manifest: they all read
    `scripts/publishable-packages.ts`, which lists every non-private
@@ -100,7 +105,16 @@ Verify both `bun install --frozen-lockfile` and
 `bun scripts/check-publish-pins.ts`; restoring the old workspace versions would
 reintroduce the stale-pin failure. SDK 0.3.287 / CLI 2.1.287 failed three
 permission-precedence cases during 0.40.0 preparation, so that release retained
-the validated SDK 0.3.283 / CLI 2.1.283 pair.
+the validated SDK 0.3.283 / CLI 2.1.283 pair. 0.41.0 retained SDK 0.3.293 the
+same way while the move to 0.3.296 waits for its full re-measure (#1596).
+
+The rollback's `bun install` does not prune bin links that only the briefly
+installed newer versions declared. During 0.41.0 the experiment tier then
+refused with `the workspace is not built (node_modules/.bin/detect-libc,
+node_modules/.bin/openai dangle)`, although neither is a workspace package and
+`bun run build` cannot fix it. `find node_modules/.bin -xtype l` lists them;
+the copyfile reinstall under [The experiment tier](#the-experiment-tier)
+removes them.
 
 ```sh
 bun run check:pr --all
