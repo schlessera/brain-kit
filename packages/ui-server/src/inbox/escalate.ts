@@ -45,7 +45,9 @@ export function escalateInbox(db: Database, input: InboxEscalationInput): void {
       facts: { decisions: [], operations, capabilities: [], paths: operations.map(operation => operation.targetPath),
         questions: input.escalation.kind === "question" ? input.escalation.questions.map(question => question.question) :
           [`Permission for ${input.escalation.request.toolName}: ${JSON.stringify(input.escalation.request.input)}`] } }]);
-    insertInboxAction(db, input.action, input.allowedOperations, context, now);
+    // The validated live turn is blocked on this decision. Models supply the
+    // captured intent, but cannot select this immutable notification fact.
+    insertInboxAction(db, input.action, input.allowedOperations, context, now, false, true);
     store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "blocked", blockedByItemId: input.action.id }]);
     if (suppressed) retireInboxAction(db, input.action, "dropped", now, false);
     enforceInboxActionCap(db, input.cap, now);

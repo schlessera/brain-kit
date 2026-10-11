@@ -11,7 +11,8 @@
  *
  * - Episodes start when a decision becomes pending (new Action or explicit
  *   snooze reactivation). The store records them inside the transition.
- * - `enroll()` places push-eligible episodes (score >= 12, zero attempts) into
+ * - `enroll()` places push-eligible episodes (blocking escalation or score >=
+ *   12, zero attempts) into
  *   a fixed 60-second window per recipient principal. Later arrivals join
  *   without moving the deadline; arrivals at or after it open the next window.
  * - `beginAttempt()` recomputes current eligibility, authority and the
@@ -225,9 +226,8 @@ export function recordActionEpisode(
 
 interface Current {
   action: InboxActionItem;
-  score: number;
-  /** The existing score at another instant, for the same thread and Action. */
-  scoreAt(at: number): number;
+  /** Server-owned eligibility, with the existing score at the given instant. */
+  pushEligibleAt(at: number): boolean;
 }
 
 /**
@@ -249,7 +249,9 @@ function currentDecision(db: Database, episode: EpisodeRow, now: number): Curren
   if (!thread || thread.status !== "open" || thread.deleted_at !== null) return null;
   // Actions carry zero attempts in the existing formula.
   const scoreAt = (at: number) => inboxPriority(thread.stakes, thread.deadline ?? undefined, item.createdAt, 0, at);
-  return { action: item, score: scoreAt(now), scoreAt };
+  const context = db.query("SELECT blocking_escalation FROM inbox_action_contexts WHERE item_id = ?")
+    .get(item.id) as { blocking_escalation: number } | null;
+  return { action: item, pushEligibleAt: (at) => context?.blocking_escalation === 1 || scoreAt(at) >= ACTION_PUSH_CUTOFF };
 }
 
 function usable(db: Database, principalId: string | null, now: number): boolean {
@@ -323,7 +325,7 @@ export function createActionNotifier(db: Database, options: { now?: () => number
       const waiting: ActionDigestSummary["waiting"] = [];
       for (const episode of openEpisodes(db)) {
         const current = currentDecision(db, episode, now);
-        if (!current || current.score >= ACTION_PUSH_CUTOFF) continue;
+        if (!current || current.pushEligibleAt(now)) continue;
         if (covered.get(principalId, clientId, "episode", episode.id)) continue;
         waiting.push({ episodeId: episode.id, itemId: current.action.id, threadId: current.action.threadId, title: current.action.payload.title });
       }
@@ -369,12 +371,12 @@ export function createActionNotifier(db: Database, options: { now?: () => number
         let added = 0;
         for (const episode of openEpisodes(db)) {
           const current = currentDecision(db, episode, now);
-          if (!current || current.score < ACTION_PUSH_CUTOFF) continue;
+          if (!current || !current.pushEligibleAt(now)) continue;
           // The arrival is when the episode became eligible, not when this tick
           // noticed it: an episode eligible from its start arrived then, so a
           // 20-second tick cannot push it out of the window it arrived in. A
           // promotion over time is dated by the tick that observes it.
-          const arrival = Math.min(now, current.scoreAt(episode.started_at) >= ACTION_PUSH_CUTOFF ? episode.started_at : now);
+          const arrival = Math.min(now, current.pushEligibleAt(episode.started_at) ? episode.started_at : now);
           for (const principalId of principals) {
             if (joined.get(principalId, episode.id)) continue;
             let batch = open.get(principalId, arrival, arrival) as { id: number } | null;
@@ -433,7 +435,7 @@ export function createActionNotifier(db: Database, options: { now?: () => number
           if (seen.has(row.episode_id)) continue;
           seen.add(row.episode_id);
           const current = currentDecision(db, episode.get(row.episode_id) as EpisodeRow, now);
-          if (!current || current.score < ACTION_PUSH_CUTOFF) continue;
+          if (!current || !current.pushEligibleAt(now)) continue;
           const past = history.all(row.episode_id, dest) as { outcome: string; attempted_at: number }[];
           // At most one known successful submission per episode per destination.
           if (past.some((p) => p.outcome === "success")) continue;
