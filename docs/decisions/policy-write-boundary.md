@@ -36,7 +36,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:71-238`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:74-241`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:28-103`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -247,3 +247,73 @@ stdio MCP descendants enter the mandatory worker; only trusted bridge handlers a
 bounded native transcript persistence remain in the parent. #1039 owns the wider
 integrated escape matrix; #676's credential, configuration and egress proof is
 [recorded separately](async-collaboration.md#autonomous-containment--2026-10-10).
+
+## Runtime state budget across concurrent turns — 2026-10-11
+
+#1621 made each Claude turn's runtime state session-scoped and admits one turn
+against the tmpfs's free space. #1625 adds the concurrency dimension: every
+turn's state directory sits on the host's one `/dev/shm`, so a free-space
+reading is not admission. Two turns could both see room, then both copy and
+both fail with `ENOSPC`, and a turn's transcript keeps growing after it is
+admitted. The maintainer assigned option A from #1625's triage (a shared
+reservation with bounded growth and named refusal) for the 0.42.0 batch.
+
+- **One in-process ledger per state root.** Admission reserves settings,
+  memory, resumed history and the growth reserve against the tmpfs's free
+  space less what live reservations have not yet written (`const admit`,
+  `packages/ui-backend-claude/src/worker-state.ts:107-115`;
+  `export function createStateLedger`,
+  `packages/ui-backend-claude/src/worker-state-budget.ts:87-141`). Reserve,
+  copy and release are synchronous in the server process, so check-then-copy
+  cannot interleave between turns. Cleanup releases on every exit path,
+  including a failed copy, a failed launch and a failed removal. What never
+  fits the tmpfs or the 128 MiB bound stays `session_too_large`; what fits but
+  is held by running turns is `worker_state_busy`, so a user is not sent to a
+  new conversation for a capacity problem that clears by itself. Autonomous
+  turns reserve the growth reserve too, because they write there while they
+  run.
+- **Growth is measured, then stopped by name.** The spawn measures the running
+  state every 250 ms (`const monitor`,
+  `packages/ui-backend-claude/src/worker-spawn.ts:90`). Within 8 MiB of its
+  reservation a turn extends it to 16 MiB beyond its usage into space no
+  other turn holds. A turn that has outgrown its reservation with no unheld
+  space left, or that passes 128 MiB, is killed and reported as
+  `worker_state_exceeded`; what it saved is still persisted. The turn reports
+  the recorded class, not the runtime's own error for a killed process.
+  **Residual:** this is polling, not a quota. A turn that writes more than its
+  unheld headroom within one interval can still fill the tmpfs before it is
+  stopped; its own report is still `worker_state_exceeded` (the exit check
+  measures once more), but another turn's write in that window can see
+  `ENOSPC`. A second server process or any other tmpfs user appears only as
+  used space, never as a reservation, so the hosting doc says one server per
+  `/dev/shm`.
+- **Agent memory persists (#1626 finding 2, memory option M2).** Interactive
+  turns copy the project's `memory/` folder in and write back new or changed
+  `.md` notes directly in it (`persist() {`,
+  `packages/ui-backend-claude/src/worker-state.ts:170-206`), with the
+  transcripts' alias, redirect, byte-bound and concurrent-change checks. A
+  note another turn changed meanwhile is refused alone and named, and nothing
+  is deleted. Trust: memory is model-written text later sessions load as
+  context, the same trust as the transcripts already persisted. It is never an
+  authority for brain writes, which keep going through the server's validated
+  routes. Autonomous turns still see and keep no memory.
+
+**A per-worker tmpfs, considered and not adopted (#1625 item 3, option B).** A
+size-limited tmpfs per worker would give each turn a fixed budget independent
+of the host's `/dev/shm`. It does not fit this boundary:
+
+- The server cannot mount one itself. A parent-side tmpfs mount needs
+  `CAP_SYS_ADMIN` in the host's mount namespace, which a hosted server does not
+  hold.
+- A tmpfs bubblewrap mounts inside the sandbox lives in the worker's mount
+  namespace and disappears with it. Persisting would then have to copy out
+  while the runtime is still alive, which gives up the property that no
+  runtime writer can race the copy-out once the PID namespace is gone.
+- A size option caps one mount and does not reserve memory. Per-worker caps do
+  not bound their sum, so the host limit would only move from `/dev/shm` to
+  memory exhaustion, with no named refusal; host admission would still be
+  needed.
+
+The shared tmpfs with an in-process ledger keeps the copy-out after namespace
+death and names every refusal; the hosting doc carries the sizing rule
+(`per-turn budget x expected parallel sessions`).

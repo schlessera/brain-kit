@@ -4,9 +4,13 @@ import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sd
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { launchAgentWorker, requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
-import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { wrapCommand, type ExecWrapperConfig, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
+import { WorkerStateError } from "./worker-state-budget.js";
 import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
+
+/** How often a running turn's state is measured against its reservation (#1625). */
+export const STATE_CHECK_MS = 250;
 
 /** Validate before either archive or live storage is addressed. */
 export function resumedSessionId(args: string[]): string | undefined {
@@ -34,13 +38,27 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  * runtime state, and the relay directory as the one route out.
  */
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
-  restricted?: { inferenceDir: string }) {
+  restricted?: { inferenceDir: string },
+  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "stateRoot" | "ledger"> = {},
+  checkMs = STATE_CHECK_MS) {
   const completions: Promise<void>[] = [];
+  /**
+   * The first worker-state refusal or stop (#1625). The runtime only sees a
+   * failed spawn or a killed process, so the turn reports this instead.
+   */
+  let failure: TurnFailure | undefined;
+  const record = (error: unknown) => {
+    if (!failure && error instanceof WorkerStateError) failure = { errorClass: error.errorClass, message: error.message };
+  };
+  /** Live states' measurements, so asking for the failure also measures now. */
+  const checks = new Set<() => boolean>();
   return {
     spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
       requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
       immediateSignal.throwIfAborted();
-      const state = prepareClaudeWorkerState(brainPath, env, args, { ephemeral: Boolean(restricted) });
+      let state: ReturnType<typeof createClaudeWorkerState>;
+      try { state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, ephemeral: Boolean(restricted) }); }
+      catch (error) { record(error); throw error; }
       const emitter = new EventEmitter();
       let worker: ReturnType<typeof launchAgentWorker>;
       try {
@@ -68,14 +86,24 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const abort = () => kill("SIGKILL");
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted || immediateSignal.aborted) abort();
+      // A turn that outgrows its reservation extends it into space no other
+      // turn holds; one that cannot is stopped by name before the shared tmpfs
+      // runs out under another turn (#1625).
+      const check = () => { try { state.ensure(); return true; } catch (error) { record(error); return false; } };
+      const monitor = setInterval(() => { if (!check() && !killed) kill("SIGKILL"); }, checkMs);
+      checks.add(check);
       const done = worker.exited.then(code => {
         exitCode = code;
+        clearInterval(monitor);
         signal.removeEventListener("abort", abort);
+        // An overshoot since the last tick is still named, not lost.
+        check();
         // bwrap's PID namespace dies with its init, including detached children.
         state.persist();
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);
         emitter.emit("exit", killed ? null : code, signalCode);
-      }).catch(error => { emitter.emit("error", error); throw error; }).finally(state.cleanup);
+      }).catch(error => { emitter.emit("error", error); throw error; })
+        .finally(() => { clearInterval(monitor); checks.delete(check); state.cleanup(); });
       completions.push(done);
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
@@ -84,5 +112,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         on: emitter.on.bind(emitter), once: emitter.once.bind(emitter), off: emitter.off.bind(emitter) } as SpawnedProcess;
     },
     async finish() { await Promise.all(completions); },
+    /** Why the worker's runtime state refused or stopped the turn, if it did (#1625). */
+    failure(): TurnFailure | undefined { for (const check of checks) check(); return failure; },
   };
 }

@@ -520,6 +520,13 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
   Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  Claude worker runtime state adds `session_too_large` (the conversation
+  cannot fit one turn's state), `worker_state_busy` (running conversations
+  hold the shared runtime-state space; nothing was sent) and
+  `worker_state_exceeded` (the running turn outgrew its reservation and was
+  stopped), as
+  [the hosting doc](../hosting/agent-workers.md#claude-runtime-state-and-transcript-archival)
+  describes (#1621, #1625).
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means

@@ -8,6 +8,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   StartTurnRequest,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
@@ -41,6 +42,8 @@ export interface ClaudeSdkTurn {
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
   finishWorker(): Promise<void>;
+  /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
+  workerFailure(): TurnFailure | undefined;
 }
 
 /**
@@ -266,6 +269,7 @@ function assembleClaudeSdkTurn(
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : worker.finish,
+    workerFailure: worker.failure,
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(prompt, req.attachments)

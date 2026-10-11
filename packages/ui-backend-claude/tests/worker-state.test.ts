@@ -78,7 +78,7 @@ for (const cause of ["byte bound", "free space"] as const) test(`oversized sessi
   if (cause === "byte bound") sparse(ID, MAX_STATE_BYTES + 1); else sparse(ID, 1024 * 1024);
   const write = spyOn(fs, "writeFileSync");
   try {
-    let error: any; try { state(ID, cause === "free space" ? 16 * 1024 * 1024 + 3 : Number.MAX_SAFE_INTEGER); } catch (e) { error = e; }
+    let error: any; try { state(ID, cause === "free space" ? 16 * 1024 * 1024 + 4096 + 3 : Number.MAX_SAFE_INTEGER); } catch (e) { error = e; }
     expect(error).toBeInstanceOf(SessionTooLargeError); expect(error.errorClass).toBe("session_too_large");
     expect(write).not.toHaveBeenCalled();
   } finally { write.mockRestore(); }
@@ -100,7 +100,7 @@ test("resumed session folder refuses a redirected directory", () => {
 });
 test("ephemeral state remains empty and never persists", () => {
   put(ID, "Odysseus");
-  const snapshot = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ephemeral: true, stateRoot, freeBytes: () => 0 });
+  const snapshot = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ephemeral: true, stateRoot, freeBytes: () => 16 * 1024 * 1024 });
   states.push(snapshot); expect(fs.readdirSync(snapshot.path)).toEqual([]);
   fs.mkdirSync(join(snapshot.path, project), { recursive: true });
   fs.writeFileSync(join(snapshot.path, project, `${NEW}.jsonl`), "Athena"); snapshot.persist();
@@ -135,7 +135,7 @@ for (const capacity of [64 * MiB, MAX_STATE_BYTES + MiB]) {
   });
 }
 test("settings copy fits but its minimum reserve does not", () => {
-  let error: any; try { state(undefined, 16 * MiB + 1); } catch (e) { error = e; }
+  let error: any; try { state(undefined, 16 * MiB + 4095); } catch (e) { error = e; }
   expect(error?.errorClass).toBe("worker_host_unsupported");
-  expect(fs.readdirSync(state(undefined, 16 * MiB + 2).path)).toEqual(["settings.json"]);
+  expect(fs.readdirSync(state(undefined, 16 * MiB + 4096).path)).toEqual(["settings.json"]);
 });

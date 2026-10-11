@@ -59,7 +59,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
     { k: "class", v: failure.errorClass },
   ];
   function openReview(mode: Review["mode"]) {
-    const knownClass = /^(authentication_failed|oauth_org_not_allowed|account_on_hold|billing_error|subscription_required|rate_limit|overloaded|server_error|invalid_request|model_not_found|max_output_tokens|session_too_large|worker_host_unsupported|unknown)$/.test(failure.errorClass)
+    const knownClass = /^(authentication_failed|oauth_org_not_allowed|account_on_hold|billing_error|subscription_required|rate_limit|overloaded|server_error|invalid_request|model_not_found|max_output_tokens|session_too_large|worker_host_unsupported|worker_state_busy|worker_state_exceeded|unknown)$/.test(failure.errorClass)
       ? failure.errorClass : "unknown";
     const fields = ["brain-kit failed turn", `protocol: ${PROTOCOL_REV}`, `class: ${knownClass}`,
       ...(["claude", "pi"].includes(backend ?? "") ? [`backend: ${backend}`] : []),

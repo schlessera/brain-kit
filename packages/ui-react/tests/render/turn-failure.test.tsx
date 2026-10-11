@@ -287,7 +287,18 @@ describe("session capacity failures", () => {
     expect(useHandoffStore.getState().sheet?.preferSourceProfile).toBe(true);
     useHandoffStore.getState().close();
   });
-  for (const errorClass of ["session_too_large", "worker_host_unsupported"]) {
+  for (const [errorClass, headline] of [
+    ["worker_state_busy", "Other conversations are using the space this turn needs."],
+    ["worker_state_exceeded", "This turn ran out of working space and was stopped."],
+  ] as const) {
+    test(`${errorClass} names the shared space and offers no new conversation`, () => {
+      send(); failLive({ errorClass, message: "Not enough worker runtime space" });
+      const view = renderAssistant();
+      expect(failureText(view)).toContain(headline);
+      expect(view.queryByRole("button", { name: "Continue in a new conversation" })).toBeNull();
+    });
+  }
+  for (const errorClass of ["session_too_large", "worker_host_unsupported", "worker_state_busy", "worker_state_exceeded"]) {
     test(`reports preserve class: ${errorClass}`, () => {
       send(); failLive({ errorClass, message: "Runtime state refused" });
       const view = renderAssistant();

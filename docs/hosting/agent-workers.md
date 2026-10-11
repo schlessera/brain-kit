@@ -55,21 +55,61 @@ read-only host root. Autonomous turns use the restricted envelope below.
 
 ## Claude runtime state and transcript archival
 
-Each ordinary Claude turn copies settings, credentials and the account file
-into a private runtime-state tmpfs directory under `/dev/shm`. Transcript state
-is session-scoped: a resume copies only that session's JSONL and companion
-folder; a new conversation copies no transcripts. After teardown, only changed
-JSONL files for the resumed or newly created sessions are persisted. Other
-saved sessions are untouched.
+Each ordinary Claude turn copies settings, credentials, the account file and
+the project's auto-memory notes (`memory/`) into a private runtime-state tmpfs
+directory under `/dev/shm`. Transcript state is session-scoped: a resume copies
+only that session's JSONL and companion folder; a new conversation copies no
+transcripts. After teardown, only changed JSONL files for the resumed or newly
+created sessions are persisted, plus new or changed `memory/*.md` notes directly
+in the memory folder. Other saved sessions are untouched. Memory notes get the
+transcripts' alias, byte-bound and concurrent-change checks; a note another
+conversation changed during the turn is not overwritten and is named in the
+error, the other notes still persist, and nothing is deleted. An autonomous turn
+copies nothing in and writes nothing back.
 
-The host's `/dev/shm` must fit the settings plus the largest resumed session,
-with room for concurrent workers and transcript growth. Docker's default is
-64 MiB; increase it with `--shm-size` when needed. The backend checks free space
-before copying, reserving the larger of 16 MiB or 25% of the resumed transcript
-for turn growth and CLI files. Settings plus the 16 MiB minimum reserve that cannot fit refuse with `worker_host_unsupported`;
-a session that exceeds available space or the 128 MiB state bound refuses with
-`session_too_large`. Its error card offers **Continue in a new conversation**
-through the existing reviewed handoff flow.
+All concurrent turns of one server share that tmpfs. Before copying, a turn
+reserves its **per-turn budget** against the tmpfs's free space less what
+running turns have reserved and not yet written:
+
+```
+per-turn budget = settings + memory + resumed history + growth reserve
+growth reserve  = max(16 MiB, 25% of the resumed history)
+```
+
+An autonomous turn reserves the 16 MiB growth reserve alone. Reserving, copying
+and releasing happen synchronously inside the server process, so two turns
+cannot both pass the check and then both run out of space, and every exit path
+releases the reservation, failed copies and launches included. While the turn
+runs, the server measures its state every 250 ms. A turn that comes within
+8 MiB of its reservation extends it to 16 MiB beyond what it uses, if space no
+other turn holds is free; one that has outgrown its reservation and cannot extend it, or
+passes 128 MiB, is stopped by name. Turns are refused or stopped with these
+classes, never with a raw `ENOSPC` from this path:
+
+| Class | When |
+| --- | --- |
+| `session_too_large` | Settings, memory, resumed history and growth reserve exceed 128 MiB or the whole tmpfs. Nothing is copied. The error card offers **Continue in a new conversation** through the existing reviewed handoff flow. |
+| `worker_state_busy` | The turn would fit, but running conversations hold the space. Nothing is copied or sent; a retry after one finishes works. |
+| `worker_state_exceeded` | The running turn outgrew its reservation and no unheld space was left, or it passed 128 MiB. The worker is stopped, and what it saved so far is persisted. |
+| `worker_host_unsupported` | The tmpfs cannot hold the settings and memory plus a 16 MiB growth reserve. |
+
+**Sizing rule.** The host's `/dev/shm` must hold the sum of the turns that run
+at the same time:
+
+```
+/dev/shm size >= per-turn budget x expected parallel sessions
+```
+
+Docker gives a container a 64 MiB `/dev/shm` unless `--shm-size` (or
+`shm_size` in Compose) raises it. That holds three new conversations at once,
+or one conversation with about 30 MiB of history beside one new one. For
+example, three parallel sessions of up to 20 MiB of history each need
+`3 x (20 + 16) MiB`, about 108 MiB, so `--shm-size=128m`. The budget counts
+whole 4 KiB pages, as tmpfs allocates them. Growth is measured, not prevented:
+a turn writing faster than its unheld headroom per 250 ms can still fill the
+tmpfs between two measurements, which a larger `/dev/shm` makes less likely.
+Run one server process per `/dev/shm`: another process's turns, or any other
+tmpfs user, appear only as used space, not as reservations.
 
 After a non-autonomous turn, the Claude backend checks at most once per 24 hours
 for sessions idle more than 30 days, using the newest modification time across

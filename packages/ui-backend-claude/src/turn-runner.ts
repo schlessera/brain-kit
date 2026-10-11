@@ -37,6 +37,7 @@ import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requir
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { SessionTooLargeError } from "./worker-state.js";
+import { WorkerStateError } from "./worker-state-budget.js";
 import { archiveIdleSessions } from "./transcript-archive.js";
 
 const BACKEND_ID = "claude";
@@ -210,6 +211,16 @@ export function createClaudeTurnRunner(options: {
     let turnInput: TurnInput | undefined;
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
+    let workerFailure: (() => TurnFailure | undefined) | undefined;
+    /**
+     * A worker whose runtime state refused or stopped the turn (#1625) ends it
+     * with that named class rather than the runtime's own error.
+     */
+    const workerRefusal = (): boolean => {
+      const failure = refused ? undefined : workerFailure?.();
+      if (failure) refused = { code: "CLAUDE_ERROR", message: failure.message, failure };
+      return Boolean(refused);
+    };
     /**
      * Set when the subscription check refused the turn before its prompt was
      * released. It outranks the abort it causes: the turn failed, it was not
@@ -283,6 +294,7 @@ export function createClaudeTurnRunner(options: {
         log: options.log,
       });
       finishWorker = sdkTurn.finishWorker;
+      workerFailure = sdkTurn.workerFailure;
       archiveEnv = sdkTurn.options.env;
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = (turnInput = createTurnInput(sdkTurn.prompt));
@@ -510,7 +522,7 @@ export function createClaudeTurnRunner(options: {
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult) {
-        if (refused) {
+        if (workerRefusal()) {
           emitTerminal("error");
         } else if (abortController.signal.aborted) {
           emit({ type: "status", status: "cancelled" });
@@ -534,13 +546,13 @@ export function createClaudeTurnRunner(options: {
       // is over and nothing may follow it.
       if (sawResult) {
         // Terminal frame already sent — swallow the late failure.
-      } else if (refused) {
+      } else if (workerRefusal()) {
         emitTerminal("error");
       } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
       } else {
-        if (err instanceof WorkerHostError || err instanceof SessionTooLargeError) {
+        if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || err instanceof WorkerStateError) {
           refused = { code: "CLAUDE_ERROR", message: err.message,
             failure: { errorClass: err.errorClass, message: err.message } };
         } else {

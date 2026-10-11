@@ -39,7 +39,7 @@ and each closed before the measured runs:
 
 - **The brain has to live outside the operator's home directory, not only
   outside a checkout.** `settingSources: ["project"]`,
-  `packages/ui-backend-claude/src/sdk-options.ts:172`, makes the CLI walk up
+  `packages/ui-backend-claude/src/sdk-options.ts:175`, makes the CLI walk up
   from the cwd, and at every ancestor it reads `.claude/CLAUDE.md`,
   `.claude/skills/` and `.claude/agents/`. A brain anywhere under a home
   directory therefore loads `~/.claude/CLAUDE.md` as *project* instructions,
