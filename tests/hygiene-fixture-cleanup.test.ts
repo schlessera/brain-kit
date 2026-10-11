@@ -34,9 +34,11 @@ for (const fail of [false, true]) {
         writeFileSync(file, failing);
       }
 
+      // Bun suppresses named passing cases in agent sessions; keep this child
+      // reporter verbose without changing its fixture environment or preload.
       const child = Bun.spawnSync([
         process.execPath, "run", "test", file, "--test-name-pattern", CASE,
-      ], { cwd: ROOT, env: { ...process.env, TMPDIR: childTmp }, timeout: 20000 });
+      ], { cwd: ROOT, env: { ...process.env, TMPDIR: childTmp, AGENT: "0" }, timeout: 20000 });
       const output = new TextDecoder().decode(child.stdout) + new TextDecoder().decode(child.stderr);
       if (fail) {
         expect(output).toContain("controlled hygiene cleanup failure");
