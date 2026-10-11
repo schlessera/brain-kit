@@ -434,7 +434,7 @@ turns the complete roster the model reached for was `bash`, `show_block`,
 `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
 no search-then-load round trip, ever. The brief is in the prompt on every turn
 unconditionally (`block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:174`, not behind a capability
+`packages/ui-backend-pi/src/session-resources.ts:177`, not behind a capability
 check like the four bridge tools beside it). So pi is the structural twin of
 D43's `--always-load` arm and has never run any other configuration.
 

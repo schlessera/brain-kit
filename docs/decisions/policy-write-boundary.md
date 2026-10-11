@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:71-238`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:72-245`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:28-103`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -267,3 +267,19 @@ stdio MCP descendants enter the mandatory worker; only trusted bridge handlers a
 bounded native transcript persistence remain in the parent. #1039 owns the wider
 integrated escape matrix; #676's credential, configuration and egress proof is
 [recorded separately](async-collaboration.md#autonomous-containment--2026-10-10).
+
+## Writable areas inside the worker — 2026-10-11
+
+The maintainer's rulings on [#1626](https://github.com/schlessera/brain-kit/issues/1626)
+add designed writable areas to the read-only worker for interactive and voice
+turns: the brain's `.brain/scratch/` and its existing `workspaces/` directory
+as writable binds, and a per-turn overlay over `$HOME` with an XDG fallback.
+Every refusal from inside those areas still meets the boundary: the integrated
+proof above attacks from inside both and passes. The earlier sentence "writable
+overlays and copied scratch brains are declined" still holds for the brain;
+the home overlay never covers it and is optional, so bubblewrap 0.9 stays
+eligible. Restricted autonomous turns are unchanged.
+[The writable-areas decision](worker-writable-areas.md) records the rulings,
+checks and measurements. A "governed writable" default for interactive and
+voice turns is being designed separately and will revise this section and
+parts of this record.
