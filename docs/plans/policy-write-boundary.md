@@ -24,7 +24,11 @@ remain unchanged. Approval is not production containment evidence.
 ## Why a tool hook or child-only wrapper is insufficient
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:75-244`).
+<<<<<<< HEAD
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:79-248`).
+=======
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:79-246`).
+>>>>>>> 96b282dd2 (CONTRACT: fix(backends): give each Claude worker a private, size-limited runtime-state tmpfs with aggregate admission (#1625))
 The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
 the child with piped stdio (`createWrappedSpawn`,
 `packages/ui-backend-claude/src/spawn-wrapper.ts:36-65`). Parent-side MCP/bridge

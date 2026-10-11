@@ -1,13 +1,20 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk";
 import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend.js";
+import { backendModule } from "../src/module.js";
 import { SessionTooLargeError } from "../src/worker-state.js";
+import { processStateLedger, WorkerStateError } from "../src/worker-state-budget.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 
 mockWorkerHostForSdkStream();
+const LIMITS = { allowanceBytes: 64 * 1024 * 1024, budgetBytes: 64 * 1024 * 1024 };
 for (const resumed of [true, false]) {
-  for (const error of [new SessionTooLargeError(), new WorkerHostError("settings exceed available tmpfs")]) {
+  for (const error of [new SessionTooLargeError(80 * 1024 * 1024, 64 * 1024 * 1024), new WorkerHostError("settings exceed available tmpfs"),
+    new WorkerStateError("worker_state_busy", "Not enough worker runtime-state capacity for this turn right now")]) {
     test(`${error.errorClass} reaches the ${resumed ? "resumed result" : "pre-session error"} frame`, async () => {
       const frames: ServerMessage[] = [];
       const backend = createClaudeBackend({ brainPath: "/brain", queryFn: (() => { throw error; }) as never });
@@ -20,3 +27,66 @@ for (const resumed of [true, false]) {
     });
   }
 }
+
+test("a worker-state refusal the runtime reports as its own failure still ends the turn by name (#1625)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "claude-busy-")), brain = join(root, "brain"), config = join(root, "claude");
+  mkdirSync(brain); mkdirSync(config); writeFileSync(join(config, "settings.json"), "{}");
+  // The turn fits its allowance, but a running worker holds the whole budget.
+  const running = processStateLedger().reserve(LIMITS);
+  try {
+    const frames: ServerMessage[] = [];
+    let spawnError: unknown;
+    const queryFn = (({ options }: { options: { spawnClaudeCodeProcess: (spawn: unknown) => unknown } }) => {
+      try {
+        options.spawnClaudeCodeProcess({ command: "/bin/true", args: [], env: { CLAUDE_CONFIG_DIR: config },
+          signal: new AbortController().signal });
+      } catch (error) { spawnError = error; }
+      throw new Error("Claude Code process exited with code 1");
+    }) as never;
+    const backend = createClaudeBackend({ brainPath: brain, queryFn, workerState: LIMITS });
+    await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "11111111-1111-4111-8111-111111111111",
+      signal: new AbortController().signal,
+      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
+    expect(spawnError).toBeInstanceOf(WorkerStateError);
+    const terminal = frames.filter(f => (f.type === "error" || f.type === "result") && f.failure);
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]).toMatchObject({ type: "result", failure: { errorClass: "worker_state_busy" } });
+    expect(frames.some(f => f.type === "error" && f.message.includes("exited with code 1")), "the runtime's own error is not the report").toBe(false);
+  } finally { running.release(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a host cancellation outranks a worker-state failure measured meanwhile (#1625)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "claude-cancel-")), brain = join(root, "brain"), config = join(root, "claude");
+  mkdirSync(brain); mkdirSync(config); writeFileSync(join(config, "settings.json"), "{}");
+  const running = processStateLedger().reserve(LIMITS);
+  try {
+    const frames: ServerMessage[] = [];
+    const host = new AbortController();
+    const queryFn = (({ options }: { options: { spawnClaudeCodeProcess: (spawn: unknown) => unknown } }) => {
+      try {
+        options.spawnClaudeCodeProcess({ command: "/bin/true", args: [], env: { CLAUDE_CONFIG_DIR: config },
+          signal: new AbortController().signal });
+      } catch { /* recorded as worker_state_busy */ }
+      host.abort();
+      throw new Error("Claude Code process aborted by user");
+    }) as never;
+    const backend = createClaudeBackend({ brainPath: brain, queryFn, workerState: LIMITS });
+    await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "11111111-1111-4111-8111-111111111111",
+      signal: host.signal,
+      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
+    expect(frames.filter(f => f.type === "result")).toMatchObject([{ outcome: "cancelled" }]);
+    expect(frames.some(f => (f.type === "result" || f.type === "error") && "failure" in f && f.failure)).toBe(false);
+  } finally { running.release(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("the host's resolved allowance and budget reach the backend through the module, and invalid ones refuse (#1625)", async () => {
+  const parsed = backendModule.profileSchema.parse(null, { occupiedProfiles: [] });
+  if (!parsed.ok) throw new Error("builtin profile did not parse");
+  const resolve = (config: Record<string, unknown>) => backendModule.resolveFromEnv({ brainPath: "/tmp/worker-state-module",
+    config, profiles: parsed.profiles, confirmBashPatterns: null, settings: {} });
+  const ok = await resolve({ workerStateBytes: 32 * 1024 * 1024, workerStateBudgetBytes: 64 * 1024 * 1024 });
+  expect(ok.ok).toBe(true);
+  let error: unknown;
+  try { const bad = await resolve({ workerStateBytes: 4097 }); if (!bad.ok) error = bad.error; } catch (e) { error = e; }
+  expect(String(error)).toContain("workerState.allowanceBytes");
+});

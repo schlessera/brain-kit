@@ -41,7 +41,8 @@ const childMarker = `brain-claude-worker-${basename(root)}`;
 let voyageLog = "---\ntype: note\ntitle: Voyage log\n---\n";
 for (let day = 1; voyageLog.length < 67_000; day++) voyageLog += `Day ${day}: Odysseus logs "the wind", the oars and what Athena advised at dusk.\n`;
 if (scenario === "read-base") writeFileSync(join(brainPath, "notes/voyage-log.md"), voyageLog);
-const actions = scenario === "read-base" ? [{ name: "mcp__brain-ui__brain_read_base", input: { path: "notes/voyage-log.md" } }] : scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: 120000 } }] : [
+const actions = scenario === "exceeded" ? [{ name: "Bash", input: { command: 'head -c 100000000 /dev/zero > "$CLAUDE_CONFIG_DIR/filler"; df -B1 "$CLAUDE_CONFIG_DIR" | tail -1' } }]
+  : scenario === "read-base" ? [{ name: "mcp__brain-ui__brain_read_base", input: { path: "notes/voyage-log.md" } }] : scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: 120000 } }] : [
   { name: "Write", input: { file_path: policyPath, content: "Write changed policy" } },
   { name: "Edit", input: { file_path: policyPath, old_string: "Athena", new_string: "Untrusted" } },
   { name: "NotebookEdit", input: { notebook_path: join(brainPath, "context/policies/crew.ipynb"), cell_id: "crew", new_source: "Untrusted notebook", cell_type: "markdown", edit_mode: "replace" } },
@@ -98,7 +99,7 @@ try {
   const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
   await runSession(host, { authorization, text: "Odysseus worker fixture", attachments: [], providerId: "fixture" }); authorization.release();
   const sessionId = frames.find(frame => frame.type === "session_info")?.sessionId;
-  if (scenario !== "abort" && sessionId) {
+  if (scenario !== "abort" && scenario !== "exceeded" && sessionId) {
     const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
     await runSession(host, { authorization, sessionId, text: "Resume the Odysseus worker fixture", attachments: [], providerId: "fixture" }); authorization.release();
   }

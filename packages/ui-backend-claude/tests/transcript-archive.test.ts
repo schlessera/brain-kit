@@ -6,6 +6,7 @@ import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { archiveIdleSessions, listArchivedSessions, restoreArchivedSession, transcriptPaths, type ArchiveOptions } from "../src/transcript-archive.js";
 import { createHistory } from "../src/history.js";
 import { prepareClaudeWorkerState } from "../src/worker-spawn.js";
+import { createStateLedger } from "../src/worker-state-budget.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -145,12 +146,28 @@ test("archived sessions stay listed through SDK failure, deduplicate, and restor
   expect(await history.getHistory(ID)).toEqual([{ role: "user", content: "Return to Ithaca", toolCalls: [] }]);
   expect(savedIndex()).toEqual([]);
 });
+test("a busy refusal leaves an archived session archived: admission comes before restoration (#1625)", async () => {
+  session(); await archiveIdleSessions(options);
+  const limits = { allowanceBytes: 64 * 1024 * 1024, budgetBytes: 64 * 1024 * 1024 };
+  const ledger = createStateLedger(); const running = ledger.reserve(limits);
+  const index = savedIndex();
+  try {
+    expect(() => prepareClaudeWorkerState(brain, options.env!, ["--resume", ID], { limits, ledger })).toThrow("Retry when a running conversation finishes");
+    expect(existsSync(join(archive, ID)), "still archived").toBe(true);
+    expect(existsSync(join(live, `${ID}.jsonl`)), "not restored").toBe(false);
+    expect(savedIndex()).toEqual(index);
+    expect(ledger.live).toBe(1);
+  } finally { running.release(); }
+});
 test("worker resume restores archived bytes before copying its session", async () => {
   session(); const bytes = readFileSync(join(live, `${ID}.jsonl`)); await archiveIdleSessions(options);
-  const snapshot = prepareClaudeWorkerState(brain, options.env!, ["--resume", ID], { stateRoot: root, freeBytes: () => 1e9 });
+  const snapshot = prepareClaudeWorkerState(brain, options.env!, ["--resume", ID],
+    { limits: { allowanceBytes: 64 * 1024 * 1024, budgetBytes: 64 * 1024 * 1024 }, ledger: createStateLedger() });
+  const tmpfs = mkdtempSync(join(root, "tmpfs-"));
   try {
+    snapshot.populate(tmpfs);
     const project = brain.replace(/[^a-zA-Z0-9]/g, "-");
-    expect(readFileSync(join(snapshot.path, "projects", project, `${ID}.jsonl`))).toEqual(bytes);
+    expect(readFileSync(join(tmpfs, "projects", project, `${ID}.jsonl`))).toEqual(bytes);
     expect(savedIndex()).toEqual([]); expect(existsSync(join(archive, ID))).toBe(false);
-  } finally { snapshot.cleanup(); }
+  } finally { snapshot.release(); }
 });

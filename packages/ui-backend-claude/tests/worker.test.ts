@@ -2,10 +2,11 @@ import { expect, test, spyOn } from "bun:test";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { prepareWorkerSandbox, workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
+import { prepareWorkerSandbox, WORKER_STATE, workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend.js";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
 import { createClaudeWorkerState } from "../src/worker-state.js";
+import { createStateLedger } from "../src/worker-state-budget.js";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 
 test("a failed host probe refuses before the SDK query/spawn is called", async () => {
@@ -18,50 +19,58 @@ test("a failed host probe refuses before the SDK query/spawn is called", async (
     expect(called, "runtime initialization must not be reached").toBe(0);
   } finally { probe.mockRestore(); }
 });
+const MiB = 1024 * 1024;
+const limits = { allowanceBytes: 64 * MiB, budgetBytes: 192 * MiB };
 test("Claude state snapshot cannot share an inode with the brain and only persists its transcript", () => {
-  const root = mkdtempSync(join(tmpdir(), "claude-state-test-")); const brain = join(root, "brain"), saved = join(root, "config");
-  mkdirSync(brain); mkdirSync(saved);
+  const root = mkdtempSync(join(tmpdir(), "claude-state-test-")); const brain = join(root, "brain"), saved = join(root, "config"), tmpfs = join(root, "tmpfs");
+  mkdirSync(brain); mkdirSync(saved); mkdirSync(tmpfs);
   let state: ReturnType<typeof createClaudeWorkerState> | undefined;
   try {
     writeFileSync(join(saved, "settings.json"), "{}");
-    state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved });
+    state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { limits, ledger: createStateLedger() });
+    state.populate(tmpfs);
     const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
-    mkdirSync(join(state.path, project), { recursive: true });
-    writeFileSync(join(state.path, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Odysseus transcript\n");
-    writeFileSync(join(state.path, "settings.json"), "untrusted settings");
-    state.persist();
+    mkdirSync(join(tmpfs, project), { recursive: true });
+    writeFileSync(join(tmpfs, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Odysseus transcript\n");
+    writeFileSync(join(tmpfs, "settings.json"), "untrusted settings");
+    state.persist(tmpfs);
     expect(readFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "utf8")).toBe("Odysseus transcript\n");
     expect(readFileSync(join(saved, "settings.json"), "utf8")).toBe("{}");
-    expect(workerCommand({ brainPath: brain, statePath: state.path, command: [process.execPath], env: {} })).toContain(state.path);
-    expect(() => workerCommand({ brainPath: brain, statePath: saved, command: [process.execPath], env: {} })).toThrow("non-aliasing tmpfs");
-  } finally { state?.cleanup(); rmSync(root, { recursive: true, force: true }); }
+    // The worker's runtime state is a private tmpfs of exactly the allowance, never a host bind.
+    const argv = workerCommand({ brainPath: brain, stateBytes: state.bytes, command: [process.execPath], env: {} });
+    expect(argv.join(" ")).toContain(`--size ${64 * MiB} --tmpfs ${WORKER_STATE}`);
+    expect(argv).not.toContain(saved);
+    expect(argv.filter(arg => arg === "--bind")).toHaveLength(0);
+  } finally { state?.release(); rmSync(root, { recursive: true, force: true }); }
 });
 test("state setup refuses a brain config path and a hardlink credential alias", () => {
   const root = mkdtempSync(join(tmpdir(), "claude-state-alias-")), brain = join(root, "brain"), saved = join(root, "config");
   mkdirSync(brain); mkdirSync(saved); writeFileSync(join(brain, "policy.md"), "Athena policy");
   try {
-    expect(() => createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: brain })).toThrow("outside");
+    expect(() => createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: brain }, { limits, ledger: createStateLedger() })).toThrow("outside");
     linkSync(join(brain, "policy.md"), join(saved, "settings.json"));
-    expect(() => createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved })).toThrow("alias");
+    expect(() => createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { limits, ledger: createStateLedger() })).toThrow("alias");
     expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 test("worker transcript export refuses symlinks and concurrent saved-state overwrite", () => {
-  const root = mkdtempSync(join(tmpdir(), "claude-state-export-")), brain = join(root, "brain"), saved = join(root, "config"); mkdirSync(brain); mkdirSync(saved);
-  const state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved });
+  const root = mkdtempSync(join(tmpdir(), "claude-state-export-")), brain = join(root, "brain"), saved = join(root, "config"), tmpfs = join(root, "tmpfs");
+  mkdirSync(brain); mkdirSync(saved); mkdirSync(tmpfs);
+  const state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { limits, ledger: createStateLedger() });
+  state.populate(tmpfs);
   const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
   try {
-    mkdirSync(join(state.path, project), { recursive: true });
+    mkdirSync(join(tmpfs, project), { recursive: true });
     writeFileSync(join(brain, "policy.md"), "Athena policy");
-    symlinkSync(join(brain, "policy.md"), join(state.path, project, "alias.jsonl"));
-    expect(() => state.persist()).toThrow(); expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
-    rmSync(join(state.path, project, "alias.jsonl"));
+    symlinkSync(join(brain, "policy.md"), join(tmpfs, project, "alias.jsonl"));
+    expect(() => state.persist(tmpfs)).toThrow(); expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
+    rmSync(join(tmpfs, project, "alias.jsonl"));
     mkdirSync(join(saved, project), { recursive: true });
-    writeFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Concurrent transcript"); writeFileSync(join(state.path, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Worker transcript");
-    expect(() => state.persist()).toThrow("changed concurrently");
+    writeFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Concurrent transcript"); writeFileSync(join(tmpfs, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Worker transcript");
+    expect(() => state.persist(tmpfs)).toThrow("changed concurrently");
     expect(readFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "utf8")).toBe("Concurrent transcript");
     expect(existsSync(join(saved, project, "alias.jsonl"))).toBe(false);
-  } finally { state.cleanup(); rmSync(root, { recursive: true, force: true }); }
+  } finally { state.release(); rmSync(root, { recursive: true, force: true }); }
 });
 test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker's linked turn-temp file is promoted and the saved answer links the copy (#1655)", async () => {
   const repo = resolve(import.meta.dir, "../../..");

@@ -77,3 +77,19 @@ test("an actual Claude runtime gets a large document's base hash inline from bra
   expect(page.bytes).toBeGreaterThan(67_000);
   expect(r.survivors).toEqual([]);
 });
+test("an actual Claude whose runtime state fills its allowance ends the turn as worker_state_exceeded, not as a saved success (#1625)", async () => {
+  const r = await probe("exceeded");
+  // The tool's own write stops at the private tmpfs's 64 MiB limit.
+  const fill = r.frames.find((f: any) => f.type === "tool_result" && f.toolUseId === "toolu_1");
+  expect(fill.output).toContain("No space left on device");
+  expect(fill.output).toContain(`tmpfs           ${64 * 1024 * 1024}`);
+  // The runtime itself reports success, yet could not save its answer.
+  expect(r.frames.some((f: any) => f.type === "text_delta" && f.text === "Odysseus completes the worker turn.")).toBe(true);
+  const results = r.frames.filter((f: any) => f.type === "result");
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({ outcome: "error", isError: true, failure: { errorClass: "worker_state_exceeded" } });
+  expect(results[0].failure.message).toContain("64 MiB allowance");
+  expect(results[0].costUsd, "the turn's usage is kept").toBeGreaterThan(0);
+  expect(JSON.stringify(r.histories), "the unsaved answer is not in saved history").not.toContain("Odysseus completes the worker turn.");
+  expect(r.survivors).toEqual([]);
+});

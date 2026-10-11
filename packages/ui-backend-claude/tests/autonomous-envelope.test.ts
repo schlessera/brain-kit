@@ -52,6 +52,11 @@ describe("autonomous Claude envelope", () => {
       expect.stringMatching(/This is a restricted \(autonomous\) turn[\s\S]*Limits in this turn:/), "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"]);
   });
 
+  test("the restricted worker reads the runtime-state note rendered from its allowance (#1625)", () => {
+    const { options } = turn({ billing: "api", env: { ANTHROPIC_API_KEY: "sk-odysseus-real" } });
+    expect((options.systemPrompt as string[]).join("\n")).toContain("- **Runtime state: 64 MiB.**");
+  });
+
   test("the worker environment holds a placeholder and the relay route, never the credential or host variables", () => {
     process.env.ODYSSEUS_HOST_ONLY = "host-only";
     try {

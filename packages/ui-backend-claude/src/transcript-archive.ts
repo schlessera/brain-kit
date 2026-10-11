@@ -9,6 +9,8 @@ import { envSnapshot } from "./config/env.js";
 import { directory, files, isSessionId, regular, validateSessionId } from "./worker-state.js";
 
 const DAY = 24 * 60 * 60 * 1000;
+/** The archive's own manifest, index and marker files; not worker runtime state (#1625). */
+const METADATA_BYTES = 16 * 1024 * 1024;
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export interface ArchivedSession { id: string; title: string | null; createdAt: number; lastActiveAt: number }
 interface Manifest { session: ArchivedSession; files: Array<{ path: string; hash: string }> }
@@ -63,7 +65,7 @@ function atomic(path: string, bytes: Uint8Array | string) {
 }
 function manifest(root: string, id: string): Manifest {
   directory(join(root, id));
-  const value = JSON.parse(regular(join(root, id, "manifest.json")).toString()) as Manifest;
+  const value = JSON.parse(regular(join(root, id, "manifest.json"), METADATA_BYTES).toString()) as Manifest;
   if (value.session?.id !== id || !Array.isArray(value.files) || !value.files.every(f =>
     typeof f.path === "string" && (f.path === `${id}.jsonl` || f.path.startsWith(`${id}/`)) &&
     f.path.split("/").every(p => p !== ".." && p !== "." && p !== "" && !p.includes("\\")) &&
@@ -106,7 +108,7 @@ export function listArchivedSessions(options: ArchiveOptions): ArchivedSession[]
   const { archive } = transcriptPaths(options.brainPath, options.env);
   const committed = manifests(archive, options.log).map(m => m.session);
   const indexPath = join(archive, "index.json");
-  const entries: ArchivedSession[] = existsSync(indexPath) ? JSON.parse(regular(indexPath).toString()) : [];
+  const entries: ArchivedSession[] = existsSync(indexPath) ? JSON.parse(regular(indexPath, METADATA_BYTES).toString()) : [];
   if (!Array.isArray(entries) || !entries.every(s => typeof s.id === "string" && isSessionId(s.id)))
     throw new Error("Invalid transcript archive index");
   return [...new Map([...entries, ...committed].map(s => [s.id, s])).values()];
@@ -189,7 +191,7 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     if (!existsSync(live) && !existsSync(archive)) return;
     const now = options.now?.() ?? Date.now();
     const marker = join(archive, "last-scan");
-    if (existsSync(marker) && now - Number(regular(marker).toString()) < DAY) return;
+    if (existsSync(marker) && now - Number(regular(marker, METADATA_BYTES).toString()) < DAY) return;
     atomic(marker, String(now));
     const sessions = await (options.listSessionsFn ?? sdkListSessions)({ dir: options.brainPath });
     const active = options.activeSessionIds?.() ?? new Set<string>();

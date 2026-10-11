@@ -13,6 +13,7 @@ import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { readOnlyBrainError } from "../packages/core/src/cli/read-only.js";
 import { createClaudeSdkTurn } from "../packages/ui-backend-claude/src/sdk-options.js";
+import { workerStateLimit } from "../packages/ui-backend-claude/src/worker-state.js";
 import { createBrainAccess } from "../packages/ui-backend-pi/src/brain-access.js";
 import { createSessionResources } from "../packages/ui-backend-pi/src/session-resources.js";
 import { toolLockFromKeyed } from "../packages/ui-backend-pi/src/tools.js";
@@ -43,10 +44,10 @@ afterEach(() => {
 });
 
 /** The note for this brain and home, from the generator itself. */
-function expectedNote(): string {
+function expectedNote(extra: worker.WorkerNoteLimit[] = []): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
   return worker.workerSandboxNote(worker.prepareWorkerSandbox(brain, { home }),
-    { limits: worker.workerNoteLimits(worker.launchLimits({}).status) });
+    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra] });
 }
 
 function claudeAppend(): string {
@@ -109,8 +110,12 @@ async function piSessionAppend(sandboxNote: string): Promise<string[]> {
 test("Claude's system-prompt append and pi's session resources carry the same generated note", async () => {
   const note = expectedNote();
   expect(note).toContain("**Profile: `strict`.**");
+  // Claude's note also states its runtime-state allowance (#1625), a fact only
+  // that backend has; the generator and the rest of the text are the same.
+  const claudeNote = expectedNote([workerStateLimit(worker.resolveWorkerStateLimits({}))]);
+  expect(claudeNote).toContain("- **Runtime state: 64 MiB.**");
   const claude = claudeAppend();
-  expect(claude.endsWith(`\n\n${note}`), "CLAUDE_NOTE").toBe(true);
+  expect(claude.endsWith(`\n\n${claudeNote}`), "CLAUDE_NOTE").toBe(true);
   const sent = await piInitNote();
   expect(sent, "PI_INIT_NOTE").toBe(note);
   const appended = await piSessionAppend(sent);

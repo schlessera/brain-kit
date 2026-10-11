@@ -8,6 +8,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   StartTurnRequest,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings } from "@schlessera/brain-ui-sdk/internal";
@@ -26,7 +27,8 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWorkerSpawn } from "./worker-spawn.js";
-import { launchLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { launchLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
@@ -45,6 +47,8 @@ export interface ClaudeSdkTurn {
   finishWorker(): Promise<void>;
   /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
   workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
+  /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
+  workerFailure(): TurnFailure | undefined;
 }
 
 /**
@@ -146,7 +150,10 @@ function assembleClaudeSdkTurn(
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});
-  const sandboxNote = workerSandboxNote(sandbox, { limits: workerNoteLimits(limits.status) });
+  // The runtime-state allowance is one of the stated limits, from the same
+  // resolved value the worker's tmpfs is mounted with (#1625).
+  const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
+  const sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits)] });
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -247,7 +254,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    });
+    }, { limits: stateLimits });
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their
@@ -290,6 +297,7 @@ function assembleClaudeSdkTurn(
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : worker.finish,
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
+    workerFailure: worker.failure,
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(prompt, req.attachments)

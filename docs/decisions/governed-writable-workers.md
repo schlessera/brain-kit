@@ -687,7 +687,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:200`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:207`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:518`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -862,7 +862,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:80`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:111`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -874,7 +874,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:552`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:735`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -994,7 +994,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:47`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:81`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1039,7 +1039,7 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:61`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:100`)
 and the inference relay
 (`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
