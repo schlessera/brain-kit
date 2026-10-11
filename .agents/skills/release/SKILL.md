@@ -254,13 +254,14 @@ git push origin main --follow-tags
 
 ## After publishing
 
-- **0.33.0 and later: bump the brain repo's `@schlessera/brain` pin BEFORE the
-  deploy.** The ui-server passes `--` before user-controlled positionals, and a
-  pre-0.33.0 core parser eats that separator, so every search silently returns
-  nothing. ui-server refuses to boot against a CLI below its
-  `MIN_BRAIN_CLI_VERSION`, so the symptom is a container that will not start.
-  Rolling the image back does **not** roll back that pin — it lives in the brain
-  repo's own `package.json` and lockfile and is managed separately.
+- **Bump the content repo's `@schlessera/brain` pin BEFORE the deploy.**
+  It must satisfy ui-server's `MIN_BRAIN_CLI_VERSION` (currently 0.41.0),
+  including every command and flag the server invokes. Hygiene review needs
+  0.41.0; `stats --history` and module settings need 0.40.0. The original
+  0.33.0 floor covered the `--` separator but did not cover those later calls.
+  A CLI below the floor refuses server startup with the required version.
+  Rolling the image back does **not** roll back that pin — it lives in the
+  content repo's own `package.json` and lockfile and is managed separately.
 - Consumers pin these by version. A brain repo picks the release up with
   `bun update @schlessera/brain @schlessera/brain-module-*`; a deployment takes
   it through its own lockfile bump and a redeploy.

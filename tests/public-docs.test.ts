@@ -319,7 +319,7 @@ describe("public documents do not send readers to the private repositories", () 
  * how a standing requirement reads as old news and gets skipped.
  */
 describe("the documented CLI floor is the one the server enforces", () => {
-  test("docs/hosting/README.md states MIN_BRAIN_CLI_VERSION", () => {
+  test("hosting docs and server README state MIN_BRAIN_CLI_VERSION", () => {
     const source = readFileSync(
       join(ROOT, "packages/ui-server/src/brain/client.ts"),
       "utf8"
@@ -327,7 +327,7 @@ describe("the documented CLI floor is the one the server enforces", () => {
     const enforced = /MIN_BRAIN_CLI_VERSION = "([^"]+)"/.exec(source)?.[1];
     expect(enforced).toBeTruthy();
 
-    for (const doc of ["docs/hosting/README.md", "packages/core/skills/brain-host/SKILL.md"]) {
+    for (const doc of ["docs/hosting/README.md", "packages/core/skills/brain-host/SKILL.md", "packages/ui-server/README.md"]) {
       const text = readFileSync(join(ROOT, doc), "utf8");
       expect(text).toContain(`older than ${enforced}`);
     }

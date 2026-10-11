@@ -36,8 +36,9 @@ Ask what they want:
 **Always verify repo visibility after `gh repo create`.** A brain pushed to a public repo is a
 serious leak; confirm private before pushing content, and stop if the check disagrees.
 
-The server refuses to boot against `@schlessera/brain` older than 0.33.0 — a
-standing floor, not a one-release migration. Bump the content repo's pin and
+The server refuses to boot against `@schlessera/brain` older than 0.41.0 — a
+floor covering every command and flag the server invokes, including hygiene
+review. Bump the content repo's pin and
 refresh its lockfile before deploying, or the container will not start. Rolling
 back the image does not roll back that repo-owned pin; treat the two rollback
 actions separately.

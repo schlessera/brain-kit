@@ -42,12 +42,13 @@ Browser clients can use other operating systems. The [restricted autonomous
 prompt guide](autonomous-prompt-cache.md) records the trusted prefix boundary and
 the separately authorized cache measurement procedure.
 
-**The server refuses to boot against `@schlessera/brain` older than 0.33.0.**
-This is not an upgrade note for one release; it is a standing floor, enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:91`). The server
-places `--` before user-controlled CLI positionals, and a core below 0.33.0 eats
-that separator — every search then silently returns nothing, which is why the
-version is checked at startup instead.
+**The server refuses to boot against `@schlessera/brain` older than 0.41.0.**
+The floor is enforced at
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:91`) and covers
+all commands and flags the server invokes. Hygiene review requires 0.41.0's
+selection, repair, recheck and fingerprint-bound dispositions; module settings
+and `stats --history` require 0.40.0. The command/flag inventory test guards the
+floor when server invocations change.
 
 The pin lives in your **content** repo's `package.json` and lockfile, not in the
 deployment. Two consequences people meet the hard way:

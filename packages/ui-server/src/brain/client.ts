@@ -84,11 +84,11 @@ interface ExecResult {
 }
 
 /**
- * First core release whose parser understands `--`. The ui-server inserts the
- * separator before user input, so an older brain repo pin would lose every
- * positional silently.
+ * First core release with every command/flag this server invokes: hygiene
+ * next/resolve/check/undo and fingerprint-bound dispositions require 0.41.0.
+ * tests/cli-inventory.test.ts guards this floor as invocations change.
  */
-export const MIN_BRAIN_CLI_VERSION = "0.33.0";
+export const MIN_BRAIN_CLI_VERSION = "0.41.0";
 
 /**
  * argv prefix for invoking the brain CLI inside `brainPath`.
