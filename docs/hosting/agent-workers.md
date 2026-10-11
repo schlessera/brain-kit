@@ -96,8 +96,9 @@ default, and these areas will remain what its strict profile gets.
   directory in the brain root. Core always excludes it from the index.
   Creating it outside a hosted turn is the opt-in; the name is fixed. It
   stays read-only for a turn when it holds a file hard-linked to something
-  outside it, sits on or contains a mount point, or holds more than 200 000
-  entries; the agent's note and the server log name the reason. Links wholly
+  outside it, sits on or contains a mount point, holds more than 200 000
+  entries, or holds a directory the server cannot read (scratch too); the
+  agent's note and the server log name the reason. Links wholly
   inside it, such as local clones between workspace repositories, are fine.
 - **`$HOME`** gets `bwrap --tmp-overlay` when the host can mount it:
   bubblewrap 0.11.0 or later, not installed setuid, and a kernel that allows

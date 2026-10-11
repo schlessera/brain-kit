@@ -15,7 +15,7 @@
  * writes into the rest of the brain (`EXDEV`/`EROFS`); this walk covers the
  * links made before the turn.
  */
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /** Repo-relative scratch directory; core's `SCRATCH_DIR` names the same path. */
@@ -108,46 +108,128 @@ export function realBrainDirectory(brain: string, rel: string, create: boolean):
 export interface AliasScan {
   /** Repo-relative paths of regular files whose inode also has a name outside the walked directory. */
   outside: string[];
+  /** The `dev:ino` of each reported file, so a later unlink can confirm it still names that file. */
+  inodes: Map<string, string>;
   /** A directory inside is the brain root itself (a bind or loop the walk must not trust). */
   brainInside: boolean;
   /** The walk stopped at the entry limit. */
   overLimit: boolean;
+  /** Why the walk could not see everything (an unreadable directory, a swapped entry); the area is unverified. */
+  unverified?: string;
 }
 
+/** Directory entries are opened without following a final symlink, and only as directories. */
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+/** Deeper nesting than this is not walked; the area counts as unverified. */
+const SCAN_DEPTH_LIMIT = 256;
+
+/** A path resolved through an open directory descriptor, so a rename or symlink swap of an ancestor cannot redirect it. */
+function at(fd: number, name: string): string {
+  return `/proc/self/fd/${fd}/${name}`;
+}
+
+/** Opens `path` (absolute, or anchored by `at`) as a directory; the caller closes it. */
+function openDirectory(path: string): number {
+  return openSync(path, DIRECTORY_FLAGS);
+}
+
+class Unverified extends Error {}
+
 /**
- * Walks `dir` with `lstat` only, never descending a symlink, and counts the
- * names each regular file's inode has inside it. An inode with more links
- * than names found here has a name elsewhere: links wholly inside the mount
- * (git's local clones, package stores) are harmless and are not reported.
+ * Walks `dir` and counts the names each regular file's inode has inside it.
+ * An inode with more links than names found here has a name elsewhere: links
+ * wholly inside the mount (git's local clones, package stores) are harmless
+ * and are not reported.
+ *
+ * The walk is anchored on directory descriptors and never follows a symlink,
+ * even one swapped in for a directory while it runs: each directory is opened
+ * with `O_NOFOLLOW | O_DIRECTORY` through its parent's descriptor and must be
+ * the inode `lstat` reported. A directory or entry it cannot read (an
+ * execute-only directory hides its names) makes the result `unverified`,
+ * because a hard link could sit behind it.
  */
 export function scanForOutsideLinks(brain: string, dir: string, limit = WORKER_MOUNT_SCAN_LIMIT): AliasScan {
-  const root = lstatSync(brain);
-  const files = new Map<string, { nlink: number; paths: string[] }>();
-  const stack = [dir];
-  let seen = 0, brainInside = false, overLimit = false;
-  while (stack.length) {
-    const current = stack.pop()!;
+  const result: AliasScan = { outside: [], inodes: new Map(), brainInside: false, overLimit: false };
+  if (process.platform !== "linux") return { ...result, unverified: "the walk needs Linux's /proc/self/fd" };
+  const root = lstatSync(brain, { bigint: true });
+  const files = new Map<string, { nlink: bigint; paths: string[] }>();
+  let seen = 0;
+  const walk = (fd: number, path: string, depth: number): void => {
+    if (depth > SCAN_DEPTH_LIMIT) throw new Unverified(`${relative(brain, path)} is nested too deeply to verify`);
     let names: string[];
-    try { names = readdirSync(current); } catch { continue; }
+    try { names = readdirSync(at(fd, ".")); } catch (error) {
+      throw new Unverified(`${relative(brain, path) || "."} cannot be listed (${(error as NodeJS.ErrnoException).code ?? error})`);
+    }
     for (const name of names) {
-      if (++seen > limit) { overLimit = true; stack.length = 0; break; }
-      const path = join(current, name);
-      const info = lstatSync(path, { throwIfNoEntry: false, bigint: true });
-      if (!info) continue;
+      if (++seen > limit) { result.overLimit = true; return; }
+      const child = join(path, name);
+      let info;
+      try { info = lstatSync(at(fd, name), { bigint: true }); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Unverified(`${relative(brain, child)} cannot be inspected (${(error as NodeJS.ErrnoException).code ?? error})`);
+      }
       if (info.isDirectory()) {
-        if (info.dev === BigInt(root.dev) && info.ino === BigInt(root.ino)) brainInside = true;
-        stack.push(path);
+        if (info.dev === root.dev && info.ino === root.ino) { result.brainInside = true; continue; }
+        let childFd: number;
+        try { childFd = openDirectory(at(fd, name)); } catch (error) {
+          throw new Unverified(`${relative(brain, child)} cannot be opened (${(error as NodeJS.ErrnoException).code ?? error})`);
+        }
+        try {
+          const opened = fstatSync(childFd, { bigint: true });
+          if (opened.dev !== info.dev || opened.ino !== info.ino) throw new Unverified(`${relative(brain, child)} changed while it was walked`);
+          walk(childFd, child, depth + 1);
+        } finally { closeSync(childFd); }
+        if (result.overLimit) return;
       } else if (info.isFile() && info.nlink > 1n) {
         const key = `${info.dev}:${info.ino}`;
-        const entry = files.get(key) ?? { nlink: Number(info.nlink), paths: [] };
-        entry.paths.push(path);
+        const entry = files.get(key) ?? { nlink: info.nlink, paths: [] };
+        entry.paths.push(child);
         files.set(key, entry);
       }
     }
+  };
+  let fd: number;
+  try { fd = openDirectory(dir); } catch (error) {
+    return { ...result, unverified: `${relative(brain, dir)} cannot be opened (${(error as NodeJS.ErrnoException).code ?? error})` };
   }
-  const outside = [...files.values()].filter(entry => entry.nlink > entry.paths.length)
-    .flatMap(entry => entry.paths).map(path => relative(brain, path)).sort();
-  return { outside, brainInside, overLimit };
+  try { walk(fd, dir, 0); } catch (error) {
+    if (!(error instanceof Unverified)) throw error;
+    return { ...result, unverified: error.message };
+  } finally { closeSync(fd); }
+  for (const [key, entry] of files) {
+    if (entry.nlink <= BigInt(entry.paths.length)) continue;
+    for (const path of entry.paths) {
+      const rel = relative(brain, path);
+      result.outside.push(rel);
+      result.inodes.set(rel, key);
+    }
+  }
+  result.outside.sort();
+  return result;
+}
+
+/**
+ * Unlinks `<dir>/<rel>` only if it is still the regular file the walk saw.
+ * Every directory on the way is opened through its parent's descriptor with
+ * `O_NOFOLLOW`, and the unlink goes through the last one, so a symlink
+ * swapped in mid-way cannot redirect it out of `dir`.
+ */
+function unlinkScanned(dir: string, rel: string, inode: string): void {
+  const segments = rel.split("/");
+  const name = segments.pop()!;
+  let fd = openDirectory(dir);
+  try {
+    for (const segment of segments) {
+      const next = openDirectory(at(fd, segment));
+      closeSync(fd);
+      fd = next;
+    }
+    const info = lstatSync(at(fd, name), { bigint: true });
+    if (!info.isFile() || `${info.dev}:${info.ino}` !== inode) {
+      throw Object.assign(new Error(`${rel} changed after the walk`), { code: "ECHANGED" });
+    }
+    unlinkSync(at(fd, name));
+  } finally { closeSync(fd); }
 }
 
 /**
@@ -186,11 +268,11 @@ export function resolveScratchMount(brain: string): { mount: WorkerMount; remove
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
   const scan = scanForOutsideLinks(brain, dir);
   if (scan.overLimit) return { mount: { writable: false, reason: `.brain/scratch/ holds more than ${WORKER_MOUNT_SCAN_LIMIT} entries; run \`brain scratch prune\`` }, removed: [] };
+  if (scan.unverified) return { mount: { writable: false, reason: `.brain/scratch/ could not be verified: ${scan.unverified}` }, removed: [] };
   if (scan.brainInside) return { mount: { writable: false, reason: ".brain/scratch/ contains the brain itself" }, removed: [] };
   const removed: string[] = [];
   for (const rel of scan.outside) {
-    const path = join(brain, rel);
-    try { if (lstatSync(path).isFile()) unlinkSync(path); removed.push(rel); }
+    try { unlinkScanned(dir, relative(dir, join(brain, rel)), scan.inodes.get(rel)!); removed.push(rel); }
     catch (error) {
       return { mount: { writable: false, reason: `the scratch alias ${rel} could not be removed (${(error as NodeJS.ErrnoException).code ?? error})` }, removed };
     }
@@ -212,6 +294,7 @@ export function resolveWorkspacesMount(brain: string): WorkerMount {
   if (mountPointsUnder(dir).length) return { writable: false, reason: "workspaces/ is or contains a mount point" };
   const scan = scanForOutsideLinks(brain, dir);
   if (scan.overLimit) return { writable: false, reason: `workspaces/ holds more than ${WORKER_MOUNT_SCAN_LIMIT} entries, too many to verify` };
+  if (scan.unverified) return { writable: false, reason: `workspaces/ could not be verified: ${scan.unverified}` };
   if (scan.brainInside) return { writable: false, reason: "workspaces/ contains the brain itself" };
   if (scan.outside.length) return { writable: false, reason: `hard-linked to files outside workspaces/: ${shown(scan.outside)}` };
   return { writable: true, path: dir };

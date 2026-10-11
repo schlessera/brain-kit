@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher";
-import { WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
+import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -166,6 +167,63 @@ describe("worker sandbox writable areas (#1626)", () => {
     } finally { f.cleanup(); }
   });
 
+  // Root reads an execute-only directory anyway, so the walk would see the link.
+  test.skipIf(process.getuid?.() === 0)("an unreadable directory hiding an outside link leaves the area read-only", () => {
+    const f = fixture();
+    const hidden = join(f.brain, "workspaces/ithaca/hidden"), scratchHidden = join(f.brain, ".brain/scratch/hidden");
+    try {
+      mkdirSync(hidden); mkdirSync(scratchHidden, { recursive: true });
+      linkSync(f.policy, join(hidden, "policy-alias.md")); linkSync(f.policy, join(scratchHidden, "policy-alias.md"));
+      chmodSync(hidden, 0o100); chmodSync(scratchHidden, 0o100);
+      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      expect(sandbox.areas, "UNREADABLE_DIR").toEqual([
+        { name: "scratch", mount: { writable: false, reason: ".brain/scratch/ could not be verified: .brain/scratch/hidden cannot be opened (EACCES)" } },
+        { name: "workspaces", mount: { writable: false, reason: "workspaces/ could not be verified: workspaces/ithaca/hidden cannot be opened (EACCES)" } },
+      ]);
+      expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds).toEqual([]);
+    } finally { chmodSync(hidden, 0o700); chmodSync(scratchHidden, 0o700); f.cleanup(); }
+  });
+
+  // A concurrent worker owns scratch and can swap a directory for a symlink
+  // into the brain while the host walks it. These fake that swap at the two
+  // moments the host touches a directory by name: after it lstats it, and
+  // when it reopens it to unlink an alias.
+  test.each(["walk", "unlink"] as const)("a directory swapped for a symlink during the %s never redirects it into the brain", (moment) => {
+    const f = fixture();
+    const original = { lstatSync: fs.lstatSync, openSync: fs.openSync };
+    const name = moment === "walk" ? "lstatSync" : "openSync";
+    const spy = spyOn(fs, name);
+    try {
+      const scratch = join(f.brain, ".brain/scratch"), child = join(scratch, "child");
+      mkdirSync(child, { recursive: true });
+      // The same layout in scratch and in the brain, so a redirected unlink would hit the brain's name.
+      writeFileSync(join(f.brain, "notes/rule.md"), GOLDEN); linkSync(join(f.brain, "notes/rule.md"), join(f.brain, "context/rule.md"));
+      linkSync(f.policy, join(child, "rule.md"));
+      let swapped = false, opens = 0;
+      const swap = () => { swapped = true; renameSync(child, `${child}-parked`); symlinkSync(join(f.brain, "notes"), child); };
+      const byChild = (path: unknown) => typeof path === "string" && path.endsWith("/child") && !swapped;
+      if (name === "lstatSync") {
+        spy.mockImplementation(((path: string, ...rest: unknown[]) => {
+          const result = (original.lstatSync as (...args: unknown[]) => unknown)(path, ...rest);
+          if (byChild(path)) swap();
+          return result;
+        }) as typeof fs.lstatSync);
+      } else {
+        spy.mockImplementation(((path: string, ...rest: unknown[]) => {
+          if (byChild(path) && ++opens === 2) swap();
+          return (original.openSync as (...args: unknown[]) => number)(path, ...rest);
+        }) as typeof fs.openSync);
+      }
+      const scratchMount = resolveScratchMount(f.brain);
+      spy.mockRestore();
+      expect(swapped, "SWAP_HAPPENED").toBe(true);
+      expect(readFileSync(join(f.brain, "notes/rule.md"), "utf8"), "SWAP_FOLLOWED").toBe(GOLDEN);
+      expect(lstatSync(join(f.brain, "notes/rule.md")).nlink).toBe(2);
+      expect(scratchMount.mount.writable).toBe(false);
+      expect(scratchMount.removed).toEqual([]);
+    } finally { spy.mockRestore(); f.cleanup(); }
+  });
+
   test("an over-limit walk leaves workspaces read-only", () => {
     const f = fixture();
     try {
@@ -254,7 +312,10 @@ describe("worker sandbox writable areas (#1626)", () => {
     try {
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
       expect(() => workerCommand({ brainPath: g.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).toThrow("another brain");
-      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: g.home }, sandbox })).toThrow("HOME is not the home");
+      // The overlay is what a HOME mismatch would misdirect; fake the probe so this holds on every bubblewrap.
+      const overlaid = prepareWorkerSandbox(f.brain, { home: f.home, probeOverlay: () => true });
+      expect(overlaid.home?.mode).toBe("overlay");
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: g.home }, sandbox: overlaid })).toThrow("HOME is not the home");
       rmSync(join(f.brain, "workspaces"), { recursive: true }); symlinkSync(g.brain, join(f.brain, "workspaces"));
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }), "RELAUNCH_RECHECK")
         .toThrow("real directory at its own path");
