@@ -23,6 +23,13 @@ shell children. Each worker receives a read-only authoritative brain view and
 separate writable scratch. The boundary covers ordinary interactive, voice and
 autonomous turns, including indirect scripts and nested execution.
 
+> **2026-10-11 — Superseded for interactive and voice turns ([governed writable workers](governed-writable-workers.md#what-this-supersedes-and-what-still-binds)).**
+> The read-only brain view and "no longer directly change authoritative brain
+> files" below now hold for `strict` and `restricted` workers only. A
+> `governed` worker, the default for interactive and voice turns, binds the
+> brain read-write. Policy-protected paths stay read-only, and every change is
+> journaled. Pre-initialization isolation still binds.
+
 Ordinary shell and custom-extension writes therefore no longer directly change
 authoritative brain files. Their output stays in scratch or staging until an
 explicit bounded application request names the files and exact proposed changes.
@@ -68,6 +75,11 @@ R35 denies policy writes to **every** agent runtime, including ordinary shells,
 extensions and autonomous agents. R33's v1 no-policy-read rule remains binding:
 policy content cannot supply authority; policy formation and activation stay
 deferred. This record grants no new policy access or standing permission.
+
+> **2026-10-11 — R33 superseded, R35 retained ([governed writable workers](governed-writable-workers.md#the-policy-file)).**
+> The host now reads the governance policy file `context/policies/governance.md`,
+> which is mounted read-only in every worker. It grants autonomous turns
+> nothing, and R34 grant files stay deferred. No agent runtime writes policy.
 
 Voice and unattended execution retain **one tool-enforcement mechanism with
 different named memberships**. The filesystem boundary applies to both and to
@@ -215,7 +227,11 @@ project `brain` MCP write tools. Terminal MCP clients keep their names and schem
 Core skills name the hosted tools while retaining terminal CLI instructions.
 
 CLI writes through a read-only worker fail visibly with a read-only diagnostic
-and curated-tool guidance; no command is staged or replayed. New hosted tool names
+and curated-tool guidance; no command is staged or replayed.
+
+> **2026-10-11 — Superseded for `governed` turns ([governed writable workers](governed-writable-workers.md#the-change-journal-and-reconciliation)).**
+> The CLI writes directly in a `governed` worker. The read-only diagnostic
+> remains the `strict` behavior. New hosted tool names
 and schemas are an additive contract change with a minor changeset. Bubblewrap
 0.9 remains eligible; writable overlays and copied scratch brains are declined.
 The three October 2 rulings, R31, R33, R35 and voice membership are unchanged.
@@ -240,7 +256,11 @@ and browser/model result shape remain unchanged. This is an additive contract
 change; it supplies no generic binary route or autonomous authority.
 
 Claude uses the structured server write/edit tools rather than translating native
-built-in callbacks. This preserves exact-base validation and server-side permission
+built-in callbacks.
+
+(2026-10-11: under `governed`, native `Write`/`Edit`/`NotebookEdit` are
+available again and journaled; this sentence binds `strict`. See
+[governed writable workers](governed-writable-workers.md#the-change-journal-and-reconciliation).) This preserves exact-base validation and server-side permission
 checks without performing a privileged effect inside a hook that the runtime can
 later deny. Unsupported notebooks refuse. The CLI, tools, subagents and project
 stdio MCP descendants enter the mandatory worker; only trusted bridge handlers and

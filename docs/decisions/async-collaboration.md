@@ -61,6 +61,11 @@ interactive shells and child processes; v1 never reads that path for authority.
 Policy formation, hash-based activation/quarantine, email and discuss sessions
 remain deferred. No dismissal reason is a standing grant.
 
+> **2026-10-11 — R33 superseded ([governed writable workers](governed-writable-workers.md#the-policy-file)).**
+> The host now reads `context/policies/governance.md`, which is read-only to
+> every agent runtime. It grants autonomous turns nothing, and R34–R37 stay
+> deferred. The write denial (R35) is unchanged.
+
 [The voice decision](voice-permission.md#containment-shared-with-51-deliberately-not-identical)
 requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
