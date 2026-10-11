@@ -35,6 +35,8 @@ export function createSessionResources(options: {
   settingsSnapshot?: string;
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
   shellCwd?: string;
+  /** The worker's sandbox note, rendered by the server from its resolved mounts (#1626). */
+  sandboxNote?: string;
 }) {
   const { backend, brain, lock, allowedTools, confirmPatterns, loadExtensions } = options;
   const brainPath = backend.brainPath;
@@ -74,7 +76,7 @@ export function createSessionResources(options: {
   ): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
     const agentDir = getAgentDir();
     if (env.autonomous?.containment === "restricted") {
-      return restrictedResources(brainPath, agentDir, env.autonomous,
+      return restrictedResources(brainPath, agentDir, env.autonomous, options.sandboxNote,
         options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
           allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }));
     }
@@ -89,7 +91,8 @@ export function createSessionResources(options: {
       loadExtensions && hasPackage(settingsManager, "pi-web-access")
         ? readWebSearchBrief()
         : undefined;
-    const append = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
+    const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
+    const append = [brief, options.sandboxNote].filter(Boolean).join("\n\n");
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,

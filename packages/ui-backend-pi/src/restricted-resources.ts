@@ -9,9 +9,10 @@ import { DefaultResourceLoader, SettingsManager, type InlineExtension } from "@e
 import type { AutonomousTurnOptions } from "@schlessera/brain-ui-sdk/server";
 
 export async function restrictedResources(brainPath: string, agentDir: string, autonomous: AutonomousTurnOptions,
-  permissionGate: InlineExtension): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
+  sandboxNote: string | undefined, permissionGate: InlineExtension): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
   const settingsManager = SettingsManager.inMemory({});
-  const append = autonomous.systemPromptAppend;
+  // The server's snapshot, then the note it rendered from the worker's mounts (#1626).
+  const append = [autonomous.systemPromptAppend, sandboxNote].filter(Boolean).join("\n\n");
   const loader = new DefaultResourceLoader({
     cwd: brainPath, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
