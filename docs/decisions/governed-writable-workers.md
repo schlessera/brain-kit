@@ -506,7 +506,9 @@ working tree itself. It runs no git and imports no repository code:
 - **The walk is descriptor-anchored.** A worker can swap a directory for a
   symlink between an `lstat` and the next open, so pathname operations are not
   enough. Every directory is opened from its parent's descriptor with
-  `O_DIRECTORY | O_NOFOLLOW`, and every file with `O_NOFOLLOW`. Each one is
+  `O_DIRECTORY | O_NOFOLLOW`. Every file is opened with
+  `O_NOFOLLOW | O_NONBLOCK`, so that a FIFO cannot block the host, as
+  `readRegular` in the application route already does. Each descriptor is
   `fstat`-checked before it is read; only regular files are hashed. This is the
   `/proc/self/fd` technique the application route already uses. Raw ref reads
   follow the same rule.
@@ -596,8 +598,15 @@ compare-and-restore atomic against a running turn.
 - `strict` turns, which can write workspaces and scratch;
 - uncredentialed maintenance workers.
 
-A credentialed maintenance worker holds it exclusively. Revert takes it
-exclusively too:
+A credentialed maintenance worker holds it exclusively.
+
+**No deadlock.** A turn never awaits a credentialed maintenance worker, because
+the turn's own shared hold would block it forever. Maintenance that a running
+turn waits for is credential-free; for example, the synchronous index after a
+curated application. Credentialed work, such as sync or an interim keyed
+reindex, is queued, and runs once no shared holder remains.
+
+Revert takes the gate exclusively too:
 
 - it waits for running turns to finish;
 - new turns queue behind it;
@@ -832,11 +841,21 @@ and file by file, with the same resolution the restricted envelope uses
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
-- the bundled agent CLI;
-- the brain's own path.
+- the bundled agent CLI.
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+The mounts go on in a fixed order:
+
+1. the masks;
+2. the runtime rebinds above, all read-only;
+3. the brain and the named writable areas, each with its profile's own
+   permission (read-write for `governed`);
+4. the protected-path and provider masks on top.
+
+A brain under a masked home directory is therefore restored as writable, not
+read-only.
 
 The only sockets a worker keeps are the approved relay and proxy sockets. The
 egress gate includes a probe that walks the worker's visible filesystem for
@@ -891,9 +910,12 @@ capabilities note lists what is masked.
 only copy:
 
 - **The index.** `brain.db` holds document bodies. A turn with masked paths
-  gets the real `brain.db` masked, and a filtered derived copy without those
-  documents mounted read-only in its place. The copy is disposable and
-  rebuilt from Markdown like any index.
+  gets the real `brain.db` masked, and a turn-private, **writable** filtered
+  copy without those documents in its place. The CLI's capture and index
+  commands open the database for writing, so a read-only copy would break
+  them. The copy is disposable. After the turn the server reindexes the real
+  index from Markdown, in a maintenance worker, so captures made in the turn
+  reach it.
 - **Git history.** The `.git/` directory carries committed versions. Such a
   turn sees `.git/` masked, as restricted turns do, so history is unavailable
   to it.
@@ -955,7 +977,11 @@ What G5 promises is therefore:
 - connections to other hosts are recorded, and are only limited in
   `allowlist` mode.
 
-A user who needs G5 for every host runs `egress.mode: allowlist`.
+`egress.mode: allowlist` restricts destinations. It does not by itself approve
+outward actions to an allowed host. A user who wants approval on every
+destination lists the allowed write-capable hosts under `outward.hosts` as
+well. An opaque `POST` to an allowed host outside `outward.hosts` is recorded,
+not approved.
 
 ### Untrusted input (G6)
 
@@ -1037,7 +1063,10 @@ write created and another overwrote between two observations was never
 captured, and it cannot be recovered. The guarantee is:
 
 - no **observed** version is lost;
-- every overlap on a path is reported.
+- every overlap that shows up as an observed change on a path is reported.
+
+Two writers that change a path and restore its original bytes between
+observations leave no trace, and none is promised.
 
 Closing the gap completely would need a capture on every write, which means
 either file watching (rejected below) or serializing writers (rejected with
