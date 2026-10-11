@@ -1,6 +1,8 @@
 // The whole demo brain: the staged records from `odyssey.ts` plus the ui-kit
 // fixture library. Kept apart so the browser loads it on first use rather
 // than in the landing page's first chunk; Node scripts import it directly.
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { goal, projects } from '../../../packages/ui-kit/fixtures/projects.ts';
 import { REFERENCE_DATE } from '../../../packages/ui-kit/fixtures/time.ts';
 import { library } from '../../../packages/ui-kit/fixtures/library/index.ts';

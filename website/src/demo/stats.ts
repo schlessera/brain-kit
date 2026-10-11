@@ -3,8 +3,12 @@
 // counts, rates and the daily history are computed from the records and their
 // dates. The runtime half (sessions, runs, spend) is fiction about a fictional
 // agent, kept small and stated once.
-import type { ActivityRuntimeStats } from '../../../packages/ui-sdk/src/protocol.ts';
-import type { CorpusStats, CorpusStatsHistory } from '../../../packages/ui-react/src/lib/api-client.ts';
+import type { ActivityRuntimeStats } from '@schlessera/brain-ui-sdk/protocol';
+import type { BrainApi } from '@schlessera/brain-ui-react';
+
+// The corpus statistics shapes are public through BrainApi's signatures (#1382).
+type CorpusStats = Awaited<ReturnType<BrainApi['brainStats']>>;
+type CorpusStatsHistory = Awaited<ReturnType<BrainApi['brainStatsHistory']>>;
 import { binaryDocuments, demoDocuments } from './corpus.ts';
 import { indexed } from './knowledge.ts';
 import { referenceNow } from './odyssey.ts';

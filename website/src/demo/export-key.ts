@@ -1,4 +1,4 @@
-import type { RenderRequest } from '../../../packages/ui-sdk/src/protocol.ts';
+import type { RenderRequest } from '@schlessera/brain-ui-sdk/protocol';
 
 // Mermaid's monotonically numbered DOM IDs change with browsing order. Only
 // those IDs and their references are canonicalized; content and styling remain
