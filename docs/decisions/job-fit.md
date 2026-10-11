@@ -114,6 +114,21 @@ invocations (84 scored workflows, one label check, eight pilot calls and two
 reviews) and 168 Jev HTTP attempts (84 scored and 84 discarded). Individual
 Claude agent turns are recorded separately and are not called CLI invocations.
 
+**Verification rerun (2026-10-11):** One additional held-out repetition scored
+**18/18**, agreeing with each original repetition on all 18 decisions and both
+criterion labels (no per-case disagreements), against the original **54/54**.
+The unchanged current-arm functions ran with the same prompt, schema, model,
+tools and subscription-only authentication in fresh external brain copies with
+copied packages. A filesystem namespace hid the worktree and original scratch;
+the original case and results JSON files were also mode `000` throughout, then
+restored by an exit trap. Grepping all 18 stdout reports, prompt-hook logs and
+filesystem access traces found zero `evals/`, `cases`, `results` or worktree-path
+matches. All 18 workflows wrote a status file and pipeline index, with no
+invalid answers or permission denials. An earlier cache-permission launch
+produced 18 hook-blocked CLI invocations with zero model turns; those outputs
+are retained separately and excluded from scoring. Raw evidence stays outside
+the repository; compact outcomes are under `verificationRerun` in the results.
+
 An initial 84-request Jev run omitted the clarification appended to the
 skill criteria. It was discarded and repeated using the exact same criteria
 text. Its summary and physical calls are disclosed separately, and raw outcomes
@@ -152,10 +167,12 @@ product normally expresses as pursue/skip/needs information. This assesses its
 fit judgment, not external research quality, interview usefulness or a completed
 user conversation. Generated pipeline dates follow the real CLI clock rather
 than the fictional reference date; dates and exact file formatting are not
-scored. Raw CLI reports and generated brains remain outside the repository. Bash
-permissions and the workspace package symlink are not an isolation proof.
-The prompt prohibited reading goldens, but tool invocation transcripts were
-not retained, so label non-access is unverified.
+scored. Raw CLI reports and generated brains remain outside the repository.
+For the original three repetitions, Bash permissions and the workspace package
+symlink are not an isolation proof. The prompt prohibited reading goldens, but
+tool invocation transcripts were not retained, so their label non-access
+remains unverified. The separate verification rerun above establishes isolation
+for its additional repetition only.
 
 No integration follows this no-go. Re-evaluation would need a candidate that
 handles current versus negated/quoted restrictions and reliably abstains on

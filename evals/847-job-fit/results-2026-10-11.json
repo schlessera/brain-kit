@@ -1042,5 +1042,123 @@
     {"id":"held-season-quarters","rep":1,"arm":"review-all","decision":"review"},
     {"id":"held-season-quarters","rep":2,"arm":"keyword","decision":"candidate","score":90},
     {"id":"held-season-quarters","rep":2,"arm":"review-all","decision":"review"}
-  ]
+  ],
+  "verificationRerun": {
+    "date": "2026-10-11",
+    "arm": "skill",
+    "model": "claude-sonnet-5-5",
+    "split": "held-out",
+    "repetitions": 1,
+    "harnessReuse": "Existing run.ts claude(), brain() and currentRuns() functions unchanged; scratch-only path adaptation and selection of one held-out current-arm repetition; no label check or other-arm calls.",
+    "authentication": "Logged-in Claude subscription; ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN unset; no API key used.",
+    "callCounts": {
+      "scoredClaude": 18,
+      "jev": 0,
+      "unscoredHookBlockedClaude": 18,
+      "totalClaudeCliInvocations": 36
+    },
+    "unscoredLaunchFailure": {
+      "reason": "Read-only cache blocked the existing UserPromptSubmit hook before inference; normal cache writes restored for the scored pass.",
+      "modelTurns": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "retainedSeparately": true
+    },
+    "isolation": {
+      "freshExternalBrainCopies": true,
+      "copiedRuntimePackages": true,
+      "runtimeSymlinksStayInScratch": true,
+      "inputExpectedLabelsRemoved": true,
+      "worktreeAndOriginalScratchHidden": true,
+      "pidNamespaceIsolated": true,
+      "originalCaseAndResultsModeDuringRun": "000",
+      "originalModesRestoredByExitTrap": true,
+      "originalModesAndHashesVerifiedAfterRun": true
+    },
+    "accessAudit": {
+      "stdoutJsonFiles": 18,
+      "filesystemTraceFiles": 18,
+      "promptHookLogs": 18,
+      "grepPattern": "evals/|cases|results",
+      "matches": 0,
+      "worktreeOrOriginalScratchPathMatches": 0,
+      "scope": "All scored stdout/stderr, prompt-hook logs and strace file syscalls from Claude and descendants; no session persistence, so full tool-message transcripts were not retained.",
+      "rawEvidence": "External verification scratch only."
+    },
+    "summary": {
+      "n": 18,
+      "correct": 18,
+      "precision": 1,
+      "recall": 1,
+      "dealbreakerMisses": 0,
+      "mustHaveMisses": 0,
+      "dealbreakerLabelErrors": 0,
+      "mustHaveLabelErrors": 0,
+      "invalid": 0,
+      "abstentions": 4,
+      "lowConfidence": 0,
+      "unanimous": 18,
+      "cases": 18
+    },
+    "originalHeldOut": {
+      "n": 54,
+      "correct": 54,
+      "repetitions": 3
+    },
+    "agreementWithOriginal": {
+      "decisionMatchesPerRep": [
+        18,
+        18,
+        18
+      ],
+      "decisionPassageRelocationMatchesPerRep": [
+        18,
+        18,
+        18
+      ],
+      "comparisons": 54,
+      "decisionDisagreements": [],
+      "criterionLabelDisagreements": []
+    },
+    "perCaseAgreement": [
+      {"id":"held-paraphrase","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-misleading","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-unpublished","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-ceiling-only","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-low-guarantee","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-board-vs-contract","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-contradictory","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-quoted-marker","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-old-title","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-injected","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-no-residence","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-title-filter","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-housing-condition","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-remote-but-domicile","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-both-fail","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-troy-distractor","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-instrument-keeper","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3},
+      {"id":"held-season-quarters","decisionMatchesOf3":3,"decisionPassageRelocationMatchesOf3":3}
+    ],
+    "rows": [
+      {"id":"held-paraphrase","rep":0,"arm":"skill","decision":"candidate","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-misleading","rep":0,"arm":"skill","decision":"excluded","passage":"not_met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-unpublished","rep":0,"arm":"skill","decision":"review","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":6,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-ceiling-only","rep":0,"arm":"skill","decision":"review","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-low-guarantee","rep":0,"arm":"skill","decision":"excluded","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-board-vs-contract","rep":0,"arm":"skill","decision":"excluded","passage":"met","relocation":"met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-contradictory","rep":0,"arm":"skill","decision":"review","passage":"met","relocation":"unclear","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":6,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-quoted-marker","rep":0,"arm":"skill","decision":"candidate","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-old-title","rep":0,"arm":"skill","decision":"candidate","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-injected","rep":0,"arm":"skill","decision":"excluded","passage":"not_met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-no-residence","rep":0,"arm":"skill","decision":"review","passage":"met","relocation":"unclear","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-title-filter","rep":0,"arm":"skill","decision":"excluded","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-housing-condition","rep":0,"arm":"skill","decision":"excluded","passage":"met","relocation":"met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-remote-but-domicile","rep":0,"arm":"skill","decision":"excluded","passage":"met","relocation":"met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":6,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-both-fail","rep":0,"arm":"skill","decision":"excluded","passage":"not_met","relocation":"met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-troy-distractor","rep":0,"arm":"skill","decision":"candidate","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-instrument-keeper","rep":0,"arm":"skill","decision":"excluded","passage":"not_met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"},
+      {"id":"held-season-quarters","rep":0,"arm":"skill","decision":"candidate","passage":"met","relocation":"not_met","model":"claude-sonnet-5-5","statusFiles":1,"pipelinePresent":true,"permissionDenials":0,"agentTurns":5,"invalid":false,"outcome":"answered;statusFiles=1"}
+    ]
+  }
 }
