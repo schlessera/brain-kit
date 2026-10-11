@@ -31,6 +31,21 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
   const doc = (title: string, body: string, extra = "") => `---\ntitle: ${title}\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n${extra}---\n# The voyage\n${body}\n`;
   const argv = () => existsSync(join(root, "argv.jsonl")) ? bytes("argv.jsonl").trim().split("\n").map(s => JSON.parse(s) as string[]) : [];
   const applies = () => argv().filter(a => a.includes("resolve") && !a.includes("--dry-run"));
+  let heldActionId: string | undefined;
+  const decisions: Array<{ page: Page; forward: () => void }> = [];
+  async function routeDecisions(page: Page) {
+    await page.routeWebSocket(url.replace("http:", "ws:") + "/ws", socket => {
+      const server = socket.connectToServer();
+      socket.onMessage(raw => {
+        const message = JSON.parse(String(raw));
+        // Keep replication live. Only the two confirmed responses for this
+        // Action wait until both native clicks finish, as in #1556's fixture.
+        if (message.type === "inbox_resolve" && message.itemId === heldActionId) {
+          decisions.push({ page, forward: () => server.send(raw) });
+        } else server.send(raw);
+      });
+    });
+  }
   async function cli(args: string[], expected = 0) {
     const child = spawn(process.env.BUN_BIN ?? "bun", ["--preload", join(repo, "scripts/test-network-child-preload.ts"), join(root, "scripts/brain-cli.ts"), ...args], { cwd: root, env: process.env });
     let out = "", err = "";
@@ -165,7 +180,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
       try { await task; } finally { pending.delete(task); }
     });
     context.on("page", p => p.on("pageerror", e => diagnostics.push(e.message)));
-    const a = await context.newPage(); await a.goto(`${origin}/c6-loop`);
+    const a = await context.newPage(); await routeDecisions(a); await a.goto(`${origin}/c6-loop`);
     await a.getByRole("tab", { name: /^needs you / }).click();
     await a.getByRole("button", { name: "Start hygiene review", exact: true }).click();
     const field = await show(a);
@@ -221,10 +236,17 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     assert.equal(bytes(main), beforeFailure, "confirmed Undo restores exact original bytes");
     write(main, beforeFailure.replace("type: note\n", "title: Return to Ithaca\ntype: note\ncreated: 2026-07-12\n"));
     await choose(a); await a.getByRole("button", { name: "Check preview", exact: true }).click();
-    const b = await context.newPage(); await b.goto(`${origin}/c6-loop`); await show(b); await choose(b);
+    const b = await context.newPage(); await routeDecisions(b); await b.goto(`${origin}/c6-loop`); await show(b); await choose(b);
     assert.equal((await active()).id, refreshed.id, "both devices answer one durable Action");
     const priorWrites = applies().length;
-    await Promise.all([apply(a), apply(b)]); await advance(refreshed.id);
+    heldActionId = refreshed.id;
+    await apply(a); await poll(() => decisions.filter(d => d.page === a).length, n => n === 1, "first native confirmation sends one response");
+    await apply(b); await poll(() => decisions.filter(d => d.page === b).length, n => n === 1, "second native confirmation sends one response");
+    assert.deepEqual(decisions.map(d => d.page === a ? "first" : "second"), ["first", "second"], "both native confirmations precede response forwarding");
+    assert.equal(applies().length, priorWrites, "held confirmations cannot write before forwarding");
+    heldActionId = undefined;
+    for (const decision of decisions) decision.forward();
+    await advance(refreshed.id);
     assert.equal(applies().length - priorWrites, 1, "two devices cause exactly one CLI write");
     assert.equal(bytes(main), beforeFailure.replace("type: note\n", "title: Return to Ithaca\ntype: note\ncreated: 2026-07-12\n").replace("[[Eumaeus hut|his hut]]", "his hut"), "choice fix leaves exactly the confirmed bytes");
     await b.close();
