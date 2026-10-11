@@ -1,7 +1,7 @@
 {
   "issue": 842,
   "source": "scripts/evals/mechanical-hygiene@422967587eedece00631757e6890ee8388072baa",
-  "notes": "Fixed now 2026-07-12T12:00:00Z (today 2026-07-12). Every input file gets the case's mtime (atime and mtime); fixture.ts defaults it to 2026-07-11T23:30:00Z. inboxDir is the configured inbox note type dir (default notes). expected is the full file map after one hygiene cycle; expected equal to files means no write. Set regression = fixture.ts fixtures (24 regression goldens); set workload = workload.ts authored workload, with timezone the zone the case simulates.",
+  "notes": "Fixed now 2026-07-12T12:00:00Z (today 2026-07-12). Every input file gets the case's mtime (atime and mtime); fixture.ts defaults it to 2026-07-11T23:30:00Z. inboxDir is the configured inbox note type dir (default notes). expected is the full file map after one hygiene cycle; expected equal to files means no write. Set regression = fixture.ts fixtures (24 regression goldens); set workload = workload.ts authored workload, with timezone the zone the case simulates. 2026-10-11 lean label review corrected ambiguous-wiki-link (unique shipped resolution) and mixed-safe-and-ambiguous-rows (safe Raft row is independently eligible); original inputs and splits unchanged.",
   "cases": [
     {
       "set": "regression",
@@ -309,7 +309,7 @@
         "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
       },
       "expected": {
-        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [[raft]] | draft | 2026-07-01 | Raft |\n",
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [[raft]] | active | 2026-07-10 | Raft |\n",
         "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
       }
     },
@@ -325,7 +325,7 @@
         "context/mast.md": "---\ntype: context\ntitle: 'Mast'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus ties the mast.\n"
       },
       "expected": {
-        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n| [Mast](mast.md) | draft | 2026-07-01 | Wrong mast title |\n",
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | active | 2026-07-10 | Raft |\n| [Mast](mast.md) | draft | 2026-07-01 | Wrong mast title |\n",
         "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n",
         "context/mast.md": "---\ntype: context\ntitle: 'Mast'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus ties the mast.\n"
       }

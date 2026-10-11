@@ -1,0 +1,793 @@
+{
+  "source": "898df4fb9daf44b24394f98595f1212a702ac229",
+  "models": {
+    "current": "claude-sonnet-5-5",
+    "candidate": "jev-1.13.0",
+    "claudeCode": "2.1.295",
+    "claudeAuth": "Logged-in subscription; ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN removed from every child environment."
+  },
+  "calls": {
+    "claude": 289,
+    "jev": 150
+  },
+  "labelCheck": [
+    {
+      "batch": 0,
+      "verdicts": [
+        {
+          "id": "date-mtime-later",
+          "verdict": "correct",
+          "reason": "updated (07-09) is before created (07-10). The UTC mtime day 2026-07-11 is the latest of the three, so both fields are set to it. The quoting of updated and the trailing comment are preserved."
+        },
+        {
+          "id": "date-created-later",
+          "verdict": "correct",
+          "reason": "updated (07-09) is before created (07-10), and the mtime day 07-08 is earlier than both. The later date is created, 07-10, so both fields become 07-10. updated is bumped because 07-10 is newer than 07-09."
+        },
+        {
+          "id": "equal-dates",
+          "verdict": "correct",
+          "reason": "created equals updated, so the updated < created rule does not apply and the file is unchanged. The VERIFY marker is log-only."
+        },
+        {
+          "id": "invalid-date",
+          "verdict": "correct",
+          "reason": "created 2026-02-30 is not a valid date, so no mechanical repair is certain and the file stays unchanged."
+        },
+        {
+          "id": "timestamp-not-date",
+          "verdict": "correct",
+          "reason": "created is a timestamp with a timezone offset, not a plain date, so it is left unchanged. The comparison is not mechanically certain."
+        },
+        {
+          "id": "inbox",
+          "verdict": "correct",
+          "reason": "The file is in the configured inbox directory 'notes', which is skipped, so the expected output equals the input."
+        },
+        {
+          "id": "configured-inbox",
+          "verdict": "correct",
+          "reason": "The inboxDir is 'capture', so capture/raft.md is in the inbox and is skipped. The expected output is unchanged."
+        },
+        {
+          "id": "archived-directory",
+          "verdict": "correct",
+          "reason": "The file is under archived content (context/archived/), which is skipped, so it is unchanged even though updated < created."
+        },
+        {
+          "id": "archived-status",
+          "verdict": "correct",
+          "reason": "Frontmatter status: archived means the file is skipped, so no date fix is applied."
+        },
+        {
+          "id": "hygiene-log",
+          "verdict": "correct",
+          "reason": "Files under context/hygiene/ are never edited by the fixes, so the expected output is unchanged."
+        },
+        {
+          "id": "single-status-column",
+          "verdict": "correct",
+          "reason": "The only real disagreement is Status (draft vs active). The Updated difference is freshness, not a second disagreement. The row's Status and Updated are set from the detail file (active, 2026-07-10). The index's own updated is bumped to today, 2026-07-12, because the row changed. The table has no generated markers or registry block, so editing it is allowed."
+        }
+      ]
+    },
+    {
+      "batch": 11,
+      "verdicts": [
+        {
+          "id": "multiple-columns",
+          "verdict": "correct",
+          "reason": "Status differs (draft vs active) and Title also differs (\"Old raft\" vs \"Raft\"). That is more than one disagreeing column, so the single-column Status repair does not apply and leaving the files unchanged is right."
+        },
+        {
+          "id": "unknown-column",
+          "verdict": "correct",
+          "reason": "The table has an unknown column (Owner) that cannot be compared with the detail file. Together with the Status mismatch this falls under unknown/multiple columns, so no repair is applied."
+        },
+        {
+          "id": "updated-only",
+          "verdict": "correct",
+          "reason": "Status already matches (active). Only Updated differs, and Updated is freshness rather than a disagreement. The auto-fix applies only to a Status disagreement, so there is nothing to repair."
+        },
+        {
+          "id": "duplicate-target",
+          "verdict": "correct",
+          "reason": "Two rows link to raft.md, so the target is duplicated and it is unclear which row to update. Unchanged is the conservative result."
+        },
+        {
+          "id": "generated-markers",
+          "verdict": "correct",
+          "reason": "The table sits between brain:generated markers, which must never be edited by hand. The lag is left for brain registry or for logging."
+        },
+        {
+          "id": "registry-metadata",
+          "verdict": "correct",
+          "reason": "The index has a registry: block, so its table is regenerated by brain registry and reported as index-stale. A hand edit is not allowed."
+        },
+        {
+          "id": "excluded-detail",
+          "verdict": "correct",
+          "reason": "The detail file has status: archived, which is an excluded file, so the row is not synced to it. Unchanged is right."
+        },
+        {
+          "id": "code-fence-table",
+          "verdict": "correct",
+          "reason": "The table is inside a fenced code block. It is example text, not a real index table, so it is not a row to repair."
+        },
+        {
+          "id": "duplicate-column",
+          "verdict": "correct",
+          "reason": "The header has two Status columns, so it is unclear which one to update. The columns are ambiguous and the file stays unchanged."
+        },
+        {
+          "id": "invalid-detail-status",
+          "verdict": "correct",
+          "reason": "The detail status 'unknown' is not a valid status, so it should not be copied into the row. Unchanged is right."
+        },
+        {
+          "id": "ambiguous-wiki-link",
+          "verdict": "ambiguous",
+          "reason": "The expected output leaves the file unchanged because the target is a wiki link. But [[raft]] resolves to exactly one file here (context/raft.md), and the only disagreement is Status (draft vs active). That would normally qualify for the single-column repair, setting Status to active, Updated to 2026-07-10, and bumping the index's updated. Whether a bare wiki link counts as an ambiguous target depends on how the resolver treats it, so the label is defensible but not certain."
+        }
+      ]
+    },
+    {
+      "batch": 22,
+      "verdicts": [
+        {
+          "id": "mixed-safe-and-ambiguous-rows",
+          "verdict": "wrong",
+          "reason": "The Raft row differs from raft.md only in Status (draft vs active). Its older Updated date is freshness, not a second disagreement, so it is mechanically repairable. Expected should set the Raft row to `active | 2026-07-10` and bump the index `updated` to 2026-07-12. The Mast row differs in both Status and Title, so it is correctly left unchanged. The golden leaves the whole file untouched, which misses the safe Raft repair."
+        },
+        {
+          "id": "crlf-date",
+          "verdict": "correct",
+          "reason": "updated (07-09) is before created (07-10), and the UTC mtime day is 2026-07-11. Both fields become 2026-07-11, and the CRLF line endings and inline comment are preserved byte for byte."
+        },
+        {
+          "id": "ogygia-mtime-day",
+          "verdict": "correct",
+          "reason": "updated < created. The mtime UTC day 2026-07-11 is the latest of the three dates, so both fields are set to it."
+        },
+        {
+          "id": "ogygia-created-day",
+          "verdict": "correct",
+          "reason": "updated < created. The mtime (07-08) is older than both fields, so the later of (created, updated, mtime) is created = 07-10. Only updated is bumped to 07-10, and created is unchanged."
+        },
+        {
+          "id": "ogygia-raft-status",
+          "verdict": "correct",
+          "reason": "Only Status disagrees (draft vs active). The row's Status and Updated are synced to the detail file (active, 2026-07-10). The index `updated` is bumped to today, 2026-07-12, because the row changed. The surrounding prose is untouched."
+        },
+        {
+          "id": "ogygia-equal-days",
+          "verdict": "correct",
+          "reason": "created equals updated, so the updated < created rule does not apply. The mtime being later is not a trigger, and no timestamps should churn."
+        },
+        {
+          "id": "ogygia-ambiguous-title",
+          "verdict": "correct",
+          "reason": "Both Status and Title disagree, which is a multi-column divergence and not auto-fixable. The file is correctly left unchanged and the issue is logged."
+        },
+        {
+          "id": "ogygia-inbox",
+          "verdict": "correct",
+          "reason": "The file is in the excluded inbox directory (notes), so it must not be edited even though updated < created."
+        },
+        {
+          "id": "ithaca-east-midnight",
+          "verdict": "correct",
+          "reason": "The mtime 2026-07-12T00:30+14:00 is 2026-07-11T10:30Z, so the UTC day is 07-11, not the local day 07-12. Both fields become 2026-07-11."
+        },
+        {
+          "id": "pylos-west-midnight",
+          "verdict": "correct",
+          "reason": "The mtime 2026-07-11T23:30-10:00 is 2026-07-12T09:30Z, so the UTC day is 07-12, not the local day 07-11. Both fields become 2026-07-12."
+        },
+        {
+          "id": "ithaca-loom-status",
+          "verdict": "correct",
+          "reason": "The columns are reordered (Link, Title, Updated, Status), and only Status disagrees. The row is updated by header name to `2026-07-10` and `active`. The index `updated` is bumped to 2026-07-12 and the prose is left alone."
+        }
+      ]
+    },
+    {
+      "batch": 33,
+      "verdicts": [
+        {
+          "id": "pylos-council-status",
+          "verdict": "correct",
+          "reason": "Status is the only real disagreement (draft vs active); Updated is freshness. Row Status and Updated are set to the detail file's values (active, 2026-07-10), and the index's updated is bumped to today, 2026-07-12. Nothing else changes."
+        },
+        {
+          "id": "sparta-visit-status",
+          "verdict": "correct",
+          "reason": "Same single-column Status disagreement with a different column order. The row is repaired to active and 2026-07-10 in the right cells, and the index's updated becomes 2026-07-12."
+        },
+        {
+          "id": "ithaca-equal-days",
+          "verdict": "correct",
+          "reason": "created and updated are both 2026-07-11, which is also the UTC mtime day. The dates are not inverted, so there is nothing to fix and the file stays unchanged."
+        },
+        {
+          "id": "pylos-invalid-calendar",
+          "verdict": "correct",
+          "reason": "2026-02-30 is not a real date. Invalid dates are left unchanged and logged for review, so no repair is expected."
+        },
+        {
+          "id": "sparta-timestamp",
+          "verdict": "correct",
+          "reason": "created is a timestamp with a UTC offset, which is an unsupported date format. Timestamps stay unchanged and are not mechanically normalized."
+        },
+        {
+          "id": "ithaca-archived",
+          "verdict": "correct",
+          "reason": "The file sits under an archived directory, so it is excluded from auto-fix. The updated < created inversion is left as is."
+        },
+        {
+          "id": "ithaca-generated-table",
+          "verdict": "correct",
+          "reason": "The table falls inside brain:generated:registry markers, so it is owned by the registry and must not be hand-edited. The marker is oddly placed on the header line and the columns do not line up, but the expectation of no change is still right."
+        },
+        {
+          "id": "pylos-archived-detail",
+          "verdict": "correct",
+          "reason": "The detail file has status: archived, so it is excluded and the index row is not synced to it. Nothing changes."
+        },
+        {
+          "id": "sparta-multiple-columns",
+          "verdict": "correct",
+          "reason": "The row differs from the detail file in both Title and Status, so this is not a single-column Status disagreement. It stays unchanged and is logged."
+        },
+        {
+          "id": "negated-status",
+          "verdict": "correct",
+          "reason": "Only Status differs (draft vs active), and Title matches. The prose line saying the note does not change the frontmatter status is not an instruction and has no effect. The row is repaired to active and 2026-07-10, and the index's updated becomes 2026-07-12."
+        },
+        {
+          "id": "injected-archive",
+          "verdict": "correct",
+          "reason": "The file is under archived content, so it is excluded. The embedded instruction is file content, not a directive, and is ignored. The file stays byte-identical."
+        }
+      ]
+    }
+  ],
+  "floor": 0,
+  "stopped": null,
+  "harnessCorrection": "Three unnecessary successful retries of the first label batch: allowed rate-limit telemetry was mistakenly treated as an error; first verdicts retained, all attempts counted. Corrected before scored runs.",
+  "labelResolution": [
+    {
+      "id": "ambiguous-wiki-link",
+      "action": "corrected",
+      "reason": "Shipped createWikiLinkResolver resolves raft uniquely to context/raft.md; eligible Status repair."
+    },
+    {
+      "id": "mixed-safe-and-ambiguous-rows",
+      "action": "corrected",
+      "reason": "Phase 3 is per row: fix safe Raft row, preserve unsafe Mast row."
+    }
+  ],
+  "droppedCases": [],
+  "currentPreparation": {
+    "calls": 16,
+    "completedRows": 6,
+    "reason": "Preliminary workflows failed Phase 4 because shell scratch writes were denied. Excluded before qualification; all calls counted. Fresh runs pre-create scratch and explicitly use Write for arrays."
+  },
+  "summary": [
+    {
+      "arm": "code",
+      "n": 102,
+      "exact": 96,
+      "repeat": 102,
+      "untouched": 102,
+      "vetoes": 0,
+      "agreement": 34,
+      "invalid": 0,
+      "abstentions": 6,
+      "positiveExact": 24,
+      "positiveN": 30,
+      "fallbacks": 0
+    },
+    {
+      "arm": "jev-code",
+      "n": 102,
+      "exact": 90,
+      "repeat": 102,
+      "untouched": 102,
+      "vetoes": 0,
+      "agreement": 34,
+      "invalid": 0,
+      "abstentions": 12,
+      "positiveExact": 18,
+      "positiveN": 30,
+      "fallbacks": 0
+    },
+    {
+      "arm": "current",
+      "n": 102,
+      "exact": 75,
+      "repeat": 102,
+      "untouched": 87,
+      "vetoes": 15,
+      "agreement": 29,
+      "invalid": 0,
+      "abstentions": 12,
+      "positiveExact": 18,
+      "positiveN": 30,
+      "fallbacks": 0
+    }
+  ],
+  "repeatCorrection": "Nine initial repeat checks used a shortened question; excluded and rerun using the exact initial question and state. All nine corrected checks left files unchanged. All 18 attempts counted.",
+  "calibration": {
+    "split": "tuning",
+    "tieBreak": "lowest floor",
+    "scores": [
+      {
+        "floor": 0,
+        "exact": 27,
+        "n": 30
+      },
+      {
+        "floor": 0.4,
+        "exact": 19,
+        "n": 30
+      },
+      {
+        "floor": 0.7,
+        "exact": 15,
+        "n": 30
+      },
+      {
+        "floor": 0.9,
+        "exact": 15,
+        "n": 30
+      }
+    ]
+  },
+  "cases": {
+    "tuning": 10,
+    "heldOut": 34,
+    "repetitions": 3
+  },
+  "isolation": {
+    "transcripts": 264,
+    "pathAccessHits": [],
+    "permissionDenials": 1,
+    "checkoutSymlinks": 0,
+    "note": "One denied optional brain hygiene list --state open --json request; the full workflow completed. No evaluation/case/result path hits. Product copy and brains outside checkout, no symlinks back."
+  },
+  "methodLimits": [
+    "Source Markdown only; generated hygiene logs, disposable database and scratch are unscored.",
+    "Planner supplied fixture mtime metadata; no separate worker timezone matrix, stale-input race, crash or scale test.",
+    "Author saw fixture goldens. Held-out isolates confidence-floor selection, not blind fixture development.",
+    "Conservative eligibility rubric is stricter than literal skill wording on some duplicate/unknown/excluded-detail boundaries.",
+    "Archived injection may be skipped before the agent reads it; no broad injection-resistance claim."
+  ],
+  "reviewPreparation": "Canceled one review invocation because a direct diff against concurrently advanced origin/main included unrelated changes; rerun uses the actual eight-file merge-base PR diff. Both attempts counted.",
+  "review": "**Verdict: one concrete blocker (inconsistent total) and three smaller fixes. Everything else I recomputed from the JSON rows ties out.**\n\nI recounted from the committed rows, not from the prose. The diff has no line numbers, so I cite the section or quoted text instead.\n\n## Blockers\n\n1. **Medium: the tuning score for the skill is wrong.**\n   - Where: `docs/decisions/mechanical-hygiene.md`, \"Held-out quality and reliability\", the sentence \"On tuning, code scored 30/30, Jev 27/30 and the skill 20/30\".\n   - The `current` tuning rows give **19/30**, not 20/30. The 11 non-exact rows are:\n     - `date-mtime-later` \u00d73\n     - `ogygia-mtime-day` \u00d73\n     - `ogygia-created-day` \u00d73\n     - `ogygia-raft-status` rep 1\n     - `ogygia-ambiguous-title` rep 0\n   - The code (30/30) and Jev (27/30, matching `calibration` floor 0) figures check out.\n   - The skill figure appears only in the prose, not in the JSON. Fix the number, or add the per-arm tuning scores to the JSON.\n\n## Non-blocking fixes before merge\n\n2. **Medium: the 0/12 skill date result is reported without a cause.**\n   - Where: the same section, \"The skill never repaired reversed dates\", and the Go claim that date normalization belongs in code.\n   - Every skill date row has `changed: []`, so the skill never attempted a fix.\n   - Phase 3 says \"for each detected issue\", and the doc never says whether `brain hygiene reconcile` detects `updated < created`. If it doesn't, the skill had nothing to act on.\n   - That would be a missing detector, not a model failure. It is a different benchmark-versus-literal-policy gap from the veto caveat already in the doc.\n   - Check the transcripts and state the cause. Either way, the date half of the Go supports \"code owns it\", not \"the model can't do it\".\n\n3. **Low: a sentence is false as committed.**\n   - Where: \"The results record the subsequent cross-family PR review.\"\n   - The committed JSON has no `review` field (`--review` writes `results.review`). Add the field or drop the sentence.\n\n4. **Medium (requirement gap): no offline test covers `plan()`.**\n   - Where: `tests/mechanical-hygiene-scoring.test.ts`.\n   - The only keyless test covers `score()`. The deterministic planner behind the 96/102 headline has none.\n   - A simple test would run `plan()` over the 44 cases and assert the exact 38 passes and the 6 known refusals.\n   - Separately, the \"Experiment tier\" README row says measurement-harness tests live under `experiments/`, outside product discovery. This test sits in `tests/`. I can't see the policy file, so confirm it doesn't conflict.\n\n## Remaining limits to state\n\n- The 102 runs are 34 cases \u00d7 3 repetitions, and the code arm is deterministic. Read 94.1% as roughly 32/34 cases, with no confidence interval. The Jev arm shows some run-to-run variance.\n- The Jev tuning row `ogygia-raft-status` rep 1 shows `repeat: false` for the skill, meaning the repeat run applied an edit the first run missed. The \"102/102 repeat no-op\" claim is held-out only.\n- `plan()` hardcodes `\"2026-07-12\"` for the index `updated` bump. It also re-reads `raw` for table edits, so a file with both reversed dates and a table fix would drop the date fix. Neither case is in the corpus.\n- The results don't record the Claude Code version or the actually-used model and auth source. The raw transcripts retained externally can confirm subscription use.\n- The line-number citations to `hygiene.ts`, `links.ts` and similar files were not checkable from the diff.\n\n## Checked and fine\n\n- **Counts and totals:**\n  - Case counts: 42 preserved + 2 added; 10 tuning, 34 held-out.\n  - The 10 positive and 24 no-write held-out cases.\n  - Exact: skill 75, code 96, Jev 90.\n  - Positive exact: 18, 24 and 18.\n  - Vetoes: 15 skill, 0 for code and Jev.\n  - Untouched: skill 87, code and Jev 102.\n  - Skill case agreement is 29/34.\n  - Jev's 12 misses are the 6 code refusals plus the two timezone cases \u00d73.\n- **Call counts:**\n  - Claude: 287 = 264 qualified + 7 label + 16 preliminary.\n  - Jev: 150 = 132 + 9 + 9.\n- **Calibration:** the floor was chosen from tuning only, and goldens never enter `plan()` or the Jev state.\n- **Golden corrections:** both corrections cost the code arm, so they don't favour it.",
+  "tuningSummary": [
+    {
+      "arm": "code",
+      "runs": 30,
+      "exact": 30,
+      "repeatNoOp": 30
+    },
+    {
+      "arm": "jev-code",
+      "runs": 30,
+      "exact": 27,
+      "repeatNoOp": 30
+    },
+    {
+      "arm": "current",
+      "runs": 30,
+      "exact": 19,
+      "repeatNoOp": 29
+    }
+  ],
+  "reviewResolution": {
+    "tuningTotal": "Corrected current tuning prose to 19/30, added machine-readable tuning totals and 29/30 repeat result.",
+    "dateMisses": "Clarified that the shipped detector does not surface reverse-date findings.",
+    "reviewEvidence": "Recorded completed review and all 289 Claude invocations including cancelled preparation.",
+    "testPlacement": "Moved scoring tests to experiments/ per repository policy. Planner-only tests were not added: user explicitly scoped unit tests to non-trivial scoring. All 44 cases exercise the code arm with real writes/readback.",
+    "limits": "Documented correlated repetitions, pinned clock and untested combined date/table overwrite; integration follow-up requires a decisive fixture and composition or refusal."
+  },
+  "rows": [
+    {"id":"date-mtime-later","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0},
+    {"id":"date-mtime-later","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.3}},
+    {"id":"date-mtime-later","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0},
+    {"id":"date-mtime-later","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.28}},
+    {"id":"date-mtime-later","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0},
+    {"id":"date-mtime-later","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/raft.md"],"hash":"0199296b09f568c5b4f7db6e290edd5bbb5091e94453078bd20294119dd54c10","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"equal-dates","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"equal-dates","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"equal-dates","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"equal-dates","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"equal-dates","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"equal-dates","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"inbox","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"inbox","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.86}},
+    {"id":"inbox","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.82}},
+    {"id":"single-status-column","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"jev-code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"cfc9e7f1a7cce77cd3d145531d6e69e910daa82159ce7fd60abf2bbb2d3a4454","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.12},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.4,"leave":0.6},"confidence":0.2}}},
+    {"id":"single-status-column","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"jev-code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"cfc9e7f1a7cce77cd3d145531d6e69e910daa82159ce7fd60abf2bbb2d3a4454","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.16},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.39,"leave":0.61},"confidence":0.22}}},
+    {"id":"single-status-column","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"jev-code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"cfc9e7f1a7cce77cd3d145531d6e69e910daa82159ce7fd60abf2bbb2d3a4454","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.12},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.43,"leave":0.57},"confidence":0.14}}},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/mast.md"],"hash":"0adfdc32da28069e1184b4a7cd254952296f67edca059ce3afee20f69eb03a68","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.36}},
+    {"id":"ogygia-created-day","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0},
+    {"id":"ogygia-created-day","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.18}},
+    {"id":"ogygia-created-day","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0},
+    {"id":"ogygia-created-day","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.28}},
+    {"id":"ogygia-created-day","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0},
+    {"id":"ogygia-created-day","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/rope.md"],"hash":"d77a7f74338abaeac8790b50d1fa494b07f22ce34a50f2cd7d2d136a7e23c28f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.28}},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.54}},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.6}},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.54}},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.8}},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.76}},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.7}},
+    {"id":"ogygia-inbox","split":"tuning","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.82}},
+    {"id":"ogygia-inbox","split":"tuning","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"ogygia-inbox","split":"tuning","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.8}},
+    {"id":"date-created-later","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0},
+    {"id":"date-created-later","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.24}},
+    {"id":"date-created-later","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0},
+    {"id":"date-created-later","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.18}},
+    {"id":"date-created-later","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0},
+    {"id":"date-created-later","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/mast.md"],"hash":"59cdef17cb972b411680477efbe585c4c7660d8db43b548d54e81d0631d226d9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.24}},
+    {"id":"invalid-date","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"invalid-date","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"invalid-date","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"timestamp-not-date","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"timestamp-not-date","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"timestamp-not-date","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"configured-inbox","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"configured-inbox","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"configured-inbox","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"archived-directory","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"archived-directory","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"archived-directory","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"archived-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.96}},
+    {"id":"archived-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.98}},
+    {"id":"archived-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.98}},
+    {"id":"hygiene-log","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"hygiene-log","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"hygiene-log","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"multiple-columns","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.86}},
+    {"id":"multiple-columns","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"multiple-columns","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"unknown-column","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"unknown-column","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"unknown-column","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d9a33e5a0646fae53e643c0ad41fd5c5ed48ee5ce8e2a5c3fc1e9c8605da0098","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"updated-only","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"updated-only","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"updated-only","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"duplicate-target","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"duplicate-target","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"duplicate-target","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"69522aa6e32c4d2b9b6761e929f68e76b7e4131dca89b66a80793521b1bc864f","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"generated-markers","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.86}},
+    {"id":"generated-markers","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"generated-markers","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"registry-metadata","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"registry-metadata","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"registry-metadata","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"excluded-detail","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.98}},
+    {"id":"excluded-detail","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.96}},
+    {"id":"excluded-detail","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.96}},
+    {"id":"code-fence-table","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"code-fence-table","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"code-fence-table","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"03fd3fc97a11b97a018a66abd7f1ffed95aa77df2b52fe2ddcd3191025d78543","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"duplicate-column","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"duplicate-column","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"duplicate-column","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"invalid-detail-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"invalid-detail-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"invalid-detail-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"jev-code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"jev-code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"jev-code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bc57fe180d2177f7ce963856cbe3714791d1c524770cf8fbda07f7b4fec498d2","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"jev-code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"jev-code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"jev-code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ada0faf3f2cf194a97583dbd91335c79530e07db0913575a41994e6980724342","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"crlf-date","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0},
+    {"id":"crlf-date","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"crlf-date","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0},
+    {"id":"crlf-date","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"crlf-date","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0},
+    {"id":"crlf-date","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/rigging.md"],"hash":"8011610fcd96a606cdf2a0b9ece30cd234e78d1df3f676fc578605461de2bd4e","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/thread.md"],"hash":"08b13d6aa0ffaa7560d60ded7e83cf082d2904ce48225aadb6fe1539bcdb45ab","invalid":false,"abstentions":0},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"jev-code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.38},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.28,"leave":0.72},"confidence":0.44}}},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/thread.md"],"hash":"08b13d6aa0ffaa7560d60ded7e83cf082d2904ce48225aadb6fe1539bcdb45ab","invalid":false,"abstentions":0},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"jev-code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.38},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.35,"leave":0.65},"confidence":0.3}}},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/thread.md"],"hash":"08b13d6aa0ffaa7560d60ded7e83cf082d2904ce48225aadb6fe1539bcdb45ab","invalid":false,"abstentions":0},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"jev-code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.46},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.31,"leave":0.69},"confidence":0.38}}},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/tablet.md"],"hash":"59cfc3636d0b9729d062dc4fbd787dcb92efe92f9f774bf625884fd6a3149600","invalid":false,"abstentions":0},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"jev-code","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.24},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.3,"leave":0.7},"confidence":0.4}}},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/tablet.md"],"hash":"59cfc3636d0b9729d062dc4fbd787dcb92efe92f9f774bf625884fd6a3149600","invalid":false,"abstentions":0},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"jev-code","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.38},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.38,"leave":0.62},"confidence":0.24}}},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/tablet.md"],"hash":"59cfc3636d0b9729d062dc4fbd787dcb92efe92f9f774bf625884fd6a3149600","invalid":false,"abstentions":0},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"jev-code","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.3},"repeatAnswer":{"outcome":"answered","answer":{"type":"choice","choice":"leave","probabilities":{"apply":0.31,"leave":0.69},"confidence":0.38}}},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"pylos-council-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.44}},
+    {"id":"pylos-council-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.28}},
+    {"id":"pylos-council-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.38}},
+    {"id":"sparta-visit-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"sparta-visit-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.44}},
+    {"id":"sparta-visit-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.42}},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.96}},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.96}},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"sparta-timestamp","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"sparta-timestamp","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.88}},
+    {"id":"sparta-timestamp","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"ithaca-archived","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"ithaca-archived","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.9}},
+    {"id":"ithaca-archived","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.84}},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.78}},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.82}},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.94}},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.92}},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.7}},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.74}},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.68}},
+    {"id":"negated-status","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.3}},
+    {"id":"negated-status","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.16}},
+    {"id":"negated-status","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":true,"confidence":0.3}},
+    {"id":"injected-archive","split":"held-out","arm":"code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"jev-code","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":1}},
+    {"id":"injected-archive","split":"held-out","arm":"code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"jev-code","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.98}},
+    {"id":"injected-archive","split":"held-out","arm":"code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"jev-code","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0,"answers":{"outcome":"answered","model":"jev-1.13.0","apply":false,"confidence":0.98}},
+    {"id":"date-mtime-later","split":"tuning","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ccac24429c3b6ab12c6df7697475a0948f5a775ac8ed1264d0b061e197ef3818","invalid":false,"abstentions":1},
+    {"id":"date-mtime-later","split":"tuning","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ccac24429c3b6ab12c6df7697475a0948f5a775ac8ed1264d0b061e197ef3818","invalid":false,"abstentions":1},
+    {"id":"date-created-later","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"dd12f5fcd3b58f53c26110d1855101182d7dd7ef104ee5b048fa3a48eb764ae9","invalid":false,"abstentions":1},
+    {"id":"date-mtime-later","split":"tuning","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"ccac24429c3b6ab12c6df7697475a0948f5a775ac8ed1264d0b061e197ef3818","invalid":false,"abstentions":1},
+    {"id":"date-created-later","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"dd12f5fcd3b58f53c26110d1855101182d7dd7ef104ee5b048fa3a48eb764ae9","invalid":false,"abstentions":1},
+    {"id":"date-created-later","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"dd12f5fcd3b58f53c26110d1855101182d7dd7ef104ee5b048fa3a48eb764ae9","invalid":false,"abstentions":1},
+    {"id":"equal-dates","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"equal-dates","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"equal-dates","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8e2e51b1319ef27b2ca41daf7743f52d88525426e46bc919e93f0dc0e22e4a46","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"invalid-date","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"4e8e6140836f95d613687556a8feeba11c20b0c82815a1224763c7ec7ce12028","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"timestamp-not-date","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"931835466fcdca4a4d88f8ab5e2c6375f437de11797200467b3ad3b1322b668e","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"inbox","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"67128e0577b43fd8578be33aa67fedcd6565a205145fa17ceec779144dc132ac","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"configured-inbox","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9c0c258d2302503c4799835abd5382a5540f20b94afcb6f693acd83a97aa50e9","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-directory","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"656e6d7c46890d3c14f103ad1a47a57b47e90f836ec9dd5382437e2f6ed09e23","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"archived-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b6975ce7938b64b63c77a82a57eb3d48b436322d4faa3beaaaf0ebf047edb576","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"hygiene-log","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"b7ef331940974eb2a9ac2a2a8bc1b356f5f86f92dd62018c5fa60d1f7c2e1873","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"single-status-column","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"e9d5994e07f344ea3f3eb08c6b707cb21bb11b539c3af480f42f9bf717194597","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7e9e7b3f506579cb9ec93a51e71b7f8ccc85981294f2f30358ac9b43be4a97b1","invalid":false,"abstentions":0},
+    {"id":"multiple-columns","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"7c9cca0d154299b40ad63198d4880344fefc228e0d7fee364be5cc66f9fed28d","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"146c5ef74f3fe1f4c2176b87ef78348cf5e768be42b4fd1a2e2d2e304dba76a1","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"146c5ef74f3fe1f4c2176b87ef78348cf5e768be42b4fd1a2e2d2e304dba76a1","invalid":false,"abstentions":0},
+    {"id":"unknown-column","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"146c5ef74f3fe1f4c2176b87ef78348cf5e768be42b4fd1a2e2d2e304dba76a1","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"updated-only","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fd041c5fb8234319b50a86c9c8bb64763519b0c912a4a5f7365a661a3e29c15","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"f141e605c99ad152b594dd49fefd28697a768eaf22017e8dd6a5e7ad4b448045","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"f141e605c99ad152b594dd49fefd28697a768eaf22017e8dd6a5e7ad4b448045","invalid":false,"abstentions":0},
+    {"id":"duplicate-target","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"f141e605c99ad152b594dd49fefd28697a768eaf22017e8dd6a5e7ad4b448045","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"generated-markers","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"8479e28c677e13576288aa6b5ade3480df147aab035ad38560ecfc1d4723f445","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"registry-metadata","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"126b12a7577922a7e231440c5f3a9f1f35dd147826d57e48e973faf02de10dc8","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"9b6607680059d49a302372b57232178db8dce4adebc0e9690f3feca93b8af89d","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"06039c80027cd7c7f9e5653cdcf62c99e1c685c6284dad958e6bdee491c03d83","invalid":false,"abstentions":0},
+    {"id":"excluded-detail","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"9b6607680059d49a302372b57232178db8dce4adebc0e9690f3feca93b8af89d","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"51e0c54cb608ffbc0a93410666c59466b1e9543da9703e1e39d71cadb19141ae","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"51e0c54cb608ffbc0a93410666c59466b1e9543da9703e1e39d71cadb19141ae","invalid":false,"abstentions":0},
+    {"id":"code-fence-table","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"51e0c54cb608ffbc0a93410666c59466b1e9543da9703e1e39d71cadb19141ae","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2e34b49fefc2f779b37bc7f7b01c3e586f4a6dd33ba68efb13b6a412959e8112","invalid":false,"abstentions":0},
+    {"id":"duplicate-column","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/_index.md","loss:context/_index.md"],"changed":["context/_index.md"],"hash":"fd9b24597f4fcb7c8999c0910a8d22d1515b79d78de1925bfd1b4f64fe95acae","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"invalid-detail-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"639e46e64fc889575b876a8691aa25bf470a5d8746c6de74096478aae3d8f1da","invalid":false,"abstentions":0},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"38f67ad747f1d54df3a6c2506fc3acd48678b19c0770878ad94615741a2f355b","invalid":false,"abstentions":0},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"38f67ad747f1d54df3a6c2506fc3acd48678b19c0770878ad94615741a2f355b","invalid":false,"abstentions":0},
+    {"id":"ambiguous-wiki-link","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"38f67ad747f1d54df3a6c2506fc3acd48678b19c0770878ad94615741a2f355b","invalid":false,"abstentions":0},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"91b05afdeec9c0518d9bef04779f309f733a94d1a8aee8bcebeeee1e9d856911","invalid":false,"abstentions":0},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"91b05afdeec9c0518d9bef04779f309f733a94d1a8aee8bcebeeee1e9d856911","invalid":false,"abstentions":0},
+    {"id":"mixed-safe-and-ambiguous-rows","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/_index.md"],"hash":"91b05afdeec9c0518d9bef04779f309f733a94d1a8aee8bcebeeee1e9d856911","invalid":false,"abstentions":0},
+    {"id":"crlf-date","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"c9a18b00e8f5ba9d218aeb3cfbb11885ee3d046b34e18e7dadf7f2234a7de3fc","invalid":false,"abstentions":1},
+    {"id":"crlf-date","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"c9a18b00e8f5ba9d218aeb3cfbb11885ee3d046b34e18e7dadf7f2234a7de3fc","invalid":false,"abstentions":1},
+    {"id":"crlf-date","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"c9a18b00e8f5ba9d218aeb3cfbb11885ee3d046b34e18e7dadf7f2234a7de3fc","invalid":false,"abstentions":1},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"91485f93a41d93acc3de036ed3645628918dbde2b9008e39f58d12675b5cb36d","invalid":false,"abstentions":1},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"91485f93a41d93acc3de036ed3645628918dbde2b9008e39f58d12675b5cb36d","invalid":false,"abstentions":1},
+    {"id":"ogygia-mtime-day","split":"tuning","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"91485f93a41d93acc3de036ed3645628918dbde2b9008e39f58d12675b5cb36d","invalid":false,"abstentions":1},
+    {"id":"ogygia-created-day","split":"tuning","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fe4667c6ae4bae48011b9664b2f93b022e92517be606e5b14eb864516c02eea","invalid":false,"abstentions":1},
+    {"id":"ogygia-created-day","split":"tuning","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fe4667c6ae4bae48011b9664b2f93b022e92517be606e5b14eb864516c02eea","invalid":false,"abstentions":1},
+    {"id":"ogygia-created-day","split":"tuning","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"2fe4667c6ae4bae48011b9664b2f93b022e92517be606e5b14eb864516c02eea","invalid":false,"abstentions":1},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"current","rep":1,"exact":false,"repeat":false,"untouched":true,"vetoes":[],"changed":[],"hash":"f5f8c859eefffd099545c4431d46d044af77f9b4fbd0aac1d7ddd1f563dec0df","invalid":false,"abstentions":1},
+    {"id":"ogygia-raft-status","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ogygia/raft/_index.md"],"hash":"6d790de547ca40cc5460791800d0fa64d493c06e0edc62ae9a1455f343950cca","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-equal-days","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"578fe65f3988219b9049bc48f4d126e0753a528fe19f53e539887947b936544b","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/ogygia/raft/_index.md","loss:context/ogygia/raft/_index.md"],"changed":["context/ogygia/raft/_index.md"],"hash":"9043eec87cf9c78e48755c7b160cf1c8da4940bf5972ec0a07d6cee8abc1379c","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ogygia-ambiguous-title","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"7ffb803090bddcd838aa1b27218a335239eb175695e5bda84c8bbcbef43bc4dc","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ogygia-inbox","split":"tuning","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"10355daf52f250c1880834d87151934450294a11d6848446ef9cf0c90345f3d3","invalid":false,"abstentions":0},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"current","rep":0,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1},
+    {"id":"ithaca-east-midnight","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"559388359222699ef5f5906c764380ec00fb62ee4121b9f6ef31e19c8641848a","invalid":false,"abstentions":1},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1},
+    {"id":"pylos-west-midnight","split":"held-out","arm":"current","rep":2,"exact":false,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f7761b4e6a0ecef8fd823eb2c8dbae6a5dc9c0abb2076ba4948f17be919156a8","invalid":false,"abstentions":1},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"ithaca-loom-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"973d2f0235ef6d57044dc72007dca53424dde42a2b83d03b09a6692f5ad981a1","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"pylos-council-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/pylos/council/_index.md"],"hash":"4b1ce2b9ef3c69bdf4f364d2560296c9442fc85c702a34a2d38e414de4cb4167","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"sparta-visit-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/sparta/visit/_index.md"],"hash":"6e94231f219f185254813317c00803f3796797f458ec681996aa869fb4489461","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"ithaca-equal-days","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"0197236e633744290b058327f36db73a766eef5b00547e2b3f2bc39ad9dc92b9","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"pylos-invalid-calendar","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"530658c66b7924ead93a7110ee54367d85448c09cfbb0720ed5c7c9ce460d472","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"sparta-timestamp","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"bb0da5fe4e169483ea4ef76b1c566a491e0c7d38bef89ae6af26b88fa3dbf78c","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-archived","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"6dd252415f652dc3483147d2deb717d5289e2dae52f61ac6688b152af578bd99","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"ithaca-generated-table","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"d1a9035634aa178b6b26c18c3e066d6ea80685bea8289b732f448bcff4a035ae","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/pylos/council/_index.md","loss:context/pylos/council/_index.md"],"changed":["context/pylos/council/_index.md"],"hash":"81d560372b324eeb1a97201081574cb1685c637e284f89a4e21ca4eb607425b4","invalid":false,"abstentions":0},
+    {"id":"pylos-archived-detail","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"9776d2b2fcee4ef93587fab8018e40927bf8b7a928937b7f97108101f4cc530c","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"current","rep":1,"exact":false,"repeat":true,"untouched":false,"vetoes":["ineligible:context/sparta/visit/_index.md","loss:context/sparta/visit/_index.md"],"changed":["context/sparta/visit/_index.md"],"hash":"b7141383d522948756ecf54046a76fd9e626e787c568b40cb262bf52fc1a92ff","invalid":false,"abstentions":0},
+    {"id":"sparta-multiple-columns","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"f07501135a16bdc95332914f22fcb3ebf7aff2e183efd1ad2339b0f7d25d411b","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"negated-status","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":["context/ithaca/loom/_index.md"],"hash":"48051ef0dec6f008beb4863a626a97e7c3f0a516305305326e9f5dd5db447a24","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"current","rep":0,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"current","rep":1,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0},
+    {"id":"injected-archive","split":"held-out","arm":"current","rep":2,"exact":true,"repeat":true,"untouched":true,"vetoes":[],"changed":[],"hash":"1e3dfe3ca6493842586f1803c94ae3a2f756b5f7dfb328cbb1d22e1f2199b7ae","invalid":false,"abstentions":0}
+  ]
+}
