@@ -196,6 +196,8 @@ for (const width of [320, 1280]) test(`${width}: confirmed Resume never steals e
   const stored = ui!.stores.inbox.getState().items;
   ui!.stores.inbox.setState({ items: Object.fromEntries(Object.entries(stored).filter(([id]) => id !== reason.retiredActionId)) });
   await expect.poll(() => panel()!.textContent, { message: "missing retired metadata is omitted" }).not.toContain("Set aside:");
+  expect(host!.querySelector(`[data-decision-receipt="${CSS.escape(reason.retiredActionId)}"]`),
+    "paused retirement has no duplicate row even without its cached Action").toBeNull();
   await set({ makeRoom: true });
   holdResume = true;
   await page.getByRole("button", { name: resumeName, exact: true }).click();

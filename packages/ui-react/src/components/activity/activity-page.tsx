@@ -166,8 +166,10 @@ export function ActivityPage() {
   // Rows that replace a card in place: an answer's outcome, including a
   // confirmed snooze, whose card has moved under Later.
   const receiptIds = Object.keys(outcomes).filter((id) => {
-    // Hygiene receipts have their own presentation, including the Actions-limit
-    // panel in place of its dropped row. The stored receipt and Done notes remain.
+    // Hide the matching row even if its terminal Action has left the mirror.
+    // The authoritative receipt and Done note stay in the inbox store.
+    if (hygiene.read.review.status === "paused" && hygiene.read.review.pauseReason?.retiredActionId === id) return false;
+    // Other hygiene receipts retain their existing dedicated presentation.
     if ((inboxItems[id]?.queue === "actions" && (inboxItems[id] as InboxActionItem).hygiene) || inboxItems[id]?.queue === "queue" || openDecisions.some((d) => d.id === id)) return false;
     const o = outcomes[id];
     return !snoozedDecisions.some((d) => d.id === id) || (o?.kind === "receipt" && o.status === "snoozed");
