@@ -119,12 +119,12 @@ export class StreamAdapter {
             .join("")
             .trim();
           if (AUTH_ERROR_CLASSES.has(msg.error)) {
-            this.report({ kind: "auth_failure", errorClass: FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error, ...(text ? { message: text } : {}) });
+            this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
           }
           // The runtime's API-error message: its text arrives here and never
           // as deltas, so it is kept for the terminal frame rather than
           // streamed as if the model had said it (#575).
-          this.apiError = this.failure(FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error, text || msg.error, statusFromText(text));
+          this.apiError = this.failure(msg.error, text || msg.error, statusFromText(text));
         }
         for (const block of msg.message.content) {
           if (block.type === "tool_use") {
@@ -263,7 +263,7 @@ export class StreamAdapter {
             attempt: msg.attempt,
             maxAttempts: msg.max_retries,
             delayMs: msg.retry_delay_ms,
-            errorClass: FIRST_PARTY_FAILURE_CLASSES[msg.error] ?? msg.error,
+            errorClass: msg.error,
             ...(typeof msg.error_status === "number" ? { status: msg.error_status } : {}),
           };
           messages.push({ type: "status", status: "thinking", detail: describeRetry(retry), retry });

@@ -28,6 +28,7 @@ beforeEach(() => {
     draft: null,
     pendingDraftId: null,
     activeSessionId: null,
+    backendIds: {},
     runStates: {},
   });
 });
@@ -105,10 +106,10 @@ describe("failed-turn outgoing class allowlist", () => {
     const view = renderAssistant();
     const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
     for (const action of ["Copy details", "Report a bug"]) {
-      fireEvent.click(view.getByRole("button", { name: action, exact: true }));
+      fireEvent.click(view.getByRole("button", { name: action }));
       const body = (view.getByRole("textbox", { name: "Exact outgoing text" }) as HTMLTextAreaElement).value;
       expect(body).toBe(`brain-kit failed turn\nprotocol: 5\nclass: ${expected}`);
-      fireEvent.click(view.getByRole("button", { name: "Close review", exact: true }));
+      fireEvent.click(view.getByRole("button", { name: "Close review" }));
     }
   });
 });

@@ -65,6 +65,6 @@ describe("first-party failure-class inventory", () => {
 
   test("the registry is immutable and each emitter key is its report value", () => {
     expect(Object.isFrozen(FIRST_PARTY_FAILURE_CLASSES)).toBe(true);
-    for (const [key, value] of Object.entries(FIRST_PARTY_FAILURE_CLASSES)) expect(value).toBe(key);
+    for (const [key, value] of Object.entries(FIRST_PARTY_FAILURE_CLASSES)) expect(key).toBe(value);
   });
 });
