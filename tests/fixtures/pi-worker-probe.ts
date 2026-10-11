@@ -98,6 +98,7 @@ function descendants(pid: number): void {
   } } catch {}
 }
 let toolCalls: Array<{ name: string; input: unknown }> = [];
+let followUp: Array<{ name: string; input: unknown }> = [];
 if (scenario === "attacks") {
   toolCalls = [{ name: "probe_worker", input: {} }];
   for (const path of ["context/policies/rule.md", "notes/../context/policies/rule.md", "notes/policy-symlink.md", "notes/policy-hardlink.md"]) {
@@ -114,11 +115,18 @@ else if (scenario.startsWith("mask-")) toolCalls = [{ name: "request_image_mask"
 else if (scenario === "cancel-application") toolCalls = [{ name: "write_file", input: {
   path: "notes/worker-positive.md", content: "---\ntype: note\n---\nOdysseus committed the raft note.\n", expectedBaseHash: null } }];
 else if (scenario === "cancel") toolCalls = [{ name: "linger_worker", input: {} }];
+else if (scenario === "read-base-page") {
+  // A ranged read in the worker returns a page with the whole-document hash;
+  // the next model step edits without a hash, from that read's receipt.
+  writeFileSync(join(brainPath, "notes/voyage-log.md"), "---\ntype: note\n---\nDay 1: Odysseus leaves Troy.\nDay 2: Athena counsels patience.\n");
+  toolCalls = [{ name: "brain_read_base", input: { path: "notes/voyage-log.md", offset: 4, limit: 1 } }];
+  followUp = [{ name: "edit_file", input: { path: "notes/voyage-log.md", old_string: "patience", new_string: "courage" } }];
+}
 else toolCalls = [{ name: "probe_worker", input: {} }];
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
   const body = await request.json() as { tools?: Array<{ name: string }> };
-  const chosen = calls === 1 ? toolCalls : [];
+  const chosen = calls === 1 ? toolCalls : calls === 2 ? followUp : [];
   for (const tool of chosen) if (!body.tools?.some(t => t.name === tool.name)) throw new Error(`Fixture did not reach installed ${tool.name}`);
   const events: unknown[] = [{ type: "message_start", message: { id: "msg_fixture", type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,
@@ -196,6 +204,7 @@ try {
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
     policyBytes: readFileSync(policyPath, "utf8"), policyMembers: readdirSync(join(brainPath, "context/policies")),
     positive: existsSync(join(brainPath, "notes/worker-positive.md")) ? readFileSync(join(brainPath, "notes/worker-positive.md"), "utf8") : null,
+    voyageLog: existsSync(join(brainPath, "notes/voyage-log.md")) ? readFileSync(join(brainPath, "notes/voyage-log.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "notes/raft.mask.png")) ? [...readFileSync(join(brainPath, "notes/raft.mask.png"))] : null,
     running: [...hostPids].filter(pid => existsSync(`/proc/${pid}`)), hostPids: [...hostPids] }));
 } finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); authorization.release(); host.close(); db.close(); }

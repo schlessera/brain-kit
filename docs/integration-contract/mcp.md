@@ -71,7 +71,7 @@ writers; its server tools apply the validated effects instead.
 
 | Tool | Exact input (unknown keys refuse) |
 | --- | --- |
-| `brain_read_base` | `{ path: string }`; returns `{ content: string, expectedBaseHash: string }` |
+| `brain_read_base` | `{ path: string, offset?: integer ≥ 1, limit?: integer ≥ 0 }`; returns `{ expectedBaseHash, bytes, lines, content }` for a whole document, or `{ expectedBaseHash, bytes, lines, offset, returnedLines, text, nextOffset?, truncated?, hint? }` for a page ([paging](#brain-read-base-paging)) |
 | `brain_add` | `{ content: string, type?: string, title?: string, tags?: string[], target?: string, expectedBaseHash?: string \| null }`; deterministic server capture plans and validates its current base when absent |
 | `brain_update` | `{ path: string, expectedBaseHash: string \| null, summary?: string, status?: "active" \| "archived" \| "draft", relevance?: "primary" \| "secondary" \| "historical", tags?: string[], deadline?: string, next_review?: string, append_content?: string }` |
 | `brain_archive` | `{ path: string, expectedBaseHash: string \| null, dry_run?: boolean }` |
@@ -79,9 +79,31 @@ writers; its server tools apply the validated effects instead.
 | `edit_file` | `{ path: string, expectedBaseHash: string \| null, old_string: string, new_string: string }`; nonempty old string must occur exactly once |
 | `apply_staged_changes` | `{ files: [{ path: string, expectedBaseHash: string \| null, content: string }] }`; 1–32 unique named files, no command field |
 
+<a id="brain-read-base-paging"></a>
+
+`brain_read_base` paging (additive, #1624). The result is one compact JSON text
+block whose first key is always `expectedBaseHash`, the server's SHA-256 of the
+**whole** document, never of a page; `bytes` is its UTF-8 size and `lines` its
+line count. A call without `offset` or `limit` returns the whole document as
+`content` while its JSON-escaped text fits the 40,000-character page budget
+(`BRAIN_READ_BASE_PAGE_CHARS`). A larger document, or any call with `offset` or
+`limit`, returns a page instead, with no `content`: `text` holds lines `offset`
+onward (1-based, default 1) with their line terminators kept, at most `limit`
+of them and never more than the budget, so concatenating every page's `text`
+reproduces the document. `returnedLines` counts them, and `nextOffset`, present
+while lines remain, is where the next page starts. A line longer than the whole
+budget returns only its fitting prefix, with `truncated: true`. `limit: 0`
+returns the hash and sizes with an empty page. `hint` is present only when a
+call without a range was too large to return whole. The budget keeps every
+result inside the Claude Agent SDK's pass-through size for MCP results (length
+/ 4 within half its default 25,000-token `MAX_MCP_OUTPUT_TOKENS`), so the hash
+is never spilled to a file. Previously the result was `{ content, expectedBaseHash }`
+for every document.
+
 Hashes are lowercase SHA-256 of complete UTF-8 bytes; `null` means exclusive
 creation. Pi may omit a tool's base hash only when a preceding read in the same
-turn supplied it; a write with no read is create-only. The server application
+turn supplied it (a paged `brain_read_base` supplies the whole-document hash);
+a write with no read is create-only. The server application
 request is `{ principalId, turnId, input: { operation, ...toolInput } }`;
 identity is bound by the trusted host, never taken from tool arguments. Operations
 are `add`, `update`, `archive`, `write`, `edit` and `staged` only. No command replay,
