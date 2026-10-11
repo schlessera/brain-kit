@@ -2,12 +2,13 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 
 test("BlockCard async work settles before its native render fixture removes the DOM", async () => {
+  // Named execution counts require verbose child reporting in agent sessions.
   const child = Bun.spawn([
     process.execPath, "test", "--timeout", "30000",
     join(import.meta.dir, "render/block-card.test.tsx"),
     "--test-name-pattern", "(track|map): the contract accepts the payload",
     "--rerun-each", "20",
-  ], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  ], { env: { ...process.env, AGENT: "0" }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
   ]);
