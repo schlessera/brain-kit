@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -12,7 +13,7 @@ export const MAX_STATE_BYTES = 128 * 1024 * 1024;
 export const stateReserveBytes = (transcriptSize: number): number => Math.max(16 * 1024 * 1024, Math.ceil(transcriptSize / 4));
 
 export class SessionTooLargeError extends BackendRequestError {
-  readonly errorClass = "session_too_large";
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
   constructor() {
     super("This conversation exceeds the worker runtime state limit or available tmpfs space. Continue in a new conversation.");
     this.name = "SessionTooLargeError";

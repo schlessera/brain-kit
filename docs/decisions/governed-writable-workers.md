@@ -638,7 +638,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:242`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`lock: toolLockFromKeyed(createKeyedLock())`,
-  `packages/ui-backend-pi/src/worker-entry.ts:71`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:84`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -951,7 +951,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:15`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:36`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -996,7 +996,7 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:41`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:61`)
 and the inference relay
 (`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,

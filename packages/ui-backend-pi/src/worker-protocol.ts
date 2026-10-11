@@ -1,4 +1,5 @@
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
 
@@ -6,7 +7,7 @@ import type { Readable, Writable } from "node:stream";
 export const PI_PIPE_MAX_BYTES = 16 * 1024 * 1024;
 export const sessionReserveBytes = (payloadSize: number): number => Math.max(1024 * 1024, Math.ceil(payloadSize / 4));
 export class SessionTooLargeError extends BackendRequestError {
-  readonly errorClass = "session_too_large";
+  readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
   constructor() {
     super("This conversation exceeds the pi worker session size limit. Continue in a new conversation.");
     this.name = "SessionTooLargeError";

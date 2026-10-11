@@ -1122,7 +1122,7 @@ type FirstPartyFailureClass =
   | "verification_required" | "billing_error" | "subscription_required"
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
-  | "cloud_credential_error" | "worker_host_unsupported" | "unknown";
+  | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1146,6 +1146,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   max_output_tokens: "max_output_tokens",
   cloud_credential_error: "cloud_credential_error",
   worker_host_unsupported: "worker_host_unsupported",
+  session_too_large: "session_too_large",
   unknown: "unknown",
 });
 
