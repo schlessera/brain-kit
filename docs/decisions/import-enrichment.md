@@ -76,7 +76,8 @@ including proposals that do not reach files.
 | Required summaries supported and complete | **43/48** | 33/48 |
 | Complete case correctness | **46/57 (80.7%)** | 36/57 (63.2%) |
 | Held-out false completions | 1 | **0** |
-| Damaged-input false completions, tuning + held-out | 3/6 | **0/6** |
+| Held-out damaged-input false completions | 1/3 | **0/3** |
+| Tuning damaged-input false completions (candidate floor fitted here) | 2/3 | 0/3 |
 | Wrong-target writes / content loss or rewrite / protected metadata changes | 0 / 0 / 0 | 0 / 0 / 0 |
 | Unsupported summary claims | 0 | 0 |
 
@@ -101,8 +102,9 @@ Three further abstentions correctly left the unclear fragment unwritten.
 Jev missed `navigation` on all three archival escort runs and proposed
 `stewardship` on all three unclear fragments. The skill missed `stewardship`
 on all three disputed-meeting runs and `navigation` on all three escort runs
-and two teaching-handout runs. Jev has a real 1.6-point tag F1 advantage and
-prevents three damaged-input false completions across both splits. The trade-off
+and two teaching-handout runs. Jev has a directional 1.6-point tag F1 advantage, concentrated in a few cases.
+It prevents one held-out damaged-input false completion. Its zero tuning false
+completions are fitted by the floor selection, not independent safety evidence. The trade-off
 at this floor is refusal of 18 of 54 classifiable held-out runs.
 
 A GPT-family author judged all 115 distinct `(case, summary)` outputs against
@@ -136,12 +138,12 @@ retained verified skill report used the requested scalar shape. Candidate
 effective agreement hides raw variation on the tools reference:
 every variant abstains. It is reliable refusal, not reliable completion.
 
-Calls: **81 physical Jev requests; 247 Claude CLI invocations before the final
-PR review**. Those Claude invocations are 81 retained verified skill runs,
+Calls: **81 physical Jev requests; 248 Claude CLI invocations including both
+PR reviews**. Those Claude invocations are 81 retained verified skill runs,
 51 retained focused summary runs, one successful label check, one interrupted
 initial invocation without case input, 30 discarded retry invocations,
-81 superseded current-arm runs, one skill-discovery probe and one preliminary
-PR review. The initial retry regex
+81 superseded current-arm runs, one skill-discovery probe and two
+PR reviews. The initial retry regex
 mistook numeric metadata in successful JSON for rate-limit errors. All 15
 affected measurement groups were rerun on pristine inputs after restricting
 retries to error responses. The discarded calls remain counted and identified
@@ -158,6 +160,12 @@ Every retained verbose trace contains the successful Read result, shipped
 heading and Stage 3 section. Superseded outputs remain outside the tree and
 their calls remain counted. The candidate and its tuning thresholds were unchanged.
 
+The final Sonnet cross-family review approved the corrected evidence and no-go.
+Its five nonblocking findings led to separate tuning/held-out safety figures,
+qualified tag-gain language, label-model and augmented-prompt caveats, corrected
+case-purpose text, and committed-judgment fallbacks for offline reanalysis.
+The review did not independently inspect raw CLI traces or run local tests.
+
 The scorer also initially treated multiline mutable YAML tags as changes to
 protected bytes. Rescoring saved full-file effects corrected that false veto;
 unit tests protect multiline values, owner comments and conflicting duplicate
@@ -169,6 +177,14 @@ tuning against held-out quality.
 - Nineteen authored held-out cases are directional evidence, with only one
   custom-inbox and one unclear case. Three repetitions are correlated, not
   57 independent sources. The duplicated file pair is not extra sample size.
+- The requested Sonnet label checker is also the current arm's primary model.
+  Its one-pass pre-measurement corrections may favor its own interpretation;
+  the retained verdicts make that overlap visible.
+- The current baseline executes the unchanged shipped skill with fixed harness
+  instructions for uncertainty, retention, preservation and reports. This is an
+  augmented task prompt, potentially stronger than the four-sentence Stage 3
+  instruction alone. It also waives later stages and the out-of-scope manifest.
+  The evidence does not estimate an unaugmented skill call.
 - Taxonomy is config-driven but this set uses only three substantive types
   and three controlled tags. Record-topic tagging remains a policy judgment;
   disputed-meeting stewardship was accepted as defensible by the label check.
@@ -191,6 +207,8 @@ tuning against held-out quality.
   summaries, including empty tags/summary that its writer then fills. It
   needs a body-focused prompt before any integration claim; those input facts
   were not counted as fabricated source facts.
+- Jev used a 60-second experimental timeout instead of the shipped client's
+  10-second default. No latency or cost comparison was measured.
 - This measures approved Stage 3 terminal file enrichment per case, not a
   complete import, batch scaling, resumability or hosted writes. The guarded
   candidate is not a production writer. No unattended-adoption certification

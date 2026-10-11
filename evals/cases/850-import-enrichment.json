@@ -1864,7 +1864,7 @@
         "disposal approved",
         "unanimous adoption"
       ],
-      "purpose": "Preserve source conflict and route uncertain type for review.",
+      "purpose": "Preserve conflicting recollections as a note without inventing an adopted ruling.",
       "summary": "Antinous's meeting recollections do not establish authenticated adoption of the hall-record proposal.",
       "files": {
         "brain.config.json": "{\n  \"taxonomy\": {\n    \"types\": {\n      \"logbook\": {\n        \"dir\": \"logbooks\"\n      },\n      \"ruling\": {\n        \"dir\": \"rulings\"\n      },\n      \"tablet\": {\n        \"dir\": \"tablets\"\n      }\n    }\n  }\n}",

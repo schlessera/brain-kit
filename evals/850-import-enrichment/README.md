@@ -27,7 +27,8 @@ For a fresh dataset, run one Sonnet 5.5 label check from a disposable brain,
 with Read only and the same key removal. Ask it to check every semantic golden,
 flag wrong/ambiguous labels and give reasons. Put its verdicts, `dropped` ids
 and `fixed` corrections in `$EVAL_SCRATCH/labels.json`; apply clear corrections
-to the case data. For this reviewed dataset, reuse the committed `labelCheck`.
+to the case data. For this reviewed dataset, absent scratch labels fall back to the committed
+`labelCheck`; clear corrections are already applied in the case JSON.
 
 ```sh
 bun evals/850-import-enrichment/run.ts
@@ -53,7 +54,7 @@ from before/after file contents. Nonempty supplied summaries are retained.
 A GPT-family judge scores each distinct `(case, summary)` against source text,
 salient facts and prohibited claims; exact golden wording is not required.
 Put `family`, `rubric` and `verdicts` (`id`, `summary`, `supported`, `complete`,
-`reason`) in `$EVAL_SCRATCH/summary-judgments.json`, then run:
+`reason`) in `$EVAL_SCRATCH/summary-judgments.json`, then run (absent scratch judgments reuse committed `summaryJudge`):
 
 ```sh
 bun evals/850-import-enrichment/run.ts --analyze

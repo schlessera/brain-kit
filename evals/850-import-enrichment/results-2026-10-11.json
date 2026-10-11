@@ -8,7 +8,7 @@
   },
   "claudeVersion": "2.1.295 (Claude Code)",
   "calls": {
-    "claude": 247,
+    "claude": 248,
     "jev": 81
   },
   "labelCheck": {
@@ -285,7 +285,7 @@
     "labelCheck": 1,
     "interruptedInitialInvocation": 1,
     "discardedClaudeInvocations": 30,
-    "prReview": 1,
+    "prReview": 2,
     "supersededCurrent": 81,
     "skillProbe": 1
   },
@@ -648,5 +648,25 @@
     {"id":"held-work-plan","summary":"Laertes's 2026-07-12 plan to inspect and repair the orchard tools, with no work yet done and the gate pin still broken.","supported":true,"complete":true,"reason":"Retains future planned work, no completed work and still-broken gate pin."},
     {"id":"held-damaged","summary":"Water-damaged scrap held by Eumaeus; too degraded to recover any actor, destination, decision, date or completed act.","supported":true,"complete":true,"reason":"Faithfully reports unrecoverable actors/events; the wrong type and false completion are scored separately."}
   ]
+  },
+  "prReview": {
+    "authorFamily": "GPT",
+    "reviewerFamily": "Claude",
+    "model": "claude-sonnet-5-5",
+    "reviewedCommit": "0ff6aa577ccd1af1dd4be6c5b5cff86c6490cbd4",
+    "verdict": "approve",
+    "blockingFindings": 0,
+    "nonblockingFindingsAddressed": [
+      "Separate held-out damaged-input safety from tuning safety fitted by the confidence floor.",
+      "Describe small tag F1 gain as directional and concentrated.",
+      "Disclose label-checker/current-model overlap; update stale disputed-case purpose.",
+      "Fall back to committed labels and free-text judgments for offline reanalysis.",
+      "Disclose fixed harness prompt augmentation of unchanged shipped Stage 3."
+    ],
+    "reviewLimits": [
+      "No independent inspection of external raw CLI traces.",
+      "Did not run local tests.",
+      "Did not independently rederive all held-out confidence extrema."
+    ]
   }
 }

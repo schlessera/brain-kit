@@ -20,16 +20,19 @@ const root = resolve(import.meta.dir, '../..');
 const scratch = process.env.EVAL_SCRATCH;
 if (!scratch) throw new Error('Set EVAL_SCRATCH to an external scratch directory');
 const output = join(import.meta.dir, 'results-2026-10-11.json');
+const stored = await Bun.file(output).exists() ? JSON.parse(await readFile(output, 'utf8')) : undefined;
 const preserved = JSON.parse(await readFile(join(root, 'evals/cases/850-import-enrichment.json'), 'utf8'));
 const additions = JSON.parse(await readFile(join(root, 'evals/cases/850-lean-additions.json'), 'utf8'));
-const labels = JSON.parse(await readFile(join(scratch, 'labels.json'), 'utf8'));
+const labels = await Bun.file(join(scratch, 'labels.json')).exists()
+  ? JSON.parse(await readFile(join(scratch, 'labels.json'), 'utf8')) : stored?.labelCheck;
+if (!labels) throw new Error('Supply labels.json or committed labelCheck results');
 const cases: Case[] = [...preserved.cases.filter((c: Case) => c.set === 'semantic-benchmark'), ...additions.cases]
   .filter(c => !labels.dropped.includes(c.id));
 const definitions = preserved.shared.semanticBenchmarkDefinitions;
 const goldens = cases.map(c => ({ ...c, summaryNeed: c.summaryNeed ?? (c.type !== 'unclear' &&
   c.approvals.some(a => a.mutable.includes('summary') && !parseFrontmatter(c.files[a.path]!).data.summary)) }));
 const results = process.argv.includes('--resume') || process.argv.includes('--analyze')
-  ? JSON.parse(await readFile(output, 'utf8'))
+  ? stored ?? (() => { throw new Error('No results to resume or analyze'); })()
   : { date: '2026-10-11', sourceCommit: Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: root }).stdout.toString().trim(),
     models: { current: 'claude-sonnet-5-5', candidate: 'jev-1.13.0', summary: 'claude-sonnet-5-5' },
     claudeVersion: Bun.spawnSync(['claude', '--version']).stdout.toString().trim(),
@@ -237,7 +240,9 @@ for (const row of rows.filter(r => r.arm === 'current')) {
     !parseFrontmatter(c.files[a.path]!).data.summary && !!row.summaries[i]);
 }
 if (process.argv.includes('--analyze')) {
-  results.summaryJudge = JSON.parse(await readFile(join(scratch, 'summary-judgments.json'), 'utf8'));
+  if (await Bun.file(join(scratch, 'summary-judgments.json')).exists())
+    results.summaryJudge = JSON.parse(await readFile(join(scratch, 'summary-judgments.json'), 'utf8'));
+  if (!results.summaryJudge) throw new Error('Supply summary-judgments.json or committed summaryJudge results');
   // Re-score stored full-file effects offline, including multiline YAML values.
   for (const row of rows) {
     const c = cases.find(c => c.id === row.id)!;
