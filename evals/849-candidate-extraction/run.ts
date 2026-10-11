@@ -194,7 +194,7 @@ async function main() {
 const input = await Bun.stdin.json();
 const allowed = ["brain config check --json", "brain config get modules.@schlessera/brain-module-jobs", "brain jobs pipeline"];
 const path = relative(input.cwd,resolve(input.cwd,input.tool_input?.file_path ?? "."));
-const deny = input.tool_name === "Bash" ? !allowed.includes(input.tool_input?.command) : /^(?:\\.\\.|modules\\/|\\.claude\\/|brain\\.config\\.)/.test(path);
+const deny = input.tool_name === "Bash" ? !allowed.includes(input.tool_input?.command) : /^(?:\\.|modules(?:\\/|$)|node_modules(?:\\/|$)|brain\\.config\\.|bunfig\\.toml$|package\\.json$|tsconfig(?:\\.[^/]*)?\\.json$)/.test(path);
 if (deny) console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"Use file tools inside the brain; executable/configuration files are protected; only the three exact product commands are permitted."}}));
 `);
   const labelPath = join(scratch, "label-verdicts.json");
@@ -202,8 +202,9 @@ if (deny) console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreTool
     const root = join(scratch, "label-check"); await mkdir(root, { recursive: true });
     const review = await claude(`Check every golden in every case. Flag wrong or ambiguous labels and normalized values with reasons. span means exact source occurrence serves the role, even when parsing needs clarification. none means explicit absence/not disclosed/no stated contact; unclear means unmentioned or ambiguous. Future dates are hypothetical, reference day 2026-07-12. Return JSON {cases:[{id,verdict:ok|wrong|ambiguous,findings:[{field,reason,suggestion}]}]}. ${JSON.stringify(cases)}`, root, "labels", false);
     await Bun.write(labelPath, JSON.stringify(parseJson(review.result.result), null, 2));
-    if (parseJson(review.result.result).cases.some((c: { verdict: string }) => c.verdict !== "ok")) throw new Error("Resolve label findings in scratch label-verdicts.json and the case data before measuring");
   }
+  const labels = await Bun.file(labelPath).json();
+  if (labels.cases.some((c: { id: string; verdict: string }) => c.verdict !== "ok" && !labels.resolutions?.[c.id])) throw new Error("Resolve label findings in scratch label-verdicts.json and the case data before measuring");
   const rows: Row[] = [];
   for (const c of cases) for (let rep = 0; rep < 3; rep++) rows.push({ arm: "unclear", id: c.id, repetition: rep, fields: Object.fromEntries(fieldsByDomain[c.domain]!.map(f => [f, { role: "unclear" }])), invalid: false });
   async function runSplit(split: string) {
@@ -235,16 +236,17 @@ if (deny) console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreTool
   for (const result of done) if (result.status === "rejected") throw result.reason;
   }
   await runSplit("tuning");
+  const notes = await Bun.file(join(scratch, "run-notes.json")).exists() ? await Bun.file(join(scratch, "run-notes.json")).json() : {};
   const tuning = [0, 0.2, 0.4, 0.6, 0.8].map(floor => ({ floor, score: score(gate(rows, floor), "tuning").candidate }));
-  const floor = tuning.sort((a, b) => b.score.correct - a.score.correct || a.floor - b.floor)[0]!.floor;
+  // Offline label adjudication must not change the floor already frozen before held-out dispatch.
+  const floor = notes.originalFrozenCalibration?.floor ?? [...tuning].sort((a, b) => b.score.correct - a.score.correct || a.floor - b.floor)[0]!.floor;
   console.log(`Tuning complete; frozen confidence floor=${floor}`);
   await runSplit("held-out");
-  const labels = await Bun.file(join(scratch, "label-verdicts.json")).json(), transcripts = await readdir(scratch); let accesses = 0;
+  const transcripts = await readdir(scratch); let accesses = 0;
   for (const f of transcripts.filter(p => p.startsWith("current-") && p.endsWith(".stdout.json"))) {
     const s = await Bun.file(join(scratch, f)).text(); if (/evals\/|849-candidate-extraction|results-2026|label-check|label-verdicts/.test(s)) accesses++;
   }
   const currentTranscripts = transcripts.filter(p => p.startsWith("current-") && p.endsWith(".stdout.json")).length;
-  const notes = await Bun.file(join(scratch, "run-notes.json")).exists() ? await Bun.file(join(scratch, "run-notes.json")).json() : {};
   const output = { issue: 849, date: "2026-10-11", models: { current: "claude-sonnet-5-5", candidate: "jev-1.13.0" }, calls: { claudeCurrent: currentTranscripts, jev: transcripts.filter(p => /^candidate-.*-\d\.json$/.test(p)).length, claudeLabels: notes.claudeLabelCalls ?? transcripts.filter(p => /^labels-\d.stdout.json$/.test(p)).length, claudeDiscarded: (notes.discardedClaudeCompleted ?? 0) + (notes.discardedClaudeInterrupted ?? 0), claudeIsolation: notes.claudeIsolationCalls ?? 0, claudeReview: notes.claudeReviewCalls ?? 0 }, notes, labels, calibration: { criterion: "maximum exact role/occurrence accuracy on tuning; tie picks lowest floor", tuning, floor }, heldOut: score(gate(rows, floor)), candidateBeforeFloor: score(rows).candidate, tuning: score(gate(rows, floor), "tuning"), isolation: { mechanism: "Claude restricted file tools confined to disposable brain; exact-command PreToolUse hook plus allowedTools; separate runtime, no brain symlinks", transcripts: currentTranscripts, flaggedTranscripts: accesses, control: notes.isolationControl ?? null }, rows: gate(rows, floor).map(r => ({ ...r, normalized: Object.fromEntries(Object.entries(r.fields).map(([f, p]) => [f, normalize(f, p)])) })) };
   await Bun.write(join(repo, "evals/849-candidate-extraction/results-2026-10-11.json"), JSON.stringify(output) + "\n");
   console.table(Object.entries(output.heldOut).map(([arm, s]) => ({ arm, precision: s.precision, recall: s.recall, correct: `${s.correct}/${s.total}`, invented: s.invented, invalid: s.invalid, agreement: `${s.agreement.agreements}/${s.agreement.compared}` })));

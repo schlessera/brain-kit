@@ -26,8 +26,9 @@ in the case data and scratch `label-verdicts.json` before proceeding.
 Every current run gets a fresh disposable brain with copied shipped skills,
 local module entries and a CLI shim to the independent runtime. Native
 `--restricted` confines file tools. A short tool hook restricts Bash to the
-three exact product commands and protects executable/configuration files from
-edits, so an allowed CLI command cannot load agent-written code. Native
+three exact product commands and protects module, skill and configuration files
+from edits, including root Bun configuration and dependency files. Earlier
+current-arm runs used a narrower guard and were discarded. Native
 `acceptEdits` alone does not enforce a Bash whitelist. No repository path,
 goldens or results are installed in the brain. Raw verbose stdout JSON remains
 in scratch; the harness scans it for evaluation/label/result path access.
@@ -51,3 +52,7 @@ Completed scratch rows are reused on restart. Remove them to request a new live
 measurement; do not reuse rows after changing the inputs or extraction prompt.
 Scoring-only changes can reanalyze them without provider calls. Run the offline
 scorer tests with `bun run test experiments/849-candidate-scoring.test.ts`.
+When adjudicating labels after held-out dispatch, retain the pre-dispatch floor
+in scratch `run-notes.json` as `originalFrozenCalibration.floor`; this run's
+results record both original and rescored tuning counts. This avoids changing
+the intervention after inspecting held-out results.

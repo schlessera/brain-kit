@@ -477,10 +477,10 @@
   "corrections": {
     "held-no-event": {
       "event_start": {
-        "role": "unclear"
+        "role": "none"
       },
       "event_end": {
-        "role": "unclear"
+        "role": "none"
       }
     },
     "held-hourly": {
@@ -494,6 +494,11 @@
           "maxMinor": 7025,
           "period": "hour"
         }
+      }
+    },
+    "tune-instruction": {
+      "deadline": {
+        "role": "none"
       }
     }
   }
