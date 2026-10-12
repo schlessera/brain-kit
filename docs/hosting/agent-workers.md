@@ -150,6 +150,27 @@ Turns are refused or stopped with these classes, never with a raw `ENOSPC`:
 The agent reads a note, generated from the same allowance, saying how large its
 runtime state is and that it is not for files it makes.
 
+A resumed ordinary conversation also reports one timestamped measurement of
+the state actually admitted. At the existing 75% threshold, the agent context
+and a dismissible composer notice show the same MiB and percentage. The notice
+offers the [reviewed continuation](../decisions/session-handoff.md#measured-saved-state-warning-1679),
+without starting work itself. Its age says `As of the last turn`; unknown state
+invents no percentage. Dismissal persists for that session/allowance, and a
+known allowance change waits for fresh measurement. A size refusal takes
+precedence, and busy admission does not imply oversized history.
+
+Pi's corresponding measurement is its existing UTF-8 session-initialization
+payload plus growth reserve against the existing 16 MiB pipe bound. It is not
+Claude's private-state capacity or the worker's separate turn-temp allowance.
+
+Legacy `brain-claude-state-*` directories are retained. Released historical
+writers did not record ownership, so neither a directory name nor a guessed
+PID can prove that its owner is dead. The
+[2026-10-12 acceptance ruling](https://github.com/schlessera/brain-kit/issues/1679#issuecomment-6129069373)
+preserves those unknown leftovers. Current creation, failed-start cleanup and
+normal cleanup use the descriptor-held private mount and create no new legacy
+host directory; there is no new ownership-marker format or automatic deletion.
+
 ## Turn temp allowance and the `turn_temp` tool
 
 Every agent worker, Claude and pi, interactive, voice and autonomous, gets a

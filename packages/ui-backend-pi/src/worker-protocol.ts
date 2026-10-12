@@ -1,6 +1,6 @@
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
-import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
 
@@ -18,9 +18,11 @@ export class SessionTooLargeError extends BackendRequestError {
 }
 
 /** Use the exact UTF-8 wire size, including framing, before launching a worker. */
-export function checkSessionSize(init: unknown): void {
+export function checkSessionSize(init: unknown): StateRoomObservation {
   const size = Buffer.byteLength(JSON.stringify(init) + "\n");
-  if (size + sessionReserveBytes(size) > PI_PIPE_MAX_BYTES) throw new SessionTooLargeError();
+  const usedBytes = size + sessionReserveBytes(size);
+  if (usedBytes > PI_PIPE_MAX_BYTES) throw new SessionTooLargeError();
+  return { usedBytes, allowanceBytes: PI_PIPE_MAX_BYTES, observedAt: Date.now() };
 }
 const input = z.record(z.string(), z.unknown());
 const id = z.number().int().positive();

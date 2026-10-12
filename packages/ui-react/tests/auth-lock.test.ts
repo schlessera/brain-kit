@@ -116,6 +116,7 @@ test("lock cannot reintroduce account metadata captured in a persisted boot stat
  const data=new Map([
   ["brain-sessionId",session],
   ["brain-turn-retries",JSON.stringify({[session]:{requestId:"odysseus-request",failedTurnId:"odysseus-turn",state:"waiting"}})],
+  ["brain-state-room-preferences",JSON.stringify({[session]:{dismissedAllowance:67108864,backendId:"claude",measuredAt:Date.UTC(2026,6,12)}})],
   [TRACKER_STORAGE_KEY,JSON.stringify({v:1,principalKey:"odysseus-principal",trackers:[{sessionId:session,requestId:"odysseus-request",turnId:"odysseus-turn",revision:1,leftAt:1,seen:null}]})],
  ]);
  const storage={getItem:(key:string)=>[...data].find(([suffix])=>key.endsWith(suffix))?.[1]??null,setItem(){},removeItem(){}} as unknown as Storage;
@@ -124,12 +125,17 @@ test("lock cannot reintroduce account metadata captured in a persisted boot stat
   expect(Object.keys(root.stores.trackers.getState().records),"boot tracker fixture is nonempty").toEqual([session]);
   expect(Object.keys(root.stores.chat.getState().turnRetries)).toEqual([session]);
   expect(root.stores.chat.getState().activeSessionId).toBe(session);
+  expect(root.stores.chat.getState().stateRoomPreferences[session]?.dismissedAllowance).toBe(67108864);
+  root.stores.chat.getState().setStateRoom(session,{usedBytes:51*1024*1024,allowanceBytes:67108864,observedAt:Date.UTC(2026,6,12)});
   work(root,async()=>true); await lock(root);
   expect(root.stores.trackers.getState().records,"persisted trackers stay dropped after lock").toEqual({});
   expect(root.stores.trackers.getState().evidence).toEqual({});
   expect(root.stores.trackers.getState().principalKey).toBeNull();
   expect(root.stores.chat.getState().activeSessionId).toBeNull();
   expect(root.stores.chat.getState().turnRetries).toEqual({});
+  expect(root.stores.chat.getState().stateRooms).toEqual({});
+  expect(root.stores.chat.getState().stateRoomPreferences).toEqual({});
+  expect(root.stores.chat.getInitialState().stateRoomPreferences).toEqual({});
   expect(root.stores.trackers.getInitialState().records,"reset target also drops boot metadata").toEqual({});
  } finally {root.dispose();}
 });

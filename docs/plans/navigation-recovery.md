@@ -361,15 +361,15 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:445-452`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:446-453`).
 
-- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:650-657`).
+- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:651-658`).
 
-- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:1037-1053`).
+- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:1045-1061`).
 
-- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:180-214`).
+- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:180-235`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1976-1985`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2038-2047`).
 
 - Composer draft/acknowledgement: [`const [input, setInput] = useState("");`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62-L85), before #951 moved the draft into the root's draft store (`stores/draft-state.ts`).
 
@@ -379,7 +379,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:461-535`).
 
-- History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:416-426`).
+- History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:418-429`).
 
 - Single background drawer row: [`const backgroundSessionId =`](https://github.com/schlessera/brain-kit/blob/ea8506b0eb511a3e16dba685d250d34e5340afa4/packages/ui-react/src/components/chat/session-drawer.tsx#L59-L60), before #950 replaced it with the Working group.
 
@@ -387,13 +387,13 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:592-653`).
 
-- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:238-277`).
+- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:255-294`).
 
-- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1517-1533`).
+- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1530-1546`).
 
 - Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:125-126`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2849-2872`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2862-2885`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:142-275`).
 
@@ -401,7 +401,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:688-732`).
 
-- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1145-1175`).
+- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1174-1204`).
 
 ## Bounded follow-up ownership
 

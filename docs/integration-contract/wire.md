@@ -71,6 +71,39 @@ field to an existing one, is not a breaking change. `BrainUiClient`
 (`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
 way to speak the protocol without reimplementing it.
 
+<a id="measured-conversation-state-room-additive-1679"></a>
+
+### Measured conversation state room (additive, #1679)
+
+`result` and the first replacing `session_history` frame may carry
+`stateRoom: { usedBytes, allowanceBytes, observedAt }`. Bytes are nonnegative
+safe integers, the allowance is positive, and `observedAt` is a nonnegative
+Unix-millisecond timestamp within JavaScript's Date range. Missing or malformed
+observations mean unknown; they do not discard the surrounding frame or invent
+a number. Appended history chunks omit the observation.
+A delayed replacing history frame with no observation or an older one does not
+erase a newer live result's measurement. A client with no such live evidence
+keeps the ordinary unknown behavior.
+
+The backend supplies one actual admission observation for a resumed ordinary
+conversation. Claude counts the page-rounded settings, memory and resumed
+transcripts it actually copied into the admitted private state mount. Pi counts
+the UTF-8 initialization payload plus the existing growth reserve against its
+existing 16 MiB session-payload bound. This is not free host memory or shared
+ledger availability, and neither backend's capacity or refusal changes.
+
+The same fact drives the agent's 75% warning, the result, the latest history
+observation and the quiet `state_room_warning` governance event. Repeated turns
+retain the first quiet warning for that session, backend and allowance while
+history keeps the latest measurement. Intrinsic size refusals take precedence;
+shared-budget busy supplies no replacement measurement.
+
+The provider roster may include backend metadata
+`stateRoomAllowance: { bytes, observedAt }`, timestamped by the host. This
+invalidates a known older allowance/dismissal until a fresh observation arrives;
+it is metadata, not a boolean capability or a new grant. Older clients ignore
+both optional additions. The protocol revision remains 5.
+
 <a id="durable-queue-and-actions-additive"></a>
 
 ### Durable Queue and Actions (additive)

@@ -15,6 +15,7 @@
  */
 import { join } from "path";
 import { piSessionDirectory } from "./session-storage.js";
+import { PI_PIPE_MAX_BYTES } from "./worker-protocol.js";
 import type {
   AgentBackend,
   BackendCapabilities,
@@ -115,6 +116,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   return {
     id: PI_BACKEND_ID,
     capabilities: { ...CAPABILITIES, autonomous: !options.sessionFactory, restrictedAutonomous: !options.sessionFactory },
+    ...(!options.sessionFactory ? { stateRoomAllowanceBytes: PI_PIPE_MAX_BYTES } : {}),
     listProfiles: () => listPiProfiles(options),
     // `listUnavailableProfiles` is deliberately omitted (#1044): pi lists every
     // configured profile and checks its credential when a session starts, so

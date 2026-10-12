@@ -127,6 +127,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
   return {
     id: BACKEND_ID,
     capabilities,
+    stateRoomAllowanceBytes: resolveWorkerStateLimits(options.workerState ?? {}).allowanceBytes,
     listProfiles(): ProviderInfo[] {
       return listProfiles(resolveProfiles());
     },

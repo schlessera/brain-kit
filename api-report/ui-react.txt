@@ -171,6 +171,10 @@ signatures (every public export and the types it is made of)
   BackendInfo (packages/ui-react/src/lib/api-client.ts)
     export interface BackendInfo {
         id: string;
+        stateRoomAllowance?: {
+            bytes: number;
+            observedAt: number;
+        };
         capabilities: {
             concurrentSessions: boolean;
             followUp: boolean;

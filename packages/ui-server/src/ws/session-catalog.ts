@@ -9,7 +9,9 @@ import type {
   ServerResultMessage,
   SessionHistoryMessage,
   ThinkingLevel,
+  StateRoomObservation,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { stateRoomObservationSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 import { attachMessageSources, saveMessageSource, saveEffectiveThinkingLevel } from "./message-sources.js";
 import {
@@ -30,6 +32,8 @@ import { bindTurnEvents, recordGovernanceEvent, type GovernanceEventInput } from
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
+  recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
+  readStateRoom?(sessionId: string): StateRoomObservation | undefined;
   /** Scratch links in backend-persisted answers, before next-turn pruning. */
   recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
   /** Observed terminal metadata at its backend-normalized assistant position. */
@@ -162,6 +166,19 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     });
   };
   return {
+    recordStateRoom(sessionId, observation) {
+      try {
+        const parsed = stateRoomObservationSchema.parse(observation);
+        db().query("INSERT INTO session_state_room (session_id, observation) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET observation = excluded.observation")
+          .run(sessionId, JSON.stringify(parsed));
+      } catch (error) { reportWriteFailure(sessionId, error); }
+    },
+    readStateRoom(sessionId) {
+      try {
+        const row = db().query("SELECT observation FROM session_state_room WHERE session_id = ?").get(sessionId) as { observation: string } | null;
+        return row ? stateRoomObservationSchema.parse(JSON.parse(row.observation)) : undefined;
+      } catch (error) { reportWriteFailure(sessionId, error); return undefined; }
+    },
     recordScratchPins(sessionId, backendId, messages) {
       try { scratchPins?.record(sessionId, backendId, messages); }
       catch (err) { reportWriteFailure(sessionId, err); }

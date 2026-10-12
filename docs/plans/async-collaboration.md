@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:225-319`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:236-330`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -134,14 +134,14 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:662`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:225-319`). Timeout unwind is
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:236-330`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:335-341`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:84-261`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:28-134`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Built-ins are disabled,
@@ -154,7 +154,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:87`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2269`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2282`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:908-919`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
@@ -807,7 +807,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2269`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2282`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -1318,7 +1318,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:84-261`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, deterministic package-owned trusted instructions,

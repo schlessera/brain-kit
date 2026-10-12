@@ -574,6 +574,8 @@ export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
   capabilities: BackendCapabilities;
+  /** Current intrinsic resumed-state allowance, for invalidating older observations. Not aggregate free capacity. */
+  stateRoomAllowanceBytes?: number;
   /** Model/endpoint profiles this backend can run. Never exposes keys. */
   listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
   /**

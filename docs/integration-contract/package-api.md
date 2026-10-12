@@ -1009,6 +1009,15 @@ confirmed empty. The CLI `{ report }` envelope does not change.
 
 ### AgentBackend conformance baseline
 
+Additive in #1679: a backend may expose `stateRoomAllowanceBytes`, its resolved
+admission allowance for presentation. A resumed ordinary turn may include a
+`StateRoomObservation` on its result, using its actual admitted inputs; omission
+means unknown. The host reports timestamped allowance metadata and the latest
+observation without widening any capability or grant. The public protocol
+exports `stateRoomWarning` and `stateRoomCopy` so context and UI share the
+approved single 75% band and factual copy. See the
+[wire contract](wire.md#measured-conversation-state-room-additive-1679).
+
 **Breaking pre-1.0 hosted pi execution (#1038, isolated-writer ruling on #674).**
 Each ordinary or autonomous pi turn runs its agent session, resource loader,
 extensions and shell children inside the shared pre-initialization worker

@@ -624,7 +624,11 @@ Model operations are protected. Roster IDs and discovered membership can evolve;
 clients use IDs as opaque selections and the declared metadata for presentation.
 
 **GET /api/providers.** No inputs. Returns
-`{ providers: ProviderInfo[], backends: Record<string, { id, capabilities }>, unavailable?: UnavailableProfileInfo[] }`.
+`{ providers: ProviderInfo[], backends: Record<string, { id, capabilities, stateRoomAllowance?: { bytes, observedAt } }>, unavailable?: UnavailableProfileInfo[] }`.
+The optional allowance is current host metadata in bytes with a Unix-millisecond
+observation time. It invalidates older saved-state ratios when the allowance
+changes; it is not measured session usage. See
+[measured conversation state room](integration-contract/wire.md#measured-conversation-state-room-additive-1679).
 Visible profiles only; hidden profiles still resolve for pinned sessions.
 `providers` lists only profiles that can run now. `unavailable` (additive,
 #1044) lists visible profiles a backend is configured with but cannot run, each
@@ -1066,6 +1070,7 @@ read by any authenticated principal.
 | `quarantine` | 1 | `path`, `tier`, `entry`, `bytes`, `trigger`, `objectId` | A protected file that appeared during a turn was moved into the journal quarantine. `tier` is `A` or `B`; `entry` is `file`, `directory`, `symlink` or `other`; `trigger` is `turn_end` or `boot_recovery`; `objectId` names the quarantined copy. |
 | `quarantine_reconciliation` | 1 | `trigger`, `reconciledTurnIds`, `quarantined`, `masked` | One reconciliation pass. `trigger` is `boot_recovery` or `launch`; `masked` lists the paths a launching worker saw masked. |
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
+| `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
 | `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `continued`, `stopped`, `voice_stopped` or `turn_ended`. |
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`. |

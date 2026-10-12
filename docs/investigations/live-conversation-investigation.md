@@ -239,7 +239,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:573-601`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:573-603`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 
@@ -288,7 +288,7 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1674-1679`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1736-1741`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.

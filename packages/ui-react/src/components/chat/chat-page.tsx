@@ -32,6 +32,7 @@ import { Composer, type ComposerHandle } from "./composer.js";
 import { ChatComposerRow } from "./composer-row.js";
 import { sendReask } from "./reask-send.js";
 import { HandoffSheet } from "./handoff-sheet.js";
+import { StateRoomNotice } from "./state-room-notice.js";
 import { HandoffMarker } from "./handoff-links.js";
 import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js";
 import { markerPosition } from "../../lib/handoff.js";
@@ -743,6 +744,7 @@ export function ChatPage() {
 
           <HandoffSheet />
           <ChatComposerRow wide={wide} onOpenTracker={openTracker} />
+          <StateRoomNotice onDismissFocus={() => { composerRef.current?.focusEnd(); }} />
           <Composer send={send} handle={composerRef} />
         </div>
       </div>

@@ -27,6 +27,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** One valid v1 payload per kind, in the Odysseus world. */
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
+  state_room_warning: { usedBytes: 51 * 1024 * 1024, allowanceBytes: 64 * 1024 * 1024, observedAt: Date.UTC(2026, 6, 12) },
   scratch_overage: { bytes: 1_200_000_000, pinnedFiles: 3, pinnedBytes: 1_200_000_000, overageBytes: 126_258_176 },
   promotion: { source: "/tmp/brain-worker/ithaca-route.pdf", destination: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf", bytes: 48_213, originalLink: "/tmp/brain-worker/ithaca-route.pdf", rewrittenLink: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf" },
   promotion_refused: { source: "/tmp/brain-worker/cyclops-cave", originalLink: "/tmp/brain-worker/cyclops-cave", reason: "not_regular_file", bytes: null, limitBytes: null },

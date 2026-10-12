@@ -184,6 +184,27 @@ export function createRoot(
       : typeof localStorage === "undefined" ? null : localStorage,
     storageKey: (key) => prefix ? `${prefix}:${key}` : key,
   });
+  // A roster change invalidates known old ratios and dismissal even while
+  // their conversation/page is not visible. The persisted preference carries
+  // only the identity/time needed to reconcile a dismissal before history loads.
+  const reconcileStateRoom = () => {
+    const chat = stores.chat.getState(), backends = stores.provider.getState().backends;
+    for (const id of new Set([...Object.keys(chat.stateRooms), ...Object.keys(chat.stateRoomPreferences)])) {
+      const room = chat.stateRooms[id]?.observation, preference = chat.stateRoomPreferences[id];
+      const backendId = chat.backendIds[id] ?? preference?.backendId;
+      const current = backendId ? backends[backendId]?.stateRoomAllowance : undefined;
+      const allowance = room?.allowanceBytes ?? preference?.dismissedAllowance;
+      const measuredAt = room?.observedAt ?? preference?.measuredAt;
+      if (current && allowance !== undefined && measuredAt !== undefined
+        && current.observedAt >= measuredAt && current.bytes !== allowance) chat.invalidateStateRoom(id, measuredAt);
+    }
+  };
+  const stopStateRoomRoster = stores.provider.subscribe((next, prior) => {
+    if (next.backends !== prior.backends) reconcileStateRoom();
+  });
+  const stopStateRoomHistory = stores.chat.subscribe((next, prior) => {
+    if (next.stateRooms !== prior.stateRooms || next.backendIds !== prior.backendIds) reconcileStateRoom();
+  });
   let vpnRecheck: (() => void) | null = null;
   // A root built without persistence (stories, tests, SSR) keeps submitted
   // answers in memory: receipts and live-page recovery still work, a reload
@@ -260,6 +281,7 @@ export function createRoot(
     connection,
     answers: connection.answers,
     dispose() {
+      stopStateRoomRoster(); stopStateRoomHistory();
       services.localWorkFlow.dispose();
       services.authLock.dispose();
       connection.dispose();

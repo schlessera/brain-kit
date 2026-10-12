@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
-import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
 
@@ -94,6 +94,8 @@ export function files(root: string, prefix = "", options: { resolved?: boolean }
 }
 
 export interface ClaudeWorkerState {
+  /** Available only after the actual bounded copy, for a resumed interactive session. */
+  readonly observation?: StateRoomObservation;
   /** The allowance this worker was admitted with: its tmpfs size, fixed for its lifetime. */
   readonly bytes: number;
   /** The turn-temp allowance admitted with it (#1703): its `/tmp` size, fixed for its lifetime; 0 without one. */
@@ -188,7 +190,9 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
     try { writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 }); directory(dirname(target)); renameSync(temp, target); }
     finally { rmSync(temp, { force: true }); }
   };
+  let observation: StateRoomObservation | undefined;
   return {
+    get observation() { return observation; },
     bytes: held.bytes,
     turnTempBytes: held.turnTempBytes,
     release: () => held.release(),
@@ -213,6 +217,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new SessionTooLargeError(total, allowance);
         throw error;
       }
+      if (options.resume && transcripts.length > 0) observation = { usedBytes: total, allowanceBytes: allowance, observedAt: Date.now() };
     },
     /**
      * `rewrite` maps the answer text of the transcript lines this run

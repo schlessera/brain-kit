@@ -136,6 +136,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   })),
   /** A budget's warn limit crossed; recorded once per crossing (#1669). */
   budget_warning: kind(1, z.strictObject(budget)),
+  /** The approved single-band resumed-state warning, quiet and once per allowance/session. */
+  state_room_warning: kind(1, z.strictObject({ usedBytes: count, allowanceBytes: z.number().int().positive(), observedAt: count })),
   /** A budget's block limit reached: refused, aborted or stopped by the backstop (#1669). */
   budget_block: kind(1, z.strictObject({
     ...budget,

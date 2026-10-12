@@ -153,7 +153,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           const history = await backend.getHistory(sid);
           await host.failureReplay.wait(sid);
           if (connection.authorization.valid && history.length > 0) {
-            sendSessionHistory(ws, sid, host.prepareHistory(sid, history));
+            sendSessionHistory(ws, sid, host.prepareHistory(sid, history), host.catalog.readStateRoom?.(sid));
           }
         } catch (err) {
           host.log.emit({

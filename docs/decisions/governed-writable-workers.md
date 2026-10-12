@@ -149,7 +149,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:476-480`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:487-491`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -715,7 +715,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:220`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:221`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:519`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -748,7 +748,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:267`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:284`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1067,7 +1067,7 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:118`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:120`)
 and the inference relay
 (`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,

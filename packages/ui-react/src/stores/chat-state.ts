@@ -17,6 +17,7 @@ import type {
   TurnFailure,
   TurnRetry,
   ThinkingLevel,
+  StateRoomObservation,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -358,6 +359,13 @@ export interface PendingTurnRetry {
 }
 
 export interface ChatState {
+  stateRooms: Record<string, { observation: StateRoomObservation; historical: boolean }>;
+  stateRoomPreferences: Record<string, { dismissedAllowance?: number; invalidatedAt?: number; backendId?: string; measuredAt?: number }>;
+  stateRoomAnnouncements: Record<string, number>;
+  setStateRoom(sessionId: string, observation: StateRoomObservation | undefined, historical?: boolean): void;
+  dismissStateRoom(sessionId: string, allowanceBytes: number): void;
+  invalidateStateRoom(sessionId: string, observedAt: number): void;
+  markStateRoomAnnounced(sessionId: string, allowanceBytes: number): void;
   /** Ephemeral correlated chat acknowledgements; never written to browser storage. */
   chatReceipts: Record<string, { state: "accepted" | "refused"; sessionId?: string }>;
   setChatReceipt(requestId: string, state: "accepted" | "refused", sessionId?: string): void;
@@ -1058,6 +1066,27 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
   }
 
   const SESSION_ID_KEY = env.storageKey("brain-sessionId");
+  const STATE_ROOM_KEY = env.storageKey("brain-state-room-preferences");
+  function readStateRoomPreferences(): ChatState["stateRoomPreferences"] {
+    try {
+      const parsed: unknown = JSON.parse(env.storage()?.getItem(STATE_ROOM_KEY) ?? "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      return Object.fromEntries(Object.entries(parsed).flatMap(([sessionId, value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const preference = value as { dismissedAllowance?: unknown; invalidatedAt?: unknown; backendId?: unknown; measuredAt?: unknown };
+        const valid = (n: unknown): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+        return [[sessionId, {
+          ...(valid(preference.dismissedAllowance) && preference.dismissedAllowance > 0 ? { dismissedAllowance: preference.dismissedAllowance } : {}),
+          ...(valid(preference.invalidatedAt) ? { invalidatedAt: preference.invalidatedAt } : {}),
+          ...(typeof preference.backendId === "string" && preference.backendId.length <= 200 ? { backendId: preference.backendId } : {}),
+          ...(valid(preference.measuredAt) ? { measuredAt: preference.measuredAt } : {}),
+        }]];
+      }));
+    } catch { return {}; }
+  }
+  function persistStateRoomPreferences(preferences: ChatState["stateRoomPreferences"]): void {
+    try { env.storage()?.setItem(STATE_ROOM_KEY, JSON.stringify(preferences)); } catch { /* The in-memory dismissal still holds. */ }
+  }
 
   /**
    * Persist the active session id to localStorage when a DOM is present (the
@@ -1227,6 +1256,39 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       runStates: {},
       queueNotes: {},
       backendIds: {},
+      stateRooms: {},
+      stateRoomPreferences: readStateRoomPreferences(),
+      stateRoomAnnouncements: {},
+      setStateRoom(sessionId, observation, historical = false) {
+        const rooms = { ...get().stateRooms };
+        const current = rooms[sessionId];
+        if (observation && current && current.observation.observedAt > observation.observedAt) return;
+        if (historical && current && !current.historical && (!observation || current.observation.observedAt === observation.observedAt)) return;
+        if (observation) rooms[sessionId] = { observation, historical };
+        else delete rooms[sessionId];
+        const preferences = { ...get().stateRoomPreferences };
+        if (observation && !historical && (preferences[sessionId]?.invalidatedAt !== undefined
+          || (preferences[sessionId]?.dismissedAllowance !== undefined && preferences[sessionId]!.dismissedAllowance !== observation.allowanceBytes))) {
+          const dismissed = preferences[sessionId]?.dismissedAllowance;
+          preferences[sessionId] = { ...(dismissed === observation.allowanceBytes ? { dismissedAllowance: dismissed } : {}) };
+          persistStateRoomPreferences(preferences);
+        }
+        set({ stateRooms: rooms, stateRoomPreferences: preferences });
+      },
+      dismissStateRoom(sessionId, allowanceBytes) {
+        const preferences = { ...get().stateRoomPreferences, [sessionId]: { ...get().stateRoomPreferences[sessionId], dismissedAllowance: allowanceBytes,
+          backendId: get().backendIds[sessionId], measuredAt: get().stateRooms[sessionId]?.observation.observedAt } };
+        persistStateRoomPreferences(preferences); set({ stateRoomPreferences: preferences });
+      },
+      invalidateStateRoom(sessionId, observedAt) {
+        const prior = get().stateRoomPreferences[sessionId];
+        if (prior?.invalidatedAt === observedAt && prior.dismissedAllowance === undefined) return;
+        const preferences = { ...get().stateRoomPreferences, [sessionId]: { invalidatedAt: observedAt } };
+        persistStateRoomPreferences(preferences); set({ stateRoomPreferences: preferences });
+      },
+      markStateRoomAnnounced(sessionId, allowanceBytes) {
+        set({ stateRoomAnnouncements: { ...get().stateRoomAnnouncements, [sessionId]: allowanceBytes } });
+      },
 
       // createIfMissing: a user-initiated send must never be dropped, even when
       // the active session's buffer hasn't been materialized yet (cold start
