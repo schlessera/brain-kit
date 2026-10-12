@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event and roadblock-report routes mounted by `createApp`: 122 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event and roadblock-report routes mounted by `createApp`: 126 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -58,6 +58,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
+| PUT | `/api/drafts/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | PUT | `/api/drafts/:draftId` | S | Create or replace a draft revision with If-Match | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -110,6 +112,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
+| PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
@@ -155,7 +159,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 122 declared endpoints are mounted regardless of backend, renderer or
+All 126 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 

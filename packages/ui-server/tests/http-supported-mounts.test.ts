@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createActivityStore } from "../src/activity/store";
 import { createPrincipal } from "../src/db/principals";
+import { createSessionCatalog } from "../src/ws/session-catalog";
 import { CLI_LOG, httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 
@@ -52,6 +53,10 @@ const checks: Record<string, Check> = {
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
   "POST /api/models/refresh": { init: { method: "POST" }, status: 409, verify: async (r) => { expect((await r.json()).error).toBeString(); } },
   "GET /api/providers": { body: { providers: [{ id: "fixture" }], backends: { fixture: { id: "fixture" } } } },
+  "GET /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", body: { preference: "governed", origin: "interactive" } },
+  "PUT /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict" } },
+  "GET /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", body: { preference: "governed", draftPreferenceStored: false } },
+  "PUT /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict", draftPreferenceStored: true } },
   "GET /api/sessions": { body: { sessions: [{ id: "fixture-session", backendId: "fixture", title: "Arrival" }] } },
   "GET /api/drafts": { body: { drafts: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/drafts/:draftId": { path: "/api/drafts/draft-missing", status: 404, body: { error: "DRAFT_NOT_FOUND" } },
@@ -106,6 +111,9 @@ for (const [operation, check] of Object.entries(checks)) {
       if (operation === "POST /api/auth/login") t.app.db.exec("DELETE FROM passkey_credentials");
       if (operation === "DELETE /api/auth/principals/:id") {
         t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
+      }
+      if (operation.endsWith("/api/sessions/:id/profile")) {
+        createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
       }
       const store = createActivityStore(t.app.db, { writer: "http-contract" });
       store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });

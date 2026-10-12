@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:100-133`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:105-141`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -54,6 +54,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/brain/stats/history` | `mounted supported handler: GET /api/brain/stats/history` | B |
 | `POST /api/brain/sync` | `mounted supported handler: POST /api/brain/sync` | B, Y |
 | `GET /api/drafts` | `mounted supported handler: GET /api/drafts` | X |
+| `GET /api/drafts/:id/profile` | `mounted supported handler: GET /api/drafts/:id/profile` | X |
+| `PUT /api/drafts/:id/profile` | `mounted supported handler: PUT /api/drafts/:id/profile` | X |
 | `GET /api/drafts/:draftId` | `mounted supported handler: GET /api/drafts/:draftId` | X |
 | `PUT /api/drafts/:draftId` | `mounted supported handler: PUT /api/drafts/:draftId` | X |
 | `DELETE /api/drafts/:draftId` | `mounted supported handler: DELETE /api/drafts/:draftId` | X |
@@ -77,6 +79,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/push/unsubscribe` | `mounted supported handler: POST /api/push/unsubscribe` | U |
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
+| `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
+| `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
