@@ -535,7 +535,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
 
 /**
  * Private trusted bootstrap. It validates/clears descriptors, joins the
- * worker's cgroup when it has one, and only then execs the launcher.
+ * worker's cgroup when it has one, then resets signal dispositions and execs the launcher.
  */
 export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command: string[]; env: Record<string, string> } {
   // Resolve using this package's source/build output, never the brain's module resolver.
@@ -711,7 +711,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     };
     const memoryWatch = cgroup ? setInterval(watchMemory, FATAL_OOM_WINDOW_MS / 4) : undefined;
     memoryWatch?.unref?.();
-    // The rlimits make a step fail inside the worker (EAGAIN, ENOMEM, EFBIG)
+    // The rlimits make a step fail inside the worker (EAGAIN, ENOMEM, SIGXFSZ)
     // without a record the server can read; the cgroup counts its hits.
     const report = (exitCode?: number | null): WorkerLimitReport => {
       if (final) return final;

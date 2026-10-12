@@ -228,12 +228,14 @@ describe("real workers under their limits", () => {
     expect(Buffer.alloc(64 * MIB).length).toBe(64 * MIB);
   }, 15_000);
 
-  test("a write past the file size limit fails that write inside the worker", async () => {
+  test("a write past the file size limit terminates the writer with SIGXFSZ inside the worker", async () => {
     const { code, stdout, stderr, report } = await run("file_size=1MiB", ["/bin/sh", "-c",
       "/usr/bin/dd if=/dev/zero of=/tmp/raft bs=1M count=4; echo \"dd=$? size=$(stat -c %s /tmp/raft)\""]);
     expect(code).toBe(0);
-    expect(stderr).toContain("File too large");
-    expect(stdout).toContain(`dd=1 size=${MIB}`);
+    // Noninteractive shells need not print a signal diagnostic. The status
+    // is 128 + SIGXFSZ (25), rather than dd's EFBIG exit 1.
+    expect(stdout).toContain(`dd=153 size=${MIB}`);
+    expect(stderr).not.toContain("File too large");
     expect(report).toEqual({ hits: [], fatal: false });
   }, 15_000);
 

@@ -45,6 +45,15 @@ exec too. Bun's read-only `/dev/urandom` descriptor is explicitly closed. A
 refusal reports only on a validated pipe, so policy-backed stderr cannot be
 modified even by the diagnostic itself.
 
+Before bubblewrap executes, the bootstrap runs GNU coreutils `env` from
+`/usr/bin/env` or `/bin/env` with `--default-signal`. It restores every
+catchable signal disposition to its default, including Bun's inherited
+SIGPIPE and SIGXFSZ ignores (#1690). SIGKILL and SIGSTOP cannot be reset.
+This option changes dispositions only; it adds no signal-mask policy. The
+requested runtime remains free to install its own handlers. A host needs
+GNU `env` with this option; a missing or unsupported binary fails the real
+worker probe and refuses agent turns.
+
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts `/` and the canonical brain read-only, and replaces `/proc`
 and `/dev`. When the server runs as root, the worker's whole `/proc` is
@@ -482,7 +491,7 @@ bubblewrap.
 | --- | --- | --- | --- |
 | `processes` | `RLIMIT_NPROC` | 4096 tasks, threads included | `fork: Resource temporarily unavailable` (`EAGAIN`) |
 | `data` | `RLIMIT_DATA` | half the server's memory, per process (below) | `Out of memory` / `Cannot allocate memory` |
-| `file_size` | `RLIMIT_FSIZE` | 16 GiB per file | `File too large` (`EFBIG`) |
+| `file_size` | `RLIMIT_FSIZE` | 16 GiB per file | SIGXFSZ terminates the writer (`File size limit exceeded` when the shell reports it); `File too large` (`EFBIG`) if the runtime handles or ignores the signal |
 | `open_files` | `RLIMIT_NOFILE` | 65536 per process | `Too many open files` |
 
 `RLIMIT_NPROC` is set inside the user namespace on purpose. The kernel counts
