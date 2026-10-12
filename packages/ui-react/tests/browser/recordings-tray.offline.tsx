@@ -954,10 +954,10 @@ for (const heldRead of [false, true]) test(`warm auth invalidates acceptance wai
   if (heldRead) {
     await expect.poll(() => readEntered, { message: "native recording read reached the controlled handoff" }).toBe(true);
     expect(captured, "recording read precedes generation capture").toBe(false);
-    expect((await navigator.locks.query()).held.some(l => l.name === "brain-ui:recording"), "accept owns the native recording lock during its read").toBe(true);
+    expect((await navigator.locks.query()).held!.some(l => l.name === "brain-ui:recording"), "accept owns the native recording lock during its read").toBe(true);
     releaseRead();
   }
-  await expect.poll(async () => captured && (await navigator.locks.query()).pending.some(l => l.name === "brain-ui:work:odysseus:root:ithaca"), {
+  await expect.poll(async () => captured && (await navigator.locks.query()).pending!.some(l => l.name === "brain-ui:work:odysseus:root:ithaca"), {
     message: "old generation captured and acceptance actually queued on the held native work lock",
   }).toBe(true);
   c.root.localWork!.lock(); c.root.stores.drafts.getState().release();
@@ -983,7 +983,7 @@ test("recording lock contention refuses acceptance before draft generation captu
   await started;
   await expect(c.root.recordings!.accept(row.partition, row.id, id, null)).rejects.toThrow("Recording in another Brain tab");
   expect(add, "ifAvailable recording contention never enters draft acceptance").not.toHaveBeenCalled();
-  expect((await navigator.locks.query()).pending.some(l => l.name === "brain-ui:recording"), "ifAvailable refusal is not a queued recording lock").toBe(false);
+  expect((await navigator.locks.query()).pending!.some(l => l.name === "brain-ui:recording"), "ifAvailable refusal is not a queued recording lock").toBe(false);
   expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ transcript: TEXT, chunkCount: 1, bytes: row.bytes });
   expect(row.bytes).toBeGreaterThan(0);
   expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`)).toBeUndefined();
