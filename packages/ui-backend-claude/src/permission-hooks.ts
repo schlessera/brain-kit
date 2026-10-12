@@ -90,7 +90,7 @@ export function createPermissionWiring(options: {
     if (req.autonomous || (hookInput.hook_event_name !== "PostToolUse" && hookInput.hook_event_name !== "PostToolUseFailure")) return { continue: true };
     const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
     if (hookInput.tool_name === "Read") {
-      fileVersions.finishRead(hookInput.tool_use_id, current?.version ?? { status: "unavailable" }, hookInput.hook_event_name === "PostToolUse" && !req.signal.aborted && (hookInput.tool_response as { type?: string } | null)?.type === "text");
+      fileVersions.finishRead(hookInput.tool_use_id, current?.version ?? { status: "unavailable" }, hookInput.hook_event_name === "PostToolUse" && !req.signal.aborted && ["text", "image", "notebook", "pdf", "parts"].includes((hookInput.tool_response as { type?: string } | null)?.type ?? ""));
     } else if (current && hookInput.hook_event_name === "PostToolUse" && ["Write", "Edit", "NotebookEdit"].includes(hookInput.tool_name)) {
       const response = hookInput.tool_response as { content?: unknown; originalFile?: unknown; oldString?: unknown; newString?: unknown; replaceAll?: unknown; staged?: unknown } | null;
       if (response?.staged === true) return { continue: true };

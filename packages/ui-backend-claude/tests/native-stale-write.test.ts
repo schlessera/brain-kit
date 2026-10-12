@@ -18,15 +18,16 @@ function reply(call?: { name: string; input: Record<string, unknown>; id: string
   return new Response(events.map(event => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 }
 
-for (const toolName of ["Write", "Edit"] as const) for (const mode of ["stale", "cached", "fresh"] as const) test(`real Claude ${toolName} ${mode === "fresh" ? "recovers after a fresh read" : mode === "cached" ? "does not refresh a hash from a cached unchanged read" : "refuses a byte-stale file even when its mtime was preserved"}`, async () => {
+for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mode of (toolName === "NotebookEdit" ? ["stale"] : ["stale", "cached", "fresh"]) as readonly ("stale" | "cached" | "fresh")[]) test(`real Claude ${toolName} ${mode === "fresh" ? "recovers after a fresh read" : mode === "cached" ? "does not refresh a hash from a cached unchanged read" : "refuses a byte-stale file even when its mtime was preserved"}`, async () => {
   const reread = mode !== "stale", recovered = mode === "fresh";
   const root = mkdtempSync(join(tmpdir(), "odysseus-native-stale-")), brain = join(root, "brain"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(home);
-  const path = join(brain, "loom.md"), before = "Penelope weaves.\n", peer = "Penelope sleeps.\n";
+  const notebook = (source: string) => JSON.stringify({ cells: [{ cell_type: "code", id: "loom", metadata: {}, source: [source], outputs: [], execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
+  const path = join(brain, toolName === "NotebookEdit" ? "loom.ipynb" : "loom.md"), before = toolName === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n", peer = toolName === "NotebookEdit" ? notebook("Penelope sleeps.\n") : "Penelope sleeps.\n";
   writeFileSync(path, before); utimesSync(path, new Date("2026-07-12T00:00:00Z"), new Date("2026-07-12T00:00:00Z"));
   const stamp = statSync(path);
   const calls = [{ name: "Read", input: { file_path: path }, id: "toolu_ithaca_read" },
-    { name: toolName, input: toolName === "Write" ? { file_path: path, content: "Athena charts.\n" } : { file_path: path, old_string: "Penelope", new_string: "Odysseus" }, id: "toolu_ithaca_write" }];
+    { name: toolName, input: toolName === "Write" ? { file_path: path, content: "Athena charts.\n" } : toolName === "NotebookEdit" ? { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" } : { file_path: path, old_string: "Penelope", new_string: "Odysseus" }, id: "toolu_ithaca_write" }];
   if (reread) calls.splice(1, 0, { name: "Read", input: { file_path: path }, id: "toolu_ithaca_reread" });
   let sent = 0, reads = 0, rereadContent: string | undefined, nativeDenial = false, version: string | undefined;
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
@@ -40,7 +41,7 @@ for (const toolName of ["Write", "Edit"] as const) for (const mode of ["stale", 
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() }, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });
   const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca.", signal: controller.signal,
     workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] }, bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } },
-    allowedTools: ["Read", "Write", "Edit"], confirmPatterns: [], brainPath: brain, turnLock: lock, childEnv: { PATH: "/usr/bin:/bin" }, log: () => {} });
+    allowedTools: ["Read", "Write", "Edit", "NotebookEdit"], confirmPatterns: [], brainPath: brain, turnLock: lock, childEnv: { PATH: "/usr/bin:/bin" }, log: () => {} });
   const post = wiring.hooks!.PostToolUse![0]!.hooks[0]!;
   const recordThenPeer: HookCallback = async (...args) => {
     const result = await post(...args);
@@ -61,7 +62,7 @@ for (const toolName of ["Write", "Edit"] as const) for (const mode of ["stale", 
     }) as HookCallback) })) };
   const adapter = new StreamAdapter();
   try {
-    for await (const message of query({ prompt: "Read the loom, then make the planned file change.", options: { cwd: brain, settingSources: [], maxTurns: 4, model: "claude-sonnet-4-6", permissionMode: "default", allowedTools: ["Read", "Write", "Edit"], ...wiring, hooks,
+    for await (const message of query({ prompt: "Read the loom, then make the planned file change.", options: { cwd: brain, settingSources: [], maxTurns: 4, model: "claude-sonnet-4-6", permissionMode: "default", allowedTools: ["Read", "Write", "Edit", "NotebookEdit"], ...wiring, hooks,
       abortController: controller, env: { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: process.env.PATH ?? "/usr/bin:/bin", ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "odysseus-offline-only-key", ANTHROPIC_AUTH_TOKEN: undefined, CLAUDE_CODE_OAUTH_TOKEN: undefined, CLAUDE_CODE_USE_BEDROCK: "", CLAUDE_CODE_USE_VERTEX: "", CLAUDE_CODE_USE_FOUNDRY: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } } }) as AsyncIterable<SDKMessage>) {
       if (message.type === "system" && message.subtype === "init") version = message.claude_code_version;
       frames.push(...adapter.adapt(message));
