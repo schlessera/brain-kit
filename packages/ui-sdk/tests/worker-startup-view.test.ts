@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
 import { text } from "node:stream/consumers";
+import { prepareWorkerOutput, WORKER_OUTPUT } from "../src/server/worker-output.js";
+import { WORKER_AREA_ROOT } from "../src/server/worker-sandbox.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { once } from "node:events";
 import { workerCommand, prepareWorkerSandbox, launchAgentWorker } from "../src/server/worker-launcher.js";
@@ -168,3 +170,41 @@ for (const mode of ["strict", "restricted", "maintenance"] as const) for (const 
     expect(result.public).toContain("Odysseus before launch");
   });
 }
+
+
+for (const link of ["relative", "absolute", "output-root"] as const) test(`maintenance output copy masks the ${link} secret destination`, async () => {
+  const brain = fixture(); mkdirSync(join(brain, "tokens"));
+  writeFileSync(join(brain, "tokens/harbor.txt"), "BRAIN_DOTENV_MARK=Odysseus\n");
+  fs.symlinkSync(link === "relative" ? "tokens/harbor.txt" : link === "absolute" ? join(brain, "tokens/harbor.txt")
+    : `${WORKER_OUTPUT}/tokens/harbor.txt`, join(brain, ".env"));
+  const outputs = prepareWorkerOutput(brain);
+  try {
+    const result = await runMaintenanceWorker({ brainPath: brain, startupView: outputs.view, output: outputs.output,
+      credentials: false, env: {}, command: [process.execPath, "--no-env-file", "-e",
+        'const fs=require("node:fs"),root=process.env.BRAIN_ROOT,read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(root+"/.env"),copy:read(root+"/tokens/harbor.txt"),public:read("helper.ts")}));'] });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const receipt = JSON.parse(result.stdout);
+    expect(["", "EACCES"], "MAINTENANCE_SECRET_COPY_MASKED").toContain(receipt.copy);
+    expect(["", "EACCES"], "MAINTENANCE_SECRET_ALIAS_MASKED").toContain(receipt.alias);
+    expect(receipt.public).toContain("Odysseus before launch");
+  } finally { outputs.cleanup(); }
+});
+
+for (const link of ["relative", "absolute", "area-root"] as const) test(`strict area copy masks the ${link} secret destination and retains permitted writes`, async () => {
+  const brain = fixture(); mkdirSync(join(brain, "workspaces"));
+  writeFileSync(join(brain, "workspaces/harbor.txt"), "BRAIN_DOTENV_MARK=Odysseus\n");
+  fs.symlinkSync(link === "relative" ? "workspaces/harbor.txt" : link === "absolute" ? join(brain, "workspaces/harbor.txt")
+    : `${WORKER_AREA_ROOT}/workspaces/harbor.txt`, join(brain, ".env"));
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] });
+  const worker = launchAgentWorker({ brainPath: brain, sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e",
+    `const fs=require("node:fs"),root=${JSON.stringify(WORKER_AREA_ROOT + "/workspaces")},read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};fs.writeFileSync(root+"/voyage.md","Odysseus keeps writing.");console.log(JSON.stringify({alias:read(".env"),copy:read(root+"/harbor.txt"),public:read("helper.ts")}));`] });
+  try {
+    const streams = Promise.all([text(worker.stdout),text(worker.stderr)]), code = await worker.exited, [stdout,stderr] = await streams;
+    expect(code, stderr).toBe(0);
+    const receipt = JSON.parse(stdout);
+    expect(["", "EACCES"], "STRICT_AREA_SECRET_COPY_MASKED").toContain(receipt.copy);
+    expect(["", "EACCES"], "STRICT_AREA_SECRET_ALIAS_MASKED").toContain(receipt.alias);
+    expect(receipt.public).toContain("Odysseus before launch");
+    expect(readFileSync(join(brain, "workspaces/voyage.md"), "utf8")).toBe("Odysseus keeps writing.");
+  } finally { worker.kill("SIGKILL"); }
+});

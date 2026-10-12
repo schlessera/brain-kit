@@ -521,7 +521,9 @@ share this capacity. An oversized starting copy refuses before execution.
 The agent's limits list and the hosting guide state the enforcing value.
 Secret links are resolved in worker-visible names while brain components are
 inspected through the held startup copy. Relative links, absolute brain links
-and link/parent traversal keep their masks after the startup bind.
+and link/parent traversal keep their masks after the startup bind. Secret
+destinations are masked in every separately named maintenance output or strict
+area copy too; a writable copy cannot expose the same bytes through an alias.
 
 Zero-filled extents are copied as sparse holes, preserving every logical byte
 without allocating a sparse artifact's logical length in the tmpfs. The

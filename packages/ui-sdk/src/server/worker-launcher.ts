@@ -376,13 +376,21 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
 }
 
 /** Applied after the complete startup view too, so a snapshot never lifts the secret mask. */
-function maintenanceEnvMasks(source: string, brain: string): string[] {
+function maintenanceEnvMasks(source: string, brain: string, copies: readonly { from: string; to: string }[] = []): string[] {
   const argv: string[] = [];
   const covered = new Set<string>();
   // Resolve in worker-visible names, inspecting brain components through
   // the held snapshot spelling. realpath loses /proc/<server>/fd aliases
   // into the helper-private namespace; absolute brain links must also use
   // the snapshot, rather than resolve against later live bytes.
+  const originalName = (path: string) => {
+    const copy = copies.find(copy => within(copy.to, path));
+    return copy ? copy.from + path.slice(copy.to.length) : path;
+  };
+  const inspectedName = (path: string) => {
+    const original = originalName(path);
+    return within(brain, original) ? source + original.slice(brain.length) : original;
+  };
   function target(path: string, links = 0): { path: string; info: import("node:fs").Stats } | undefined {
     if (links > 40) return undefined;
     const parts = path.split("/");
@@ -392,7 +400,10 @@ function maintenanceEnvMasks(source: string, brain: string): string[] {
       if (!part || part === ".") continue;
       if (part === "..") { current = dirname(current); continue; }
       const next = current === "/" ? `/${part}` : `${current}/${part}`;
-      const inspected = within(brain, next) ? source + next.slice(brain.length) : next;
+      // Named copy mounts create their parents in the worker namespace.
+      // Their metadata comes from the original held input tree.
+      if (copies.some(copy => next !== copy.to && within(next, copy.to))) { current = next; continue; }
+      const inspected = inspectedName(next);
       const info = lstatSync(inspected, { throwIfNoEntry: false });
       if (!info) return undefined;
       if (info.isSymbolicLink()) {
@@ -401,17 +412,25 @@ function maintenanceEnvMasks(source: string, brain: string): string[] {
       }
       current = next;
     }
-    const inspected = within(brain, current) ? source + current.slice(brain.length) : current;
+    const inspected = inspectedName(current);
     const info = lstatSync(inspected, { throwIfNoEntry: false });
     return info ? { path: current, info } : undefined;
   }
   for (const name of readdirSync(source)) {
     if (!isEnvName(name)) continue;
     const resolved = target(`${brain}/${name}`);
-    if (!resolved || covered.has(resolved.path)) continue;
-    covered.add(resolved.path);
-    if (resolved.info.isDirectory()) argv.push("--tmpfs", resolved.path, "--remount-ro", resolved.path);
-    else if (resolved.info.isFile()) argv.push("--ro-bind", "/dev/null", resolved.path);
+    if (!resolved) continue;
+    const original = originalName(resolved.path);
+    const destinations = new Set([resolved.path, original]);
+    for (const copy of copies) {
+      if (within(copy.from, original)) destinations.add(copy.to + original.slice(copy.from.length));
+    }
+    for (const destination of destinations) {
+      if (covered.has(destination)) continue;
+      covered.add(destination);
+      if (resolved.info.isDirectory()) argv.push("--tmpfs", destination, "--remount-ro", destination);
+      else if (resolved.info.isFile()) argv.push("--ro-bind", "/dev/null", destination);
+    }
   }
   return argv;
 }
@@ -474,8 +493,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
       : !maintenance && input.sandbox?.profile === "strict" ? ["--ro-bind", brain, brain] : []),
     ...(input.restricted ? maskedGit(brain) : []),
     ...(maintenance?.output ? ["--bind", maintenance.output.source, maintenance.output.target] : []),
-    ...(input.startupView && maintenance && !maintenance.credentials ? maintenanceEnvMasks(input.startupView.root, brain) : []),
-    ...(maintenance?.output && !maintenance.credentials ? maintenanceEnvMasks(maintenance.output.source, maintenance.output.target) : []),
+    ...(input.startupView && maintenance && !maintenance.credentials ? maintenanceEnvMasks(input.startupView.root, brain, maintenance.output ? [{ from: brain, to: maintenance.output.target }] : []) : []),
+    ...(maintenance?.output && !maintenance.credentials ? maintenanceEnvMasks(maintenance.output.source, brain, [{ from: brain, to: maintenance.output.target }]) : []),
     ...(maintenance?.git ? ["--ro-bind", maintenance.git.source, maintenance.git.target, "--ro-bind", maintenance.git.entry, maintenance.git.entry,
       "--ro-bind", maintenance.git.binary, maintenance.git.binary,
       "--bind", join(maintenance.output!.source, ".git"), `${maintenance.output!.target}/.git`,
@@ -492,7 +511,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
   // secret over an earlier mask. The masks are about reads, not writes.
   if (!maintenance) {
     const clear = argv.pop();
-    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain), clear!);
+    const copies = input.areaOutput && input.sandbox?.profile === "strict"
+      ? input.sandbox.areas.filter(area => area.mount.writable).map(area => ({ from: join(brain, area.rel), to: `${WORKER_AREA_ROOT}/${area.name}` })) : [];
+    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), clear!);
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
