@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:108-141`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:112-145`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -82,6 +82,10 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
 | `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | RV |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
+| `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
@@ -443,3 +447,11 @@ no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
 **R** — [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
+Undo, partial conflicts, operation identity, authorization, original voice and
+cross-session refusal, and observed quarantine restoration on real SQLite and
+files. `revert-gate.test.ts` proves old-turn maintenance/new-turn queue order;
+`revert-files.test.ts` proves binary/mode comparison and descriptor parent identity.
+The real Chrome `turn-journal-runtime.test.ts` exercises whole-turn review,
+reading focus/Escape, waiting and partial receipts, Undo and lost-response readback.

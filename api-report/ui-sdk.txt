@@ -311,6 +311,9 @@ export "." (./src/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
@@ -751,6 +754,9 @@ export "./client" (./src/client/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnTempInput
   type TurnUsage
   type UnavailableProfileInfo
@@ -1287,6 +1293,9 @@ export "./protocol" (./src/protocol.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
@@ -1950,6 +1959,9 @@ export "./server" (./src/server/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnTempAccess
   type TurnTempInput
   type TurnTempPromotionRefusal
@@ -9088,7 +9100,9 @@ signatures (every public export and the types it is made of)
         costUsd: number | null;
         costIsEstimate: boolean | null;
         profile: "strict" | "governed" | null;
-        actor: "interactive" | "voice" | null;
+        actor: "interactive" | "voice" | "user" | null;
+        kind?: "turn" | "revert";
+        sourceTurnId?: string;
         model: string | null;
         policyHash: string | null;
         sharedAttribution: boolean;
@@ -9101,6 +9115,30 @@ signatures (every public export and the types it is made of)
         delayMs?: number;
         errorClass?: string;
         status?: number;
+    }
+  TurnRevertPath (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertPath {
+        path: string;
+        state: "eligible" | "excluded" | "restored" | "conflict" | "failed";
+        reason: string | null;
+        quarantined: boolean;
+    }
+  TurnRevertPlan (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertPlan {
+        turnId: string;
+        action: "revert" | "restore";
+        paths: TurnRevertPath[];
+    }
+  TurnRevertReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertReceipt {
+        id: string;
+        sourceTurnId: string;
+        journalTurnId: string;
+        state: "waiting" | "applying" | "complete" | "partial" | "failed" | "unknown";
+        action: "revert" | "restore";
+        undoAvailable: boolean;
+        paths: TurnRevertPath[];
+        error: string | null;
     }
   TurnScript (packages/ui-sdk/src/testing/index.ts)
     export interface TurnScript {
@@ -13650,11 +13688,16 @@ signatures (every public export and the types it is made of)
         journal: z.ZodObject<{
             actor: z.ZodNullable<z.ZodEnum<{
                 interactive: "interactive";
+                user: "user";
                 voice: "voice";
             }>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                revert: "revert";
+                turn: "turn";
+            }>>;
             model: z.ZodNullable<z.ZodString>;
             observedAt: z.ZodNullable<z.ZodNumber>;
             policyHash: z.ZodNullable<z.ZodString>;
@@ -13663,6 +13706,7 @@ signatures (every public export and the types it is made of)
                 strict: "strict";
             }>>;
             sharedAttribution: z.ZodBoolean;
+            sourceTurnId: z.ZodOptional<z.ZodString>;
             state: z.ZodEnum<{
                 complete: "complete";
                 expired: "expired";
@@ -14278,11 +14322,16 @@ signatures (every public export and the types it is made of)
             journal: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 actor: z.ZodNullable<z.ZodEnum<{
                     interactive: "interactive";
+                    user: "user";
                     voice: "voice";
                 }>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    revert: "revert";
+                    turn: "turn";
+                }>>;
                 model: z.ZodNullable<z.ZodString>;
                 observedAt: z.ZodNullable<z.ZodNumber>;
                 policyHash: z.ZodNullable<z.ZodString>;
@@ -14291,6 +14340,7 @@ signatures (every public export and the types it is made of)
                     strict: "strict";
                 }>>;
                 sharedAttribution: z.ZodBoolean;
+                sourceTurnId: z.ZodOptional<z.ZodString>;
                 state: z.ZodEnum<{
                     complete: "complete";
                     expired: "expired";
@@ -16376,11 +16426,16 @@ signatures (every public export and the types it is made of)
             journal: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 actor: z.ZodNullable<z.ZodEnum<{
                     interactive: "interactive";
+                    user: "user";
                     voice: "voice";
                 }>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    revert: "revert";
+                    turn: "turn";
+                }>>;
                 model: z.ZodNullable<z.ZodString>;
                 observedAt: z.ZodNullable<z.ZodNumber>;
                 policyHash: z.ZodNullable<z.ZodString>;
@@ -16389,6 +16444,7 @@ signatures (every public export and the types it is made of)
                     strict: "strict";
                 }>>;
                 sharedAttribution: z.ZodBoolean;
+                sourceTurnId: z.ZodOptional<z.ZodString>;
                 state: z.ZodEnum<{
                     complete: "complete";
                     expired: "expired";
@@ -16687,11 +16743,16 @@ signatures (every public export and the types it is made of)
         journal: z.ZodObject<{
             actor: z.ZodNullable<z.ZodEnum<{
                 interactive: "interactive";
+                user: "user";
                 voice: "voice";
             }>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                revert: "revert";
+                turn: "turn";
+            }>>;
             model: z.ZodNullable<z.ZodString>;
             observedAt: z.ZodNullable<z.ZodNumber>;
             policyHash: z.ZodNullable<z.ZodString>;
@@ -16700,6 +16761,7 @@ signatures (every public export and the types it is made of)
                 strict: "strict";
             }>>;
             sharedAttribution: z.ZodBoolean;
+            sourceTurnId: z.ZodOptional<z.ZodString>;
             state: z.ZodEnum<{
                 complete: "complete";
                 expired: "expired";
@@ -16812,11 +16874,16 @@ signatures (every public export and the types it is made of)
     const turnJournalSummarySchema: z.ZodObject<{
         actor: z.ZodNullable<z.ZodEnum<{
             interactive: "interactive";
+            user: "user";
             voice: "voice";
         }>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
+        kind: z.ZodOptional<z.ZodEnum<{
+            revert: "revert";
+            turn: "turn";
+        }>>;
         model: z.ZodNullable<z.ZodString>;
         observedAt: z.ZodNullable<z.ZodNumber>;
         policyHash: z.ZodNullable<z.ZodString>;
@@ -16825,6 +16892,7 @@ signatures (every public export and the types it is made of)
             strict: "strict";
         }>>;
         sharedAttribution: z.ZodBoolean;
+        sourceTurnId: z.ZodOptional<z.ZodString>;
         state: z.ZodEnum<{
             complete: "complete";
             expired: "expired";

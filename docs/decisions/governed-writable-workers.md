@@ -769,9 +769,26 @@ The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Revert, steering
-classification and effective budget/scope enforcement belong to their own
-programme work; this delivery does not claim them implemented.
+principal authority remain the caller's responsibility. Steering classification
+and effective budget/scope enforcement belong to their own programme work.
+
+**Delivered user revert (#1653).** The existing reader has a single-file history
+action. Whole-turn revert opens one review dialog listing eligible and excluded
+paths; its first focus reads the heading. Waiting, conflict, partial and unknown
+outcomes remain in the original turn disclosure. Escape closes the reader;
+it neither executes nor cancels an operation. Lost responses read the original
+principal/session/source/selection-bound receipt and never blindly repeat a POST.
+The exclusive gate queues new turns but permits shared maintenance an existing
+turn needs to finish. Under the gate and existing brain/Git locks, descriptor
+restoration compares existence, type, mode and raw bytes; later changes conflict.
+Verified leased CAS streams avoid uncharged temporary brain copies. Effects are
+journaled as a user revert for Undo through the same comparison, and incremental
+index refresh is queued after releasing the gate. A write failure is partial,
+not an atomic all-path guarantee. Explicit history restoration can recover
+retained observed quarantine versions; private quarantine paths remain private.
+Ignored, incomplete, Git metadata and unsupported entries are named exclusions;
+missing or changed parents conflict. No unobserved empty-directory metadata is
+invented.
 
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:

@@ -11,8 +11,9 @@
  * No deadlock: a running turn never waits for an exclusive holder. The work a
  * turn waits for (the index after a curated application) is credential-free
  * and shared; credentialed work waits until no shared holder remains. New
- * shared holders are not held back by a waiting exclusive one, because a turn
- * that already holds the gate may need a shared maintenance worker to finish.
+ * shared maintenance holders are not held back by a waiting exclusive one,
+ * because a turn may need one to finish. A queued user revert explicitly holds
+ * back new turn admissions, while that nested maintenance remains admissible.
  *
  * The server and the cron runner are separate processes, so the gate is a
  * table in the UI database. A row whose process has exited is stale and is
@@ -55,7 +56,7 @@ export interface GateHold {
 
 export interface WriterGate {
   /** Waits until `mode` is admitted, then holds it until `release()`. */
-  acquire(mode: GateMode, purpose: string, options?: { signal?: AbortSignal }): Promise<GateHold>;
+  acquire(mode: GateMode, purpose: string, options?: { signal?: AbortSignal; turn?: boolean; queueTurns?: boolean }): Promise<GateHold>;
   /** Current holders, stale ones removed. */
   holders(): { mode: GateMode; purpose: string; pid: number }[];
 }
@@ -71,21 +72,28 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     const rows = db.query("SELECT id, pid, pid_start FROM writer_gate WHERE brain = ?").all(brain) as { id: string; pid: number; pid_start: string }[];
     for (const row of rows) if (!processAlive(row.pid, row.pid_start)) db.query("DELETE FROM writer_gate WHERE id = ?").run(row.id);
   };
-  const tryAcquire = (mode: GateMode, purpose: string): string | null => db.transaction(() => {
+  const tryAcquire = (mode: GateMode, purpose: string, turn: boolean, waiter: string | null): string | null => db.transaction(() => {
     prune();
     const held = db.query("SELECT mode FROM writer_gate WHERE brain = ?").all(brain) as { mode: GateMode }[];
-    const blocked = mode === "exclusive" ? held.length > 0 : held.some(row => row.mode === "exclusive");
+    const waiters = db.query("SELECT id, pid, pid_start FROM writer_gate_turn_waiters WHERE brain = ? ORDER BY queued_at, rowid").all(brain) as { id: string; pid: number; pid_start: string }[];
+    for (const row of waiters) if (!processAlive(row.pid, row.pid_start)) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(row.id);
+    const first = waiters.find(row => processAlive(row.pid, row.pid_start));
+    const blocked = mode === "exclusive" ? held.length > 0 || (waiter !== null && first?.id !== waiter) : held.some(row => row.mode === "exclusive") || (turn && first !== undefined);
     if (blocked) return null;
     const id = randomUUID();
+    if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
     db.query("INSERT INTO writer_gate (id, brain, mode, purpose, pid, pid_start, acquired_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(id, brain, mode, purpose, SELF.pid, SELF.start, Date.now());
     return id;
   }).immediate();
   return {
-    async acquire(mode, purpose, { signal } = {}) {
-      for (;;) {
+    async acquire(mode, purpose, { signal, turn = false, queueTurns = false } = {}) {
+      signal?.throwIfAborted();
+      const waiter = mode === "exclusive" && queueTurns ? randomUUID() : null;
+      if (waiter) db.query("INSERT INTO writer_gate_turn_waiters (id, brain, pid, pid_start, queued_at) VALUES (?, ?, ?, ?, ?)").run(waiter, brain, SELF.pid, SELF.start, Date.now());
+      try { for (;;) {
         signal?.throwIfAborted();
-        const id = tryAcquire(mode, purpose);
+        const id = tryAcquire(mode, purpose, turn, waiter);
         if (id) {
           let released = false;
           return { id, mode, release() {
@@ -99,6 +107,8 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
           const stop = () => { clearTimeout(timer); reject(signal!.reason); };
           signal?.addEventListener("abort", stop, { once: true });
         });
+      } } finally {
+        if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
       }
     },
     holders() {

@@ -37,7 +37,18 @@ hash directly. Missing/expired raw details never grant a download bypass.
 `createBrainApi` adds `turnJournal(sessionId, turnId, signal?)`,
 `turnJournalPreview(sessionId, turnId, sequence, signal?)`. Reader download
 links use the embedding root's configured API base.
-No mutation, retry execution or revert operation is added by these helpers.
+Those read helpers do not execute mutations.
+
+### User history restoration (additive, #1653)
+
+The four authenticated human `/revert` operations are specified in
+[the HTTP inventory](../http-api.md#retained-turn-journal). `createBrainApi`
+adds `turnRevertPlan`, `turnRevertLatest`, `turnRevert`, and `turnRevertReceipt`.
+Only `turnRevert` POSTs; receipt readback never repeats execution. The caller's
+operation ID is bound to principal/session/source/selection. Stale raw state
+conflicts, unavailable detail, unknown outcomes and partial work remain explicit;
+voice, agent and autonomous execution do not gain a history action. This is
+additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
