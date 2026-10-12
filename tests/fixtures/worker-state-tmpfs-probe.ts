@@ -45,8 +45,8 @@ function turn(script: string, resume?: string, limits = DEFAULT) {
   const exited = new Promise<{ code: number | null; signal: string | null }>(done => {
     if (!child) return done({ code: null, signal: null });
     child.on("exit", (code: number | null, signal: string | null) => done({ code, signal }));
-    // A refused copy-out is reported as the process's error instead of its exit.
-    child.on("error", () => done({ code: null, signal: "copy-out refused" }));
+    // Launcher failures report an error; copy-out refusals retain the exit and name a failure.
+    child.on("error", () => done({ code: null, signal: "worker error" }));
   });
   const drained = new Promise<void>(done => {
     if (!child) return done();
@@ -122,12 +122,12 @@ if (scenario === "contend") {
     let error: string | null = null;
     const settled = await t.settle();
     await t.worker.finish().catch(e => { error = e instanceof Error ? e.message : String(e); });
-    outcomes[name] = { out: settled.out, error, savedEntries: readdirSync(project).sort() };
+    outcomes[name] = { ...settled, error, savedEntries: readdirSync(project).sort() };
   }
   // Full and planted: the exhaustion is named, and its message does not claim a refused copy-out kept anything.
   const both = turn(`d="$CLAUDE_CONFIG_DIR/projects/${projectName}"; mkdir -p "$d"; ln -s "${victim}" "$d/${VOYAGE}.jsonl"; head -c ${70 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/flood" 2>/dev/null; echo planted`);
   const bothSettled = await both.settle();
-  outcomes["full and planted"] = { out: bothSettled.out, failure: bothSettled.failure, savedEntries: readdirSync(project).sort(),
+  outcomes["full and planted"] = { ...bothSettled, savedEntries: readdirSync(project).sort(),
     error: await both.worker.finish().then(() => null, e => e instanceof Error ? e.message : String(e)) };
   receipt.outcomes = outcomes;
   receipt.victim = readFileSync(victim, "utf8");
