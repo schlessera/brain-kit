@@ -81,6 +81,9 @@ safe integers, the allowance is positive, and `observedAt` is a nonnegative
 Unix-millisecond timestamp within JavaScript's Date range. Missing or malformed
 observations mean unknown; they do not discard the surrounding frame or invent
 a number. Appended history chunks omit the observation.
+A delayed replacing history frame with no observation or an older one does not
+erase a newer live result's measurement. A client with no such live evidence
+keeps the ordinary unknown behavior.
 
 The backend supplies one actual admission observation for a resumed ordinary
 conversation. Claude counts the page-rounded settings, memory and resumed

@@ -143,6 +143,7 @@ Pi retains its existing payload/reserve admission (`checkSessionSize`,
 
 The notice labels the measurement `As of the last turn` with its age, including
 historical/offline replay. Unknown measurements show no invented percentage.
+A delayed history response cannot erase a newer live result's observation.
 `Not now` persists dismissal for that session and allowance and returns focus
 to the composer. A known allowance change invalidates that dismissal and old
 ratio until a fresh measurement, even while another conversation is visible.

@@ -1261,7 +1261,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       stateRoomAnnouncements: {},
       setStateRoom(sessionId, observation, historical = false) {
         const rooms = { ...get().stateRooms };
-        if (historical && observation && rooms[sessionId] && rooms[sessionId]!.observation.observedAt > observation.observedAt) return;
+        const current = rooms[sessionId];
+        if (observation && current && current.observation.observedAt > observation.observedAt) return;
+        if (historical && current && !current.historical && (!observation || current.observation.observedAt === observation.observedAt)) return;
         if (observation) rooms[sessionId] = { observation, historical };
         else delete rooms[sessionId];
         const preferences = { ...get().stateRoomPreferences };

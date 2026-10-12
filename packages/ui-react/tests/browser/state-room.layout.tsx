@@ -130,6 +130,44 @@ test("historical and offline numbers stay aged; unavailable continuation cannot 
   expect(socket.frames("handoff_prepare")).toEqual([]); expect(ui.stores.handoff.getState().sheet).toBeNull();
 });
 
+test("a delayed empty history response cannot erase a newer live result's measured warning", async () => {
+  const { root: ui, socket } = await mount();
+  // The resume request is outstanding when the admitted turn finishes.
+  socket.receive({ type: "server_hello", protocolRev: 5, capabilities: {} });
+  expect(ui.connection.send({ type: "session_resume", sessionId: SESSION })).toBe(true);
+  await expect.poll(() => socket.frames("session_resume").length).toBe(1);
+  result(socket, 80, 64 * MIB, T0 + 20);
+  await expect.poll(notice).not.toBeNull();
+  socket.receive({ type: "session_history", sessionId: SESSION, messages: [] });
+  expect(ui.stores.chat.getState().stateRooms[SESSION]?.observation, "LIVE_MEASUREMENT_SURVIVES_EMPTY_HISTORY").toEqual(measurement(80, 64 * MIB, T0 + 20));
+  expect(notice()).not.toBeNull();
+  socket.receive({ type: "session_history", sessionId: SESSION, messages: [], stateRoom: measurement(50, 64 * MIB, T0) });
+  expect(ui.stores.chat.getState().stateRooms[SESSION]?.observation).toEqual(measurement(80, 64 * MIB, T0 + 20));
+  result(socket, 50, 64 * MIB, T0 + 10);
+  expect(ui.stores.chat.getState().stateRooms[SESSION]?.observation).toEqual(measurement(80, 64 * MIB, T0 + 20));
+});
+
+test("auth loss clears live and boot warning metadata, and a foreign account or old socket cannot restore it", async () => {
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } } as Storage;
+  const { root: ui, socket } = await mount(1280, "dark", storage); result(socket);
+  await expect.poll(notice).not.toBeNull();
+  await userEvent.click(page.getByRole("button", { name: "Not now", exact: true }));
+  expect(ui.stores.chat.getState().stateRoomPreferences[SESSION]).toBeDefined();
+  ui.stores.connection.getState().setVpnStatus("connected", "odysseus-key");
+  await ui.authLock.expire(); flushSync(() => ui.authLock.dropContext());
+  expect(ui.stores.chat.getState().stateRooms).toEqual({});
+  expect(ui.stores.chat.getState().stateRoomPreferences).toEqual({});
+  expect(ui.stores.chat.getInitialState().stateRoomPreferences).toEqual({});
+  expect(await ui.authLock.signedIn("penelope-key")).toBe(false);
+  socket.receive({ type: "session_history", sessionId: SESSION, messages: [], stateRoom: measurement() });
+  expect(ui.stores.chat.getState().stateRooms).toEqual({}); expect(notice()).toBeNull();
+  unmount(); await mount(1280, "dark", storage);
+  // Reload intentionally retains only preferences. No server-authorized
+  // measurement has arrived, so there is no warning or invented usage.
+  expect(root!.stores.chat.getState().stateRooms).toEqual({}); expect(notice()).toBeNull();
+});
+
 test("an allowance change while a different conversation is visible invalidates the old dismissal even if the allowance changes back", async () => {
   const { root: ui, socket } = await mount(); result(socket);
   await expect.poll(notice).not.toBeNull();

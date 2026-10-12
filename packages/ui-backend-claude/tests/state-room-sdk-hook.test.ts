@@ -21,7 +21,7 @@ for await (const line of createInterface({input:process.stdin})) {
  } else if(frame.type==="control_request") {
   send({type:"control_response",response:{subtype:"success",request_id:frame.request_id,response:{settings:{},sources:[]}}});
  } else if(frame.type==="user") {
-  send({type:"system",subtype:"init",session_id:session,model:"claude-sonnet-5-5",claude_code_version:"2.1.293",apiKeySource:"none"});
+  send({type:"system",subtype:"init",session_id:session,model:"claude-sonnet-5-5",claude_code_version:"fixture-native",apiKeySource:"none"});
   send({type:"control_request",request_id:"odysseus-state-warning-hook",request:{subtype:"hook_callback",callback_id:callback,input:{hook_event_name:"UserPromptSubmit",session_id:session,cwd:process.cwd(),transcript_path:"",prompt:"Return to Ithaca"}}});
  } else if(frame.type==="control_response" && frame.response.request_id==="odysseus-state-warning-hook") {
   const context=frame.response.response.hookSpecificOutput?.additionalContext ?? "No state warning";
