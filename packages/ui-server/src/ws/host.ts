@@ -79,6 +79,8 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  /** @internal Host-owned observed changes; absent histories remain unrecorded. */
+  journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
@@ -220,6 +222,7 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * modules (#1053; docs/decisions/public-export-boundary.md).
  */
 export class WsHost {
+  readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
   readonly workerLock: KeyedLock = createKeyedLock();
   readonly brainPath?: string;
@@ -295,6 +298,7 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
+    this.journal = options.journal;
     this.brainPath = options.brainPath;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
@@ -472,6 +476,8 @@ export class WsHost {
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
+    if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
+      ? { ...message, journal: this.journal!.summary(message.turnId) } : message);
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);

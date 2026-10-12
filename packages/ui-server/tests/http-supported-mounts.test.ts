@@ -60,6 +60,9 @@ const checks: Record<string, Check> = {
   "DELETE /api/drafts/:draftId": { path: "/api/drafts/draft-missing", init: { method: "DELETE", headers: { "if-match": "1" } }, status: 404, body: { error: "DRAFT_NOT_FOUND" } },
   "POST /api/drafts/:draftId/bind": { path: "/api/drafts/draft-missing/bind", init: json("POST", { sessionId: "fixture-session", requestId: "fixture-request" }), status: 409, body: { error: "DRAFT_NOT_ACCEPTED" } },
   "GET /api/sessions/:id": { path: "/api/sessions/fixture-session", body: { id: "fixture-session", messages: [{ role: "assistant", content: "Odysseus reaches the harbor." }] } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },

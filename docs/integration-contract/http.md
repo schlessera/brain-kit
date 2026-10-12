@@ -26,6 +26,19 @@ The detailed stats promises below remain binding. The specification records rema
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
 
+<a id="retained-turn-journal-reads-additive-1652"></a>
+
+### Retained turn journal reads (additive, #1652)
+
+The three authenticated session/turn journal GET routes are specified in
+[the HTTP inventory](../http-api.md#retained-turn-journal). They resolve retained
+observations owned by that exact session and turn; callers cannot name a CAS
+hash directly. Missing/expired raw details never grant a download bypass.
+`createBrainApi` adds `turnJournal(sessionId, turnId, signal?)`,
+`turnJournalPreview(sessionId, turnId, sequence, signal?)`. Reader download
+links use the embedding root's configured API base.
+No mutation, retry execution or revert operation is added by these helpers.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)

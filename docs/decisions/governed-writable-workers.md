@@ -150,7 +150,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:490-494`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:495-499`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -700,6 +700,34 @@ copy and the diagnostic record keep promotion honest without showing anything
 to the user.
 
 ## The change journal and reconciliation
+
+**Delivered journal behavior (#1652).** The host records raw observations at
+admission, tool completion, 15-second scope observations and turn completion
+before quarantine/gate release. The journal and private content objects are
+operational state beside `DB_PATH`, masked from workers; they do not make
+`brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
+the stat cache are implemented by (`createJournalWalker`,
+`packages/ui-server/src/brain/journal-snapshot.ts:36-40`).
+
+The approved aggregate cap is 10 GiB. Reservations include retained raw
+objects, simultaneous temporary copies, journal-owned SQLite pages and bounded
+WAL/GC headroom. Reader leases prevent collection during downloads. Completed
+detail expires oldest-first when space is needed; compact summaries normally
+remain through the 30-day retention window, and can expire when only summaries
+remain and cannot fit. Active windows and referenced/shared objects are never
+collected. An incomplete initial snapshot refuses the worker; missing mid-turn
+observations stop it while retaining observed versions and partial work. No
+automatic revert or claim of recovering writes between observations is made.
+
+Every retained turn has one initially collapsed receipt. Known no-change is
+zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
+5,000 lines), with authenticated raw downloads for retained larger/binary
+versions. The journal's policy-write seam requires a live original observation
+window and records an approved server write as user/policy; approval and
+principal authority remain the caller's responsibility. Revert, steering
+classification and effective budget/scope enforcement belong to their own
+programme work; this delivery does not claim them implemented.
 
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:

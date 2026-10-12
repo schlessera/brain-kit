@@ -3,6 +3,35 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+<a id="retained-turn-journal-additive-1652"></a>
+
+### Retained turn journal (additive, #1652)
+
+`turn_journal` carries `{ type, sessionId, turnId, journal: TurnJournalSummary }`.
+The session and host-minted turn are required. It updates that turn's single
+collapsed receipt without opening an assistant message, changing run state or
+stealing focus. Receipts may arrive after `result`; unknown frames remain
+ignorable by older clients. Replayed assistant history may carry the same
+optional `journal` field; missing legacy observations mean unrecorded, never
+zero changes or zero cost.
+
+Summary states are `recording`, `complete`, `partial`, `expired`, `unknown` and
+`unrecorded`. Counts, effective Activity cost, estimate status, actual profile,
+actor, model and policy hash are nullable observed facts. `sharedAttribution`
+states that overlapping writable windows share observations. `observedAt`
+names the retained window observation, not a guessed receipt time.
+The type is defined by (`TurnJournalSummary`,
+`packages/ui-sdk/src/turn-journal.ts:2-14`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1004-1016`).
+The journal does not assert effective budget/scope enforcement before those
+monitors provide receipts; the UI says limits unknown.
+
+`journal_capacity` and `journal_unavailable` are additive host failure classes.
+A failed initial observation refuses the worker; a mid-turn journal stop ends
+as an error with its named partial-work receipt, rather than being relabeled
+as a timeout. A user cancellation or host timeout that already won keeps its
+existing terminal precedence. No automatic retry or revert is implied.
+
 <a id="revision-negotiation"></a>
 
 ### Revision negotiation

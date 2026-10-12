@@ -1001,6 +1001,20 @@ const turnRetrySchema = z.looseObject({
   status: z.number().int().optional(),
 }) satisfies z.ZodType<TurnRetry>;
 
+export const turnJournalSummarySchema = z.looseObject({
+  state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
+  changedFiles: z.number().int().nonnegative().nullable(),
+  steeringFiles: z.number().int().nonnegative().nullable(),
+  costUsd: z.number().finite().nonnegative().nullable(),
+  costIsEstimate: z.boolean().nullable(),
+  profile: z.enum(["strict", "governed"]).nullable(),
+  actor: z.enum(["interactive", "voice"]).nullable(),
+  model: z.string().max(200).nullable(),
+  policyHash: z.string().max(200).nullable(),
+  sharedAttribution: z.boolean(),
+  observedAt: z.number().int().nonnegative().nullable(),
+}) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1026,6 +1040,7 @@ const historyMessageSchema = z.looseObject({
   failure: turnFailureSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
+  journal: turnJournalSummarySchema.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -1723,7 +1738,12 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverTurnJournalSchema = z.looseObject({
+  type: z.literal("turn_journal"), sessionId: id, turnId: id, journal: turnJournalSummarySchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
+  serverTurnJournalSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

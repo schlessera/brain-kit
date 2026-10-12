@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:100-133`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:103-136`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -78,6 +78,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
@@ -102,6 +105,14 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /ws` | Real upgrade and server_hello | W |
 
 ## Named behavior checks
+
+J uses the real host admission, tool-completion and terminal observations,
+checks authenticated session/turn isolation and reads exact retained CRLF bytes
+(`host admission, tool completion and terminal observation`,
+`packages/ui-server/tests/ws-turn-journal.test.ts:19-72`). The real Chrome
+matrix covers live/replay at 320/1280 in both themes, receipt focus stability,
+reader heading focus, raw download, 200% zoom and Escape return; storage tests
+cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **HY — Human-started hygiene review.**
 

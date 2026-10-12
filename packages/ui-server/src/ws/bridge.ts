@@ -24,6 +24,8 @@ import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
 import { TurnTextCollector } from "../classification/classify-turn.js";
+import { JournalCapacityError } from "../brain/journal-objects.js";
+import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
 
 /** Build the per-turn bridge the backend drives. */
 export function makeBridge(
@@ -130,6 +132,7 @@ export function makeBridge(
           host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
         }
       }
+      if (msg.type === "tool_result" && turn.turnId === turnId) host.journal?.observe();
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         if (turn.turnId === turnId) collectedSessionId = msg.sessionId;
@@ -204,6 +207,8 @@ export function makeBridge(
       if (turn.turnId === turnId) recorder?.observeFrame(msg);
       const scoped = withTurnScope(msg, turn, turnId);
       host.sendToClients(scoped);
+      // Identity must reach the client before its first scoped journal receipt.
+      if (msg.type === "session_info" && turn.turnId === turnId) host.journal?.bindSession(turnId, msg.sessionId);
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
@@ -559,7 +564,13 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof BackendBusyError) {
+  if (err instanceof JournalCapacityError || err instanceof JournalStorageUnavailable) {
+    const errorClass = err instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
+    const message = err.message;
+    host.reportTurnFailed(errorClass.toUpperCase(), turn, message);
+    host.sendToClients(withTurnScope({ type: "error", code: errorClass.toUpperCase(), message,
+      failure: { errorClass, message }, ...correlation }, turn));
+  } else if (err instanceof BackendBusyError) {
     host.reportTurnFailed("SESSION_BUSY", turn);
     host.sendToClients(
       withTurnScope(

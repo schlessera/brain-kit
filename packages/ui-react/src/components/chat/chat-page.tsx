@@ -704,6 +704,7 @@ export function ChatPage() {
                     <Fragment key={msg.id}>
                       <MessageBubble
                         message={msg}
+                        journalVisible={!(msg.turnId ?? msg.streamTurnId) || !messages.slice(hiddenCount + index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId))}
                         onToolApproval={handleToolApproval}
                         onAskUserSubmit={handleAskUserSubmit}
                         onAskUserCancel={handleAskUserCancel}

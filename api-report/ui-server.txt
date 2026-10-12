@@ -791,6 +791,8 @@ signatures (every public export and the types it is made of)
         tokenSet: boolean;
         mintedAt: string | null;
     }
+  TurnJournal (packages/ui-server/src/brain/turn-journal.ts)
+    export type TurnJournal = ReturnType<typeof createTurnJournal>;
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
@@ -815,6 +817,7 @@ signatures (every public export and the types it is made of)
     }
   WsHost (packages/ui-server/src/ws/host.ts)
     export class WsHost {
+        readonly journal?: import("../brain/turn-journal.js").TurnJournal;
         readonly brainPath?: string;
         readonly askUserFormLimits: AskUserFormLimits;
         readonly registry: BackendRegistry;
@@ -989,6 +992,38 @@ signatures (every public export and the types it is made of)
         modelSource?: BackendModelSource | null;
         log?: Logger;
     }): BackendRegistry;
+  createTurnJournal (packages/ui-server/src/brain/turn-journal.ts)
+    export function createTurnJournal(db: Database, options: {
+        brainPath: string;
+        dbPath: string;
+        objectsRoot: string;
+        capBytes?: number;
+        now?: () => number;
+        changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+    }): {
+        begin(turnId: string, metadata: {
+            actor: "interactive" | "voice";
+            model: null | string;
+            policyHash: null | string;
+            profile: "governed" | "strict";
+            sessionId: null | string;
+        }, stop: (error: Error) => void): void;
+        bindSession(turnId: string, sessionId: string): void;
+        close(): void;
+        details(sessionId: string, turnId: string): TurnJournalDetails | null;
+        finish(turnId: string): void;
+        observe(): void;
+        observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+        summary: (turnId: string) => TurnJournalSummary;
+        version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
+            bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
+            selected: JournalVersion;
+            stream(): {
+                body: ReadableStream<Uint8Array>;
+                bytes: number;
+            };
+        };
+    };
   inspect (packages/ui-server/src/inbox/resolve.ts)
     function inspect(principalId: string, msg: ClientInboxResolve): {
         action: InboxActionItem;
@@ -1064,6 +1099,8 @@ signatures (every public export and the types it is made of)
     function reconcile(): Promise<void>;
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
+  summary (packages/ui-server/src/brain/turn-journal.ts)
+    function summary(turnId: string): TurnJournalSummary;
   websocket re-exported from hono
   withBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function withBrainDb<T>(brainPath: string, options: OpenBrainDbOptions, fn: (db: Database, schemaVersion: number) => T): T;

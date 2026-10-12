@@ -453,9 +453,22 @@ async function runRetainedSession(
       let workOutcome: HostWorkOutcome = "error";
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
+      let journalFailure: Error | undefined;
       try {
         governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, work?.posture === "voice" ? "voice" : "interactive");
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
+        if (governedHold && host.journal) {
+          host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
+            profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
+          error => {
+            // A real timeout/cancel already won; never relabel that terminal.
+            if (abortController.signal.aborted || turn.cancelled) return;
+            journalFailure = error;
+            abortController.abort(error);
+            coordinator.drainPendingForTurn(turn, error.message);
+          });
+        }
         const bridge = makeBridge(
           host,
           turn,
@@ -513,6 +526,10 @@ async function runRetainedSession(
           // turn never gets here, so that turn keeps its posture.
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
+        // Final observation is part of this host outcome, after worker writes
+        // stop and before its Activity terminal, quarantine or gate release.
+        host.journal?.finish(turn.turnId);
+        if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
         // never narrated, and the receipt keeps the reason.
         workOutcome = turn.cancelled || abortController.signal.aborted || turn.lastResult === "cancelled"
@@ -541,17 +558,22 @@ async function runRetainedSession(
                 : "success"
         );
       } catch (err) {
-        emitTurnError(host, turn, err);
+        const terminal = journalFailure ?? err;
+        emitTurnError(host, turn, terminal);
         recorder?.finish(
-          turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : "error"
+          turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
         // A host timeout is host-terminal like a cancel: its late result is
         // never narrated (the work keeps the reason).
-        workOutcome = turn.cancelled || abortController.signal.aborted ? "cancelled" : "error";
-        workReason = !turn.cancelled && abortController.signal.aborted
+        workOutcome = turn.cancelled || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
+        workReason = !turn.cancelled && !journalFailure && abortController.signal.aborted
           ? "Turn timed out"
-          : err instanceof Error ? err.message : String(err);
+          : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
+        try {
+          // Observe after backend writers stop, before quarantine and gate release.
+          host.journal?.finish(turn.turnId);
+        } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
         try {
           const reconciled = governedHold?.end();
           for (const item of reconciled?.quarantined ?? []) {
