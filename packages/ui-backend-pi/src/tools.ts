@@ -557,8 +557,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         ]);
         signal?.removeEventListener("abort", onAbort);
         const body = [stdout, stderr].filter(Boolean).join("\n").trim();
+        // The exit line goes after the clip, so a long failing output still
+        // ends with it: the host classifies a nonzero exit from it (#1671).
         return textResult(
-          clip(`$ ${cmd}\n${body}${code === 0 ? "" : `\n[exit ${code}]`}`),
+          `${clip(`$ ${cmd}\n${body}`)}${code === 0 ? "" : `\n[exit ${code}]`}`,
           { exitCode: code }
         );
       });

@@ -34,7 +34,10 @@ import {
   type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
-import type { GovernanceEventInput } from "../governance/events.js";
+import type { Database } from "bun:sqlite";
+
+import type { GovernanceEventInput, GovernanceProfile } from "../governance/events.js";
+import { recordTurnRoadblocks, type TracedCall, type UsageSample } from "../governance/roadblocks.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -48,6 +51,12 @@ export interface TurnRecorderDeps {
   log?: Logger;
   /** The governance-event writer (#1651). Absent: interventions stay span events only. */
   governance?: (input: GovernanceEventInput) => void;
+  /**
+   * The server database the turn's roadblocks are classified against and
+   * recorded in at finish (#1671): it reads the turn's other governance
+   * events as well as writing. Absent records none.
+   */
+  governanceDb?: Database;
 }
 
 export interface TurnRecorder {
@@ -108,6 +117,8 @@ export function createTurnRecorder(
      * Activity names for what it was. Absent means an ordinary turn.
      */
     name?: string;
+    /** The worker profile the turn ran under, when the host knows it. */
+    profile?: GovernanceProfile | null;
   }
 ): TurnRecorder {
   const { store, onWrite, log, runtime } = deps;
@@ -131,6 +142,27 @@ export function createTurnRecorder(
   let observedPolicy: BillingMode | undefined;
   // What the run actually billed, as the runtime observed it.
   let observedBilling: string | undefined;
+  // What the roadblock classifier reads at finish (#1671): every call as the
+  // host saw it, live usage, and how the backend ended the turn.
+  const startedAt = Date.now();
+  const calls = new Map<string, TracedCall>();
+  const usageSamples: UsageSample[] = [];
+  let outcomeDetail: string | null = null;
+  let roadblocksRecorded = false;
+  const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
+    let call = calls.get(toolUseId);
+    if (!call && toolName && calls.size < MAX_TRACED_CALLS) {
+      call = { toolCallId: toolUseId, tool: toolName, startedAt: Date.now(), endedAt: null, output: null, isError: false, denied: null };
+      calls.set(toolUseId, call);
+    }
+    return call;
+  };
+  const traceDenial = (toolUseId: string, reason: string | null) => {
+    const call = calls.get(toolUseId);
+    if (!call || call.denied || call.output !== null) return;
+    call.denied = { reason };
+    call.endedAt = Date.now();
+  };
 
   const guard = (fn: () => void) => {
     try {
@@ -198,6 +230,7 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_start": {
+            traceCall(msg.toolUseId, msg.toolName);
             ensureRoot();
             const isSubagent = msg.toolName === "Agent";
             store.startSpan({
@@ -223,6 +256,8 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
+            const traced = traceCall(msg.toolUseId, msg.toolName);
+            if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
             // frames stay ignored, no accumulation needed. Recorded as a
             // span event so the Activity drill-in can expand the call (R14).
@@ -240,6 +275,12 @@ export function createTurnRecorder(
             // After the tool returns, the runtime may start another request
             // before any response header/message_start is visible to us.
             atToolBoundary = false;
+            const traced = calls.get(msg.toolUseId);
+            if (traced && traced.output === null && !traced.denied) {
+              traced.output = headAndTail(msg.output);
+              traced.isError = msg.isError;
+              traced.endedAt = Date.now();
+            }
             // endSpan is write-once: a span already closed (a denial landed
             // the outcome first) rejects this as a no-op, and an unknown
             // span id is equally a no-op — no bookkeeping set needed.
@@ -264,6 +305,7 @@ export function createTurnRecorder(
                   : msg.outcomeDetail === "max_turns" || msg.outcomeDetail === "max_budget"
                     ? "timeout"
                     : "error";
+            outcomeDetail = msg.outcomeDetail ?? null;
             if (msg.usage) resultUsage = usageFromTurnUsage(msg.usage);
             if (typeof msg.costUsd === "number") {
               resultUsage = { ...(resultUsage ?? {}), costUsd: msg.costUsd };
@@ -290,6 +332,7 @@ export function createTurnRecorder(
             if (turn.origin !== "autonomous") break;
             completedUsage = structuredClone(event.usage);
             atToolBoundary = event.atToolBoundary;
+            usageSamples.push({ at: Date.now(), tokens: totalTokens(event.usage), costUsd: event.usage.costUsd ?? null });
             break;
           }
           case "autonomous_identity": {
@@ -396,6 +439,7 @@ export function createTurnRecorder(
             // is a write-once no-op and the span reads as denied rather than
             // as a call that failed. The request never reached the host, so
             // there is no principal and no approval_decision event.
+            traceDenial(event.toolUseId, event.reason ?? null);
             store.appendEvent(event.toolUseId, "approval_decision", {
               decision: "deny",
               requestKind: event.requestKind,
@@ -484,6 +528,7 @@ export function createTurnRecorder(
         } else {
           // The denied outcome lands now — write-once makes the backend's
           // later error tool_result a no-op on this span.
+          traceDenial(toolUseId, "user declined");
           store.endSpan(toolUseId, { outcome: "denied", reason: "user declined" });
         }
         onWrite?.();
@@ -533,8 +578,65 @@ export function createTurnRecorder(
         }
         onWrite?.();
       });
+      // Separately guarded: a classification or storage failure loses the
+      // roadblock records, never the turn's own Activity write above.
+      const governance = deps.governanceDb;
+      if (governance && !roadblocksRecorded) {
+        roadblocksRecorded = true;
+        guard(() => {
+          recordTurnRoadblocks(governance, {
+            turnId: runId,
+            sessionId: sessionId ?? null,
+            actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
+            model: resultUsage?.model ?? null,
+            profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null),
+          }, {
+            startedAt,
+            endedAt: Date.now(),
+            calls: [...calls.values()],
+            usage: usageSamples,
+            finalUsage: resultUsage
+              ? { tokens: totalTokens(resultUsage), costUsd: resultUsage.costUsd ?? null }
+              : null,
+            outcomeDetail,
+          });
+        });
+      }
     },
   };
+}
+
+/** Calls traced per turn for roadblock classification; later calls are not classified. */
+const MAX_TRACED_CALLS = 2000;
+
+/**
+ * What the classifier needs of a tool input, bounded: the command or target
+ * and enough text to tell a retry from a new attempt, never a whole written
+ * file held until turn end.
+ */
+function boundedInput(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(input ?? {}).sort().slice(0, 16)) {
+    const value = input[key];
+    const text = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? value : safeStringify(value);
+    // A command keeps its head and tail, where its program and its output
+    // target (`> /tmp/x`) are; other text keeps enough to tell attempts apart.
+    out[key] = typeof text !== "string" ? text
+      : key === "command" && text.length > 5120 ? `${text.slice(0, 4096)}\n${text.slice(-1024)}`
+        : key !== "command" && text.length > 1024 ? text.slice(0, 1024) : text;
+  }
+  return out;
+}
+
+/** Enough of a result to classify it: errors print early, exit lines print last. */
+function headAndTail(text: string): string {
+  return text.length > 6144 ? `${text.slice(0, 4096)}\n...\n${text.slice(-2048)}` : text;
+}
+
+/** All tokens of the usage, or null when it reported none. */
+function totalTokens(usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number }): number | null {
+  const parts = [usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens];
+  return parts.every((n) => n === undefined) ? null : parts.reduce<number>((sum, n) => sum + (n ?? 0), 0);
 }
 
 function clip(text: string, max: number): string {

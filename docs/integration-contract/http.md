@@ -127,6 +127,11 @@ kind is an additive change. Clients must ignore unknown kinds and unknown
 payload fields. A kind no release emits yet may still change its version 1
 payload before its emitter ships.
 
+The server emits `roadblock` from #1671 on, so its version 1 payload is now
+fixed. Its `signature` is a grouping key whose format the HTTP specification
+defines, so readers such as a roadblock report can group episodes across
+sessions by comparing signatures for equality.
+
 The events are host operational state in the server's own database. They are
 never written to `brain.db` or the brain, never authoritative for anything,
 and never shown to the user. They survive the Activity span-detail prune and

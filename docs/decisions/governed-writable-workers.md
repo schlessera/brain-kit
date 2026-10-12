@@ -802,7 +802,7 @@ Reaching a cap is recorded as a governance event and as a roadblock.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:231`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:266`).
 
 **What changes:**
 
@@ -1307,6 +1307,47 @@ rules and no model call:
   turn already had is classed as **guidance**. An episode that was never
   resolved, or was resolved only through a workaround such as writing to turn
   temp, is classed as **capability**.
+
+**How #1671 built it.** The turn recorder already sees every relayed frame for
+both backends. It keeps each call's tool, input, result and denial, and at
+turn end it classifies them together with the turn's other governance events
+(`export function classifyRoadblocks`,
+`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+as one `roadblock` event; the
+[HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
+The choices that shape the report:
+
+- **Families are narrow enough to mean "the same intent".** A shell call's
+  family is its program, plus the subcommand for multi-command programs such
+  as `git push`. Otherwise any later `ls` would resolve a failed `git push`.
+  File tools from both backends share `file_write` and `file_read`, so Claude's
+  `Write` and pi's `write_file` group together.
+- **Failure causes are read from what each backend reports.** Claude Code
+  marks a failed command as an error and appends `Exit code N`. It treats exit 1
+  of `grep`, `rg` and `diff` as an answer. The classifier does the same for
+  both backends, but only when one of those programs ends a single pipeline,
+  because in a command list the status could have come from another member.
+  pi's `bash` output ends in `[exit N]` without an error flag. The pi tool now
+  writes that line after its output clip, so a long failing output still ends
+  with it. `EROFS`, `EACCES` and `EPERM` text makes a failure `fs_denied`, and
+  resolver or connection errors make it `network_refused`.
+- **Governance events outrank the text.** A `policy_block`,
+  `read_only_refusal`, declined `policy_confirm` or `outward_action`, or
+  `egress_denial` written while a failed call ran sets that call's category
+  and is cited in `eventIds`. `budget_block` and `scope_cap` stand on their
+  own, as does a backend's own `max_budget` or `max_turns` ending.
+- **The signature is a grouping key, not a log line.** It keeps the family,
+  the program or a structural target directory and the cause. It drops file
+  names, arguments, hosts, directory names the user chose and absolute roots,
+  so the report can rank one roadblock across sessions without storing what
+  the agent wrote.
+- **Order follows what the agent could know.** A failure sits on the timeline
+  when its result arrived, so a parallel call that started earlier never
+  counts as the way around it.
+- **Waste is measured, never estimated.** Tokens and cost come from cumulative
+  usage reported during the turn. Today only autonomous turns report it, so
+  interactive and voice episodes record `null` until the general usage frame
+  of #1669 feeds the same samples. Time is always recorded.
 
 **The report.** Session history and Activity live only in the host's
 `brain-ui.db`. The `brain` CLI never opens that database, and workers cannot

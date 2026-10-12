@@ -121,8 +121,9 @@ async function executeAutonomousTurn(
     .get(input.turnId, principalId) as { thread_id: string } | null;
   if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   // Own immutable request policy for the attempt; callbacks cannot widen it.
-  // Governance events (#1651) go to the same database as the attempt.
-  const recorder = createTurnRecorder({ ...deps, governance: deps.governance ?? ((event) => { recordGovernanceEvent(deps.db, event); }) },
+  // Governance events (#1651) and roadblocks (#1671) go to the same database as the attempt.
+  const recorder = createTurnRecorder({ ...deps, governance: deps.governance ?? ((event) => { recordGovernanceEvent(deps.db, event); }),
+    governanceDb: deps.governanceDb ?? deps.db },
     { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
     billingMode: input.billingMode, pricingRoute: input.pricingRoute });
