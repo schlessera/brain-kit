@@ -374,6 +374,32 @@ export type BackendActivityEvent =
       bytes: number | null;
       /** The bound that refused it; null when no byte bound applies. */
       limitBytes: number | null;
+    }
+  | {
+      /**
+       * The agent purged turn temp with the `turn_temp` tool (#1703). Quiet:
+       * the host keeps it as a governance event and shows nothing.
+       */
+      kind: "turn_temp_purge";
+      /** The bounded walk stopped before every requested entry could be visited. */
+      truncated: boolean;
+      /** Everything in turn temp, rather than named paths. */
+      all: boolean;
+      /** Named files the answer links were removed too. */
+      force: boolean;
+      /** The paths as the agent named them (the first 50); empty with `all`. */
+      paths: string[];
+      /** Files and directories removed. */
+      removedEntries: number;
+      /** How much the turn-temp tmpfs shrank. */
+      freedBytes: number;
+      /** Files kept because the answer links them (the first 50). */
+      skippedLinked: string[];
+      /** Paths not removed for another reason: outside turn temp, missing, unreadable. */
+      skippedOther: number;
+      /** Turn temp's use and allowance after the purge. */
+      usedBytes: number;
+      limitBytes: number;
     };
 
 /** Why a linked turn-temp file was not promoted (#1655). */

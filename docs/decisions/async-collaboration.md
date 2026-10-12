@@ -71,11 +71,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:442`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:466`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:468`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:492`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:79-256`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential

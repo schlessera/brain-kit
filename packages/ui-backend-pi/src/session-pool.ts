@@ -47,7 +47,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
     const env: SessionEnv = {
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      caps: capsOf(req.bridge),
+      caps: { ...capsOf(req.bridge), turnTemp: !req.autonomous },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

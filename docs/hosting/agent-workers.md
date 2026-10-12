@@ -58,13 +58,16 @@ Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts `/` and the canonical brain read-only, and replaces `/proc`
 and `/dev`. When the server runs as root, the worker's whole `/proc` is
 read-only as well (#1629, see [running as root](#running-the-server-as-root)).
-`/tmp` is private tmpfs; the per-turn scratch location is a fresh
-tmpfs and cannot overlap the brain or its ancestors. The brain's own scratch
-area and its workspace directory are writable binds inside the read-only
-brain, and `$HOME` gets a per-turn overlay where the host supports one; see
+`/tmp` is a private tmpfs of a fixed size, the worker's
+[turn temp](#turn-temp-allowance-and-the-turn_temp-tool), and holds the
+per-turn scratch location, which cannot overlap the brain or its ancestors.
+The brain's own scratch area and its workspace directory are writable binds
+inside the read-only brain; `$HOME` stays read-only, with per-turn XDG
+directories in turn temp; see
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
-The overlay is optional; bubblewrap 0.9 is eligible.
+Turn temp is sized with bubblewrap's `--size`, so every worker needs
+bubblewrap 0.7 or later; 0.9 is eligible.
 A Claude worker's runtime state is a private tmpfs that bubblewrap sizes with
 `--size`, so Claude needs bubblewrap 0.7 or later; the per-turn probe mounts it
 and checks its size.
@@ -100,8 +103,10 @@ error, the other notes still persist, and nothing is deleted. An autonomous
 turn copies nothing in and writes nothing back. If the server process dies, its
 workers and their tmpfs mounts go with it; nothing is left to clean up.
 
-The allowance does not cover the worker's other writable places (`/tmp`,
-`$BRAIN_WORKER_SCRATCH`, workspaces, home caches) or its process memory. It is
+The allowance does not cover the worker's other writable places (`/tmp` and
+`$BRAIN_WORKER_SCRATCH`, which have
+[their own allowance](#turn-temp-allowance-and-the-turn_temp-tool), and
+workspaces) or its process memory. It is
 not a worker memory limit. Where the worker has a cgroup memory limit
 ([resource limits](#resource-limits)), the tmpfs pages the worker writes count
 toward it like its other memory; the pages the server copies in before the
@@ -145,6 +150,59 @@ Turns are refused or stopped with these classes, never with a raw `ENOSPC`:
 The agent reads a note, generated from the same allowance, saying how large its
 runtime state is and that it is not for files it makes.
 
+## Turn temp allowance and the `turn_temp` tool
+
+Every agent worker, Claude and pi, interactive, voice and autonomous, gets a
+**private, size-limited tmpfs at `/tmp`** (#1703). It holds
+`$BRAIN_WORKER_SCRATCH`, the per-turn `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
+`XDG_DATA_HOME` under `/tmp/brain-worker-home`, a pi worker's session state,
+and whatever the turn writes to `/tmp`. bubblewrap mounts it with `--size`,
+so one worker filling its turn temp gets `ENOSPC` in that worker only: no
+other worker's turn temp, no host directory and no shared tmpfs such as
+`/dev/shm` takes the bytes. Claude's runtime state is a separate tmpfs below
+it with its own allowance, and is never turn temp.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BRAIN_UI_TURN_TEMP_BYTES` | `268435456` (256 MiB) | Each worker's `/tmp`, in bytes. |
+| `BRAIN_UI_TURN_TEMP_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (768 MiB at the defaults) | What all running workers' turn-temp allowances may add up to. |
+
+The rules are those of the runtime-state settings above: digits only,
+multiples of 4096, a budget of at least one allowance, a boot refusal naming
+the variable, and an allowance fixed for each worker's lifetime. Before a
+worker launches, the server reserves its whole turn-temp allowance against
+this budget, in the same admission as runtime state: a worker gets both
+reservations or neither. A turn that cannot reserve it is refused at once as
+`worker_state_busy`, before anything is sent, and the card offers **Retry**.
+Like the runtime-state budget, this is admission accounting, not reserved
+RAM, and autonomous turns and handoff summaries reserve it too.
+
+The server reaches each worker's `/tmp` through a directory descriptor it opens
+from outside the sandbox before the worker's command starts, and keeps until
+the turn's files are dealt with. Every read through it is descriptor-relative
+and never follows a link or crosses into another mount, so a worker cannot
+redirect it to a host file. This is how linked files are promoted after the
+worker exits (below), and how the `turn_temp` tool works while it runs.
+
+**The `turn_temp` tool** (`mcp__brain-ui__turn_temp` for Claude, `turn_temp`
+for pi) lets the agent manage its own turn temp without an approval:
+
+- `action: "usage"` returns the bytes used, the limit, the bytes free and the
+  ten largest files and directories.
+- `action: "purge"` removes the named `paths`, relative to `/tmp`, or
+  everything with `all: true`. A path outside turn temp, a link on the way to
+  it and runtime state are refused, and a named link is removed, never its
+  target. Files the turn's answer already links are kept, because they are
+  promoted at turn end; `force: true` removes them anyway, for named paths
+  only. The directories the worker was given (`$BRAIN_WORKER_SCRATCH`, the XDG
+  directories) are emptied, not removed.
+
+Each purge is a `turn_temp_purge` governance event. After any step that takes
+turn temp past 80% of its allowance, the agent is told once, and again
+whenever it fills up, in a message that names the tool. The agent's note
+states the allowance next to the tool. Autonomous turns have no `turn_temp`
+tool: their note states the allowance alone.
+
 After a non-autonomous turn, the Claude backend checks at most once per 24 hours
 for sessions idle more than 30 days, using the newest modification time across
 their JSONL and companion folder. Running sessions are excluded. It gzip-archives
@@ -170,7 +228,7 @@ default, and these areas will remain what its strict profile gets.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp`, writes under `$HOME` | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
 | Persistent scratch | `.brain/scratch/`, and `workspaces/` for repository clones | Kept across turns; scratch is pruned after 7 days, oldest first past 1 GB | Yes: the only non-brain place to link |
 | The brain | Everything else | Canonical | Yes, as documents |
 
@@ -193,30 +251,26 @@ default, and these areas will remain what its strict profile gets.
   entries, or holds a directory the server cannot read (scratch too); the
   agent's note and the server log name the reason. Links wholly
   inside it, such as local clones between workspace repositories, are fine.
-- **`$HOME`** gets `bwrap --tmp-overlay` when the host can mount it:
-  bubblewrap 0.11.0 or later, not installed setuid, and a kernel that allows
-  overlayfs in an unprivileged user namespace. Each turn probes this with
-  the real launcher. Existing configuration such as `.gitconfig` still
-  reads; every write is discarded at turn end. Otherwise the fallback keeps
-  `$HOME` read-only and points `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
-  `XDG_DATA_HOME` at per-turn directories under `/tmp/brain-worker-home`,
-  which is what headless Chromium needs to start. Ubuntu 24.04's bubblewrap
-  0.9.0 takes the fallback.
-- **Turn temp** is a private directory the server creates for each worker on
-  a tmpfs that is not the brain's device: its own temporary directory when
-  that is a tmpfs, otherwise `/dev/shm`. Its capacity is that tmpfs's free
-  space, shared with every running worker and, on `/dev/shm`, with Claude's
-  runtime state; in Docker, size `/dev/shm` with `--shm-size` accordingly.
-  When the worker exits, files its answer linked there are copied into
+- **`$HOME`** stays the host's and read-only: existing configuration such as
+  `.gitconfig` still reads, and a write there fails with `EROFS`, which the
+  turn records as a roadblock. `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
+  `XDG_DATA_HOME` point at per-turn directories under
+  `/tmp/brain-worker-home`, which is what headless Chromium needs to start,
+  and the agent's note says to point a tool there. There is no per-turn home
+  overlay: bubblewrap keeps an overlay's writes in a host directory, which no
+  size-limited mount can hold.
+- **Turn temp** is the worker's own size-limited `/tmp`
+  ([above](#turn-temp-allowance-and-the-turn_temp-tool)). When the worker
+  exits, files its answer linked there are copied into
   `.brain/scratch/turns/<turnId>/` (128 MiB per file, 256 MiB and 64 files per
-  turn), the saved answer links the copies, and the directory is removed. A
-  symlink, a hard-linked file, a directory or anything over the bounds is not
-  copied, and its link stays as written. Each copy or refusal is a governance
-  event (`GET /api/governance/events`). A host without a usable tmpfs keeps
-  turn temp inside the worker's namespace, logs that, and copies nothing.
-- **Restricted (autonomous) turns** are unchanged: no area is bound, there is
-  no host home, and `$BRAIN_WORKER_SCRATCH` and `/tmp` are the only writable
-  places.
+  turn) through the server's held descriptor, the saved answer links the
+  copies, and the tmpfs is released. A symlink anywhere on the path, a
+  hard-linked file, a directory, runtime state or anything over the bounds is
+  not copied, and its link stays as written. Each copy or refusal is a
+  governance event (`GET /api/governance/events`).
+- **Restricted (autonomous) turns** bind no area and have no host home:
+  `$BRAIN_WORKER_SCRATCH` and `/tmp`, sized like every worker's turn temp, are
+  the only writable places, and nothing in them is promoted.
 
 Every turn's agent reads a note generated from the same resolved layout that
 builds the mounts, so it is told exactly which of these it has this turn,

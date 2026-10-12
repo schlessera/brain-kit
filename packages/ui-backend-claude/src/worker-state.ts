@@ -96,6 +96,8 @@ export function files(root: string, prefix = "", options: { resolved?: boolean }
 export interface ClaudeWorkerState {
   /** The allowance this worker was admitted with: its tmpfs size, fixed for its lifetime. */
   readonly bytes: number;
+  /** The turn-temp allowance admitted with it (#1703): its `/tmp` size, fixed for its lifetime; 0 without one. */
+  readonly turnTempBytes: number;
   /** Copies the snapshot into the worker's empty private tmpfs, before its command starts. */
   populate(root: string): void;
   /**
@@ -119,11 +121,13 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
     limits?: WorkerStateLimits;
     /** Defaults to the server process's one ledger. */
     ledger?: StateLedger;
+    /** The resolved turn-temp allowance and budget (#1703), admitted together with runtime state. */
+    turnTempLimits?: WorkerStateLimits;
     /** A reservation the caller already holds for this worker; ownership passes here. */
     reservation?: Reservation; } = {}): ClaudeWorkerState {
   const limits = options.limits ?? resolveWorkerStateLimits({});
   // Admission first: a busy budget refuses before anything is read.
-  const held = options.reservation ?? (options.ledger ?? processStateLedger()).reserve(limits);
+  const held = options.reservation ?? (options.ledger ?? processStateLedger()).reserve(limits, options.turnTempLimits);
   try { return plan(brainPath, env, options, limits, held); }
   catch (error) { held.release(); throw error; }
 }
@@ -148,7 +152,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   // An autonomous turn starts from nothing saved and saves nothing: no stored
   // login, settings, account file or transcript enters or leaves it (#676).
   // It still writes there while it runs, so it reserves its allowance too.
-  if (options.ephemeral) return { bytes: held.bytes, populate() {}, persist() {}, release: () => held.release() };
+  if (options.ephemeral) return { bytes: held.bytes, turnTempBytes: held.turnTempBytes, populate() {}, persist() {}, release: () => held.release() };
   const projectRoot = join(saved, project);
   if (existsSync(projectRoot)) directory(projectRoot);
   // Capture membership, not bytes, for other sessions. A worker may create
@@ -186,6 +190,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   };
   return {
     bytes: held.bytes,
+    turnTempBytes: held.turnTempBytes,
     release: () => held.release(),
     populate(root) {
       // The files are read again here, each bounded and refusing links; one

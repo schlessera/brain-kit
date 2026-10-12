@@ -1,11 +1,11 @@
 /** Imported only after the shared launcher's descriptor and namespace gate. */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentSession, SessionManager, FileEntry } from "@earendil-works/pi-coding-agent";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns } from "@schlessera/brain-ui-sdk/server";
-import { WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { createTurnTempPressure, TURN_TEMP_ROOT, WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import type { PiWorkerInference } from "./autonomous-envelope.js";
 import { createBrainAccess } from "./brain-access.js";
 import { createSessionResources } from "./session-resources.js";
@@ -62,6 +62,25 @@ function snapshot(): boolean {
     return false;
   }
 }
+/**
+ * After each tool call, the one-time warning past 80% of turn temp and the
+ * out-of-space message, both naming `turn_temp` (#1703), read from this
+ * worker's own size-limited `/tmp`. Its size is the allowance it was mounted
+ * with. Absent when the turn has no `turn_temp` tool.
+ */
+function turnTempPressure(env: SessionEnv): (() => string | undefined) | undefined {
+  if (!env.caps.turnTemp) return undefined;
+  let allowance: number;
+  try { const fs = statfsSync(TURN_TEMP_ROOT); allowance = fs.blocks * fs.bsize; } catch { return undefined; }
+  const check = createTurnTempPressure(allowance, "turn_temp");
+  return () => {
+    try {
+      const fs = statfsSync(TURN_TEMP_ROOT);
+      return check({ usedBytes: (fs.blocks - fs.bfree) * fs.bsize, freeBytes: fs.bavail * fs.bsize });
+    } catch { return undefined; }
+  };
+}
+
 async function initialize(init: Init): Promise<void> {
   const state = PI_WORKER_STATE;
   mkdirSync(state, { recursive: true });
@@ -112,8 +131,18 @@ async function initialize(init: Init): Promise<void> {
       turn: turn.turnContext, capabilities: caps }).map(t => t.name));
     turn.tools = turn.tools.map(tool => bridgeNames.has(tool.name) ? { ...tool,
       execute: (id, input) => rpc("bridge", tool.name, id, input as Record<string, unknown>) } : tool);
-    turn.tools = turn.tools.map(tool => ({ ...tool, execute: (id, input, signal, update, context) =>
-      toolScope.run({ id, name: tool.name }, () => tool.execute(id, input, signal, update, context)) }));
+    const pressure = turnTempPressure(init.env);
+    turn.tools = turn.tools.map(tool => ({ ...tool, execute: async (id, input, signal, update, context) => {
+      let result: Awaited<ReturnType<typeof tool.execute>>;
+      try { result = await toolScope.run({ id, name: tool.name }, () => tool.execute(id, input, signal, update, context)); }
+      catch (error) {
+        const message = pressure?.();
+        if (message) throw new Error(`${error instanceof Error ? error.message : String(error)}\n\n${message}`);
+        throw error;
+      }
+      const message = pressure?.();
+      return message ? { ...result, content: [...(result.content ?? []), { type: "text" as const, text: message }] } : result;
+    } }));
     turn.turnContext.signal = controller.signal;
     // No missing-route fallback may execute a legacy brain writer.
     turn.turnContext.bridge = {

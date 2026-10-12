@@ -30,10 +30,13 @@ export function probeWorkerHostRecorded(
    * so a host whose bubblewrap lacks `--size` is reported, not only refused.
    */
   stateBytes?: number,
+  /** Every agent worker's turn-temp allowance: the probe also mounts its size-limited /tmp (#1703). */
+  turnTempBytes?: number,
 ): WorkerHostProbe {
   let probe: WorkerHostProbe;
   try {
-    requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(stateBytes !== undefined ? { stateBytes } : {}) });
+    requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(stateBytes !== undefined ? { stateBytes } : {}),
+      ...(turnTempBytes !== undefined ? { turnTempBytes } : {}) });
     probe = { ok: true };
   } catch (error) {
     // requireWorkerHost refuses only with WorkerHostError; anything else is

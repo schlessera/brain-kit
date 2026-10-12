@@ -70,6 +70,13 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive in 0.42.0 (#1703):** `/server` exports `handleTurnTemp`,
+`TurnTempAccess` and `TurnTempPurgeRecord` for the scoped usage/purge tool.
+Its input contract is exported alongside the other bridge contracts; the
+handler's access capability names the admitted allowance, held root,
+scratch, excluded/kept directories and already-linked answer text. Each
+purge reports its outcome through the supplied record callback.
+
 **Additive: the shared backend toolkit (#1399, ruled on #1345).** What both
 shipped backends need to give the host the same behavior and security posture
 is public on `@schlessera/brain-ui-sdk/server`, each declaration tagged

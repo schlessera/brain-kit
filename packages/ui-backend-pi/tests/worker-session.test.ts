@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough, Writable } from "node:stream";
@@ -112,11 +112,16 @@ test("snapshot overflow reaches the terminal TurnFailure", async () => {
 test("a turn's linked turn-temp file is promoted into scratch and the saved answer links the copy (#1655)", async () => {
   const turnId = "0b7e3c1a-4f2d-4c6b-8a9e-1d2c3b4a5f60";
   const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
+  // Stands in for the worker's private /tmp, as the server holds it (#1703).
+  const tmp = mkdtempSync(join(tmpdir(), "pi-turn-temp-"));
+  let closed = 0;
   launch.mockImplementation((input: worker.WorkerLaunch) => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
     const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
     children.push(stop);
+    expect(input.turnTempBytes).toBe(worker.DEFAULT_TURN_TEMP_BYTES);
+    expect(worker.processStateLedger().turnTempHeld).toBe(worker.DEFAULT_TURN_TEMP_BYTES);
     let sessionId = "";
     const stdin = new Writable({ write(chunk, _encoding, callback) {
       const message = JSON.parse(String(chunk));
@@ -124,11 +129,11 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
         sessionId = message.sessionId;
         sendPipe(stdout, { type: "ready", sessionId, levels: [], cost: 0 });
       } else if (message.type === "prompt") {
-        // What a real worker's write to $BRAIN_WORKER_SCRATCH lands on: host turn temp.
-        mkdirSync(join(input.turnTemp!.tmp, "brain-worker-scratch"), { recursive: true });
-        writeFileSync(join(input.turnTemp!.tmp, "brain-worker-scratch/report.pdf"), "Odysseus: the voyage report.");
-        mkdirSync(join(input.turnTemp!.tmp, "brain-worker-scratch/pi-state"));
-        writeFileSync(join(input.turnTemp!.tmp, "brain-worker-scratch/pi-state/auth.json"), "{}");
+        // What a real worker's write to $BRAIN_WORKER_SCRATCH lands on: its private /tmp.
+        mkdirSync(join(tmp, "brain-worker-scratch"), { recursive: true });
+        writeFileSync(join(tmp, "brain-worker-scratch/report.pdf"), "Odysseus: the voyage report.");
+        mkdirSync(join(tmp, "brain-worker-scratch/pi-state"));
+        writeFileSync(join(tmp, "brain-worker-scratch/pi-state/auth.json"), "{}");
         sendPipe(stdout, { type: "snapshot", entries: [
           { type: "session", version: 3, id: sessionId, cwd: brain, timestamp: "2026-07-12T00:00:00.000Z" },
           { type: "message", id: "u1", parentId: null, timestamp: "2026-07-12T00:00:00.000Z", message: { role: "user", content: "Report?", timestamp: 0 } },
@@ -141,7 +146,8 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }),
+      turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), close: () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const events: unknown[] = [], frames: ServerMessage[] = [];
   await createPiBackend({ brainPath: brain, sessionDir }).startTurn({
@@ -158,8 +164,11 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
   expect(saved).toContain("[this](/tmp/brain-worker-scratch/pi-state/auth.json)");
   expect(events).toEqual([{ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
     originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination }]);
-  // The turn temp the worker wrote is gone once the turn has ended.
-  expect(existsSync(launch.mock.calls.at(-1)![0].turnTemp!.root)).toBe(false);
+  // The server lets go of the worker's turn temp once the turn has ended, and
+  // its admission is released.
+  expect(closed).toBe(1);
+  expect(worker.processStateLedger().turnTempHeld).toBe(0);
+  rmSync(tmp, { recursive: true, force: true });
 });
 test("growth reserve has a 1 MiB floor and scales to 25 percent", () => {
   expect(sessionReserveBytes(1)).toBe(MiB);

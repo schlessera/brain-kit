@@ -197,14 +197,14 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:268-279`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:281-284`);
+`packages/ui-backend-pi/src/bridge-tools.ts:273-284`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:301-304`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
 to have one: `block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:177` passes the
+`packages/ui-backend-pi/src/session-resources.ts:178` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are

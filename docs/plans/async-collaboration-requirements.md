@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:660`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:662`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -248,7 +248,7 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:393-481`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:419-507`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
@@ -277,7 +277,7 @@ Stated before the requirements because five of them derive from it.
 
 - R28. **The restricted execution profile is a build item, not a configuration.** Today
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
-  `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-79`), and auto-allowed tools bypass
+  `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
   move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
@@ -289,7 +289,7 @@ Stated before the requirements because five of them derive from it.
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:79-256`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -319,7 +319,7 @@ Stated before the requirements because five of them derive from it.
   only a server-owned helper writes it. R22 of revision 1 removed only the *autonomous*
   agent's write path, but an ordinary interactive turn holds auto-allowed `Write`/`Edit`/
   `Bash`, and the backend itself notes that Bash confirmation is not containment because the
-  same effect is reachable indirectly (`A Bash command the classifier misses`, `packages/ui-backend-claude/src/tool-policy.ts:222-227`). Without this, stored attacker
+  same effect is reachable indirectly (`A Bash command the classifier misses`, `packages/ui-backend-claude/src/tool-policy.ts:226-231`). Without this, stored attacker
   text read by a normal session can write an active grant.
 - R36. **Unexpected policy content is quarantined, not announced.** The server persists a
   per-policy expected hash and activation record transactionally; content that does not match
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:79-256`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK

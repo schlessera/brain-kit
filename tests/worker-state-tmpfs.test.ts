@@ -123,3 +123,25 @@ test("links a worker plants in its runtime state are refused at copy-out, which 
   expect(both.failure.message).not.toContain("is kept");
   expect(r.victim).toBe("Penelope's loom\n");
 }, TIMEOUT);
+
+test("each worker's /tmp is a private tmpfs of its turn-temp allowance, admitted in the same ledger (#1703)", async () => {
+  const r = await probe("turn-temp");
+  expect(r.first.failure, "turn-temp ENOSPC must not claim runtime-state loss").toBeUndefined();
+  // The first worker floods its /tmp: the filesystem stops it at its own 8 MiB, not the host's.
+  const [mount, flooded, free] = r.first.out.split("\n");
+  expect(mount).toBe(`tmpfs ${(8 * MiB) / 4096} 4096`);
+  expect(flooded).toBe("dd=1");
+  expect(free).toBe("free=0");
+  expect(r.first.exit).toEqual({ code: 0, signal: null });
+  expect(r.turnTempHeldDuringFirst).toBe(8 * MiB);
+  expect(r.stateHeldDuringFirst).toBe(64 * MiB);
+  // A second turn while the turn-temp budget is held is refused before launch, holding nothing.
+  expect(r.secondClass).toBe("worker_state_busy");
+  expect(r.secondRefused).toContain("Not enough worker turn-temp capacity for this turn right now");
+  expect(r.secondRefused).toContain("1 running conversation holds 8 MiB of the server's 8 MiB budget");
+  expect(r.heldAfterRefusal).toEqual({ state: 64 * MiB, turnTemp: 8 * MiB });
+  // Retry once the first has finished runs it.
+  expect(r.againRefused).toBeNull();
+  expect(r.again.exit).toEqual({ code: 0, signal: null });
+  expect(r.tails).toEqual(["{\"text\":\"Scylla\"}", "{\"text\":\"Charybdis\"}"]);
+}, TIMEOUT);

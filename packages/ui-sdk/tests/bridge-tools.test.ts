@@ -9,7 +9,7 @@ import { resolveInRepo } from "../src/server/bridge-tools/resolve-in-repo.js";
 import { wrapUntrustedData } from "../src/server/bridge-tools/activity.js";
 
 describe("bridge tool server primitives", () => {
-  test("the posture names all twelve tools and derives backend-visible names", () => {
+  test("the posture names all thirteen tools and derives backend-visible names", () => {
     expect(BRIDGE_TOOL_POSTURE.names).toEqual([
       "inbox_list", "inbox_get", "inbox_add", "resolve_action",
       "ask_user",
@@ -20,6 +20,7 @@ describe("bridge tool server primitives", () => {
       "request_image_mask",
       "query_activity",
       "show_block",
+      "turn_temp",
     ]);
     expect(BRIDGE_TOOL_POSTURE.allowedTools("pi")).toEqual(
       BRIDGE_TOOL_POSTURE.names
@@ -34,6 +35,7 @@ describe("bridge tool server primitives", () => {
       "mcp__brain-ui__request_image_mask",
       "mcp__brain-ui__query_activity",
       "mcp__brain-ui__show_block",
+      "mcp__brain-ui__turn_temp",
     ]);
   });
 

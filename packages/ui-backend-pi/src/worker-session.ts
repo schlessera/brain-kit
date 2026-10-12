@@ -7,9 +7,10 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
-import { createLimitTracker, createTurnTemp, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox,
-  requireWorkerHost, restrictedReadPaths, workerNoteLimits, WorkerResourceLimitError, workerSandboxNote, workerSandboxWarnings,
-  WORKER_SCRATCH, type TurnTemp, type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
+import { createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
+  requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
+  workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
+  type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -70,9 +71,17 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const init = { type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
+  // Every worker's /tmp is a private tmpfs of exactly this allowance, which
+  // holds the worker's session state too (#1703).
+  const turnTempLimits = resolveTurnTempLimits({ ...backend.turnTemp,
+    names: { allowance: "turnTemp.allowanceBytes", budget: "turnTemp.budgetBytes" } });
+  let reservation: Reservation | undefined;
   try {
     checkSessionSize(init);
-    requireWorkerHost(backend.brainPath, { restricted });
+    requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
+    // Admitted against the same per-process ledger as Claude workers; a busy
+    // budget refuses as worker_state_busy before anything launches.
+    reservation = processStateLedger().reserve(undefined, turnTempLimits);
   } catch (error) { envelope?.relay.stop(); throw error; }
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const workerEnv: Record<string, string> = envelope
@@ -83,31 +92,44 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let child: ReturnType<typeof launchAgentWorker>;
   let sandboxNote: string;
   let sandbox: WorkerSandbox;
-  // Host-visible turn temp, so what the answer links there can be promoted
-  // once the worker has exited (#1655). An autonomous turn saves no answer.
-  let turnTemp: TurnTemp | null = null;
+  // The worker's private /tmp, through the descriptor the server holds, so
+  // what the answer links there can be promoted once the worker has exited
+  // (#1655). An autonomous turn saves no answer.
+  let turnTemp: WorkerStateHandle | undefined;
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
     sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
     const limits = launchLimits({});
-    sandboxNote = workerSandboxNote(sandbox, { limits: workerNoteLimits(limits.status) });
+    sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
+      turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined)] });
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
-    if (!env.autonomous) {
-      turnTemp = createTurnTemp(backend.brainPath);
-      if (!turnTemp) backend.log?.("warn", "no private tmpfs for turn temp; files the answer links there cannot be promoted");
-    }
-    child = launchAgentWorker({ brainPath: backend.brainPath,
-      command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(turnTemp ? { turnTemp } : {}),
+    child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
+      command: [process.execPath, entry], env: workerEnv, sandbox, limits,
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
-  } catch (error) { envelope?.relay.stop(); turnTemp?.cleanup(); throw error; }
+    turnTemp = child.turnTemp;
+  } catch (error) { envelope?.relay.stop(); reservation.release(); throw error; }
+  const held = reservation;
+  /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
+  const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };
+  // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
+  let workerLive = true;
+  void child.exited.finally(() => { workerLive = false; });
+  if (env.caps.turnTemp && turnTemp) {
+    const root = turnTemp.root;
+    turnContext.turnTemp = {
+      root: () => workerLive ? root : undefined, allowanceBytes: held.turnTempBytes, scratch: WORKER_SCRATCH,
+      exclude: [PI_WORKER_STATE], keep: [WORKER_SCRATCH, ...Object.values(WORKER_XDG_DIRS)],
+      linkedText: () => answerText(),
+    };
+  }
   // The relay lives exactly as long as the worker it serves.
   if (envelope) void child.exited.finally(() => envelope.relay.stop());
   // A worker that never ran a turn has nothing to promote; one that did is
   // cleaned up by `promote` once its answer has been read.
   let prompted = false;
-  void child.exited.finally(() => { if (!prompted) turnTemp?.cleanup(); });
+  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); });
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -184,11 +206,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
    * linked file to the host (#1655). Turn temp is removed either way.
    */
   function promote(): void {
-    if (!turnTemp) return;
+    if (!turnTemp || env.autonomous) { closeTurnTemp(); return; }
     try {
-      const promoter = createTurnTempPromoter({ brain: sandbox.brain, turnTemp, turnId: turnContext.turnId, scratch: WORKER_SCRATCH, exclude: [PI_WORKER_STATE],
-        home: sandbox.home?.mode === "overlay" ? sandbox.home.path : undefined,
-        scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) });
+      const promoter = createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root, turnId: turnContext.turnId, scratch: WORKER_SCRATCH,
+        exclude: [PI_WORKER_STATE], scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) });
       let changed = false;
       for (const entry of latestEntries) {
         if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
@@ -206,7 +227,20 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
     } catch (failure) {
       backend.log?.("warn", `promoting linked turn-temp files failed: ${failure instanceof Error ? failure.message : String(failure)}`);
-    } finally { turnTemp.cleanup(); }
+    } finally { closeTurnTemp(); }
+  }
+  /** The answer text of this turn's new assistant entries, as the worker has reported them. */
+  function answerText(): string {
+    const parts: string[] = [];
+    for (const entry of latestEntries) {
+      if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
+      const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+      if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+      for (const part of message.content as Array<{ type?: unknown; text?: unknown }>) {
+        if (part?.type === "text" && typeof part.text === "string") parts.push(part.text);
+      }
+    }
+    return parts.join("\n");
   }
   async function dispatch(msg: Rpc): Promise<unknown> {
     live();

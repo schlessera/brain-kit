@@ -173,6 +173,7 @@ function buildAppend(
         inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
         inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action",
         mask: env.caps.mask && "request_image_mask",
+        turnTemp: env.caps.turnTemp === true && "turn_temp",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },

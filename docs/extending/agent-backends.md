@@ -469,6 +469,10 @@ promises.
   public contracts (`BRIDGE_TOOL_CONTRACTS`, the input schemas and briefs)
   for the tool definitions, and auto-allow them from
   `BRIDGE_TOOL_POSTURE.allowedTools(adapter)`, never from a local list. A
+  `handleTurnTemp` (#1703) uses `TurnTempAccess` bound to the live worker's
+  held private tmpfs descriptor and emits `TurnTempPurgeRecord` receipts;
+  expose it only on interactive/voice turns. It needs no approval and cannot
+  purge persistent areas or runtime state. A
   handler throws when the host lacks the capability or the input is refused;
   turn that into your runtime's tool error. The mask filename is yours:
   `ImageMaskHandlerOptions.maskFilename` and `reportMaskPath` decide it, and

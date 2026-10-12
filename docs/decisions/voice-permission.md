@@ -52,10 +52,10 @@ existing behaviour.
 Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
-(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:26`), the
+(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:27`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:116-141`)
+`packages/ui-backend-claude/src/sdk-options.ts:124-149`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:55`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -81,7 +81,7 @@ their rows do not sum to the first column.
 matching a confirm pattern. **Zero** were kind `tool`. That is not an accident of
 the corpus, it is the policy: everything the model reaches for is on
 `DEFAULT_ALLOWED_TOOLS` already, and the only tool deliberately left off it is
-`mcp__brain-ui__brain_archive` (`Deliberately absent`, `tool-policy.ts:43-44`).
+`mcp__brain-ui__brain_archive` (`Deliberately absent`, `tool-policy.ts:44-45`).
 The "always allow" path —
 the whole grantable-tool mechanism, and the one thing the client hides for
 `command` requests — is **almost never exercised in practice**.
@@ -228,7 +228,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:426-431`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:116-141`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block`, `turn_temp` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:124-149`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 Module tools are admitted only by exact name, never by their own annotations,
 as [module-mcp-tools.md §6](module-mcp-tools.md#6-annotations-and-permissions)
@@ -242,7 +242,7 @@ database retains its schema initialization and migration, as that record's
 | --- | --- |
 | `Bash` | 192 of 192 measured approvals came from it, and its payload is the unspeakable one (median 118 spoken seconds). Removing it removes the problem instead of narrating it. This is the whole of the cost of the voice posture, and it is deliberate. |
 | `Write`, `Edit`, `NotebookEdit`, `mcp__brain-ui__write_file`, `mcp__brain-ui__edit_file`, `mcp__brain-ui__apply_staged_changes` | Raw byte writes to arbitrary paths. The brain document tools cover the legitimate eyes-free write and keep frontmatter and the search index correct; these do not. |
-| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:160-161`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
+| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:164-165`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
 | `mcp__brain__brain_add`, `mcp__brain__brain_update`, `mcp__brain__brain_archive` | Legacy project MCP writers remain available to direct terminal backend consumers. Hosted turns shadow them and use the server-routed names above; voice never calls these legacy names. |
@@ -487,8 +487,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:27`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:116`, and what it
-becomes, `allowedTools: allowed`, `:204`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:124`, and what it
+becomes, `allowedTools: allowed`, `:217`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:442`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:468`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -739,7 +739,7 @@ prepared to accept. Rejected because it removes the thing voice is *for*: saying
 is a write, and a read-only voice mode is a search box you talk to. The
 cost of allowing the two document writes is not a measured figure and must not
 be dressed as one: `brain_add` and `brain_update` are on `DEFAULT_ALLOWED_TOOLS`
-(`brain_add`, `tool-policy.ts:75-76`),
+(`brain_add`, `tool-policy.ts:76-77`),
 so they raise **zero** approvals by construction —
 with the single exception added by #144, a `brain_update` that sets
 `status: "archived"`, which is the archive boundary above and is denied in a

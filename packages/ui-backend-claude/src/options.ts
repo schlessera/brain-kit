@@ -105,6 +105,16 @@ export interface ClaudeBackendOptions {
    * trusted host configuration sets these, never brain content.
    */
   workerState?: { allowanceBytes?: number; budgetBytes?: number };
+  /**
+   * Worker turn temp (#1703): each worker's `/tmp`, which holds
+   * `$BRAIN_WORKER_SCRATCH` and the per-turn XDG directories, is a private
+   * tmpfs of `allowanceBytes`, reserved in full against `budgetBytes` together
+   * with runtime state before it launches. 256 MiB by default, a positive
+   * whole number of 4096-byte pages; `budgetBytes` defaults to the allowance
+   * times three. Invalid values throw during construction. Only trusted host
+   * configuration sets these, never brain content.
+   */
+  turnTemp?: { allowanceBytes?: number; budgetBytes?: number };
   /** @internal Test seam — inject the SDK `query` function. Defaults to the real one. */
   queryFn?: typeof query;
   /** @internal Test seam — inject the SDK `listSessions` reader. */

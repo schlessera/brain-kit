@@ -573,7 +573,7 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   worker's cgroup enforced it.
   Claude worker runtime state adds `session_too_large` (the conversation
   cannot fit the worker's runtime-state allowance), `worker_state_busy` (the
-  server's runtime-state budget is held by running workers; refused before
+  server's runtime-state or turn-temp budget is held by running workers; refused before
   launch, nothing was sent, Retry) and `worker_state_exceeded` (the running
   turn filled its allowance; the part written after that was not saved, even
   if the runtime finished its answer) and `worker_state_save_refused` (the
@@ -588,6 +588,9 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   [the hosting doc](../hosting/agent-workers.md#claude-runtime-state-and-transcript-archival)
   for runtime state (#1621, #1625, #1697). All four are registered in
   `FIRST_PARTY_FAILURE_CLASSES`.
+  #1703 also uses `worker_state_busy` for turn-temp admission on either backend;
+  turn-temp exhaustion remains a tool error with guidance to call `turn_temp`,
+  rather than a state-persistence failure.
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means

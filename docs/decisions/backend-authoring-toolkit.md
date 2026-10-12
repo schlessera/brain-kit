@@ -51,6 +51,11 @@ only for first-party implementation sharing through an explicitly named
 | Claude `DEFAULT_ALLOWED_TOOLS`, `MUTATING_TOOLS` | Internal source; absent from the ordinary package entry point | Auto-allow and lock tables are runtime implementation policies. No additional cross-package export is needed. |
 | Pi `DEFAULT_PI_ALLOWED_TOOLS`, `TOOL_RISK` | Internal, Pi `/internal` | These are the pi runtime's default grant list and risk/lock classification. Pi has no separate exported voice list; voice uses the host-supplied restricted posture. |
 
+`handleTurnTemp`, `TurnTempAccess` and `TurnTempPurgeRecord` join the public
+experimental `/server` toolkit in #1703. Both backends use the same scoped
+usage/purge handler, linked-file guard and governance receipt; the host binds
+access to the running worker's held directory descriptor.
+
 This inventory covers Q2's families, not every export of these packages. Other
 constructor, descriptor, transcript, lock, tool and profile APIs are classified
 by the package-wide inventory in [the public export boundary](public-export-boundary.md);

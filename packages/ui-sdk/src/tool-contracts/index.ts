@@ -55,6 +55,11 @@ export {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  TURN_TEMP_CONTRACT,
+  TURN_TEMP_DESCRIPTION,
+  TURN_TEMP_INPUT_SCHEMA,
+  TURN_TEMP_MAX_PATHS,
+  TURN_TEMP_TOOL_NAME,
   bridgeContractForToolName,
 } from "./bridge.js";
 export type {
@@ -69,6 +74,7 @@ export type {
   ImageMaskPayload,
   LocationPayload,
   QueryActivityInput,
+  TurnTempInput,
   RequestImageMaskInput,
 } from "./bridge.js";
 export {

@@ -84,6 +84,19 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     bytes: count.nullable(),
     limitBytes: count.nullable(),
   })),
+  /** The agent purged turn temp with the `turn_temp` tool (#1703). */
+  turn_temp_purge: kind(1, z.strictObject({
+    truncated: z.boolean(),
+    all: z.boolean(),
+    force: z.boolean(),
+    paths: z.array(path).max(50),
+    removedEntries: count,
+    freedBytes: count,
+    skippedLinked: z.array(path).max(50),
+    skippedOther: count,
+    usedBytes: count,
+    limitBytes: count,
+  })),
   /** A command refused by the policy's `commands.deny` (#1661). */
   policy_block: kind(1, z.strictObject({
     ...toolInput,

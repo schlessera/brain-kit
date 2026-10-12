@@ -7,6 +7,9 @@
  * before it launches. One resolved value drives the mount size, the
  * reservation, the copy guards, diagnostics and the agent's note. Both come
  * from trusted host configuration, never from brain content.
+ *
+ * Turn temp (#1703) has its own allowance and budget of the same shape: each
+ * worker's `/tmp` is a private tmpfs of exactly its allowance.
  */
 
 /** tmpfs allocates whole pages; an allowance must be a whole number of them. */
@@ -17,6 +20,10 @@ export const DEFAULT_WORKER_STATE_BYTES = 64 * 1024 * 1024;
 export const DEFAULT_WORKER_STATE_SESSIONS = 3;
 export const WORKER_STATE_BYTES_ENV = "BRAIN_UI_WORKER_STATE_BYTES";
 export const WORKER_STATE_BUDGET_ENV = "BRAIN_UI_WORKER_STATE_BUDGET_BYTES";
+/** 256 MiB, the maintainer's default for each worker's turn temp (#1703). */
+export const DEFAULT_TURN_TEMP_BYTES = 256 * 1024 * 1024;
+export const TURN_TEMP_BYTES_ENV = "BRAIN_UI_TURN_TEMP_BYTES";
+export const TURN_TEMP_BUDGET_ENV = "BRAIN_UI_TURN_TEMP_BUDGET_BYTES";
 
 export interface WorkerStateLimits {
   /** Each worker's private runtime-state tmpfs, reserved in full before launch. */
@@ -38,40 +45,42 @@ export const mib = (bytes: number): string => {
 };
 
 /** A whole, positive, page-aligned byte count, or a clear refusal naming `name`. */
-export function validWorkerStateBytes(value: unknown, name: string): number {
+export function validWorkerStateBytes(value: unknown, name: string, example = DEFAULT_WORKER_STATE_BYTES): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value % WORKER_STATE_PAGE !== 0) {
     throw new WorkerStateConfigError(`${name} must be a positive whole number of bytes that is a multiple of `
-      + `${WORKER_STATE_PAGE} (for example ${DEFAULT_WORKER_STATE_BYTES} for 64 MiB); got ${JSON.stringify(value)}.`);
+      + `${WORKER_STATE_PAGE} (for example ${example} for ${mib(example)}); got ${JSON.stringify(value)}.`);
   }
   return value;
 }
 
 /** Parses a configured byte count: digits only, no unit, sign, fraction or exponent. */
-export function parseWorkerStateBytes(raw: string | undefined, name: string): number | undefined {
+export function parseWorkerStateBytes(raw: string | undefined, name: string, example = DEFAULT_WORKER_STATE_BYTES): number | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
   const text = raw.trim();
   if (!/^[0-9]+$/.test(text)) {
     throw new WorkerStateConfigError(`${name} must be a whole number of bytes, digits only (for example `
-      + `${DEFAULT_WORKER_STATE_BYTES} for 64 MiB); got ${JSON.stringify(raw)}.`);
+      + `${example} for ${mib(example)}); got ${JSON.stringify(raw)}.`);
   }
-  return validWorkerStateBytes(Number(text), name);
+  return validWorkerStateBytes(Number(text), name, example);
 }
 
-/**
- * Resolves and validates both limits. The budget defaults to the allowance
- * times the concurrent-session cap; an explicit budget may admit fewer
- * workers than that cap, but never fewer than one.
- */
-export function resolveWorkerStateLimits(input: {
+interface LimitsInput {
   allowanceBytes?: number;
   budgetBytes?: number;
   maxConcurrentSessions?: number;
   /** Names the settings in refusals; defaults to the host's environment variables. */
   names?: { allowance: string; budget: string };
-}): WorkerStateLimits {
-  const names = input.names ?? { allowance: WORKER_STATE_BYTES_ENV, budget: WORKER_STATE_BUDGET_ENV };
-  const allowanceBytes = input.allowanceBytes === undefined ? DEFAULT_WORKER_STATE_BYTES
-    : validWorkerStateBytes(input.allowanceBytes, names.allowance);
+}
+
+/**
+ * One allowance and the aggregate budget it is admitted against. The budget
+ * defaults to the allowance times the concurrent-session cap; an explicit
+ * budget may admit fewer workers than that cap, but never fewer than one.
+ */
+function resolveLimits(input: LimitsInput, defaults: { bytes: number; names: { allowance: string; budget: string } }): WorkerStateLimits {
+  const names = input.names ?? defaults.names;
+  const allowanceBytes = input.allowanceBytes === undefined ? defaults.bytes
+    : validWorkerStateBytes(input.allowanceBytes, names.allowance, defaults.bytes);
   let budgetBytes: number;
   if (input.budgetBytes === undefined) {
     const sessions = input.maxConcurrentSessions ?? DEFAULT_WORKER_STATE_SESSIONS;
@@ -85,11 +94,29 @@ export function resolveWorkerStateLimits(input: {
         + `overflows; set ${names.budget} explicitly or lower either value.`);
     }
   } else {
-    budgetBytes = validWorkerStateBytes(input.budgetBytes, names.budget);
+    budgetBytes = validWorkerStateBytes(input.budgetBytes, names.budget, defaults.bytes);
   }
   if (budgetBytes < allowanceBytes) {
     throw new WorkerStateConfigError(`${names.budget} (${budgetBytes} bytes) is smaller than one worker's `
       + `${names.allowance} (${allowanceBytes} bytes), so no worker could ever start.`);
   }
   return { allowanceBytes, budgetBytes };
+}
+
+/** Resolves and validates the runtime-state allowance and its budget (#1625). */
+export function resolveWorkerStateLimits(input: LimitsInput): WorkerStateLimits {
+  return resolveLimits(input, { bytes: DEFAULT_WORKER_STATE_BYTES,
+    names: { allowance: WORKER_STATE_BYTES_ENV, budget: WORKER_STATE_BUDGET_ENV } });
+}
+
+/**
+ * Resolves and validates the turn-temp allowance and its budget (#1703): the
+ * size of each worker's private `/tmp`, which holds `$BRAIN_WORKER_SCRATCH`
+ * and the per-turn XDG directories, and what all running workers' turn temp
+ * may add up to. Its own allowance, apart from runtime state's, admitted in
+ * the same ledger.
+ */
+export function resolveTurnTempLimits(input: LimitsInput): WorkerStateLimits {
+  return resolveLimits(input, { bytes: DEFAULT_TURN_TEMP_BYTES,
+    names: { allowance: TURN_TEMP_BYTES_ENV, budget: TURN_TEMP_BUDGET_ENV } });
 }

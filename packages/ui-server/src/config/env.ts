@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -311,6 +311,24 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "of 4096, at least one allowance). A turn that would pass it is refused as worker_state_busy. Logical " +
       "admission, not reserved RAM; invalid values refuse the boot.",
     default: "BRAIN_UI_WORKER_STATE_BYTES × MAX_CONCURRENT_SESSIONS",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_TURN_TEMP_BYTES",
+    description:
+      "Each agent worker's private /tmp, its turn temp, in bytes (a positive multiple of 4096): $BRAIN_WORKER_SCRATCH, " +
+      "the per-turn XDG directories and whatever the turn writes to /tmp. Reserved in full against the turn-temp budget " +
+      "before the worker launches; invalid values refuse the boot.",
+    default: "268435456 (256 MiB)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_TURN_TEMP_BUDGET_BYTES",
+    description:
+      "What all running agent workers' turn-temp allowances may add up to, in bytes (a positive multiple of 4096, at " +
+      "least one allowance). A turn that would pass it is refused as worker_state_busy. Logical admission, not reserved " +
+      "RAM; invalid values refuse the boot.",
+    default: "BRAIN_UI_TURN_TEMP_BYTES × MAX_CONCURRENT_SESSIONS",
     required: false,
   },
   {
@@ -641,6 +659,10 @@ export interface AgentConfig {
   workerStateBytes: number;
   /** The aggregate runtime-state budget in bytes: explicit, or the allowance × MAX_CONCURRENT_SESSIONS. */
   workerStateBudgetBytes: number;
+  /** Each agent worker's turn-temp allowance in bytes, its private /tmp, resolved and validated (#1703). */
+  turnTempBytes: number;
+  /** The aggregate turn-temp budget in bytes: explicit, or the allowance × MAX_CONCURRENT_SESSIONS. */
+  turnTempBudgetBytes: number;
 }
 
 /**
@@ -920,6 +942,12 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     budgetBytes: parseWorkerStateBytes(env.BRAIN_UI_WORKER_STATE_BUDGET_BYTES, "BRAIN_UI_WORKER_STATE_BUDGET_BYTES"),
     maxConcurrentSessions,
   });
+  // And turn temp's, its own allowance in the same admission (#1703).
+  const turnTemp = resolveTurnTempLimits({
+    allowanceBytes: parseWorkerStateBytes(env.BRAIN_UI_TURN_TEMP_BYTES, "BRAIN_UI_TURN_TEMP_BYTES", DEFAULT_TURN_TEMP_BYTES),
+    budgetBytes: parseWorkerStateBytes(env.BRAIN_UI_TURN_TEMP_BUDGET_BYTES, "BRAIN_UI_TURN_TEMP_BUDGET_BYTES", DEFAULT_TURN_TEMP_BYTES),
+    maxConcurrentSessions,
+  });
 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
@@ -980,6 +1008,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       modelTtlMs: ttlHours * 60 * 60 * 1000,
       workerStateBytes: workerState.allowanceBytes,
       workerStateBudgetBytes: workerState.budgetBytes,
+      turnTempBytes: turnTemp.allowanceBytes,
+      turnTempBudgetBytes: turnTemp.budgetBytes,
     },
     classification: { apiKey: env.TYPESAFE_API_KEY?.trim() || null },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),

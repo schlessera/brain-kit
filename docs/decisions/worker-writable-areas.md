@@ -72,15 +72,15 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:497-534`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:455-492`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:438-468`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:440-470`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:414-446`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:411-443`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -92,13 +92,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:332-351`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:336-355`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:360-371`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:364-375`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -113,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:186-196`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:190-200`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -136,15 +136,16 @@ after three tries the area is unverified for the turn. An unexpected error
 while resolving an area also leaves it read-only rather than failing the
 turn.
 
-**`$HOME`.** `probeHomeOverlay` runs the real launcher with
-`--overlay-src $HOME --tmp-overlay $HOME`, writes a file through it and checks
-from outside that the host home did not change
-(`export function probeHomeOverlay`, `packages/ui-sdk/src/server/worker-launcher.ts:457-473`).
-On success the overlay is mounted before every other bind, so the brain, the
-areas and the runtime state land on top of it. On failure, or when `$HOME` is
-unset, `/`, under `/tmp` or inside the brain, the worker gets the XDG fallback
-under `/tmp/brain-worker-home`. Bubblewrap 0.9 therefore stays eligible, as
-the all-writer decision requires; it simply never gets the overlay.
+**`$HOME`.** #1703 supersedes the optional home overlay. Every interactive
+worker now uses the XDG directories under `/tmp/brain-worker-home`, inside
+its private, size-limited turn-temp tmpfs. Real HOME stays read-only: a tool
+that writes it directly receives `EROFS`, recorded through the roadblock
+path. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
+host (`export function prepareWorkerSandbox`,
+`packages/ui-sdk/src/server/worker-launcher.ts:455-478`). Host-backed overlay
+uppers cannot live on the worker's private tmpfs; keeping them would leave
+an unbounded write area. Tools reading XDG config see the per-turn directory,
+while direct reads of real HOME retain the read-only host view.
 
 **Restricted turns are unchanged.** The autonomous envelope gets no area, no
 home handling and the same argv as before; its note says so.

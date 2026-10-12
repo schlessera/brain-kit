@@ -8,6 +8,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec } from "./profiles.js";
@@ -50,12 +51,15 @@ export function createPiTurnRunner(
     let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
     try { acquired = await pool.acquire(req); }
     catch (error) {
-      if (!(error instanceof SessionTooLargeError)) throw error;
-      const failure = { errorClass: error.errorClass, message: error.message };
+      // A busy turn-temp budget (#1703) refuses the same way, with Retry.
+      // By class: the process ledger may come from another copy of the SDK.
+      const busy = (error as { errorClass?: unknown } | null)?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy;
+      if (!(error instanceof SessionTooLargeError || busy)) throw error;
+      const failure = { errorClass: (error as { errorClass: string }).errorClass, message: (error as Error).message };
       if (req.sessionId) {
         req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "error", isError: true,
           durationMs: Date.now() - startedAt, numTurns: 0, failure });
-      } else req.bridge.emit({ type: "error", code: "agent_error", message: error.message, failure });
+      } else req.bridge.emit({ type: "error", code: "agent_error", message: failure.message, failure });
       return;
     }
     const { entry, isNew } = acquired;

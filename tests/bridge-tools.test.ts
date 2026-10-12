@@ -26,6 +26,7 @@ import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
 import * as claudeBlock from "../packages/ui-backend-claude/src/show-block-tool";
+import * as claudeTurnTemp from "../packages/ui-backend-claude/src/turn-temp-tool";
 import * as pi from "../packages/ui-backend-pi/src/bridge-tools";
 
 type Adapter = "claude" | "pi";
@@ -41,6 +42,12 @@ type SnapshotEntry = {
  * later (D41) and has no "before"; its bytes are asserted by the contract
  * tests below rather than by a fixture.
  */
+/** A worker's turn temp as the server reaches it (#1703); here a test directory. */
+function turnTemp(root: string) {
+  return { root: () => root, allowanceBytes: 64 * 1024 * 1024, scratch: "/tmp/brain-worker-scratch", exclude: [], keep: [],
+    linkedText: () => "" };
+}
+
 const SNAPSHOT_NAMES = [
   "ask_user",
   "get_current_location",
@@ -79,6 +86,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   get_current_location: { highAccuracy: false },
   request_image_mask: { imagePath: "x.png" },
   query_activity: { scope: "running" },
+  turn_temp: { action: "usage" },
   show_block: {
     block: {
       kind: "stats",
@@ -154,11 +162,12 @@ function makeAdapters(root: string) {
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
       ...createInboxTools(bridge as never),
       claudeBlock.createShowBlockTool(),
+      claudeTurnTemp.createTurnTempTool(turnTemp(root)),
     ] as any[],
     pi: pi.createPiBridgeTools({
       brainPath: root,
-      turn: { bridge } as never,
-      capabilities: { location: true, activity: true, mask: true, inbox: true },
+      turn: { bridge, turnTemp: turnTemp(root) } as never,
+      capabilities: { location: true, activity: true, mask: true, inbox: true, turnTemp: true },
       reverseGeocodeConfig: noGeocode,
     }) as any[],
   };
@@ -567,6 +576,7 @@ describe("bridge tool adapter validation", () => {
     get_current_location: [{ highAccuracy: "yes" }],
     request_image_mask: [{ imagePath: 42 }],
     query_activity: [{ scope: "all" }, { scope: "recent", hoursBack: "24" }],
+    turn_temp: [{ action: "delete" }, { action: "purge", paths: "frames" }, { action: "purge", paths: [""] }],
     show_block: [
       { block: { kind: "map" } },
       { block: { kind: "stats", tiles: [] } },
@@ -779,6 +789,7 @@ describe("bridge tool loading posture", () => {
       requestMask: unreachable as never,
       queryActivity: unreachable as never,
       inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never },
+      turnTemp: claudeTurnTemp.createTurnTempTool(turnTemp("/nonexistent")),
       brainPath: "/nonexistent",
     });
   }
