@@ -310,6 +310,7 @@ describe("session capacity failures", () => {
   for (const [errorClass, headline] of [
     ["worker_state_busy", "Other conversations are using this server's capacity right now."],
     ["worker_state_exceeded", "This turn ran out of room to save its work."],
+    ["worker_state_save_refused", "This turn wasn't saved in full."],
   ] as const) {
     test(`${errorClass} names the runtime-state capacity, offers Retry and no handoff`, () => {
       send(); failLive({ errorClass, message: "Not enough worker runtime space" });
@@ -321,7 +322,7 @@ describe("session capacity failures", () => {
   }
   // A host problem is not a bug report (#1632), so its class travels through
   // "Copy details"; both review texts are built from the same allowlist.
-  for (const [errorClass, action] of [["session_too_large", "Report a bug"], ["worker_host_unsupported", "Copy details"], ["worker_state_busy", "Copy details"], ["worker_state_exceeded", "Report a bug"]] as const) {
+  for (const [errorClass, action] of [["session_too_large", "Report a bug"], ["worker_host_unsupported", "Copy details"], ["worker_state_busy", "Copy details"], ["worker_state_exceeded", "Report a bug"], ["worker_state_save_refused", "Report a bug"]] as const) {
     test(`reports preserve class: ${errorClass}`, () => {
       send(); failLive({ errorClass, message: "Runtime state refused" });
       const view = renderAssistant();
@@ -330,4 +331,25 @@ describe("session capacity failures", () => {
       expect(outgoing?.value).toContain(`class: ${errorClass}`);
     });
   }
+});
+
+
+test("save refusal card discloses partial persistence and scopes Retry to the retained latest turn", () => {
+  send();
+  failLive({ errorClass: "worker_state_save_refused", message: "Saved agent memory changed concurrently and was not overwritten." });
+  const message = assistant();
+  const withoutRetry = render(<MessageBubble message={message} onToolApproval={noop} onAskUserSubmit={noop}
+    onAskUserCancel={noop} onAskUserListSubmit={noop} />);
+  expect(failureText(withoutRetry)).toContain("some files may have been saved");
+  expect(failureText(withoutRetry)).toContain("retrying won't recover the unsaved state");
+  expect(failureText(withoutRetry)).not.toMatch(/too long|nothing was sent/i);
+  expect(withoutRetry.queryByRole("button", { name: "Retry", exact: true })).toBeNull();
+  cleanup();
+  const latest = render(<MessageBubble message={{ ...message, retryOfTurnId: "turn-ithaca" }} closing
+    onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} />);
+  expect(latest.getByRole("button", { name: "Retry", exact: true })).toBeTruthy();
+  cleanup();
+  const older = render(<MessageBubble message={{ ...message, retryOfTurnId: "turn-ithaca" }} closing={false}
+    onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} />);
+  expect(older.queryByRole("button", { name: "Retry", exact: true })).toBeNull();
 });

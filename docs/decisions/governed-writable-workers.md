@@ -1042,7 +1042,7 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:100`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:116`)
 and the inference relay
 (`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,

@@ -728,3 +728,32 @@ for (const width of [390, 1440] as const) {
     expect(s.socket.frames("chat_message")[0].sessionId).toBeUndefined();
   });
 }
+
+
+// #1697: safe incomplete-save disclosure and the existing retained-request Retry.
+for (const width of [320, 1440] as const) for (const theme of ["dark", "light"] as const) {
+  test(`${width} ${theme}: refused worker-state save discloses partial persistence and retries the retained turn`, async (ctx) => {
+    const s = await mount(ctx, width, 640, theme, { empty: true });
+    flushSync(() => s.ui.stores.chat.getState().setActiveSession(ITHACA.id));
+    s.socket.deliver({ type: "session_info", sessionId: ITHACA.id, isNew: false, backendId: "claude" });
+    s.socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: [
+      { role: "user", content: "Plan the return to Ithaca.", toolCalls: [] },
+      { role: "assistant", content: "The raft plan is ready.", toolCalls: [], turnId: "ithaca-save-turn", retryOfTurnId: "ithaca-save-turn",
+        failure: { errorClass: "worker_state_save_refused", message: "Saved agent memory changed concurrently and was not overwritten." } },
+    ] });
+    s.socket.deliver({ type: "status", sessionId: ITHACA.id, status: "idle", detail: "Session loaded" });
+    const card = () => s.host.querySelector<HTMLElement>('[data-turn-failure="worker_state_save_refused"]');
+    await expect.poll(card).not.toBeNull();
+    expect(card()!.textContent).toContain("This turn wasn't saved in full.");
+    expect(card()!.textContent).toContain("some files may have been saved");
+    expect(card()!.textContent).toContain("retrying won't recover the unsaved state");
+    expect(card()!.textContent).not.toMatch(/too long|nothing was sent/i);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+    const retry = () => [...card()!.querySelectorAll<HTMLElement>("[data-bk-button]")].find(el => el.textContent === "Retry");
+    await expect.poll(retry).toBeDefined();
+    await press(s, retry()!, pointer());
+    expect(s.socket.frames("retry_turn")).toHaveLength(1);
+    expect(s.socket.frames("retry_turn")[0]).toMatchObject({ sessionId: ITHACA.id, failedTurnId: "ithaca-save-turn" });
+    expect(s.socket.frames("chat_message")).toHaveLength(0);
+  });
+}
