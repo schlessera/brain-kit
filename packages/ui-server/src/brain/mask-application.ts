@@ -151,7 +151,9 @@ export function createMaskApplication(options: {
               authority(request.principalId, request.turnId);
               // The existing deterministic policy executes here, under the
               // same lock/authority. Its actual removals join the history.
-              const pruned = core.pruneScratch(root);
+              // The mask this operation just wrote is protected from its
+              // own cleanup (#1691); later passes apply the usual policy.
+              const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([input.maskPath]) });
               for (const removal of pruned.removed) changes.push({ path: removal.path, contentHash: null });
               if (pruned.failed.length) pruneError = "Some scratch files could not be pruned.";
             } catch (error) { pruneError = error instanceof Error ? error.message : String(error); }

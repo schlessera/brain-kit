@@ -443,9 +443,10 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
   }
   // Into scratch, every file goes through the one write primitive, which
   // checks the target at the moment of the write.
+  const written = new Set<string>();
   const put = (destination: string, content: string | Uint8Array, replace: boolean): void => {
     if (scratchOutput) {
-      writeScratchFile(root, destination, content, { replace });
+      written.add(writeScratchFile(root, destination, content, { replace }));
       return;
     }
     writeFileSafely(destination, content, { replace });
@@ -481,8 +482,9 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
     report.indexFilesGenerated++;
   }
 
-  // The exporter's writes into scratch prune it.
-  if (scratchOutput) pruneScratch(root);
+  // The exporter's writes into scratch prune it, never the bundle it just
+  // wrote and reports (#1691).
+  if (scratchOutput) pruneScratch(root, Date.now(), { pinnedPaths: written });
   return report;
 }
 

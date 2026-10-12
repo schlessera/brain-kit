@@ -31,6 +31,17 @@ test("pinned bytes over the cap survive the size pass and report the overage", (
   expect(existsSync(kept)).toBe(true); expect(existsSync(removed)).toBe(false);
   expect(report).toMatchObject({ pinned: { files: 1, bytes: 100 }, bytes: 100, overageBytes: 20 });
 });
+test("a writer's own paths, absolute or brain-relative, are protected for that call only (#1691)", () => {
+  const pinned = file("voyage.pdf", 100, 1), produced = file("chart.png", 5, 0), report = file("report.html", 5, 0), older = file("draft.pdf", 5, 2);
+  pins({ version: 1, ready: true, sessions: { odysseus: [".brain/scratch/voyage.pdf"] } });
+  const first = pruneScratch(root, now, { maxBytes: 80, pinnedPaths: new Set([produced, ".brain/scratch/report.html"]) });
+  expect(existsSync(produced)).toBe(true); expect(existsSync(report)).toBe(true); expect(existsSync(older)).toBe(false);
+  expect(existsSync(pinned)).toBe(true); expect(first.overageBytes).toBe(30);
+  // The next ordinary pass applies the size policy to the still-unlinked output.
+  const later = pruneScratch(root, now, { maxBytes: 80 });
+  expect(existsSync(produced)).toBe(false); expect(existsSync(report)).toBe(false); expect(existsSync(pinned)).toBe(true);
+  expect(later).toMatchObject({ pinned: { files: 1, bytes: 100 }, overageBytes: 20 });
+});
 for (const [name, data] of [["corrupt", "bad"], ["incomplete", { version: 1, ready: false, sessions: {} }], ["NUL path", { version: 1, ready: true, sessions: { x: [".brain/scratch/voyage.pdf\u0000"] } }], ["invalid path", { version: 1, ready: true, sessions: { x: ["../voyage.pdf"] } }]] as const) {
   test(`${name} managed pin data cannot cause deletion`, () => {
     const kept = file("voyage.pdf", 100, 10); pins(data);

@@ -3,9 +3,10 @@
  * the brain, where the UI can open it, and only once git ignores it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
+import { SCRATCH_MAX_BYTES } from "../src/lib/scratch";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
@@ -142,6 +143,52 @@ describe("render into the scratch area", () => {
     const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/exposed.html"]);
     expect(again.code).toBe(0);
     expect(git("check-ignore", "-q", "--no-index", "--", ".brain/scratch/exposed.html").exitCode).toBe(0);
+  }, CLI_TIMEOUT_MS);
+
+  test("retained pins over the cap do not let the render delete its own reported output (#1691)", async () => {
+    await runCli(root, ["doctor", "--fix"]);
+    // A retained conversation pins a file larger than the cap on its own.
+    // Sparse: the size counts, no GiB of blocks is allocated.
+    const pinned = join(root, ".brain/scratch/voyage-log.bin");
+    mkdirSync(join(root, ".brain/scratch"), { recursive: true });
+    writeFileSync(pinned, "");
+    truncateSync(pinned, SCRATCH_MAX_BYTES + 1);
+    const pins = (paths: string[]) => {
+      mkdirSync(join(root, ".brain/scratch-pins"), { recursive: true });
+      writeFileSync(join(root, ".brain/scratch-pins/pins.json"),
+        JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": paths } }));
+    };
+    pins([".brain/scratch/voyage-log.bin"]);
+
+    const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch", "--json"]);
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout) as { output: string; bytes: number };
+    // The writer's own cleanup kept what it reported.
+    expect(existsSync(join(root, out.output))).toBe(true);
+    expect(readFileSync(join(root, out.output), "utf8")).toContain("<h1>Trip</h1>");
+    expect(statSync(join(root, out.output)).size).toBe(out.bytes);
+    expect(statSync(pinned).size).toBe(SCRATCH_MAX_BYTES + 1);
+
+    // The protection lasted only for that call: an ordinary prune applies
+    // the size policy to the still-unlinked output and reports the overage.
+    const prune = await runCli(root, ["scratch", "prune", "--json"]);
+    expect(prune.code).toBe(0);
+    const report = JSON.parse(prune.stdout) as { removed: { path: string; reason: string }[]; pinned: { files: number }; overageBytes: number };
+    expect(report.removed).toEqual([expect.objectContaining({ path: out.output, reason: "size" })]);
+    expect(report).toMatchObject({ pinned: { files: 1 }, overageBytes: 1 });
+    expect(existsSync(join(root, out.output))).toBe(false);
+    expect(existsSync(pinned)).toBe(true);
+
+    // Linked by a retained answer, a later output survives an ordinary prune.
+    const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch", "--json"]);
+    expect(again.code).toBe(0);
+    const kept = (JSON.parse(again.stdout) as { output: string }).output;
+    expect(existsSync(join(root, kept))).toBe(true);
+    pins([".brain/scratch/voyage-log.bin", kept]);
+    const pinnedPrune = await runCli(root, ["scratch", "prune", "--json"]);
+    expect(pinnedPrune.code).toBe(0);
+    expect(JSON.parse(pinnedPrune.stdout)).toMatchObject({ removed: [], pinned: { files: 2 } });
+    expect(existsSync(join(root, kept))).toBe(true);
   }, CLI_TIMEOUT_MS);
 });
 

@@ -248,7 +248,11 @@ async function runMap(args: string[], argv: string[], flags: Flags, cli: CliCont
     if (!parent) throw new UsageError("Map output directory no longer remains inside the brain.");
     const target = join(parent, basename(out));
     try {
-      if (scratch || isInScratch(root, out) || isInScratch(root, target)) { writeScratchFile(root, out, png, { replace: true }); pruneScratch(root); }
+      if (scratch || isInScratch(root, out) || isInScratch(root, target)) {
+        // Its own cleanup never deletes the map it is about to report (#1691).
+        const written = writeScratchFile(root, out, png, { replace: true });
+        pruneScratch(root, Date.now(), { pinnedPaths: new Set([written]) });
+      }
       else writeFileSafely(target, png);
     } catch (error) { if (isWriteRefusal(error)) throw new UsageError((error as Error).message); throw error; }
     artifact = { path: relative(root, target).split("\\").join("/"), format: "png", bytes: png.byteLength };

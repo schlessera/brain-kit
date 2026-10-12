@@ -293,7 +293,7 @@ export const renderCommand: CoreCommand = {
     // an existing file; a name the caller chose (--out) is theirs to replace.
     // Refusals by design are usage errors; a filesystem failure (ENOSPC, ...)
     // stays an internal error.
-    let wroteScratch = false;
+    let wroteScratch: string | undefined;
     const write = (data: string | Uint8Array) => {
       const parent = resolveWritable(root, dirname(outRel));
       if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
@@ -301,8 +301,7 @@ export const renderCommand: CoreCommand = {
       const inScratch = scratchOutput || isInScratch(root, outRel) || isInScratch(root, target);
       try {
         if (inScratch) {
-          writeScratchFile(root, outRel, data, { replace: !toScratch });
-          wroteScratch = true;
+          wroteScratch = writeScratchFile(root, outRel, data, { replace: !toScratch });
         } else {
           writeFileSafely(target, data);
         }
@@ -339,8 +338,8 @@ export const renderCommand: CoreCommand = {
 
     const bytes = Bun.file(outAbs).size;
     const outputRel = relative(root, outAbs);
-    // This command's writes into scratch prune it.
-    if (wroteScratch) pruneScratch(root);
+    // This command's writes into scratch prune it, never its own output.
+    if (wroteScratch) pruneScratch(root, Date.now(), { pinnedPaths: new Set([wroteScratch]) });
     emit(
       cli.json,
       {

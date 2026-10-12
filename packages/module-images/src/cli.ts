@@ -363,13 +363,12 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // replace.
     // Refusals by design are reported and exit 1; a filesystem failure
     // (ENOSPC, ...) propagates as the internal error it is.
-    let wroteScratch = false;
+    const wroteScratch = new Set<string>();
     const write = (rel: string, data: Uint8Array): boolean => {
       try {
         const resolved = resolveWritable(ctx.root, rel);
         if (isInScratch(ctx.root, rel) || (resolved !== null && isInScratch(ctx.root, resolved))) {
-          writeScratchFile(ctx.root, rel, data, { replace: !toScratch });
-          wroteScratch = true;
+          wroteScratch.add(writeScratchFile(ctx.root, rel, data, { replace: !toScratch }));
           return true;
         }
         const parent = resolveWritable(ctx.root, dirname(rel));
@@ -391,8 +390,9 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       if (!write(alt, extra.data)) return 1;
       written.push(repoRelative(alt));
     }
-    // This command's writes into scratch prune it.
-    if (wroteScratch) pruneScratch(ctx.root);
+    // This command's writes into scratch prune it, never the images it is
+    // about to report (#1691).
+    if (wroteScratch.size) pruneScratch(ctx.root, Date.now(), { pinnedPaths: wroteScratch });
 
     const payload = {
       output: written[0],
