@@ -415,3 +415,18 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
     } finally { release?.(); await context.close(); }
   });
 }
+
+test("artifact actual HTML route confirms a successful native preview without replacing it", async () => {
+  const path = ".brain/scratch/raft/overview.html";
+  const { page, context, outside } = await scene(1280, "dark", path);
+  try {
+    const confirmation = page.waitForResponse(response => response.request().method() === "HEAD" && new URL(response.url()).pathname === "/api/files/html");
+    await activate(page);
+    expect((await confirmation).status(), "REAL_HTML_HEAD_AVAILABLE").toBe(200);
+    await page.frameLocator('iframe[title="HTML preview"]').getByRole("heading", { name: "The raft of Odysseus", exact: true }).waitFor();
+    expect(await page.locator('iframe[title="HTML preview"]').isVisible()).toBe(true);
+    expect(await page.evaluate(() => (window as any).__artifactFixture.state().kind)).toBe("html");
+    expect(await page.evaluate(() => (window as any).__artifactFixture.state().failure)).toBeUndefined();
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});
