@@ -233,6 +233,7 @@ function assembleClaudeSdkTurn(
       turnLock,
       childEnv,
       configurationRoot: () => worker.configurationRoot(),
+      maintenance: backend.maintenance,
       log,
     }),
   };

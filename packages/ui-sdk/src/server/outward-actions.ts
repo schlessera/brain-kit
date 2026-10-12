@@ -100,6 +100,10 @@ function classify(segment: Segment): OutwardClassification {
       { ...(!uncertain && remote ? { remote } : {}), ...(!uncertain ? { gitOptions } : {}) });
   }
   if (name === "gh") {
+    let verb = 0;
+    while (["-R", "--repo"].includes(values[verb] ?? "")) verb += 2;
+    while (/^--repo=|^-R./.test(values[verb] ?? "")) verb++;
+    const api = values[verb] === "api";
     let method: string | undefined, data = false;
     for (let i = 0; i < values.length; i++) {
       const value = values[i]!;
@@ -108,8 +112,8 @@ function classify(segment: Segment): OutwardClassification {
       else if (/^-X.+/.test(value)) method = value.slice(2);
       if (["-f", "-F", "--raw-field", "--field", "--input"].some(flag => value === flag || value.startsWith(flag + "=") || (flag.length === 2 && value.startsWith(flag) && value.length > 2))) data = true;
     }
-    if (githubWrites[values[0] ?? ""]?.has(values[1] ?? "") || (values[0] === "api" && ((method && method.toUpperCase() !== "GET") || data))) return result("gh_write", null);
-    if (!uncertain && (githubReads[values[0] ?? ""]?.has(values[1] ?? "") || (values[0] === "api" && !data && (!method || method.toUpperCase() === "GET")))) return { kind: "read", actions: [] };
+    if (githubWrites[values[verb] ?? ""]?.has(values[verb + 1] ?? "") || (api && (method ? method.toUpperCase() !== "GET" : data))) return result("gh_write", null);
+    if (!uncertain && (githubReads[values[verb] ?? ""]?.has(values[verb + 1] ?? "") || (api && (method ? method.toUpperCase() === "GET" : !data)))) return { kind: "read", actions: [] };
   }
   if (name === "curl" || name === "wget") {
     let method: string | undefined, data = false, opaque = uncertain;

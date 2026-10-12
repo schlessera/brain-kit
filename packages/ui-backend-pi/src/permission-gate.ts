@@ -112,7 +112,7 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   const { turn, allowedTools } = options;
   const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
   const outward = (value: unknown) => prepareOutwardPlan({ toolName, shellToolName: "bash", input: value,
-    allow: turn.commandPolicy?.outwardAllow, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot });
+    allow: turn.commandPolicy?.outwardAllow, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
   const observe = (value: unknown, decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(outward(value), { bridge: turn.bridge, toolName, input: value, toolUseId, decision });
   const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
   if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }

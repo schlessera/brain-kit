@@ -35,12 +35,28 @@ export interface TurnJournalChange {
   overlappingTurnIds: string[];
 }
 
+/** An admission receipt, not a claim that the external action completed. */
+export interface JournalOutwardAction {
+  id: number;
+  at: number;
+  tool: string;
+  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+  target: string | null;
+  decision: "policy_allowed" | "approved" | "declined" | "refused";
+  historyRewrite: boolean;
+  /** Restoring local files cannot undo an external action. */
+  revertible: false;
+}
+
 export interface TurnJournalDetails {
   turnId: string;
   sessionId: string;
   summary: TurnJournalSummary;
   changes: TurnJournalChange[];
   missing: { path: string; reason: string }[];
+  outwardActions?: JournalOutwardAction[];
+  /** The details endpoint bounds rows; retained governance records remain queryable. */
+  outwardActionsTruncated?: boolean;
 }
 
 export interface TurnRevertPath {

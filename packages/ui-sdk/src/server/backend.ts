@@ -306,6 +306,8 @@ export type BackendActivityEvent =
       toolUseId: string;
       /** Observation only; an egress guard must validate live authority itself. */
       classification: import("./outward-actions.js").OutwardClassification;
+      /** Decision for this exact input; observational, not an egress grant. */
+      decision: "allow" | "deny" | "refused";
     }
   | {
       kind: "outward_action";

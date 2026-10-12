@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BackendBridge, PermissionDecision } from "./backend.js";
 import { bashCommand, type CompiledConfirmPattern } from "./confirm-patterns.js";
-import { runMaintenanceWorkerSync } from "./maintenance-worker.js";
+import { runMaintenanceWorkerSync, type MaintenanceHost } from "./maintenance-worker.js";
 import { classifyOutwardCall, outwardTarget, type OutwardClassification, type VisibleOutwardAction } from "./outward-actions.js";
 
 export interface WorkerOutwardRule { readonly command: string; readonly remotes: readonly string[]; readonly index: number }
@@ -20,7 +20,7 @@ function remoteMatches(pattern: string, target: string): boolean {
 }
 /** Resolve only in the configuration view this running worker actually received. */
 export function resolveOutwardGitRemote(action: VisibleOutwardAction, options: {
-  configurationRoot?: string; maskPaths?: readonly string[];
+  configurationRoot?: string; maskPaths?: readonly string[]; maintenance?: MaintenanceHost;
 }): string | null {
   if (!action.remote || !options.configurationRoot) return null;
   try {
@@ -30,7 +30,7 @@ export function resolveOutwardGitRemote(action: VisibleOutwardAction, options: {
     if (native === root || native.startsWith(root + "/")) return null;
     const args = [...(action.gitOptions ?? []), "-c", `safe.directory=${root}`, "remote", "get-url", "--push", "--all", action.remote];
     const result = runMaintenanceWorkerSync({ brainPath: root, command: [native, ...args], env: { PATH: [dirname(native), "/usr/bin:/bin"].join(":") },
-      credentials: false, ...(options.maskPaths ? { maskPaths: options.maskPaths } : {}), timeoutMs: 5000 });
+      ...options.maintenance, credentials: false, ...(options.maskPaths ? { maskPaths: options.maskPaths } : {}), timeoutMs: 5000 });
     if (result.exitCode !== 0) return null;
     const destinations = result.stdout.trim().split("\n").map(outwardTarget);
     // Multiple push URLs are multiple destinations, not an arbitrary first match.
@@ -40,10 +40,13 @@ export function resolveOutwardGitRemote(action: VisibleOutwardAction, options: {
 
 export function prepareOutwardPlan(options: {
   toolName: string; shellToolName: string; input: unknown; allow?: readonly WorkerOutwardRule[];
-  autonomous?: boolean; voice?: boolean; configurationRoot?: string; maskPaths?: readonly string[];
+  autonomous?: boolean; voice?: boolean; configurationRoot?: string; maskPaths?: readonly string[]; maintenance?: MaintenanceHost;
 }): OutwardPlan {
   const classification = options.autonomous ? { kind: "unknown" as const, actions: [] } : classifyOutwardCall(options.toolName, options.shellToolName, options.input);
   const rules = classification.actions.map(action => {
+    // Unknown preceding code can alter a named destination before the push.
+    // A visible action still asks; opaque segments never borrow an allow rule.
+    if (classification.opaque) return null;
     if (action.action === "git_push" && !action.target && !options.voice && !action.historyRewrite && options.allow?.length) action.target = resolveOutwardGitRemote(action, options);
     if (!action.target) return null;
     return options.allow?.find(rule => {
@@ -65,7 +68,7 @@ export function observeOutwardPlan(plan: OutwardPlan, options: { bridge?: Pick<B
   toolName: string; toolUseId: string; input: unknown; decision: PermissionDecision | "refused" }) {
   const text = JSON.stringify(options.input) ?? "null";
   try {
-    options.bridge?.activity?.({ kind: "outward_classification", toolUseId: options.toolUseId, classification: plan.classification });
+    options.bridge?.activity?.({ kind: "outward_classification", toolUseId: options.toolUseId, classification: plan.classification, decision: options.decision === "refused" ? "refused" : options.decision.behavior });
     for (const [index, action] of plan.classification.actions.entries()) {
       const rule = plan.rules[index];
       const decision = options.decision === "refused" ? "refused" : options.decision.behavior === "deny" ? "declined"
@@ -83,5 +86,6 @@ export const OUTWARD_VOICE_REFUSAL = "Voice cannot approve an outward action. No
 export function workerOutwardNote(): string {
   return ["# Outward actions", "Visible git pushes, GitHub writes and curl/wget non-GET or data requests require the existing per-use approval unless the admitted outward.allow rule matches the command and its known destination.",
     "Remote force pushes, ref deletion and mirror/prune writes always require approval. Voice cannot approve outward actions.",
+    "Unknown or configuration-sourced segments cannot borrow a policy allow for a visible outward command.",
     "Opaque scripts making HTTPS requests are not covered by this classification. Egress proxy enforcement is not active here. The shipped backend inventories contain no built-in outward mail, calendar, booking or payment MCP descriptors; third-party tools are not assigned invented effects."].join("\n");
 }

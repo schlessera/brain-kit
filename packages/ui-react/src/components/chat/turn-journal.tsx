@@ -71,6 +71,13 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {error && <p role="status">{error}</p>}
         {details?.missing.map((missing, index) => <p key={`${missing.path}-${index}`} className="break-words">Unavailable: {missing.path} ({missing.reason})</p>)}
         {revert.controls}
+        {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
+          <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
+          <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">
+            {({ git_push: "Git push", gh_write: "GitHub write", mcp_tool: "Outward tool", http_write: "HTTP write", outward_host_connect: "Outward connection" })[action.action]} · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]} · {action.target ?? "Destination unresolved"}{action.historyRewrite ? " · Remote history rewrite" : ""}
+          </li>)}</ul>
+          {details.outwardActionsTruncated && <p className="mt-2">Showing the first 1,000 outward receipts. More remain in the retained governance records.</p>}
+        </section>}
         {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <span className="break-all min-w-0">{change.path} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
           {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
