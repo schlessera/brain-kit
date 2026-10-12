@@ -46,6 +46,11 @@ export function failurePresentation(failure: TurnFailure) {
     explanation: "Part of this turn wasn't saved; the details below say what was. Retry, or continue in a new conversation if this keeps happening.",
     operator: false, tone: "gold" as const, retry: true, report: true,
   };
+  if (failure.errorClass === "worker_state_save_refused") return {
+    headline: "This turn wasn't saved in full.",
+    explanation: "Its transcript or agent memory could not be saved in full; some files may have been saved. The details below say why. Retry if needed; retrying won't recover the unsaved state.",
+    operator: false, tone: "gold" as const, retry: true, report: true,
+  };
   if (AUTH.has(failure.errorClass)) return {
     headline: "The backend's credential was refused.",
     explanation: "Check the credential configured for this provider. The provider's message is available below.",

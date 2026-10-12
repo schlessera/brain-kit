@@ -452,12 +452,12 @@ host (`export function launchAgentWorker`,
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
    through the held descriptor (`populate(root) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:174-195`), then opens the
+   `packages/ui-backend-claude/src/worker-state.ts:190-211`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:200-239`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:216-255`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,
@@ -502,11 +502,13 @@ result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
 `worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:230-236`). A result, success or
+`packages/ui-backend-claude/src/turn-runner.ts:231-238`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the
-message says so instead. A reported write error stays on record however much
+message says so instead. A copy-out refusal without exhaustion is named
+`worker_state_save_refused` (#1697), with a safe reason and an explicit
+incomplete-save disclosure; retry does not recover unsaved state. A reported write error stays on record however much
 the worker prints after it, and a refusal is recognized by its class from any
 copy of the module. A host cancellation outranks it.
 **Residual:** a turn that fills the tmpfs and frees space again between those

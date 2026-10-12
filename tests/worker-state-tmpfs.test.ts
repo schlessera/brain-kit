@@ -107,7 +107,12 @@ test("a server killed mid-turn leaves no worker and no runtime state behind", as
 test("links a worker plants in its runtime state are refused at copy-out, which runs only after its namespace is gone", async () => {
   const r = await probe("planted");
   for (const [name, outcome] of Object.entries(r.outcomes) as [string, any][]) {
-    expect(outcome.error, name).toMatch(/alias|special|redirected/);
+    expect(outcome.exit, name).toEqual({ code: 0, signal: null });
+    expect(outcome.error, name).toBeNull();
+    expect(outcome.failure?.errorClass, name).toBe(name === "full and planted"
+      ? "worker_state_exceeded" : "worker_state_save_refused");
+    expect(outcome.failure.message, name).toMatch(/alias|special|redirected/);
+    expect(outcome.failure.message, name).toMatch(/not (?:be )?saved in full/);
     expect(outcome.savedEntries, `${name}: nothing was exported`).toEqual([]);
   }
   // The late swap lands mid-turn; the copy-out reads only the final tree, after every writer is gone.

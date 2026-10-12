@@ -576,9 +576,17 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   server's runtime-state budget is held by running workers; refused before
   launch, nothing was sent, Retry) and `worker_state_exceeded` (the running
   turn filled its allowance; the part written after that was not saved, even
-  if the runtime finished its answer), as
+  if the runtime finished its answer) and `worker_state_save_refused` (the
+  post-exit copy-out of transcript or agent memory was refused, for example
+  because saved state changed concurrently or worker output failed validation).
+  A refused copy-out turns a runtime success into an error with actual usage
+  retained; the message discloses an incomplete save without claiming every
+  file was lost. `worker_state_exceeded` remains the more specific class when
+  the allowance was exhausted, with the copy-out refusal disclosed in its
+  message. Host cancellation outranks both. Retry resends the request; it
+  does not recover unsaved runtime state. See
   [the hosting doc](../hosting/agent-workers.md#claude-runtime-state-and-transcript-archival)
-  describes (#1621, #1625). All three are registered in
+  for runtime state (#1621, #1625, #1697). All four are registered in
   `FIRST_PARTY_FAILURE_CLASSES`.
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is

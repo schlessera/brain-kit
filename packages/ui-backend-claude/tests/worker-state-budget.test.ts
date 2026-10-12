@@ -1,6 +1,7 @@
 /** Aggregate runtime-state admission (#1625): whole allowances against one budget. */
 import { expect, test } from "bun:test";
 import { createStateLedger, processStateLedger, WorkerStateError } from "../src/worker-state-budget.js";
+import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { exceededFailure, stateExhausted, workerStateClass } from "../src/worker-spawn.js";
 
 const MiB = 1024 * 1024;
@@ -72,9 +73,9 @@ test("exhaustion is read from the private tmpfs, or from the runtime's own write
 
 test("the exhaustion message claims kept state only when the copy-out succeeded", () => {
   expect(exceededFailure(64 * MiB).message).toContain("What it wrote before then is kept");
-  const refused = exceededFailure(64 * MiB, new Error("runtime state contains an alias or special file"));
+  const refused = exceededFailure(64 * MiB, new WorkerHostError("runtime state contains an alias or special file"));
   expect(refused.message).not.toContain("is kept");
-  expect(refused.message).toContain("could not be saved in full either: runtime state contains an alias or special file");
+  expect(refused.message).toContain("could not be saved in full either: Runtime state contained a link, alias or special file");
 });
 
 test("a worker-state refusal is recognized by class, from any copy of the module", () => {

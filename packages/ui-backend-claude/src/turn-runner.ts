@@ -224,13 +224,15 @@ export function createClaudeTurnRunner(options: {
      * (#1625). So the state is checked when the result arrives, the terminal
      * result waits for the worker to exit and its state to be copied out, and
      * a state found full at either point names the turn
-     * `worker_state_exceeded`, keeping its usage. A host cancellation still
+     * `worker_state_exceeded`. A refused copy-out names it
+     * `worker_state_save_refused`, keeping its usage. A host cancellation still
      * outranks it.
      */
     const unsaved = (result: Extract<ServerMessage, { type: "result" }>): Extract<ServerMessage, { type: "result" }> => {
       if (result.outcome === "cancelled" || abortController.signal.aborted) return result;
       const failure = workerFailure?.();
-      if (failure?.errorClass !== FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) return result;
+      if (failure?.errorClass !== FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded
+        && failure?.errorClass !== FIRST_PARTY_FAILURE_CLASSES.worker_state_save_refused) return result;
       emit({ type: "error", code: "CLAUDE_ERROR", message: failure.message });
       return { ...result, outcome: "error", isError: true, failure };
     };
@@ -240,8 +242,7 @@ export function createClaudeTurnRunner(options: {
     const releaseTerminal = async (): Promise<void> => {
       if (!terminal || terminalSent) return;
       terminalSent = true;
-      // The worker's exit and copy-out; a copy-out refusal is still reported
-      // where it always was, after the terminal frame.
+      // The worker's exit and copy-out must settle before the terminal frame.
       await finishWorker?.().catch(() => {});
       emit(unsaved(terminal));
     };

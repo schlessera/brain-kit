@@ -8,7 +8,7 @@ import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
@@ -27,6 +27,22 @@ export class SessionTooLargeError extends BackendRequestError {
       + "runtime-state allowance. Continue in a new conversation.");
     this.name = "SessionTooLargeError";
   }
+}
+
+/** Safe copy-out disclosure: filesystem exceptions may contain private paths or content. */
+export function workerStateSaveReason(error: unknown): string {
+  const reason = error instanceof WorkerHostError ? error.requirement : "";
+  if (reason.startsWith("saved transcript changed concurrently")) return "The saved transcript changed concurrently and was not overwritten.";
+  if (reason.startsWith("saved memory changed concurrently")) return "Saved agent memory changed concurrently and was not overwritten.";
+  if (/alias|special file|redirected/.test(reason)) return "Runtime state contained a link, alias or special file, so its copy-out was refused.";
+  if (/byte bound|oversized file|file bound/.test(reason)) return "Runtime state exceeded a copy-out bound, so its copy-out was refused.";
+  return "The server could not copy the worker's runtime state back to saved storage.";
+}
+
+export function workerStateSaveFailure(error: unknown): TurnFailure {
+  return { errorClass: FIRST_PARTY_FAILURE_CLASSES.worker_state_save_refused,
+    message: "This turn's transcript or agent memory was not saved in full. " + workerStateSaveReason(error)
+      + " Some files may already have been saved. Retry the request if needed; retrying does not recover the unsaved state." };
 }
 
 export const isSessionId = (id: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);

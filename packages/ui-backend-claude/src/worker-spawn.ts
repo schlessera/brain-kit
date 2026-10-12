@@ -10,7 +10,7 @@ import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { wrapCommand, type ExecWrapperConfig, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { processStateLedger } from "./worker-state-budget.js";
-import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
+import { createClaudeWorkerState, validateSessionId, workerStateSaveFailure, workerStateSaveReason } from "./worker-state.js";
 
 /** Promotion of what an answer links in turn temp (#1655), for a turn that keeps its transcript. */
 export interface WorkerPromotion {
@@ -38,7 +38,7 @@ export function exceededFailure(bytes: number, copyOut?: unknown): TurnFailure {
   return { errorClass: FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
     message: `This turn's runtime state filled the worker's ${mib(bytes)} allowance, so the runtime could not save all `
       + "of the turn. " + (copyOut === undefined ? "What it wrote before then is kept; the rest was not saved. "
-        : `Its runtime state could not be saved in full either: ${copyOut instanceof Error ? copyOut.message : String(copyOut)} `)
+        : `Its runtime state could not be saved in full either: ${workerStateSaveReason(copyOut)} `)
       + "If this recurs, continue in a new conversation." };
 }
 
@@ -172,7 +172,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         exitCode = code;
         signal.removeEventListener("abort", abort);
         check();
-        // A turn whose result already streamed stays completed, so log it too.
+        // Also record exhaustion in server diagnostics.
         if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) console.error(`Claude worker runtime state: ${failure.message}`);
         // bwrap's PID namespace dies with its init, including detached
         // children, so only the server touches the private tmpfs and turn temp now.
@@ -184,7 +184,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         try { state.persist(handle.root, promoter?.rewrite); } catch (error) {
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
-          throw error;
+          else if (!failure) failure = workerStateSaveFailure(error);
+          // Record the raw exception only in host diagnostics, never the wire message.
+          console.error("Claude worker runtime-state copy-out refused:", error);
         } finally { if (promoter?.records.length) promotion!.report(promoter.records); }
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);
         emitter.emit("exit", killed ? null : code, signalCode);
