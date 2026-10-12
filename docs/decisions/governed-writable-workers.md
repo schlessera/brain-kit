@@ -149,7 +149,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:462-466`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:476-480`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -521,6 +521,15 @@ holds the text as it streamed, so the server also sends the turn's clients
 a `message_links` frame for each promoted file, and the client rewrites the
 same destinations with the function the backend used. The link changes in
 place, without a reload or a marker (#1698).
+
+Classified blocks follow the same destination edits in persisted history
+(#1704). The host retains the turn's original text and destination map,
+then saves blocks under the rewritten text's hash with rebased spans.
+It does this when promotion arrives and when classification completes,
+so either completion order replays the same blocks. The original hash
+remains available to other identical, unpromoted parts in the session.
+Live blocks still use streamed-text offsets; the client and server share
+the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
 files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:595`).

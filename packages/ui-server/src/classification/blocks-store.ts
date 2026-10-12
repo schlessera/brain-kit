@@ -15,6 +15,7 @@
 import type { Database } from "bun:sqlite";
 import type { MessageBlock, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { messageBlockSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { rebaseMessageBlocks, rewriteLinkDestinationsWithEdits } from "@schlessera/brain-ui-sdk/internal/client";
 
 /** The key one text part gets. Exported so the writer and the joiner agree by construction. */
 export function partHash(text: string): string {
@@ -51,6 +52,32 @@ export function loadMessageBlocks(db: Database, sessionId: string, partText: str
   } catch {
     return [];
   }
+}
+
+/**
+ * Keep the original join for other identical parts in the session, and save a
+ * rebased join for this turn's promoted text. Always start from the streamed
+ * text: a repeated promotion must not apply the same offset twice.
+ */
+export function rewriteMessageBlockLinks(
+  db: Database,
+  sessionId: string,
+  textParts: readonly string[],
+  links: ReadonlyMap<string, string>
+): void {
+  if (links.size === 0) return;
+  db.transaction(() => {
+    textParts.forEach((text, partIndex) => {
+      const rewritten = rewriteLinkDestinationsWithEdits(text, link => links.get(link) ?? link);
+      if (rewritten.text === text) return;
+      const blocks = loadMessageBlocks(db, sessionId, text).map(block => ({ ...block, partIndex: 0 }));
+      if (blocks.length === 0) return;
+      const rebased = rebaseMessageBlocks(blocks, [rewritten.edits])
+        .filter(block => block.start >= 0 && block.end <= rewritten.text.length)
+        .map(block => ({ ...block, partIndex }));
+      saveMessageBlocks(db, sessionId, rewritten.text, rebased);
+    });
+  })();
 }
 
 /** The text parts of a history message, in order, as the client will number them. */

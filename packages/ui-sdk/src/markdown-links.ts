@@ -3,8 +3,9 @@
  * promotion agree on (#1655, #1698): the backend rewrites the stored answer
  * with it, and a client watching the turn applies the host's `message_links`
  * to the streamed answer with it, so the two texts come out identical.
- * Browser-safe: it imports nothing.
+ * Browser-safe: it imports only types.
  */
+import type { MessageBlock } from "./protocol.js";
 
 /**
  * Ranges of `text` that are code, where a link is not a link: fenced blocks
@@ -39,6 +40,24 @@ export interface LinkEdit {
   start: number;
   end: number;
   length: number;
+}
+
+/** Move classified spans with rewritten destinations; discard ambiguous overlaps. */
+export function rebaseMessageBlocks(blocks: readonly MessageBlock[], edits: ReadonlyArray<LinkEdit[] | null>): MessageBlock[] {
+  return blocks.flatMap((block) => {
+    const part = edits[block.partIndex];
+    if (part === undefined) return [block];
+    if (part === null) return [];
+    let start = block.start, end = block.end;
+    for (const edit of part) {
+      const delta = edit.length - (edit.end - edit.start);
+      if (edit.end <= block.start) { start += delta; end += delta; }
+      else if (edit.start >= block.end) break;
+      else if (edit.start >= block.start && edit.end <= block.end) end += delta;
+      else return [];
+    }
+    return [{ ...block, start, end }];
+  });
 }
 
 /**

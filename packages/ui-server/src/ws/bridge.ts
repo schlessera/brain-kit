@@ -67,6 +67,13 @@ export function makeBridge(
   // classification pass that runs after the result (D42). Cheap when no
   // classifier is configured: a few string appends.
   const collector = host.classifier ? new TurnTextCollector() : null;
+  // Scoped to this bridge, so delayed classification/promotion cannot borrow
+  // a follow-up turn's text or destinations when its coordinator slot is reused.
+  const promotedLinks = new Map<string, string>();
+  let collectedSessionId = turn.sessionId;
+  const persistPromotedBlocks = () => {
+    if (collector && collectedSessionId) host.classifier?.rewriteLinks(collectedSessionId, collector.textParts(), promotedLinks);
+  };
   const principalId = turn.principalId;
   const authorization = turn.authorization;
   const signal = turn.abortController.signal;
@@ -96,6 +103,10 @@ export function makeBridge(
     // A reader watching the turn holds the answer as it streamed: it gets the
     // links the stored answer now has, so it shows what a reload would (#1698).
     const sessionId = turn.sessionId;
+    if (event.kind === "promotion") {
+      for (const link of [event, ...(event.aliases ?? [])]) promotedLinks.set(link.originalLink, link.rewrittenLink);
+      persistPromotedBlocks();
+    }
     if (event.kind !== "promotion" || !sessionId || linked.has(event.source)) return;
     linked.add(event.source);
     const links = [event, ...(event.aliases ?? [])].map(link => ({ from: link.originalLink, to: link.rewrittenLink }));
@@ -117,6 +128,7 @@ export function makeBridge(
       }
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
+        if (turn.turnId === turnId) collectedSessionId = msg.sessionId;
         turn.sessionId = msg.sessionId;
         if (msg.providerId) turn.providerId = msg.providerId;
         // Echo the client's correlation id, so it can recognise which
@@ -199,8 +211,10 @@ export function makeBridge(
           // After the result, never before, and never awaited: the answer is
           // on screen already; this only says which spans to draw as blocks.
           const sessionId = msg.sessionId;
+          collectedSessionId = sessionId;
           void host.classifier.run(sessionId, collector.textParts()).then((blocks) => {
             if (blocks.length === 0) return;
+            persistPromotedBlocks();
             host.sendToClients(
               withTurnScope({ type: "message_blocks", sessionId, blocks }, turn, turnId)
             );

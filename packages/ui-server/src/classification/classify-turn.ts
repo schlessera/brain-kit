@@ -29,7 +29,7 @@ import {
   type ClassificationPlan,
 } from "@schlessera/brain-ui-sdk/internal";
 
-import { attachMessageBlocks, saveMessageBlocks } from "./blocks-store.js";
+import { attachMessageBlocks, rewriteMessageBlockLinks, saveMessageBlocks } from "./blocks-store.js";
 import { recordQuestionConfidence } from "./confidence-store.js";
 import type { JevClient, JevOutcome } from "./jev-client.js";
 
@@ -91,6 +91,8 @@ export interface TurnClassifier {
    * that renders.
    */
   run(sessionId: string, textParts: readonly string[]): Promise<MessageBlock[]>;
+  /** Persist blocks under the promoted text, retaining the original live offsets. */
+  rewriteLinks(sessionId: string, textParts: readonly string[], links: ReadonlyMap<string, string>): void;
   /**
    * Join persisted blocks onto a replayed history. Works without a key:
    * blocks classified while one was configured still replay after it is
@@ -156,6 +158,17 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
 
   return {
     enabled: deps.jev.enabled,
+    rewriteLinks(sessionId, textParts, links) {
+      try {
+        rewriteMessageBlockLinks(deps.db(), sessionId, textParts, links);
+      } catch (err) {
+        deps.log.emit({
+          severityText: "WARN",
+          body: "classified blocks could not follow promoted links",
+          attributes: { "session.id": sessionId, "error.message": err instanceof Error ? err.message : String(err) },
+        });
+      }
+    },
     attach(sessionId, messages) {
       try {
         return attachMessageBlocks(deps.db(), sessionId, messages);
