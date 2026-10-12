@@ -270,13 +270,19 @@ describe("Settings drawer while a credential is protected", () => {
   test("refuses the backdrop and Escape, keeps the other tabs disabled, and still closes on the X", async () => {
     // Below `laptop:` the panel is the drawer with its backdrop and tab strip.
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
-    globalThis.fetch = (async () => Response.json({ principals: [] })) as unknown as typeof fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const path = new URL(input instanceof Request ? input.url : String(input), "http://localhost").pathname;
+      if (path === "/api/agent-policy") return Response.json({ error: "Fixture policy unavailable" }, { status: 503 });
+      return Response.json({ principals: [] });
+    }) as unknown as typeof fetch;
     useUIStore.setState({ settingsTab: "devices" });
     usePrincipalStore.setState({ mintPending: true });
 
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     await act(flushPromises);
+    await act(async () => { await import("../../src/components/settings/devices-agents-tab.js"); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(view.getByText("Could not read this brain's enforcing policy. Open Settings again to check.")).toBeTruthy();
     fireEvent.pointerDown(backdropOf(view));
     escape();
     expect(onClose).toHaveBeenCalledTimes(0);
