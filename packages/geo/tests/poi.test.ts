@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { GeoClient } from "../src/server/client.js";
 import { normalizeTrack } from "../src/track.js";
 import type { GeoConfigInput } from "../src/config.js";
@@ -20,6 +20,21 @@ async function setup(fetchImpl: GeoRuntimeOptions["fetchImpl"], extra: GeoConfig
     overpass: {enabled: true, endpoints: [primary, secondary]}, ...extra};
   const runtime = {fetchImpl, admissionDir: join(root, "admission")};
   return {config, runtime, geo: new GeoClient(config, runtime)};
+}
+
+/** Instance-local latency observation; retain the real fsync/rename writer. */
+function delayAdmissionWrites(geo: GeoClient, delayMs: number, admissionDir: string) {
+  const instrumented = (geo as unknown as {transport: {writeAtomic(path: string, value: unknown): Promise<void>}}).transport;
+  const original = instrumented.writeAtomic;
+  const writes = new Map<string, number>(), delayed: string[] = [];
+  instrumented.writeAtomic = async (path, value) => {
+    const count = (writes.get(path) ?? 0) + 1; writes.set(path, count);
+    const admission = dirname(path) === admissionDir;
+    if (admission && count % 2 === 0) await Bun.sleep(delayMs);
+    await original.call(instrumented, path, value);
+    if (admission && count % 2 === 0) delayed.push(path);
+  };
+  return {writes, delayed, restore() {instrumented.writeAtomic = original;}};
 }
 
 describe("bounded shared Overpass POI queries", () => {
@@ -97,24 +112,80 @@ describe("bounded shared Overpass POI queries", () => {
     expect(requests).toBe(0);
   });
 
-  test("bad responses and genuine timeouts permit only the configured ordered fallback", async () => {
-    for (const failure of ["bad", "timeout", "http", "remark"] as const) {
+  // Classification owns a generous fixture budget even when real durable
+  // admission persistence is slow. Only a deliberately stalled request
+  // below proves the transport deadline; a remark is a decoder outcome.
+  for (const admissionDelayMs of [0, 150]) {
+    for (const failure of [
+      {name: "wrong-shape JSON", code: "bad_response", response: () => Response.json({wrong: "shape"})},
+      {name: "malformed JSON", code: "bad_response", response: () => new Response("{")},
+      {name: "HTTP error", code: "http", response: () => new Response("broken", {status: 503})},
+      {name: "runtime timeout remark", code: "timeout", response: () => Response.json({elements: [], remark: "runtime error: Query timed out"})},
+    ] as const) test(`${failure.name} keeps classification, ordered fallback and cache provenance after ${admissionDelayMs}ms persistence`, async () => {
       const urls: string[] = [];
-      const {geo} = await setup(async (url, init) => {
+      const {geo, runtime} = await setup(async url => {
         urls.push(url);
         if (url === secondary) return Response.json({elements: [cafe]});
-        if (failure === "timeout") return new Promise((_resolve, reject) => init.signal!.addEventListener("abort", () => reject(new Error("aborted"))));
-        if (failure === "http") return new Response("broken", {status: 503});
-        return Response.json(failure === "remark" ? {elements: [], remark: "runtime error: Query timed out"} : {wrong: "shape"});
-      }, {timeoutMs: 100});
-      const result = await geo.poi(query);
-      expect(result.value).toHaveLength(1);
-      expect(urls).toEqual([primary, secondary]);
-      expect(result.source).toMatchObject({endpoint: secondary, fallback: {used: true, primaryEndpoint: primary}});
-      expect(result.attempts).toHaveLength(2);
-      const cached = await geo.poi(query);
-      expect(cached.source!.fromCache).toBe(true);
-      expect(cached.attempts.map(a => a.requestSent)).toEqual([true, false]);
+        return failure.response();
+      }, {timeoutMs: 5_000});
+      const persistence = delayAdmissionWrites(geo, admissionDelayMs, runtime.admissionDir);
+      try {
+        const result = await geo.poi(query);
+        expect(result.attempts[0]?.error?.code, "POI_PRIMARY_CLASSIFICATION").toBe(failure.code);
+        expect(result.value, "POI_CLASSIFIED_NONEMPTY_FALLBACK").toHaveLength(1);
+        expect(urls, "POI_ORDERED_EXACTLY_ONCE_FALLBACK").toEqual([primary, secondary]);
+        expect(result.source).toMatchObject({endpoint: secondary, fromCache: false,
+          fallback: {used: true, primaryEndpoint: primary, reason: failure.code}});
+        expect(result.attempts).toHaveLength(2);
+        expect(result.attempts.map(a => a.requestSent)).toEqual([true, true]);
+        expect(persistence.delayed, "REAL_DELAYED_ADMISSION_WRITES_COMPLETED").toHaveLength(2);
+        for (const path of persistence.delayed) {
+          expect(persistence.writes.get(path)).toBe(2);
+          expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({blockedUntil: 0});
+        }
+        expect((await readdir(runtime.admissionDir)).filter(name => name.endsWith(".lock"))).toEqual([]);
+        const cached = await geo.poi(query);
+        expect(cached.value).toEqual(result.value);
+        expect(cached.source).toMatchObject({endpoint: secondary, fromCache: true,
+          fallback: {used: true, primaryEndpoint: primary, reason: failure.code}});
+        expect(cached.attempts[0]?.error?.code, "CACHED_FALLBACK_PRIMARY_FAILURE_RETAINED").toBe(failure.code);
+        expect(cached.attempts.map(a => a.requestSent)).toEqual([true, false]);
+        expect(urls, "CACHED_SECONDARY_NO_EXTRA_REQUEST").toEqual([primary, secondary, primary]);
+      } finally {persistence.restore();}
+    });
+  }
+
+  test("a genuinely stalled primary observes abort and then exactly one secondary succeeds within a bounded settlement", async () => {
+    const timeoutMs = 5_000, watchdogHeadroomMs = 1_500;
+    const urls: string[] = [];
+    let aborted = false, releaseStalled: (() => void) | undefined;
+    const {geo} = await setup(async (url, init) => {
+      urls.push(url);
+      if (url === secondary) return Response.json({elements: [cafe]});
+      return new Promise<Response>((resolve, reject) => {
+        releaseStalled = () => resolve(Response.json({elements: [cafe]}));
+        init.signal!.addEventListener("abort", () => {aborted = true; reject(new Error("aborted"));}, {once: true});
+      });
+    }, {timeoutMs});
+    const pending = geo.poi(query);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([pending, new Promise<null>(resolve => {
+        watchdog = setTimeout(() => resolve(null), timeoutMs + watchdogHeadroomMs);
+      })]);
+      expect(result, "POI_CHAIN_SETTLED_WITHIN_BUDGET").not.toBeNull();
+      expect(aborted, "POI_PRIMARY_ABORT_OBSERVED").toBe(true);
+      expect(result!.attempts[0]?.error?.code).toBe("timeout");
+      expect(result!.value, "POI_TIMEOUT_NONEMPTY_FALLBACK").toHaveLength(1);
+      expect(urls, "POI_TIMEOUT_EXACTLY_ONCE_ENDPOINT_ORDER").toEqual([primary, secondary]);
+      expect(result!.attempts.map(a => a.requestSent)).toEqual([true, true]);
+      expect(result!.source).toMatchObject({endpoint: secondary, fallback: {used: true, reason: "timeout", primaryEndpoint: primary}});
+    } finally {
+      clearTimeout(watchdog);
+      // A missing timeout guard must fail its named settlement assertion,
+      // then release the real request before afterEach removes owned state.
+      releaseStalled?.();
+      await pending;
     }
   });
 
