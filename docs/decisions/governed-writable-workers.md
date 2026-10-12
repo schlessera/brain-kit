@@ -149,7 +149,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:119`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:447-451`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:456-460`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -483,7 +483,7 @@ way.
 
 **As built (#1655).** The server takes turn temp from the first tmpfs that
 is not the brain's device: its own temporary directory, then `/dev/shm`
-(`export function turnTempRoot`, `packages/ui-sdk/src/server/worker-turn-temp.ts:63-76`).
+(`export function turnTempRoot`, `packages/ui-sdk/src/server/worker-turn-temp.ts:64-77`).
 A private `0700` directory there is bound at the worker's `/tmp`, which holds
 `$BRAIN_WORKER_SCRATCH` and the XDG fallback, and the `$HOME` overlay writes
 into its upper directory there. Without such a tmpfs the worker keeps the
@@ -493,7 +493,7 @@ rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:202-213`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:175-186`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -501,7 +501,10 @@ any other scratch link. Each result reaches the server as a `promotion` or
 the same name. `scratch_unavailable` is the refusal for a turn whose
 `.brain/scratch/` was not usable. The stored answer is rewritten before the
 turn's history boundary is read. A reader still watching the live stream
-sees the original link until the conversation is reloaded.
+holds the text as it streamed, so the server also sends the turn's clients
+a `message_links` frame for each promoted file, and the client rewrites the
+same destinations with the function the backend used. The link changes in
+place, without a reload or a marker (#1698).
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
 files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:595`).

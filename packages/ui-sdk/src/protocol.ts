@@ -785,6 +785,7 @@ export type ServerMessage =
   | ServerActivitySnapshot
   | ServerActivityDelta
   | ServerMessageBlocks
+  | ServerMessageLinks
   | ServerLocalExchangeResult
   | ServerHandoffDraft
   | ServerHandoffReceipt
@@ -970,6 +971,29 @@ export interface ServerMessageBlocks extends SessionScoped {
   type: "message_blocks";
   sessionId: string;
   blocks: MessageBlock[];
+}
+
+/** One link destination the host rewrote in a turn's saved answer: `from` as the answer wrote it, `to` as it reads now. */
+export interface MessageLink {
+  from: string;
+  to: string;
+}
+
+/**
+ * Link destinations the host rewrote in the turn's saved answer once the
+ * turn ended (additive, #1698): a file the answer linked in turn temp was
+ * copied into scratch, and the saved answer links the copy (#1655). A
+ * client holding the turn's streamed answer replaces each `from` with its
+ * `to` in that turn's assistant text, wherever the text has it as a link
+ * or image destination or a reference definition outside code, and so
+ * shows what a reload would. Sent only when something was rewritten, any
+ * time around the turn's `result`; a client that ignores it shows the
+ * original link until it reloads.
+ */
+export interface ServerMessageLinks extends SessionScoped {
+  type: "message_links";
+  sessionId: string;
+  links: MessageLink[];
 }
 
 export interface ServerTextDelta extends SessionScoped {

@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync
   statfsSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, WORKER_SCRATCH, workerCommand } from "../src/server/worker-launcher";
+import { rewriteLinkDestinations } from "../src/internal-client";
 import { createTurnTemp, createTurnTempPromoter, turnTempRoot, type TurnTemp, type TurnTempPromoterOptions } from "../src/server/worker-turn-temp";
 
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -103,7 +104,8 @@ describe("turn temp (#1655)", () => {
     expect(readFileSync(join(promotedDir(f.brain), "report.pdf"), "utf8")).toBe("Odysseus: the voyage report.");
     expect(p.records).toEqual([
       { kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination: `${dest}/report.pdf`, bytes: 28,
-        originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: `${dest}/report.pdf` },
+        originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: `${dest}/report.pdf`,
+        aliases: [{ originalLink: "file:///tmp/brain-worker-scratch/report.pdf#page=2", rewrittenLink: `${dest}/report.pdf#page=2` }] },
       { kind: "promotion", source: "/tmp/ithaca/plan.txt", destination: `${dest}/plan.txt`, bytes: 12,
         originalLink: "</tmp/ithaca/plan.txt>", rewrittenLink: `${dest}/plan.txt` },
       ...(home ? [{ kind: "promotion" as const, source: `${f.home}/drafts/letter.md`, destination: `${dest}/letter.md`, bytes: 14,
@@ -112,6 +114,11 @@ describe("turn temp (#1655)", () => {
     expect(tree(join(f.brain, ".brain/scratch")).sort()).toEqual([
       `turns/${TURN}/plan.txt`, `turns/${TURN}/report.pdf`, ...(home ? [`turns/${TURN}/letter.md`] : []),
     ].sort());
+    // What the host sends a live view (#1698), applied with the client's
+    // function, turns the streamed answer into exactly the stored one.
+    const links = new Map(p.records.flatMap(r => r.kind === "promotion" ? [r, ...(r.aliases ?? [])] : [])
+      .map(link => [link.originalLink, link.rewrittenLink]));
+    expect(rewriteLinkDestinations(answer, destination => links.get(destination) ?? destination)).toBe(stored);
   });
 
   test("a symlink (to a host file or a directory), a hardlink, a directory and a missing file are refused", () => {

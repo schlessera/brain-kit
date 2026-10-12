@@ -483,10 +483,11 @@ export function createWebSocketClient(root: BrainUiServices) {
       // along so the session's badge can show WHY it is queued deep.
       const queueNote =
         msg.type === "status" && msg.status === "queued" ? msg.detail : undefined;
-      // `message_blocks` arrives AFTER the turn's result (D42); it must not
-      // reopen a finished session, and it must not touch a queued follow-up
-      // that may already be running, so it takes no part in run state.
-      if (msg.type !== "message_blocks" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
+      // `message_blocks` arrives AFTER the turn's result (D42), and
+      // `message_links` may (#1698); neither may reopen a finished session
+      // or touch a queued follow-up that may already be running, so they
+      // take no part in run state.
+      if (msg.type !== "message_blocks" && msg.type !== "message_links" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
         state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
       }
     }

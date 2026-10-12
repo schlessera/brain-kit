@@ -84,6 +84,7 @@ import type {
   MessageBlock,
   MessageSource,
   ServerMessageBlocks,
+  ServerMessageLinks,
   ServerSessionHistory,
   ServerSessionInfo,
   ServerStatus,
@@ -1401,6 +1402,13 @@ export const serverMessageBlocksSchema = z.looseObject({
   turnId: z.string().max(MAX_ID_CHARS).optional(),
 }) satisfies z.ZodType<ServerMessageBlocks>;
 
+export const serverMessageLinksSchema = z.looseObject({
+  type: z.literal("message_links"),
+  sessionId: z.string().max(MAX_ID_CHARS),
+  links: z.array(z.looseObject({ from: z.string(), to: z.string() })),
+  turnId: z.string().max(MAX_ID_CHARS).optional(),
+}) satisfies z.ZodType<ServerMessageLinks>;
+
 export const serverLocalExchangeResultSchema = z.looseObject({
   type: z.literal("local_exchange_result"),
   sessionId: z.string().max(MAX_ID_CHARS),
@@ -1733,6 +1741,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverActivitySnapshotSchema,
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
+  serverMessageLinksSchema,
   serverLocalExchangeResultSchema,
   serverHandoffDraftSchema,
   serverHandoffReceiptSchema,

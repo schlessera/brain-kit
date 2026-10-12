@@ -181,6 +181,7 @@ export "." (./src/index.ts)
   MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MessageBlock
+  type MessageLink
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -251,6 +252,7 @@ export "." (./src/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerMessageLinks
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -562,6 +564,7 @@ export "./client" (./src/client/index.ts)
   MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MessageBlock
+  type MessageLink
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -655,6 +658,7 @@ export "./client" (./src/client/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerMessageLinks
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -874,6 +878,7 @@ export "./internal/client" (./src/internal-client.ts)
   pruneStoredShares
   resolveAskUserFormLimits
   resolveThinkingLevel
+  rewriteLinkDestinations
   speechUiHints
 
 export "./package.json" (./package.json) [asset]
@@ -1054,6 +1059,7 @@ export "./protocol" (./src/protocol.ts)
   MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MessageBlock
+  type MessageLink
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -1119,6 +1125,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerMessageLinks
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -1309,6 +1316,7 @@ export "./schemas" (./src/schemas.ts)
   serverLocationRequestSchema
   serverMaskRequestSchema
   serverMessageBlocksSchema
+  serverMessageLinksSchema
   serverMessageSchema
   serverPongSchema
   serverResultSchema
@@ -1645,6 +1653,7 @@ export "./server" (./src/server/index.ts)
   MAX_TOTAL_IMAGE_BYTES
   type MapDetail
   type MessageBlock
+  type MessageLink
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
@@ -1736,6 +1745,7 @@ export "./server" (./src/server/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerMessageLinks
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -4288,6 +4298,10 @@ signatures (every public export and the types it is made of)
         bytes: number;
         originalLink: string;
         rewrittenLink: string;
+        aliases?: Array<{
+            originalLink: string;
+            rewrittenLink: string;
+        }>;
     } | {
         kind: "promotion_refused";
         source: string;
@@ -5958,6 +5972,11 @@ signatures (every public export and the types it is made of)
         end: number;
         block: Block;
         confidence: number;
+    }
+  MessageLink (packages/ui-sdk/src/protocol.ts)
+    export interface MessageLink {
+        from: string;
+        to: string;
     }
   MessagePart (packages/ui-sdk/src/protocol.ts)
     export type MessagePart = {
@@ -8092,12 +8111,18 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
         sessionId: string;
         blocks: MessageBlock[];
+    }
+  ServerMessageLinks (packages/ui-sdk/src/protocol.ts)
+    export interface ServerMessageLinks extends SessionScoped {
+        type: "message_links";
+        sessionId: string;
+        links: MessageLink[];
     }
   ServerPong (packages/ui-sdk/src/protocol.ts)
     export interface ServerPong {
@@ -13152,6 +13177,16 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"message_blocks">;
     }, z.core.$loose>;
+  serverMessageLinksSchema (packages/ui-sdk/src/schemas.ts)
+    const serverMessageLinksSchema: z.ZodObject<{
+        links: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            to: z.ZodString;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"message_links">;
+    }, z.core.$loose>;
   serverMessageSchema (packages/ui-sdk/src/schemas.ts)
     const serverMessageSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         attachmentCount: z.ZodOptional<z.ZodNumber>;
@@ -14467,6 +14502,14 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"message_blocks">;
+    }, z.core.$loose>, z.ZodObject<{
+        links: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            to: z.ZodString;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"message_links">;
     }, z.core.$loose>, z.ZodObject<{
         exchangeId: z.ZodString;
         reason: z.ZodOptional<z.ZodString>;

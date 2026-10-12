@@ -32,6 +32,7 @@ type ChatFrame =
   | "ask_answer_receipt"
   | "pong"
   | "message_blocks"
+  | "message_links"
   | "local_exchange_result"
   | "session_history"
   | "status";
@@ -403,6 +404,11 @@ export const chatFrameHandlers = {
     // the frame belongs to: a queued follow-up may already have opened a
     // newer assistant message by the time the pass returns.
     context.state.setMessageBlocks(context.key, msg.blocks, context.frameTurnId);
+  },
+  message_links: (msg, context) => {
+    // The host saved the turn's answer linking promoted copies (#1698); the
+    // streamed text still links turn temp. Any time around the result.
+    context.state.rewriteMessageLinks(context.key, msg.links, context.frameTurnId);
   },
   local_exchange_result: (msg, context) => {
     context.state.markLocalExchange(msg.exchangeId, msg.saved ? "saved" : "unsaved", msg.reason);

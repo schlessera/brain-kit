@@ -298,6 +298,10 @@ Original fragment identities remain available at this entry point.
 
 - [Classified blocks (rev 4, additive)](integration-contract/wire.md#classified-blocks-rev-4-additive) (original line 2653).
 
+<a id="promoted-links-additive-1698"></a>
+
+- [Promoted links (additive, #1698)](integration-contract/wire.md#promoted-links-additive-1698).
+
 <a id="per-message-reasoning-effort-additive-543"></a>
 
 - [Per-message reasoning effort (additive, #543)](integration-contract/wire.md#per-message-reasoning-effort-additive-543) (original line 2689).

@@ -86,6 +86,35 @@ describe("session demux (handleServerMessage)", () => {
     expect(assistant?.blocks?.[0]?.block).toEqual({ kind: "quote", quote: "Words." });
   });
 
+  test("message_links rewrites the turn's links outside code, never reopens a finished session, and leaves other turns alone (#1698)", () => {
+    const store = useChatStore.getState();
+    store.setMessages("A", []);
+    store.setActiveSession("A");
+    const answer = "The [report]($BRAIN_WORKER_SCRATCH/report.pdf) and [page 2]($BRAIN_WORKER_SCRATCH/report.pdf#page=2).\n" +
+      "`[report]($BRAIN_WORKER_SCRATCH/report.pdf)`";
+    handleServerMessage({ type: "text_delta", text: answer, sessionId: "A", turnId: "t1" } as ServerMessage);
+    handleServerMessage({ type: "result", sessionId: "A", turnId: "t1", costUsd: 0, durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+    handleServerMessage({ type: "text_delta", text: "[report]($BRAIN_WORKER_SCRATCH/report.pdf)", sessionId: "A", turnId: "t2" } as ServerMessage);
+    handleServerMessage({ type: "result", sessionId: "A", turnId: "t2", costUsd: 0, durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+    const before = useChatStore.getState().buffers["A"].messages;
+    handleServerMessage({ type: "message_links", sessionId: "A", turnId: "t1", links: [
+      { from: "$BRAIN_WORKER_SCRATCH/report.pdf", to: ".brain/scratch/turns/t1/report.pdf" },
+      { from: "$BRAIN_WORKER_SCRATCH/report.pdf#page=2", to: ".brain/scratch/turns/t1/report.pdf#page=2" },
+    ] } as ServerMessage);
+    const state = useChatStore.getState();
+    expect(state.runStates["A"]).not.toBe("streaming");
+    const [first, second] = state.buffers["A"].messages.filter((m) => m.role === "assistant");
+    const stored = "The [report](.brain/scratch/turns/t1/report.pdf) and [page 2](.brain/scratch/turns/t1/report.pdf#page=2).\n" +
+      "`[report]($BRAIN_WORKER_SCRATCH/report.pdf)`";
+    expect(first.content).toBe(stored);
+    expect(first.parts).toEqual([{ kind: "text", text: stored }]);
+    // Another turn's answer is its own, even when it links the same path.
+    expect(second).toBe(before.filter((m) => m.role === "assistant")[1]);
+    // Links that are not there change nothing, not even the message object.
+    handleServerMessage({ type: "message_links", sessionId: "A", turnId: "t1", links: [{ from: "/tmp/other.pdf", to: "x" }] } as ServerMessage);
+    expect(useChatStore.getState().buffers["A"].messages).toBe(state.buffers["A"].messages);
+  });
+
   test("a scoped frame for a session with no buffer only updates its badge", () => {
     useChatStore.getState().setActiveSession("A");
     handleServerMessage({ type: "text_delta", text: "ghost", sessionId: "Z" } as ServerMessage);

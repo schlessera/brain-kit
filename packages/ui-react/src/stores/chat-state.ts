@@ -1,8 +1,10 @@
 import { createStore } from "zustand/vanilla";
+import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
 import type {
   SharedFileMeta,
   LocalExchange,
   MessageBlock,
+  MessageLink,
   MessageSource,
   MessagePart,
   AskUserQuestion,
@@ -543,6 +545,13 @@ export interface ChatState {
    * finished — never to a newer message still streaming.
    */
   setMessageBlocks: (key: ChatKey, blocks: MessageBlock[], turnId?: string) => void;
+  /**
+   * Rewrite the link destinations the host rewrote in the saved answer
+   * (#1698) in the assistant messages of `turnId`, or, when no message
+   * carries a turn, in the last assistant message if it has none of its
+   * own. Only text that changes is replaced, so nothing else re-renders.
+   */
+  rewriteMessageLinks: (key: ChatKey, links: MessageLink[], turnId?: string) => void;
   /**
    * Record the host-minted turn on the streaming assistant message, from
    * the first scoped frame. The composer opens the message optimistically
@@ -1736,6 +1745,37 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           if (index === -1) return {};
           msgs[index] = { ...msgs[index], blocks };
           return { messages: msgs };
+        }),
+
+      rewriteMessageLinks: (key, links, turnId) =>
+        mutateBuffer(key, (chat) => {
+          const map = new Map(links.map((link) => [link.from, link.to]));
+          if (map.size === 0) return {};
+          const rewrite = (text: string) => rewriteLinkDestinations(text, (destination) => map.get(destination) ?? destination);
+          const ofTurn = (m: ChatMessage) => m.role === "assistant" && !!turnId && (m.turnId ?? m.streamTurnId) === turnId;
+          let targets = chat.messages.filter(ofTurn);
+          if (targets.length === 0) {
+            // A message the composer opened before any turn was named.
+            const last = chat.messages.findLast((m) => m.role === "assistant");
+            if (last && !(last.turnId ?? last.streamTurnId)) targets = [last];
+          }
+          let changed = false;
+          const msgs = chat.messages.map((m) => {
+            if (!targets.includes(m)) return m;
+            const content = rewrite(m.content);
+            let partsChanged = false;
+            const parts = m.parts.map((part) => {
+              if (part.kind !== "text") return part;
+              const text = rewrite(part.text);
+              if (text === part.text) return part;
+              partsChanged = true;
+              return { ...part, text };
+            });
+            if (content === m.content && !partsChanged) return m;
+            changed = true;
+            return { ...m, content, ...(partsChanged ? { parts } : {}) };
+          });
+          return changed ? { messages: msgs } : {};
         }),
 
       stampTurn: (key, turnId) =>
