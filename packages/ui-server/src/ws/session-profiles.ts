@@ -1,4 +1,5 @@
 /** Authenticated preferences only; admission independently enforces its frozen policy. */
+import { scopeLimits } from "../brain/turn-scope.js";
 import type { Database } from "bun:sqlite";
 import { SESSION_DRAFT_LIMITS, type SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
@@ -8,7 +9,7 @@ type Profile = "governed" | "strict";
 export class SessionProfileError extends Error {
   constructor(readonly status: 400 | 401 | 404 | 409 | 507, message: string) { super(message); }
 }
-export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets) {
+export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets, limits?: { hardTimeoutMs: () => number }) {
   const authorize = (principalId: string) => {
     const principal = resolvePrincipal(db, principalId);
     if (!principal || !isUsablePrincipal(principal, Date.now())) throw new SessionProfileError(401, "Authentication required.");
@@ -20,6 +21,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   const draft = (principalId: string, id: string) => db.query("SELECT preference FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile } | null;
   const facts = (preference: Profile, origin: "interactive" | "voice", actualProfile?: Profile): SessionWorkerProfile => {
     const resolved = turns.facts(origin);
+    const caps = scopeLimits(resolved.policy.policy);
     return { preference, policyProfile: resolved.policyProfile, policyHash: resolved.policy.hash, origin,
       ...(actualProfile ? { actualProfile } : {}),
       // Only the concrete mounted budget control supplies these enforced next-admission facts.
@@ -27,7 +29,9 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
         ...(budgets ? (["turn","session","day"] as const).map(scope=>({name:`${scope === "day" ? "UTC day" : scope === "session" ? "Conversation lifetime" : "Turn"} inference budget`,
           value:`Warn $${resolved.policy.policy.budgets[scope].warn_usd}; stop $${resolved.policy.policy.budgets[scope].block_usd}; unpriced token stop ${resolved.policy.policy.budgets[scope].block_tokens.toLocaleString()}`,
           onHit:scope === "session" ? "Review partial work and continue with a reviewed new-conversation handoff; day balance remains." : scope === "day" ? "Stops until the server's next UTC midnight; review partial work." : "Stops this turn; review partial work."})) : [{name:"Inference budgets",value:"Unknown"}]),
-        {name:"Scope",value:"Unknown"}, { name: "Network recording", value: "Unknown" }] };
+        { name: "Per-turn scope", value: `${caps.tool_calls} tool calls · ${caps.minutes} min · ${caps.files_changed} distinct changed paths · ${caps.turn_bytes} observed bytes` },
+        { name: "Independent hard timeout", value: limits ? `${limits.hardTimeoutMs() / 60_000} min` : "Unknown" },
+        { name: "Scope authority", value: "One finite grant per dimension; disk floor max(5%, 2 GiB) is Stop only. Independent hard timeout, resource and storage limits also apply." }, { name: "Network recording", value: "Unknown" }] };
   };
   const read = (principalId: string, kind: "session" | "draft", id: string): SessionWorkerProfile => {
     authorize(principalId);

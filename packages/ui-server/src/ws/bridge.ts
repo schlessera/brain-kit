@@ -91,7 +91,7 @@ export function makeBridge(
   const isAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
     authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
   const assertAuthority = () => {
-    if (signal.aborted || !isAuthorized()) throw new Error("This turn no longer has current principal authority.");
+    if (signal.aborted || !isAuthorized() || host.scope?.isPaused(turnId)) throw new Error("This turn no longer has current principal authority.");
   };
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
@@ -137,6 +137,7 @@ export function makeBridge(
           host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
         }
       }
+      if ((msg.type === "tool_use_start" || msg.type === "tool_use_complete") && turn.turnId === turnId) host.scope?.toolCall(turnId, msg.toolUseId);
       if (msg.type === "tool_result" && turn.turnId === turnId) host.journal?.observe();
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
@@ -223,7 +224,7 @@ export function makeBridge(
       const scoped = withTurnScope(msg, turn, turnId);
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
-      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); host.journal?.bindSession(turnId, msg.sessionId); }
+      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); host.journal?.bindSession(turnId, msg.sessionId); host.scope?.bindSession(turnId, msg.sessionId); }
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late

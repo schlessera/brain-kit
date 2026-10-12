@@ -158,6 +158,7 @@ const SAMPLES: ServerMessage[] = [
       coverage: "Built-in inference only; provider and tool spend is not metered",
       scopes: [{ scope: "turn", costUsd: 0.5, tokens: 120, unknownRuns: 0,
         warnUsd: 100, blockUsd: 200, blockTokens: 512_000_000, warning: false, blocked: false }] } },
+  { type: "scope_decision_receipt", sessionId: "s1", turnId: "turn-1", eventId: "cap-loom", submissionId: "athena", state: "accepted" },
   { type: "pong", probeId: "probe-1" },
 ];
 

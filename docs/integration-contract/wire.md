@@ -22,14 +22,14 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1016-1030`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1029-1043`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
 usage record. The REST operation receipt uses the same synthetic journal for
 Undo; it does not revive the original turn.
-The optional budget receipt below supplies enforced inference facts. Other
-limits remain unknown until their own monitors provide receipts.
+The optional budget and scope receipts below supply enforced inference facts.
+Missing facts remain unknown; neither receipt implies network enforcement.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -65,16 +65,16 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3616-3622`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1769-1771`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3618-3624`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1783-1785`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
 legacy Activity attribution and observation time are explicit. The receipt
 states enforced turn/conversation/UTC-day warn and stop limits, token fallback,
 and the server's UTC reset. Built-in inference is covered; provider/tool spend
-is unmetered until a relay actually records it. Scope and network facts remain
-unknown until their owners supply enforcement receipts.
+is unmetered until a relay actually records it. Scope facts share the same journal when their monitor supplies receipts; network
+facts remain unknown until enforcement supplies them.
 
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
@@ -85,6 +85,52 @@ was available. Partial work and journal evidence remain intact. Host stops
 outrank the runtime cancellation they caused; earlier user cancellation or
 host timeout keeps its precedence. Warning arrivals stay visual in voice
 posture and confer no authority.
+
+<a id="turn-scope-additive-1670"></a>
+
+### Turn scope decisions (additive, #1670, 0.42.0)
+
+The optional `journal.scope: TurnScopeSummary` uses the existing turn journal
+frame, authenticated history and HTTP journal summary. Its facts are
+`policySource`, `limits` (`files_changed`, `minutes`, `tool_calls`, `turn_bytes`),
+`hardTimeoutMs`, `calls`, `minutes`, nullable `changedPaths`/`observedBytes`,
+`coverage` (`observed_versions` or `partial`), `observedAt` and `receipts`.
+The byte count is a sum of captured changed regular-file versions, not a
+claim to capture writes overwritten between observations. Missing snapshots
+remain unknown. Shared windows may include other writers. No autonomous Queue
+counter or budget usage field changes.
+
+Each receipt carries `eventId`, `dimension`, measured `count`, active `cap`,
+`overshoot`, optional exact `newCap`, `observedAt`, confirmed `frozen`, `state`
+(`paused`, `continued`, `stopped`, `voice_stopped`, `ended_before_answer`),
+and optional `submissionId`/`reason`. A floor's count is free bytes, its cap
+is max(5% of filesystem capacity, 2 GiB), and its overshoot is the deficit.
+`newCap` exists only for the first finite grant of an interactive dimension;
+no floor/voice grant exists. Other dimensions keep their own one-grant allowance.
+A fresh Continue check cannot bypass a floor crossed during another pause;
+the newest floor event leaves one Stop-only card and retains the earlier cap facts.
+Independent hard time, resource and storage limits remain effective.
+
+A client sends `scope_decision` with required `sessionId`, `turnId`, `eventId`,
+`submissionId` and `action` (`continue`, `stop`, `readback`). Current authenticated
+approval authority and the exact session/turn/event binding are checked before
+any effect. An exact submission replay has one effect. Another submission
+receives `answered_elsewhere`; an interrupted/ended event cannot be revived.
+The host replies `scope_decision_receipt` with the same identities, `state`
+(`accepted`, `pending`, `answered_elsewhere`, `ended_before_answer`, `refused`,
+`failed`) and optional `reason`, and resends authoritative scoped journal facts
+on recognized decisions/readback. Receipt frames do not reopen a turn or change
+its run state. Lost receipts require manual status/readback; reconnection never
+automatically continues a paused worker. Escape grants and stops nothing.
+
+The existing ask-user card displays this host operation without a free-text
+answer or model-tool grant. Arrival preserves composer focus; activating an
+answer moves focus to its receipt only while that chat is still active. Limits
+and retained scope facts share the existing under-turn Disclosure, with upfront
+limits in the picker's This chat section. True voice stops with a short written/
+spoken explanation. Pi's existing lack of voice posture still refuses admission.
+Older clients may ignore the additive facts and decision frames; independent
+host deadlines and the 30-minute disconnected pause lifetime still terminate work.
 
 <a id="revision-negotiation"></a>
 

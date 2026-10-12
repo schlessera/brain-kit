@@ -72,7 +72,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerLock, ...workerSessionEnv } = env;
+  const { workerSandbox, workerLock, workerStarted, ...workerSessionEnv } = env;
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
@@ -108,7 +108,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     const limits = launchLimits({});
-    sandboxNote = [workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
+    sandboxNote = [workerSandboxNote(sandbox, { hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
       outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
@@ -121,6 +121,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     });
     turnTemp = child.turnTemp;
     turnContext.configurationRoot = child.configurationRoot;
+    workerStarted?.(child);
   } catch (error) { envelope?.relay.stop(); reservation.release(); throw error; }
   const held = reservation;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */

@@ -69,6 +69,8 @@ export interface WorkerArea {
 }
 
 export interface WorkerSandbox {
+  /** Frozen host scope policy; absent for autonomous turns. */
+  readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
   readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
   /** @internal Advisory facts resolved by the admitting host, never a model grant. */
@@ -431,6 +433,7 @@ export interface WorkerNoteFacts {
   readonly limits?: readonly WorkerNoteLimit[];
   /** Only actual host services and this admitted observation window supply these facts. */
   readonly history?: { readonly journal: boolean; readonly userRevert: boolean };
+  readonly hardTimeoutMs?: number;
 }
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
@@ -505,6 +508,12 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
         : `Host change journaling is active for this turn. Only observed raw versions are retained; writes overwritten between observations cannot be recovered. ${history.userRevert
           ? "User history can revert retained observed paths and Undo the recorded user operation; changed paths are skipped as conflicts."
           : "User history restoration is unavailable for this turn."} Only the authenticated user can trigger history restoration; the agent has no revert or Undo tool. No automatic revert occurs.`);
+  }
+  if (profile !== "restricted" && sandbox.scopePolicy) {
+    const scope = sandbox.scopePolicy;
+    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain, scratch and workspaces.`,
+      "One finite Continue grant per dimension adds its original cap. A second hit and the free-space floor max(5%, 2 GiB) allow Stop only. Voice stops without a grant. Observations cannot capture writes overwritten between snapshots.",
+      ...(resolvedFacts.hardTimeoutMs === undefined ? [] : [`The independent host hard timeout is ${resolvedFacts.hardTimeoutMs / 60_000} minutes, including paused time. Resource and storage limits remain binding.`]));
   }
   const limits = resolvedFacts.limits ?? [];
   if (limits.length) lines.push("", "Limits in this turn:", ...limits.map(limit => `- **${limit.name}: ${limit.value}.** ${limit.onHit}`));

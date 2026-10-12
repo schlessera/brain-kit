@@ -153,7 +153,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     observed: amount,
     overshoot: amount,
     frozen: z.boolean(),
-    outcome: z.enum(["continued", "stopped", "voice_stopped", "turn_ended"]),
+    outcome: z.enum(["paused", "continued", "stopped", "voice_stopped", "turn_ended"]),
     source: limitSource,
   })),
   /** A connection the egress proxy refused. */

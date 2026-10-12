@@ -80,6 +80,8 @@ export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
+  scope?: import("../brain/turn-scope.js").TurnScope;
+  /** @internal Host-owned observed changes; absent histories remain unrecorded. */
   journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
   policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
@@ -230,6 +232,8 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
 export class WsHost {
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  /** @internal Concrete host-owned scope observation and process control. */
+  readonly scope?: import("../brain/turn-scope.js").TurnScope;
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
   readonly workerLock: KeyedLock = createKeyedLock();
@@ -314,6 +318,7 @@ export class WsHost {
   constructor(options: WsHostOptions) {
     this.journal = options.journal;
     this.policyProposals = options.policyProposals;
+    this.scope = options.scope;
     this.brainPath = options.brainPath;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
@@ -651,6 +656,7 @@ export class WsHost {
   /** Stop host-owned timers during application/test teardown. */
   close(): void {
     clearInterval(this.authorizationExpiryTimer);
+    this.scope?.close();
     this.inbox?.close();
     this.conversations?.closeAll();
   }

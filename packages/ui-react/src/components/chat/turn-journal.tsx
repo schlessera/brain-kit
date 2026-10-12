@@ -1,3 +1,4 @@
+import { ScopeCapCard, scopeReceiptText, scopeNumber } from "./scope-cap-card.js";
 import { Button, DiffBlock, Disclosure, Overlay } from "@schlessera/brain-ui-kit";
 import type { TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useRef, useState } from "react";
@@ -10,6 +11,9 @@ import { computeDiffRows, diffText } from "../../lib/diff.js";
 export function TurnJournal({ turnId, summary, live = false }: { turnId?: string; summary?: TurnJournalSummary; live?: boolean }) {
   const root = useBrainUiRoot();
   const sessionId = useChatStore(state => state.activeSessionId);
+  const cardScope = useRef({ turnId, sessionId });
+  if (cardScope.current.turnId !== turnId) cardScope.current = { turnId, sessionId };
+  const cardSession = cardScope.current.sessionId;
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<TurnJournalDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +52,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const changes = count == null ? "Changes unknown" : `${count} changed ${count === 1 ? "file" : "files"}`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
   const budget = summary?.budget;
-  const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : "Limits unknown";
+  const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
   const label = `${changes} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
     if (!live || !turnId || announced.current === turnId || !["complete", "partial"].includes(state)) return;
@@ -62,6 +66,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   ] as const : [];
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
+    {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
     <Disclosure label={label} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0">
         <p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
@@ -73,7 +78,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           <p>{budget.coverage}.</p>
           {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
           <p>Measured {new Date(budget.observedAt).toISOString()}. Retained measurements are historical, not the current balance.</p>
-        </div> : <p>Limits: unknown.</p>}
+        </div> : <p>Inference limits: unknown.</p>}
+        {summary?.scope ? <section className="grid gap-2"><h3>Scope limits</h3><p>{summary.scope.calls} tool calls · {Number(summary.scope.minutes.toFixed(3))} min · {summary.scope.changedPaths ?? "Unknown"} distinct changed paths · {summary.scope.observedBytes ?? "Unknown"} observed bytes.</p>
+          <p>Ceilings: {summary.scope.limits.tool_calls} calls · {summary.scope.limits.minutes} min · {summary.scope.limits.files_changed} paths · {summary.scope.limits.turn_bytes} bytes. Independent hard timeout: {summary.scope.hardTimeoutMs / 60_000} min. Host resource and storage limits also remain binding.</p>
+          <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
+          <p>Coverage: {summary.scope.coverage === "partial" ? "Incomplete observation; missing counts are unknown." : "Observed versions in brain, scratch and workspaces; writes overwritten between observations are not captured."} Distinct paths and bytes may include overlapping writers. Free-space floor: max(5%, 2 GiB), Stop only.</p></section> : <p>Scope limits: unknown.</p>}
         {state === "partial" && <p>Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.</p>}
         {readable && !details && !error && <p>Loading retained changes…</p>}
         {error && <p role="status">{error}</p>}

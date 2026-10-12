@@ -396,7 +396,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:411-417`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:418-424`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -405,8 +405,8 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:411-417`, and the lookup computing
-`remembered`, `ws/bridge.ts:282-302`), and 192 of 192 measured
+(the block computing `remembers`, `dispatch.ts:418-424`, and the lookup computing
+`remembered`, `ws/bridge.ts:283-303`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -463,7 +463,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:531-546`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:311-326`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:312-327`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -475,7 +475,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:458-481`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:465-488`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:524`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:526`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -592,9 +592,9 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:282-302`,
+  `packages/ui-server/src/ws/bridge.ts:283-303`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:411-417`).
+  `packages/ui-server/src/ws/dispatch.ts:418-424`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 

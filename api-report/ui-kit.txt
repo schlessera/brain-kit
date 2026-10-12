@@ -563,6 +563,7 @@ signatures (every public export and the types it is made of)
         mono?: boolean;
         italic?: boolean;
         dim?: boolean;
+        disabled?: boolean;
         onClick?: () => void;
         onFocus?: () => void;
     }
@@ -731,6 +732,7 @@ signatures (every public export and the types it is made of)
         multiple?: boolean;
         tabStop?: boolean;
         radius?: number;
+        disabled?: boolean;
         onClick?: () => void;
         onFocus?: () => void;
     }

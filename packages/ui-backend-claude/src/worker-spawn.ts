@@ -83,7 +83,7 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
-  outputLock?: KeyedLock) {
+  outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"]) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -156,6 +156,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); state.release(); throw error; }
+      workerStarted?.(worker);
       reports.push(worker.limitReport);
       const handle = worker.state!;
       const turnTemp = worker.turnTemp;

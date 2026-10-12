@@ -109,6 +109,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
   | ClientRetryStatus
@@ -785,6 +786,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
   | ServerTextDelta
@@ -3620,3 +3622,22 @@ export interface ServerUsage extends SessionScoped {
   observedAt: number;
   budget?: import("./turn-budgets.js").TurnBudgetReceipt;
 }
+/** Authenticated visual action, bound to the exact paused event, turn and session. */
+export interface ClientScopeDecision {
+  type: "scope_decision";
+  sessionId: string;
+  turnId: string;
+  eventId: string;
+  submissionId: string;
+  action: "continue" | "stop" | "readback";
+}
+export interface ServerScopeDecisionReceipt {
+  type: "scope_decision_receipt";
+  sessionId: string;
+  turnId: string;
+  eventId: string;
+  submissionId: string;
+  state: "accepted" | "pending" | "answered_elsewhere" | "ended_before_answer" | "refused" | "failed";
+  reason?: string;
+}
+export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";

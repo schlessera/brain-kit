@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:542-546`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:543-547`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -674,7 +674,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:817-817`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:821-821`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1085,6 +1085,43 @@ Queue.
 
 Reaching a cap is recorded as a governance event and as a roadblock.
 
+### Approved scope defaults and finite recovery — 2026-10-12 (#1670)
+
+The [maintainer decision](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)
+selects 500 calls (4 × observed p99 118, rounded upward) and 120 wall minutes
+(4 × successful-turn p99 21.09 minutes, rounded upward). The call sample has
+148 turns with complete retained detail; the successful duration population
+has 699 turns. The all-outcome timeout tail was censored, not an uncapped
+measurement. The 1,000 distinct-path and 4 GiB byte defaults are explicitly
+provisional maintainer choices because historical distributions were absent.
+Policy overrides remain supported; independent hard limits are unchanged.
+
+Continue adds the original cap exactly once per dimension in the turn, with
+the finite ceiling displayed first. A second hit for that dimension is Stop-only;
+other dimensions retain independent grants. The existing max(5%, 2 GiB) free-space
+floor is Stop-only. True voice stops, dictation is interactive, and Queue authority
+is unchanged. Paused work remains paused with an authorized session client;
+30 minutes with none connected stops it. Reconnect never resumes it. Restart
+ends work and records interruption; event/turn/session-bound authenticated
+replies are idempotent and expose answered-elsewhere/ended-before-answer receipts.
+
+The monitor consumes the existing shared journal snapshots and the adapters'
+parent lifecycle. It confirms cgroup freeze where delegated, otherwise STOP/CONT
+of the verified worker namespace process tree. The trusted bubblewrap PID-1
+reaper stays responsive to parent death while agent processes are stopped.
+A frozen snapshot records observed overshoot. Bytes count captured changed
+regular-file versions; snapshots do not capture overwritten intermediate writes,
+and incomplete snapshots never imply zero or complete coverage.
+
+The approved interaction reuses the in-turn ask-user card and the single
+under-turn Disclosure. There is no free-text grant. Arrival never steals focus;
+a local activated answer focuses its receipt only in the same active chat.
+Disconnected/pending actions state their reason, and lost/failed receipts have
+manual readback/recovery. Escape does nothing to the server operation. Exact
+numbers wrap at the approved 320 CSS-pixel minimum and at 200% zoom in both
+themes, with 44px targets and reduced motion. The picker exposes the actual
+limits from the same policy inputs and states independent hard limits.
+
 ### Tool and command audit
 
 **What exists.** The audit trail is the Activity span record: tool name, the
@@ -1149,7 +1186,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:180`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:181`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1161,7 +1198,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1203`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1210`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1564,7 +1601,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:468-512`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-515`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

@@ -77,6 +77,7 @@ export interface AskUserOption {
   mono?: boolean;
   italic?: boolean;
   dim?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
   /** The option took focus (↑↓ or pointer): a consumer that previews the
    * focused option — the app's `ask_user` contract does — listens here. */
@@ -181,7 +182,7 @@ export function AskUserCard(p: AskUserCardProps) {
   // Dismissed goes gold: nobody closed it, and the premise may have rotted.
   const hue = lapsed ? accent.gold.ink : typed ? accent.neutral.ink : base;
   const options = p.options || FALLBACK;
-  const eligible = options.map((o) => Boolean(o.onClick));
+  const eligible = options.map((o) => Boolean(o.onClick) && !o.disabled);
   const interactive = pending && eligible.includes(true);
   const questionId = `${p.id ?? "ask"}-question`;
   // `selected` is a per-option flag rather than an index, and a caller can set
@@ -300,6 +301,7 @@ export function AskUserCard(p: AskUserCardProps) {
               dim={o.dim}
               multiple={multi}
               tabStop={interactive ? roving.stop === i : undefined}
+              disabled={o.disabled}
               onClick={o.onClick}
               onFocus={
                 o.onClick

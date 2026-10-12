@@ -3,6 +3,7 @@ import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdt
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
+import { createWorkerFreezer } from "./worker-freezer.js";
 import { createWorkerPipes } from "./worker-pipes.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
@@ -728,6 +729,9 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   pid: number;
   exited: Promise<number>;
   kill(signal?: NodeJS.Signals): void;
+  /** Confirm the worker and all descendants are frozen before returning. */
+  freeze(): void;
+  resume(): void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;
   /** Which limits it has hit so far and, once it has exited, whether one ended it. */
@@ -982,6 +986,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       writeSync(pipes.parent[0], STATE_GATE_OPEN);
       stateFd = tempFd = undefined;
     }
+    const freezer = createWorkerFreezer(sandboxPid(child.pid, Date.now() + STATE_SETUP_MS));
     const streams = pipes.streams();
     let killed = false;
     let final: WorkerLimitReport | undefined;
@@ -1026,6 +1031,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       return code;
     });
     return { ...streams, configurationRoot, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+      freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
+      resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true; return spawned.kill(signal); }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
   } catch (error) {

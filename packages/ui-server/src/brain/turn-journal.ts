@@ -29,6 +29,7 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { walker: ReturnType<typeof createJournalWalker>; previous: JournalSnapshot; stop: (error: Error) => void; sequence: number }>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -53,7 +54,8 @@ export function createTurnJournal(db: Database, options: {
     const counts = db.query("SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class IN ('steering','policy') THEN path END) AS steeringFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?").get(turnId) as { changedFiles: number; steeringFiles: number; sharedAttribution: number };
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
     const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
-    return { state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
+    const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as { summary: string } | null;
+    return { ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
       sharedAttribution: retained?.sharedAttribution ?? Boolean(counts.sharedAttribution), costUsd: cost?.effective_cost_usd ?? null,
       costIsEstimate: cost?.pricing_estimate == null ? null : Boolean(cost.pricing_estimate),
       profile: row.profile, actor: row.actor, kind: row.kind, ...(row.source_turn_id ? { sourceTurnId: row.source_turn_id } : {}), model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
@@ -144,9 +146,17 @@ export function createTurnJournal(db: Database, options: {
           ? new JournalCapacityError() : new JournalStorageUnavailable("some observed paths could not be retained"));
       } catch (error) { fail(turnId, error); turn.stop(error instanceof Error ? error : new Error(String(error))); throw error; }
       publish(turnId);
+      const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
+        coalesce(sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND
+          (json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash') OR json_extract(after_json,'$.ignored')=1)
+          THEN json_extract(after_json,'$.bytes') ELSE 0 END),0) AS observedBytes
+        FROM turn_journal_changes WHERE turn_id=?`).get(turnId) as { changedPaths: number; observedBytes: number };
+      for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
     }
   }
   return {
+    /** @internal Host scope monitor consumes this same observation window. */
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void) { observers.add(observer); return () => observers.delete(observer); },
     begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void) {
       for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
       observe();

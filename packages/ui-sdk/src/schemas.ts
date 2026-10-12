@@ -827,7 +827,10 @@ export const clientConversationStopSchema = z.looseObject({
   conversationId: id,
 }) satisfies z.ZodType<ClientConversationStop>;
 
+const clientScopeDecisionSchema = z.strictObject({ type: z.literal("scope_decision"), sessionId: id, turnId: id,
+  eventId: id, submissionId: id, action: z.enum(["continue", "stop", "readback"]) }) satisfies z.ZodType<import("./protocol.js").ClientScopeDecision>;
 export const clientMessageSchema = z.discriminatedUnion("type", [
+  clientScopeDecisionSchema,
   clientRetryTurnSchema,
   clientRetryStatusSchema,
   clientHelloSchema,
@@ -1013,7 +1016,18 @@ export const turnBudgetReceiptSchema = z.looseObject({
     warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),
 }) satisfies z.ZodType<import("./protocol.js").TurnBudgetReceipt>;
 
+const scopeAmount = z.number().finite().nonnegative();
+export const turnScopeSummarySchema = z.looseObject({
+  policySource: z.enum(["policy", "default"]),
+  limits: z.looseObject({ files_changed: scopeAmount, minutes: scopeAmount, tool_calls: scopeAmount, turn_bytes: scopeAmount }),
+  hardTimeoutMs: scopeAmount, calls: scopeAmount, minutes: scopeAmount, changedPaths: scopeAmount.nullable(), observedBytes: scopeAmount.nullable(),
+  coverage: z.enum(["observed_versions", "partial"]), observedAt: scopeAmount,
+  receipts: z.array(z.looseObject({ eventId: id, dimension: z.enum(["files_changed", "minutes", "tool_calls", "turn_bytes", "free_space_floor"]),
+    count: scopeAmount, cap: scopeAmount, overshoot: scopeAmount, newCap: scopeAmount.optional(), observedAt: scopeAmount, frozen: z.boolean(),
+    state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
+}) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
 export const turnJournalSummarySchema = z.looseObject({
+  scope: turnScopeSummarySchema.optional(),
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),
   steeringFiles: z.number().int().nonnegative().nullable(),
@@ -1770,11 +1784,14 @@ export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),session
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
 
+const serverScopeDecisionReceiptSchema = z.looseObject({ type: z.literal("scope_decision_receipt"), sessionId: id, turnId: id, eventId: id, submissionId: id,
+  state: z.enum(["accepted", "pending", "answered_elsewhere", "ended_before_answer", "refused", "failed"]), reason: z.string().optional() }) satisfies z.ZodType<import("./protocol.js").ServerScopeDecisionReceipt>;
 export const serverTurnJournalSchema = z.looseObject({
   type: z.literal("turn_journal"), sessionId: id, turnId: id, journal: turnJournalSummarySchema,
 });
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
+  serverScopeDecisionReceiptSchema,
   serverTurnJournalSchema,
   serverUsageSchema,
   serverRetryReceiptSchema,

@@ -424,6 +424,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     // So do local exchange results (#582): one names its message by exchange
     // id, wherever that message is, and it says nothing about run state.
     if (
+      msg.type === "scope_decision_receipt" ||
       msg.type === "server_hello" ||
       msg.type === "activity_snapshot" ||
       msg.type === "activity_delta" ||

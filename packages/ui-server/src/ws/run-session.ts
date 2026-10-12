@@ -459,6 +459,7 @@ async function runRetainedSession(
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
+      let scopeStopReason: string | undefined;
       try {
         if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
           || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
@@ -489,6 +490,18 @@ async function runRetainedSession(
             coordinator.drainPendingForTurn(turn, error.message);
           });
         }
+        const scopeTurnId = turn.turnId;
+        if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
+          origin, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
+          source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
+          current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),
+          stop: reason => {
+            if (turn.turnId !== scopeTurnId || abortController.signal.aborted) return;
+            scopeStopReason = reason; turn.cancelled = true;
+            const frame = withTurnScope({ type: "text_delta", text: reason }, turn, turn.turnId);
+            host.sendToClients(frame); work?.observe(frame);
+            abortController.abort(new Error(reason)); coordinator.drainPendingForTurn(turn, reason);
+          } });
         const bridge = makeBridge(
           host,
           turn,
@@ -565,6 +578,7 @@ async function runRetainedSession(
           });
         }
         await backend.startTurn({
+          ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
             ...governedHold.sandbox.noteFacts,
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
@@ -603,7 +617,8 @@ async function runRetainedSession(
           : turn.lastResult === "error"
             ? "error"
             : "completed";
-        if (abortController.signal.aborted && !turn.cancelled) workReason = "Turn timed out";
+        if (scopeStopReason) workReason = scopeStopReason;
+        else if (abortController.signal.aborted && !turn.cancelled) workReason = "Turn timed out";
         // A resolved startTurn is not a successful turn: backends resolve for
         // runtime failures and report them on the terminal result frame, which
         // the bridge recorded on the turn.
@@ -636,7 +651,7 @@ async function runRetainedSession(
               source:governedHold?.policy.hash ? "policy":"default",stage:"admission"}});
         }
         if (terminal instanceof BudgetUnavailable) recorder?.recordBudgetStop(terminal.message,"budget_unavailable");
-        emitTurnError(host, turn, terminal);
+        if (!scopeStopReason || budgetFailure || journalFailure) emitTurnError(host, turn, terminal);
         recorder?.finish(
           budgetFailure ? "error" : turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
@@ -651,6 +666,7 @@ async function runRetainedSession(
           // Observe after backend writers stop, before quarantine and gate release.
           host.journal?.finish(turn.turnId);
         } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
+        host.scope?.finish(turn.turnId);
         try {
           const reconciled = governedHold?.end();
           for (const item of reconciled?.quarantined ?? []) {
