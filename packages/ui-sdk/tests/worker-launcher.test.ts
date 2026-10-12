@@ -30,6 +30,62 @@ async function collect(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 describe("real bubblewrap worker launcher", () => {
+  test.each(["ordinary", "restricted", "runtime state"] as const)("a %s worker starts with no ignored catchable signals", async (mode) => {
+    const f = fixture();
+    let state: ReturnType<typeof launchAgentWorker>["state"];
+    try {
+      const relay = join(f.root, "relay"); mkdirSync(relay); chmodSync(relay, 0o700);
+      // cat installs no signal handlers; observing a shell would also observe
+      // its own SIGQUIT ignore, which it is entitled to install after exec.
+      const worker = launchAgentWorker({ brainPath: f.brain, command: ["/usr/bin/cat", "/proc/self/status"], env: {},
+        ...(mode === "restricted" ? { restricted: { readPaths: [], inferenceDir: relay } } : {}),
+        ...(mode === "runtime state" ? { stateBytes: 1024 * 1024 } : {}),
+      });
+      state = worker.state;
+      worker.stdin.end();
+      const [code, output, errors] = await Promise.all([worker.exited, collect(worker.stdout), collect(worker.stderr)]);
+      expect(code).toBe(0);
+      expect(output.match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1]).toBe("0000000000000000");
+      expect(errors).toBe("");
+    } finally { state?.close(); f.cleanup(); }
+  });
+
+  test("a worker pipeline ends its writer quietly on SIGPIPE", async () => {
+    const f = fixture();
+    try {
+      const worker = launchAgentWorker({ brainPath: f.brain,
+        command: ["/bin/sh", "-c", "/usr/bin/yes | /usr/bin/head -1"], env: {} });
+      worker.stdin.end();
+      const [code, output, errors] = await Promise.all([worker.exited, collect(worker.stdout), collect(worker.stderr)]);
+      expect(code).toBe(0);
+      expect(output).toBe("y\n");
+      expect(errors).toBe("");
+    } finally { f.cleanup(); }
+  });
+
+  test("the bootstrap resets other catchable and real-time ignores", () => {
+    const f = fixture(), pipes = createWorkerPipes();
+    try {
+      const python = Bun.which("python3"); expect(python).not.toBeNull();
+      const boot = workerBootstrap({ brainPath: f.brain, command: ["/usr/bin/cat", "/proc/self/status"], env: {} });
+      // Set inherited state outside Bun. This covers more than its two known
+      // ignores, including a signal outside the ordinary numbered set.
+      const program = `import os,signal
+signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+signal.signal(signal.SIGRTMIN, signal.SIG_IGN)
+# Drop test-command ownership descriptors before entering the trusted bootstrap.
+os.closerange(3, os.sysconf("SC_OPEN_MAX"))
+os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, ${JSON.stringify(boot.env)})`;
+      const child = Bun.spawnSync([python!, "-c", program], { env: {}, stdin: pipes.child[0],
+        stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
+      pipes.closeChild(); pipes.closeInput();
+      const output = readFileSync(pipes.parent[1], "utf8");
+      expect(readFileSync(pipes.parent[2], "utf8")).toBe("");
+      expect(child.exitCode).toBe(0);
+      expect(output.match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1]).toBe("0000000000000000");
+    } finally { pipes.cleanup(); f.cleanup(); }
+  });
+
   test("policy bytes and membership survive hardlinks and scratch aliases while scratch writes succeed", async () => {
     const f = fixture();
     try {

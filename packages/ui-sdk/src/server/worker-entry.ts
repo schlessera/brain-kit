@@ -1,5 +1,5 @@
 /** Trusted bootstrap only: no adapter, SDK, extension or worker module is imported here. */
-import { closeSync, fstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync, writeSync } from "node:fs";
 import { workerLaunchPayload } from "../config/env.js";
 
 try {
@@ -36,7 +36,13 @@ try {
   // Close every non-protocol descriptor explicitly. New runtime descriptors
   // carry CLOEXEC; execve discards them too. No agent code exists in this process.
   for (const fd of descriptors) closeSync(fd);
-  process.execve(config.argv[0], config.argv, {});
+  // exec preserves SIG_IGN, including Bun's SIGPIPE/SIGXFSZ ignores (#1690).
+  // GNU env resets every catchable disposition before becoming bubblewrap;
+  // --default-signal alone leaves the signal mask unchanged. Absolute system
+  // paths and literal argv keep worker PATH/shell input out of this step.
+  const env = ["/usr/bin/env", "/bin/env"].find(existsSync);
+  if (!env) throw new Error("GNU coreutils env with --default-signal is required");
+  process.execve(env, [env, "--default-signal", "--", ...config.argv], {});
 } catch (error) {
   // Refusal itself must never write to a policy-backed diagnostic descriptor.
   for (const fd of [2, 1]) {
