@@ -302,6 +302,23 @@ export type BackendActivityEvent =
       reason: string;
     }
   | {
+      kind: "outward_classification";
+      toolUseId: string;
+      /** Observation only; an egress guard must validate live authority itself. */
+      classification: import("./outward-actions.js").OutwardClassification;
+    }
+  | {
+      kind: "outward_action";
+      toolUseId: string;
+      payload: {
+        tool: string; input: string; inputTruncated: boolean;
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write";
+        target: string | null; historyRewrite: boolean; tainted: boolean;
+        decision: "policy_allowed" | "approved" | "declined" | "refused";
+        rule: { list: "outward.allow"; index: number; pattern: string } | null;
+      };
+    }
+  | {
       /** A captured command rule refused this exact input before execution. */
       kind: "policy_block";
       toolUseId: string;

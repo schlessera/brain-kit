@@ -41,7 +41,7 @@ import {
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission } from "@schlessera/brain-ui-sdk/internal";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
@@ -111,10 +111,15 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   input: Record<string, unknown>, toolUseId: string): Promise<PermissionDecision> {
   const { turn, allowedTools } = options;
   const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
-  const confirmPatterns = [...options.confirmPatterns, ...policy.confirm];
+  const outward = (value: unknown) => prepareOutwardPlan({ toolName, shellToolName: "bash", input: value,
+    allow: turn.commandPolicy?.outwardAllow, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot });
+  const observe = (value: unknown, decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(outward(value), { bridge: turn.bridge, toolName, input: value, toolUseId, decision });
   const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
-  if (denied) return { behavior: "deny", message: denied };
+  if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }
   if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
+  const outwardPlan = outward(input);
+  const confirmPatterns = [...options.confirmPatterns, ...policy.confirm, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])];
+  if (outwardPlan.voiceRefusal) { observe(input, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
   let effective = input;
   // Per-use confirmation precedes any rememberable tool grant, including bash
   // omitted from an operator's allowlist. Neither card can answer the other.
@@ -131,14 +136,15 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
       approval, outsideEnforcedAllowlist: turn.enforceAllowedTools && approval.kind === "tool" });
     const decision = await requestPolicyPermission(policy, { bridge: turn.bridge, request, shellToolName: "bash",
       permission: { noGrantSurface: turn.noGrantSurface }, signal: turn.signal });
-    if (decision.behavior === "deny") return decision;
+    if (decision.behavior === "deny") { observe(original, decision); return decision; }
     if (decision.updatedInput !== undefined) {
       const refusal = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input: decision.updatedInput, toolUseId }) ||
         checkEditedApproval({ toolName, shellToolName: "bash", updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
-          confirmPatterns, originalInput: original, editedInput: decision.updatedInput });
-      if (refusal) return { behavior: "deny", message: refusal };
+          confirmPatterns: [...confirmPatterns, ...(outward(decision.updatedInput).pattern ? [outward(decision.updatedInput).pattern!] : [])], originalInput: original, editedInput: decision.updatedInput });
+      if (refusal) { observe(decision.updatedInput, "refused"); return { behavior: "deny", message: refusal }; }
       effective = decision.updatedInput;
     }
   }
+  observe(effective, { behavior: "allow" });
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

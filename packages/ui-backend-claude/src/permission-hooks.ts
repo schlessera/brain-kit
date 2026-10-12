@@ -1,5 +1,5 @@
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission } from "@schlessera/brain-ui-sdk/internal";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -45,11 +45,26 @@ export function createPermissionWiring(options: {
   childEnv: NodeJS.ProcessEnv;
   /** Where a withheld re-admission is recorded. */
   log: BackendLogFn;
+  /** Host-held actual startup view, never worker-supplied authority. */
+  configurationRoot?: () => string | undefined;
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
   const commandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
   const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
-  const denyCommand = (toolName: string, input: unknown, toolUseId: string) => denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
+  const outward = (toolName: string, input: unknown) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
+    allow: req.workerSandbox?.commandPolicy?.outwardAllow, autonomous: Boolean(req.autonomous), voice: req.posture === "voice",
+    configurationRoot: options.configurationRoot?.() ?? (req.workerSandbox?.profile === "governed" ? brainPath : undefined), maskPaths: req.workerSandbox?.maskPaths });
+  const observe = (plan: ReturnType<typeof outward>, toolName: string, input: unknown, toolUseId: string,
+    decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(plan, { bridge: req.bridge, toolName, input, toolUseId, decision });
+  // Only a host-completed per-use admission, with exact input identity, may
+  // suppress the same command card when the runtime subsequently asks for its
+  // separate tool grant. Never borrowed across turns, retries or edited input.
+  const shownOutward = new Map<string, string>();
+  const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
+    const refusal = denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
+    if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
+    return refusal;
+  };
   const allowed = new Set(allowedTools);
   const updateName = (name: string) => name === "mcp__brain__brain_update" ? name : BRAIN_UPDATE_TOOL;
   const routed = (name: string) => Boolean(req.bridge.applyBrain) && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].some(tool => name === `mcp__brain-ui__${tool}`);
@@ -156,15 +171,18 @@ export function createPermissionWiring(options: {
   ): string | null => {
     const denied = denyCommand(toolName, editedInput, toolUseId);
     if (denied) return denied;
+    const originalPlan = outward(toolName, originalInput), editedPlan = outward(toolName, editedInput);
+    if (editedPlan.voiceRefusal) { observe(editedPlan, toolName, editedInput, toolUseId, "refused"); return OUTWARD_VOICE_REFUSAL; }
     const refusal = checkEditedApproval({
       toolName,
       shellToolName: "Bash",
       updateToolName: updateName(toolName),
-      confirmPatterns,
+      confirmPatterns: [...confirmPatterns, ...[originalPlan.pattern, editedPlan.pattern].filter(pattern => pattern !== undefined)],
       originalInput,
       editedInput,
     });
     if (refusal) {
+      observe(editedPlan, toolName, editedInput, toolUseId, "refused");
       log("warn", "approval edited into a call its card did not confirm; refused", {
         "tool.name": toolName,
       });
@@ -187,6 +205,22 @@ export function createPermissionWiring(options: {
     // the (possibly long) approval wait — release it now and re-acquire only
     // once the tool is actually approved.
     turnLock.releaseForTool(opts.toolUseID);
+    const outwardPlan = outward(toolName, input);
+    if (outwardPlan.voiceRefusal) { observe(outwardPlan, toolName, input, opts.toolUseID, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
+    const shown = shownOutward.get(opts.toolUseID) === JSON.stringify(input);
+    shownOutward.delete(opts.toolUseID);
+    let perUseDecision: Awaited<ReturnType<typeof requestPolicyPermission>> | undefined;
+    if (outwardPlan.pattern && !shown) {
+      const approval = { kind: "command" as const, reason: outwardPlan.pattern.effect! };
+      const request = createToolPermissionRequest({ toolUseId: opts.toolUseID, toolName, input, description: approval.reason, approval });
+      perUseDecision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
+      if (perUseDecision.behavior === "deny") { observe(outwardPlan, toolName, input, opts.toolUseID, perUseDecision); return toPermissionResult(perUseDecision); }
+      if (perUseDecision.updatedInput !== undefined) {
+        const refusal = recheckEdit(toolName, input, perUseDecision.updatedInput, opts.toolUseID);
+        if (refusal) return { behavior: "deny", message: refusal };
+        input = perUseDecision.updatedInput;
+      }
+    }
     const approval = decideToolPermission({
       toolName,
       shellToolName: "Bash",
@@ -210,7 +244,10 @@ export function createPermissionWiring(options: {
       // remembered on a wider posture is not an answer to it.
       outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
-    const decision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
+    let decision = perUseDecision && allowed.has(toolName) ? perUseDecision : await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
+    if (decision.behavior === "allow" && decision.updatedInput === undefined && perUseDecision?.behavior === "allow" && perUseDecision.updatedInput !== undefined) {
+      decision = { behavior: "allow", updatedInput: input };
+    }
     // An edit is re-checked before it is applied: the card was a grant for
     // the input it showed, and an edit into a call that needs a per-use
     // confirmation — one the PreToolUse hook raised for nothing, because it
@@ -224,6 +261,7 @@ export function createPermissionWiring(options: {
     // result frame is observed (see the stream loop) or the turn ends. Denials
     // and lock-free tools take nothing. The approved input is what will
     // execute, so the key is computed from it.
+    if (!shown || decision.behavior === "deny" || decision.updatedInput !== undefined) observe(outward(toolName, decision.behavior === "allow" ? decision.updatedInput ?? input : input), toolName, decision.behavior === "allow" ? decision.updatedInput ?? input : input, opts.toolUseID, decision);
     if (decision.behavior === "allow") {
       const effectiveInput = decision.updatedInput ?? input;
       const acquired = await turnLock.acquireForTool(
@@ -277,13 +315,18 @@ export function createPermissionWiring(options: {
     //
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
+    const outwardPlan = outward(hookInput.tool_name, hookInput.tool_input);
+    if (outwardPlan.voiceRefusal) {
+      observe(outwardPlan, hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id, "refused");
+      return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: OUTWARD_VOICE_REFUSAL } };
+    }
     const approval = decideToolPermission({
       toolName: hookInput.tool_name,
       shellToolName: "Bash",
       updateToolName: updateName(hookInput.tool_name),
       input: hookInput.tool_input,
       allowedTools: commandAllowed,
-      confirmPatterns,
+      confirmPatterns: [...confirmPatterns, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])],
     });
     /** The input an approved edit replaced the call's with, if any. */
     let edited: Record<string, unknown> | undefined;
@@ -299,6 +342,7 @@ export function createPermissionWiring(options: {
       });
       const decision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
       if (decision.behavior !== "allow") {
+        observe(outwardPlan, hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id, decision);
         return {
           continue: true,
           hookSpecificOutput: {
@@ -332,6 +376,10 @@ export function createPermissionWiring(options: {
         edited = decision.updatedInput;
       }
     }
+
+    const finalInput = edited ?? hookInput.tool_input;
+    observe(outward(hookInput.tool_name, finalInput), hookInput.tool_name, finalInput, hookInput.tool_use_id, { behavior: "allow" });
+    if (outwardPlan.classification.actions.length) shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
 
     // The input that will execute decides the key, as in canUseTool.
     const acquired = await turnLock.acquireForTool(
@@ -395,6 +443,7 @@ export function createPermissionWiring(options: {
     // A confirmed command belongs to mutatingHook, which may apply an edit
     // of it; rtk proxying is opportunistic and gives way.
     leaveAlone: (input) =>
+      outward("Bash", input).classification.actions.length > 0 ||
       // Match without observing: mutatingHook owns the denial receipt.
       (typeof (input as { command?: unknown })?.command === "string" && commandPolicy.deny.some(pattern => pattern.test((input as { command: string }).command))) ||
       decideToolPermission({
