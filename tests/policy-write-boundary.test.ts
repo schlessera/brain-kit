@@ -294,6 +294,9 @@ test("governed voice retains its narrow roster and captures through the authorit
   expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
   expect(r.receipt.unavailable).toContain("Write");
   expect(r.receipt.posture).toBe("voice");
-  expect(r.receipt.applications.some((application: any) => application.operation === "add" && application.ok), "GOVERNED_VOICE_CAPTURE").toBe(true);
+  const capture = calls(r, "mcp__brain-ui__brain_add", input => input.title === "Voice raft")[0]!;
+  expect(capture.result.isError, capture.result.output).toBe(false);
+  expect(JSON.parse(capture.result.output)).toMatchObject({ ok: true, indexed: true, changes: [{ path: "notes/voice-raft.md" }] });
+  expect(r.added, "GOVERNED_VOICE_CAPTURE").toContain("notes/voice-raft.md");
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);
