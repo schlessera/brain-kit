@@ -242,6 +242,10 @@ Original fragment identities remain available at this entry point.
 
 - [Root server warning (additive, #1638)](integration-contract/http.md#root-server-warning-additive-1638).
 
+<a id="governed-availability-additive-1648"></a>
+
+- [Governed availability and host execution (additive, #1648)](integration-contract/http.md#governed-availability-additive-1648).
+
 <a id="internal-queue-poke-additive"></a>
 
 - [Internal Queue poke (additive)](integration-contract/http.md#internal-queue-poke-additive) (original line 1998).

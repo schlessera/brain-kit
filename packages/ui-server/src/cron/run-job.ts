@@ -3,7 +3,7 @@
  * Tracking is fail-open: database or activity failures never prevent the job
  * from running, and the wrapper always returns the child's exit code.
  */
-import { unlinkSync } from "fs";
+import { closeSync, existsSync, openSync, unlinkSync } from "fs";
 
 import { ingestSpanSink } from "../activity/span-sink.js";
 import { createActivityStore } from "../activity/store.js";
@@ -12,6 +12,7 @@ import { startCronSpan } from "./activity.js";
 import { recordCronRun } from "./scheduler.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
+import { cronJobClass, type HostBoundary } from "../brain/host-boundary.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
 import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
@@ -54,6 +55,10 @@ export interface RunJobOptions {
   childEnv: Record<string, string | undefined>;
   /** The exec wrapper, resolved once at the cron bin's edge (`CronConfig.exec`). */
   exec: ExecWrapperConfig;
+  /** The brain: a repository job's working directory. */
+  brainPath?: string;
+  /** @internal The host execution boundary (#1648): repository jobs run in maintenance workers while it holds. */
+  boundary?: HostBoundary;
   stdout?: TextSink;
   stderr?: TextSink;
 }
@@ -66,6 +71,7 @@ export interface RunJobDependencies {
       stdout: "pipe";
       stderr: "pipe";
       env: Record<string, string | undefined>;
+      cwd?: string;
     }
   ) => SpawnedJob;
   sinkPath?: string;
@@ -261,14 +267,32 @@ export async function runJob(
     // cannot produce one: `emitCrontab` refuses a module job whose name is
     // in TRUSTED_JOB_NAMES (#81), and module jobs are namespaced
     // `<module>-<entry>` on top of that.
-    const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : options.exec;
-    const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...options.childEnv, [SPAN_SINK_ENV]: sinkPath },
-      ...execWrapperSpawnOptions(cronExec.wrapper),
-    });
+    //
+    // A repository job runs with the brain as its working directory; the
+    // crontab line itself starts outside the brain (#1648), so no Bun
+    // configuration the brain holds loads into this runner. While the host
+    // execution boundary holds, the job runs in a maintenance worker instead
+    // of a host process, holding the writer gate as its class requires.
+    const trusted = TRUSTED_JOB_NAMES.has(options.jobName);
+    const cronExec = trusted ? {} : options.exec;
+    const env = { ...options.childEnv, [SPAN_SINK_ENV]: sinkPath };
+    let proc: SpawnedJob;
+    if (!trusted && options.boundary?.isolated()) {
+      // The sink is the one host file the job may append to.
+      closeSync(openSync(sinkPath, "a", 0o600));
+      proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
+        purpose: `cron ${options.jobName}`, writeFiles: [sinkPath] });
+    } else {
+      proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
+        stdin: "inherit",
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+        // A brain that is not there leaves the job where the runner started, as before.
+        ...(!trusted && options.brainPath && existsSync(options.brainPath) ? { cwd: options.brainPath } : {}),
+        ...execWrapperSpawnOptions(cronExec.wrapper),
+      });
+    }
 
     let stderrTail = "";
     let stdoutTail = "";

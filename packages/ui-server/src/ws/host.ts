@@ -25,6 +25,7 @@ import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server"
 import { ConversationHost } from "./conversation.js";
 import type { Labeller } from "../labels/labeller.js";
 import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
+import type { ApplicationPlanner } from "../brain/application.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -79,6 +80,8 @@ export const MAX_SESSION_QUEUE = 50;
 export interface WsHostOptions {
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
+  /** @internal Where the application route evaluates the brain's own code (#1648). */
+  applicationPlanner?: ApplicationPlanner;
   askUserFormLimits?: Partial<AskUserFormLimits>;
   /** Backend registry resolving profiles/sessions to agent backends. */
   registry: BackendRegistry;
@@ -215,6 +218,8 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  */
 export class WsHost {
   readonly brainPath?: string;
+  /** @internal Host wiring (#1648). */
+  readonly applicationPlanner?: ApplicationPlanner;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -284,6 +289,7 @@ export class WsHost {
 
   constructor(options: WsHostOptions) {
     this.brainPath = options.brainPath;
+    this.applicationPlanner = options.applicationPlanner;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);

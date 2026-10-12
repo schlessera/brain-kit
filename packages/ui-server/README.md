@@ -193,10 +193,17 @@ brain-ui-cron crontab \
 brain-ui-cron environment
 ```
 
-`run` spawns the command directly as argv (never through a shell), tees stdout
-and stderr unchanged, records the run in `cron_runs` and the activity store,
-and returns the command's exit code. Database tracking is fail-open: an
-unavailable UI database produces a warning but does not suppress the job.
+`run` spawns the command directly as argv (never through a shell), with
+`BRAIN_PATH` as its working directory, tees stdout and stderr unchanged,
+records the run in `cron_runs` and the activity store, and returns the
+command's exit code. Database tracking is fail-open: an unavailable UI
+database produces a warning but does not suppress the job. Where the
+`governed` profile can run, a repository job runs in a maintenance worker
+instead of a host process and holds the brain's writer gate, exclusively for
+a credentialed job; such a job refuses rather than run without the UI
+database that holds the gate. Before the job, `run` reconciles any governed
+turn a dead server left behind
+([maintenance workers](../../docs/hosting/agent-workers.md#maintenance-workers-the-server-never-runs-the-brains-code-1648)).
 
 `digest` generates and persists the daily activity digest. Unlike run
 tracking, digest generation fails loud with a non-zero exit because a stalled
@@ -216,9 +223,10 @@ to the historical shell values:
 | `--path-line` | `PATH=/root/.local/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` |
 | `--user` | `root` |
 
-For the packaged-bin cutover, pass the bin by absolute path because each job
-first changes directory to `/data/brain`, whose own `node_modules` must not
-decide which executable runs:
+Every line starts with `cd /`, outside the brain: the runner is a Bun
+process, and the brain's `bunfig.toml` and `.env` must never load into it
+(#1648). For the packaged-bin cutover, pass the bin by absolute path, so
+`PATH` alone never decides which executable runs:
 
 ```sh
 brain-ui-cron crontab \

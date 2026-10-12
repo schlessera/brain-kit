@@ -10,6 +10,8 @@ import {
   type BrainApplicationInput, type BrainApplicationPolicy, type BrainApplicationResult,
 } from "@schlessera/brain-ui-sdk/server";
 import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
+import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host-boundary.js";
+import { subprocessEnv } from "../config/env.js";
 
 export const contentHash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
 export interface BrainApplicationRequest {
@@ -106,6 +108,96 @@ function verifyTarget(target: Target, expected: string | null): void {
     refuse("stale_base", "The document changed since its stated base. Read it again; no merge or overwrite was applied.");
 }
 
+/** A capture plan: what to write where, and the base it was planned against. */
+export interface CapturePlan {
+  path: string;
+  content: string;
+  baseContent: string | null;
+  outcome: Record<string, unknown>;
+}
+
+/**
+ * Evaluates the brain's own code for the application route: capture planning
+ * and the index refresh after a commit. Both import the brain's config and
+ * whatever it imports, so under the host execution boundary (#1648) they run
+ * in a credential-free maintenance worker, and the commit here receives the
+ * plan as data. Credential-free on purpose: the turn that applies the change
+ * waits for this work, and a running turn never waits on a credentialed one.
+ */
+export interface ApplicationPlanner {
+  planAdd(root: string, input: Record<string, unknown>, readDocument: (path: string) => string | null, signal: AbortSignal): Promise<CapturePlan>;
+  index(root: string, signal: AbortSignal): Promise<void>;
+}
+
+/** The in-process planner, for a server where no governed turn can run. */
+export const inProcessPlanner: ApplicationPlanner = {
+  async planAdd(root, input, readDocument) {
+    const core = await import("@schlessera/brain/internal");
+    const context = await core.initContext({ root });
+    const db = core.openDatabase(context.dbPath);
+    try {
+      const plan = core.prepareIngest(input as unknown as Parameters<typeof core.prepareIngest>[0], db, { root, taxonomy: context.taxonomy, readDocument });
+      return { path: plan.path, content: plan.content, baseContent: plan.baseContent, outcome: { ...plan.outcome } };
+    } finally { db.close(); }
+  },
+  async index(root) {
+    const core = await import("@schlessera/brain/internal");
+    const context = await core.initContext({ root });
+    const db = core.openDatabase(context.dbPath);
+    try { await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false }); }
+    finally { db.close(); }
+  },
+};
+
+const PLAN_TIMEOUT_MS = 120_000;
+const OUTCOME_VALUE = (value: unknown): boolean => value === null || ["string", "number", "boolean"].includes(typeof value)
+  || (Array.isArray(value) && value.every(item => typeof item === "string"));
+
+/** A plan from a maintenance worker is untrusted data: exact shape, bounded, nothing executable. */
+export function validatePlan(raw: unknown): CapturePlan {
+  const plan = raw as Partial<CapturePlan> | null;
+  if (!plan || typeof plan !== "object" || typeof plan.path !== "string" || typeof plan.content !== "string"
+    || !(plan.baseContent === null || typeof plan.baseContent === "string")
+    || !plan.outcome || typeof plan.outcome !== "object" || Array.isArray(plan.outcome)
+    || !Object.values(plan.outcome).every(OUTCOME_VALUE)) {
+    refuse("application_failed", "The capture plan was not well formed; no change was applied.");
+  }
+  validatePath(plan.path);
+  if (Buffer.byteLength(plan.content, "utf8") > BRAIN_APPLICATION_MAX_BYTES || Buffer.byteLength(JSON.stringify(plan.outcome), "utf8") > 16_384)
+    refuse("payload_too_large", "The capture plan exceeds the application byte bound.");
+  return { path: plan.path, content: plan.content, baseContent: plan.baseContent ?? null, outcome: { ...plan.outcome } };
+}
+
+/** The planner behind a host boundary: in a maintenance worker while the boundary holds, in-process otherwise. */
+export function boundaryPlanner(boundary: HostBoundary, options: { afterIndex?: () => void } = {}): ApplicationPlanner {
+  const run = async (request: Record<string, unknown>, purpose: string, signal?: AbortSignal) => {
+    const result = await boundary.run({ argv: ["bun", MAINTENANCE_ENTRY], env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+      credentials: false, gate: "shared", purpose, stdin: JSON.stringify(request), ...(signal ? { signal } : {}), timeoutMs: PLAN_TIMEOUT_MS });
+    let answer: { ok?: boolean; error?: unknown; plan?: unknown } | undefined;
+    try { answer = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? ""); } catch { /* reported below */ }
+    if (!answer || typeof answer !== "object") {
+      throw new Error(`the maintenance worker gave no answer (${result.timedOut ? "timed out" : `exit ${result.exitCode}`}): ${result.stderr.trim().slice(-400)}`);
+    }
+    if (answer.ok !== true) throw new Error(typeof answer.error === "string" ? answer.error.slice(0, 2000) : "the maintenance worker failed");
+    return answer;
+  };
+  return {
+    async planAdd(root, input, readDocument, signal) {
+      if (!boundary.isolated()) return inProcessPlanner.planAdd(root, input, readDocument, signal);
+      return validatePlan((await run({ op: "plan-add", root, input }, "application plan", signal)).plan);
+    },
+    async index(root, signal) {
+      if (!boundary.isolated()) return inProcessPlanner.index(root, signal);
+      // Markdown has committed: the turn ending or being cancelled does not
+      // stop the index refresh that follows it, as in-process indexing never did.
+      await run({ op: "index", root }, "application index", undefined);
+      // The worker had no provider key, so new chunks wait for vectors; a
+      // credentialed reindex runs once no writer holds the gate.
+      options.afterIndex?.();
+    },
+  };
+}
+
 /**
  * The host binds identity, live authority, membership, approvals and history.
  * Callers cannot inject commands, tools, grant flags or privileged handles.
@@ -119,10 +211,17 @@ export function createBrainApplication(options: {
   isAuthorized(): boolean;
   approve(input: BrainApplicationInput, destructive: boolean): Promise<boolean>;
   record(result: BrainApplicationResult): void;
+  /**
+   * Where the brain's own code is evaluated. Omitted: a host boundary of its
+   * own, so the route is never left evaluating that code on a host that can
+   * run a governed turn.
+   */
+  planner?: ApplicationPlanner;
   /** Internal deterministic race fixture; never wired to a worker or HTTP. */
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
+  const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
   function authority(request: BrainApplicationRequest): void {
     if (request.principalId !== options.principalId || request.turnId !== options.turnId || !options.isAuthorized())
       refuse("authority_revoked", "This turn no longer has current principal authority to apply changes.");
@@ -164,7 +263,6 @@ export function createBrainApplication(options: {
         const created: string[] = [];
         const changes: Change[] = [];
         let outcome: Record<string, unknown> = {};
-        let context: Awaited<ReturnType<typeof core.initContext>> | undefined;
         try {
           const targetFor = (path: string, expected: string | null) => {
             const target = openTarget(root, path, expected === null, created);
@@ -174,17 +272,14 @@ export function createBrainApplication(options: {
           };
           if (input.operation === "add") {
             if (input.target !== undefined) validatePath(input.target);
-            context = await core.initContext({ root });
-            const db = core.openDatabase(context.dbPath);
-            let plan;
-            try { plan = core.prepareIngest({ ...input, path: input.target }, db, { root, taxonomy: context.taxonomy, readDocument: path => {
+            const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
               validatePath(path);
               let target: Target;
               try { target = openTarget(root, path, false); }
               catch (error) { if (errno(error) === "ENOENT") return null; throw error; }
               try { return target.content; } finally { closeTarget(target); }
-            } }); }
-            finally { db.close(); }
+            }, options.signal);
+            authority(request);
             const expected = input.expectedBaseHash === undefined
               ? (plan.baseContent === null ? null : contentHash(plan.baseContent)) : input.expectedBaseHash;
             if (input.target !== undefined && input.target !== plan.path) refuse("invalid_target", "The capture plan differs from its requested target.");
@@ -280,13 +375,9 @@ export function createBrainApplication(options: {
         // cannot misreport the write as refused or roll back someone else's edit.
         let indexed = false;
         let indexError: string | undefined;
-        try {
-          context ??= await core.initContext({ root });
-          const db = core.openDatabase(context.dbPath);
-          try { await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false }); indexed = true; }
-          finally { db.close(); }
-        } catch (error) { indexError = error instanceof Error ? error.message : String(error); }
-        return { ok: true, message: indexed ? "Applied authoritative Markdown and updated its index." : "Applied authoritative Markdown; index update failed.",
+        try { await planner.index(root, options.signal); indexed = true; }
+        catch (error) { indexError = error instanceof Error ? error.message : String(error); }
+        return { ok: true, message: indexed ? "Applied authoritative Markdown and updated its index." : `Applied authoritative Markdown; index update failed${indexError ? `: ${indexError.slice(0, 300)}` : "."}`,
           changes: [...committed], indexed, outcome: { ...outcome, ...(input.operation === "add" ? { indexed } : {}), ...(indexError ? { indexError } : {}) } };
       }, { signal: options.signal });
     } catch (error) {

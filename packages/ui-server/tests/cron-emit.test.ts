@@ -66,8 +66,10 @@ function render(
 
 describe("emitCrontab", () => {
   // With the weekly hygiene job opted out, the crontab is exactly what the
-  // deployment shell emitted before the job existed.
-  test("is byte-equal to the historical bash output", () => {
+  // deployment shell emitted before the job existed, except that every line
+  // starts outside the brain (#1648): the runner is a Bun process, and the
+  // brain's `bunfig.toml` and `.env` must never load into it.
+  test("is byte-equal to the historical bash output, started outside the brain", () => {
     expect(render(jsonFixture("valid-multi-module.json"), { hygiene: false })).toBe(
       readFileSync(join(FIXTURES, "historical.crontab"), "utf8")
     );
@@ -184,7 +186,7 @@ describe("emitCrontab", () => {
 
 describe("the weekly hygiene job", () => {
   const HYGIENE_LINE =
-    "0 6 * * 1 root cd /data/brain && bun /opt/brain-ui/server/scripts/cron-run.ts hygiene -- " +
+    "0 6 * * 1 root cd / && bun /opt/brain-ui/server/scripts/cron-run.ts hygiene -- " +
     "brain hygiene reconcile 2>&1 | logger -t brain-hygiene";
 
   test("is scheduled by default, through the wrapper, beside the other base jobs", () => {

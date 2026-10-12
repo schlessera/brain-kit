@@ -1611,6 +1611,15 @@ export interface WorkerHostStatus {
    * `prlimit`, or turned off by the host.
    */
   limits?: WorkerLimitsStatus;
+  /**
+   * Whether the `governed` profile can run on this server, and where the
+   * server evaluates the brain's own code (#1648). Unavailable turns run
+   * under `strict`; `reason` names why and `detail` says what to change.
+   * `hostExecution` is `worker` while every evaluation of the brain's config,
+   * the `brain` CLI and git runs in a maintenance worker, and `host` where no
+   * governed turn can have changed the brain.
+   */
+  governed?: GovernedStatus;
 }
 
 /**
@@ -1627,6 +1636,12 @@ export interface WorkerLimitsStatus {
   enforced: Array<{ limit: WorkerLimitName; source: WorkerLimitSource; value: number }>;
   absent: Array<{ limit: WorkerLimitName; source: WorkerLimitSource; reason: string }>;
 }
+
+/** Why `governed` cannot run on a server (#1648). */
+export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "worker_host_unavailable";
+
+export type GovernedStatus = { hostExecution: "worker" | "host" }
+  & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
 export interface SystemStatus {
   healthy: boolean;

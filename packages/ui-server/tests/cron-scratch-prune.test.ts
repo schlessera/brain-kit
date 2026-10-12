@@ -5,7 +5,7 @@
  * and closing the server kills a pass in flight and waits for it.
  */
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -21,6 +21,22 @@ import {
 } from "../src/cron/scratch-prune";
 import { createRecordingObservability } from "../src/observability/index";
 import { createTestApp } from "./helpers/test-app";
+
+/**
+ * Host pids of the processes running `marker` (the fixture CLI's path). A
+ * pid the CLI records itself is its PID namespace's when it runs in a
+ * maintenance worker (#1648), so the host's process table is asked instead;
+ * the worker's own launcher names the same path.
+ */
+function hostPidsRunning(marker: string): number[] {
+  return readdirSync("/proc").filter(name => /^\d+$/.test(name)).flatMap(name => {
+    try { return readFileSync(`/proc/${name}/cmdline`, "utf8").includes(marker) ? [Number(name)] : []; } catch { return []; }
+  });
+}
+/** Whether `pid` still answers signal 0, which a zombie does until it is reaped. */
+function answers(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
 
 type Step = "ok" | Error | "hang";
 
@@ -198,7 +214,7 @@ describe("BrainClient.scratchPrune", () => {
   });
 
   test("an aborted signal kills the child, and the call rejects only once it is gone", async () => {
-    const { root, capture } = brainWithCli(
+    const { root, capture, bin } = brainWithCli(
       `import { writeFileSync } from "fs";\n` +
         `writeFileSync(CAPTURE, String(process.pid));\n` +
         `await Bun.sleep(60_000);\n`
@@ -208,20 +224,16 @@ describe("BrainClient.scratchPrune", () => {
       const controller = new AbortController();
       const call = brain.scratchPrune({ signal: controller.signal });
       while (!existsSync(capture)) await settle(10);
-      const pid = Number(readFileSync(capture, "utf8"));
-      expect(() => process.kill(pid, 0)).not.toThrow();
+      const pids = hostPidsRunning(bin);
+      expect(pids.length).toBeGreaterThan(0);
       controller.abort(new Error("deadline"));
       await expect(call).rejects.toThrow("deadline");
       // The child has exited by the time the rejection arrives: a zombie
       // still answers signal 0, so wait for the reaper as well.
       let alive = true;
       for (let i = 0; i < 50 && alive; i++) {
-        try {
-          process.kill(pid, 0);
-          await settle(20);
-        } catch {
-          alive = false;
-        }
+        alive = pids.some(answers);
+        if (alive) await settle(20);
       }
       expect(alive).toBe(false);
     } finally {
@@ -259,13 +271,13 @@ describe("BrainUiApp.close", () => {
       });
       // The boot prune is running: the child wrote its pid and is sleeping.
       while (!existsSync(capture)) await settle(10);
-      const pid = Number(readFileSync(capture, "utf8"));
-      expect(() => process.kill(pid, 0)).not.toThrow();
+      const pids = hostPidsRunning(join(binDir, "brain"));
+      expect(pids.length).toBeGreaterThan(0);
       await app.close();
       // Already reaped when close resolves: the client awaited the exit
       // before rejecting, and close awaited the client. A close that only
       // fired the kill would leave a zombie here, which still answers.
-      expect(() => process.kill(pid, 0)).toThrow();
+      expect(pids.filter(answers)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -292,10 +304,10 @@ describe("the shared test-app helper", () => {
       },
     });
     while (!existsSync(capture)) await settle(10);
-    const pid = Number(readFileSync(capture, "utf8"));
-    expect(() => process.kill(pid, 0)).not.toThrow();
+    const pids = hostPidsRunning(join(harness.brainPath, "node_modules", ".bin", "brain"));
+    expect(pids.length).toBeGreaterThan(0);
     await harness.teardown();
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(pids.filter(answers)).toEqual([]);
     expect(existsSync(harness.brainPath)).toBe(false);
   });
 });

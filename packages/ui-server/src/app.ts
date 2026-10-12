@@ -5,11 +5,13 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { join } from "path";
-import { ambientExecConfig, resolveServerConfig, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
+import { workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createDraftRoutes } from "./routes/drafts.js";
@@ -25,7 +27,7 @@ import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
 import { createScheduleRoutes } from "./routes/schedules.js";
-import { createScheduleService } from "./schedules/service.js";
+import { createScheduleService, gitCheckIgnored } from "./schedules/service.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { createProviderRoutes } from "./routes/providers.js";
@@ -90,6 +92,8 @@ import {
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
+import { boundaryPlanner } from "./brain/application.js";
+import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
@@ -289,12 +293,51 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  await probeBrainCliVersion(config.brainPath, observability.logger("brain"), { exec: config.exec, minimumVersion: brainCliMinimum });
-  // Provision the independently authorized runtime file before opening handles.
-  const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
+  //
+  // The host execution boundary (#1648) comes first: before anything
+  // evaluates the brain (the CLI version probe below runs the brain's own
+  // CLI), every governed turn a dead server left mid-turn is reconciled, and
+  // whatever protected file it created is quarantined.
+  const brainLog = observability.logger("brain");
+  // The boundary reads the latest ordinary worker host probe the server
+  // recorded; before the activity runtime exists, the boot probe below is
+  // taken here, once, and recorded with the others.
+  let runtimeStatus: { snapshot(): { workerHost?: WorkerHostStatus } } | undefined;
+  let bootOrdinary: WorkerHostProbe | undefined;
+  // Claude workers also need their private runtime-state tmpfs (#1625).
+  const workerStateBytes = (config.agent.backend ?? "claude") === "claude" ? config.agent.workerStateBytes : undefined;
+  const latestOrdinary = (): WorkerHostProbe => {
+    const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
+    if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
+    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes);
+  };
+  const hostExecution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec,
+    ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
+  const boundary = hostExecution.boundary;
+  const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
+    for (const result of results) {
+      brainLog.emit({ severityText: "WARN", body: `reconciled governed turn ${result.turnId} after an unclean stop: `
+        + `quarantined ${result.quarantined.length} protected path(s)${result.failed.length ? `, ${result.failed.length} could not be moved` : ""}`,
+        attributes: { "turn.id": result.turnId } });
+    }
+  };
+  // Only an existing database can hold a manifest, and a refused boot below
+  // must still leave no new database behind.
+  reconciled(hostExecution.reconcileExisting());
+  let inboxPokeAuth: ReturnType<typeof createInboxPokeAuth>;
+  try {
+    await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+    // Provision the independently authorized runtime file before opening handles.
+    inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
+  } catch (error) { hostExecution.release(); throw error; }
   const dbLog = observability.logger("db");
-  const db = createUiDb(config.dbPath, { log: dbLog });
-  try { assertInboxRecoveryReady(db); } catch (error) { db.close(); throw error; }
+  let db: ReturnType<typeof createUiDb>;
+  try { db = createUiDb(config.dbPath, { log: dbLog }); }
+  catch (error) { hostExecution.release(); throw error; }
+  try {
+    reconciled(hostExecution.attach(db));
+    assertInboxRecoveryReady(db);
+  } catch (error) { hostExecution.release(); db.close(); throw error; }
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
@@ -324,7 +367,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
-  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
+  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary });
+  // After a curated application, a credential-free worker indexed the change
+  // without provider keys (#1648). The credentialed reindex that fills in its
+  // vectors waits for the writer gate; one at a time, and one more if more
+  // changes arrived meanwhile.
+  const keyedReindex = coalesced(() => brain.index(), error => brainLog.emit({ severityText: "WARN",
+    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
+  const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
     // Exact-operation approval stays fail-closed unless the gated engine runs.
     ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
@@ -382,6 +432,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
   const host = new WsHost({
+    applicationPlanner,
     drafts,
     brainPath: config.brainPath,
     registry,
@@ -445,8 +496,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // restricted envelope only matters while autonomous work can run.
   const workerHostModes: WorkerHostMode[] = dispatcher ? ["ordinary", "restricted"] : ["ordinary"];
   // Claude workers also need their private runtime-state tmpfs (#1625).
-  const workerStateBytes = (config.agent.backend ?? "claude") === "claude" ? config.agent.workerStateBytes : undefined;
-  for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes);
+  for (const mode of workerHostModes) {
+    // The ordinary boot probe may already have run for the host boundary.
+    if (mode === "ordinary" && bootOrdinary) {
+      activity.runtime.recordWorkerHost(mode, bootOrdinary, "boot");
+      activity.runtime.recordWorkerLimits(workerLimitsStatus());
+    }
+    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes);
+  }
+  runtimeStatus = activity.runtime;
+  // Whether governed can run, and where the brain's own code is evaluated
+  // (#1648): stated in the log and on /api/status, decided by the same
+  // boundary that routes every evaluation.
+  activity.runtime.recordGoverned(boundary.status());
   // A root-run server still boots (#1629, #1638), but its workers keep root's
   // reads and Unix-socket reach: warned once here, and kept on the status.
   if (serverRunsAsRoot()) activity.runtime.recordRootServer(ROOT_SERVER_WARNING);
@@ -455,6 +517,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;
   const schedules = createScheduleService(db, {
     brainRoot: config.brainPath,
+    gitIgnored: gitCheckIgnored(config.brainPath, boundary),
     executionPolicy: async () => {
       if (scheduleOrigins === null) return null;
       // The backend that owns the preferred profile, as a turn would resolve it.
@@ -639,13 +702,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: () => {
         for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes);
+        activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },
     })
   );
   app.route(
     "/api",
-    createBrainRoutes({ brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: observability.logger("brain") })
+    createBrainRoutes({ brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null }));
   // Only where server_hello advertises it: elsewhere the route is absent,
@@ -768,6 +832,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await intake.close();
       await scratchPrune.close();
       scratchPins.close();
+      // A keyed reindex still queued finishes before the gate's database closes.
+      await keyedReindex.idle();
       activity.close();
       db.close();
     },

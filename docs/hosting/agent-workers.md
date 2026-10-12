@@ -215,6 +215,98 @@ and to put anything it links into `.brain/scratch/`, never into turn temp.
 When a `brain` CLI write hits the read-only brain, the error names the rule
 and the route: `brain render` and `brain image` say to use `--scratch`.
 
+## Maintenance workers: the server never runs the brain's code (#1648)
+
+Once a turn can write the brain (the `governed` profile), every file the
+brain supplies is agent-writable input: `brain.config.ts` and whatever it
+imports, a `bunfig.toml` preload, an `.env`, git's includes, filters and
+refs. A host process that evaluates any of them runs what an agent wrote. So
+while the host execution boundary holds, the server evaluates none of them
+itself. It runs that work in a **maintenance worker**: the same bubblewrap
+launcher, with the brain bound read-write, the host root read-only, and
+`/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
+and the UI database's directory masked by empty private tmpfs mounts. No host
+Unix socket below them is reachable. The server's Bun and its own
+installation are bound back read-only, so a runtime installed under a home
+keeps working; nothing the brain names is.
+
+What runs there, and how it meets the brain's **writer gate**:
+
+| Work | Credentials and network | Writer gate |
+| --- | --- | --- |
+| Application route planning (`brain_add`) and its index refresh | None | Shared |
+| `brain hygiene`, `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| `brain briefing`, `stats`, `list`, `read`, `validate`, `module list`, `--version` | None | Shared |
+| `brain search` | Yes (the query embedding) | Shared |
+| `brain sync`, `index`, `add`, module actions, `maintain`, module and hand-written cron jobs | Yes | Exclusive |
+| `git check-ignore` and `rev-parse` against the brain | None | None |
+
+Every maintenance worker binds the brain read-write and runs code the brain
+supplies, so even a reader takes the gate shared: nothing runs beside an
+exclusive holder. Search is the one credentialed command held shared, so a
+search never waits for every running turn. Git's ignore checks run a fixed
+git command with no gate; for a brain inside a parent repository the worker
+sees that repository read-only, and where no worker can run the check
+refuses rather than run git on the host.
+
+- **Credential-free** means only plain settings (`PATH`, `TZ`, locale,
+  `BRAIN_PATH`) reach the command, a private empty `$HOME`, no network
+  beyond loopback, every `.env*` file at the brain root (or the file an
+  `.env*` link leads to) replaced by one that cannot be opened, and
+  `BUN_OPTIONS=--no-env-file`, so no Bun process in the worker loads an
+  `.env` at all. The index refresh after an application is
+  credential-free because the turn waits for it, so new chunks get their
+  vectors from a keyed `brain index` the server queues to run once the gate
+  is free.
+- **Credentialed** work receives the credentials it was always given
+  (the `brainCli` or `cron` audience), the host network, and the server's
+  `$HOME` read through an overlay whose writes vanish. That is the interim
+  exposure the [decision record](../decisions/governed-writable-workers.md#the-host-execution-boundary)
+  names until the git mirror and the metered relays land: code the agent can
+  write, such as a helper the config imports, could read those credentials.
+- **The writer gate** lives in the UI database, because the cron runner is a
+  separate process. Turns and credential-free maintenance hold it shared;
+  credentialed work waits until no shared holder remains and then holds it
+  exclusively. A holder whose process died is cleared by the next request.
+- **The brain's CLI must be installed in the brain** (`bun install`, so
+  `node_modules/.bin/brain` is a real package inside it). A CLI linked to a
+  path below a masked directory is not visible in the worker.
+- **Cron** lines now start with `cd /`, outside the brain: the runner is a Bun
+  process and must not load the brain's `bunfig.toml` or `.env`. The runner
+  starts each repository job in the brain itself, in a maintenance worker,
+  and reconciles any governed turn a dead server left behind first.
+
+**When the boundary holds.** `governed` is the default profile, so the
+boundary holds wherever `governed` can run, and from then on for good: once
+a governed turn has started on a brain (a fact kept in the UI database), or a
+real probe has proven the worker boundary in this process, a later failure
+never hands the brain's code back to the host. `governed` cannot run, turns
+run under `strict`, and the brain's code stays on the host only when:
+
+- the server's working directory is inside the brain (`server_cwd_in_brain`;
+  start it from a directory outside the brain), or
+- its database is inside the brain (`database_in_brain`; set `DB_PATH`
+  outside it), or
+- the host cannot run the worker boundary at all, or cannot start a
+  credential-free maintenance worker with its private network namespace
+  (`worker_host_unavailable`). The worker host probe starts outside the brain
+  and loads no `.env`, so nothing the brain holds can fail it.
+
+`GET /api/status` reports this as `runtime.workerHost.governed`, with
+`hostExecution` `"worker"` or `"host"`, and the boot log says it once.
+
+**Crash recovery.** Before a governed turn's worker launches, the server
+records which protected paths exist (the decision's tier A and B, with
+identity and bytes) in the UI database. At boot, and in the cron runner
+before any job, every turn with a record and no end whose server is gone is
+reconciled first: a protected file that appeared during it (a
+`brain.config.ts`, a `bunfig.toml`, an `.mcp.json`, a new `.env*`) and any
+protected ancestor swapped for a link are moved into `brain-ui-quarantine/`
+beside the UI database, byte for byte, and logged. Nothing evaluates the
+brain before that. A path that cannot be moved keeps the turn's record open,
+and the server refuses to start (and cron jobs refuse to run), naming it,
+until it is removed from the brain.
+
 ## The restricted envelope for autonomous turns (#676)
 
 `runAutonomousTurn` sends every autonomous turn with

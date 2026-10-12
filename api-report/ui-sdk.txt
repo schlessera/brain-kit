@@ -134,6 +134,8 @@ export "." (./src/index.ts)
   type FileTreeResponse
   type GeoCoords
   type GeoRequestOptions
+  type GovernedStatus
+  type GovernedUnavailableReason
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -499,6 +501,8 @@ export "./client" (./src/client/index.ts)
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
+  type GovernedStatus
+  type GovernedUnavailableReason
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -761,21 +765,31 @@ export "./internal" (./src/internal.ts)
   ARCHIVING_UPDATE_REASON
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
+  CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
   DEFAULT_WORKER_STATE_BYTES
   GIT_LOCK_KEY
+  HOST_MASKS
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
   type InferenceRelayOptions
   type LaunchedWorker
+  MAINTENANCE_HOME
   MAX_INFERENCE_REQUEST_BYTES
+  type MaintenanceCommand
+  type MaintenanceEnvelope
+  type MaintenanceResult
+  type MaintenanceWorker
   PROMOTED_SCRATCH_DIR
   PROMOTION_FILE_MAX_BYTES
   PROMOTION_TURN_MAX_BYTES
   PROMOTION_TURN_MAX_FILES
+  PROTECTED_ENV_PREFIX
+  PROTECTED_TIER_A
+  PROTECTED_TIER_B
   type PrepareWorkerSandboxOptions
   type QuestionObservation
   type RestrictedEnvelope
@@ -822,6 +836,7 @@ export "./internal" (./src/internal.ts)
   archivesDocument
   assertScratchMask
   bashCommand
+  brainGitSync
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
@@ -831,10 +846,13 @@ export "./internal" (./src/internal.ts)
   describeLimitHits
   execWrapperSpawnOptions
   hasWebSearchCredential
+  isEnvName
   launchAgentWorker
   launchLimits
+  launchMaintenanceWorker
   limitFailureMessage
   loadedSdkIdentity
+  maintenanceLaunch
   mergeLimitReports
   mib
   observeClassification
@@ -844,19 +862,24 @@ export "./internal" (./src/internal.ts)
   planClassification
   prepareWorkerSandbox
   probeHomeOverlay
+  probeMaintenanceWorker
   probeWorkerHost
+  protectedPaths
   readWebSearchOverride
   readWebSearchRouting
   requireWorkerHost
   resolveWebSearchConfigPath
   resolveWorkerStateLimits
   restrictedReadPaths
+  runMaintenanceWorker
+  runMaintenanceWorkerSync
   startInferenceRelay
   turnTempRoot
   validWorkerStateBytes
   webSearchBrief
   webSearchProvider
   workerHostBoundary
+  workerHostProven
   workerLimitsPlan
   workerLimitsStatus
   workerNoteLimits
@@ -1014,6 +1037,8 @@ export "./protocol" (./src/protocol.ts)
   type FileTreeResponse
   type GeoCoords
   type GeoRequestOptions
+  type GovernedStatus
+  type GovernedUnavailableReason
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -1579,6 +1604,8 @@ export "./server" (./src/server/index.ts)
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
+  type GovernedStatus
+  type GovernedUnavailableReason
   type GraphBrokenLink
   type GraphCommunityPayload
   type GraphEdgePayload
@@ -5389,6 +5416,18 @@ signatures (every public export and the types it is made of)
     }
   GetCurrentLocationInput (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export type GetCurrentLocationInput = z.infer<typeof GET_CURRENT_LOCATION_INPUT_SCHEMA>;
+  GovernedStatus (packages/ui-sdk/src/protocol.ts)
+    export type GovernedStatus = {
+        hostExecution: "worker" | "host";
+    } & ({
+        available: true;
+    } | {
+        available: false;
+        reason: GovernedUnavailableReason;
+        detail: string;
+    });
+  GovernedUnavailableReason (packages/ui-sdk/src/protocol.ts)
+    export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "worker_host_unavailable";
   GraphBrokenLink (packages/ui-sdk/src/protocol.ts)
     export interface GraphBrokenLink {
         sourcePath: string;
@@ -8798,6 +8837,7 @@ signatures (every public export and the types it is made of)
             warning: string;
         };
         limits?: WorkerLimitsStatus;
+        governed?: GovernedStatus;
     }
   WorkerLimitName (packages/ui-sdk/src/protocol.ts)
     export type WorkerLimitName = "processes" | "data" | "file_size" | "open_files" | "memory" | "pids" | "cpu";

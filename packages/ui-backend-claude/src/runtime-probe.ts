@@ -161,7 +161,10 @@ async function runProbe(options: ClaudeRuntimeProbeOptions, agentSdk: string): P
   }
   let result: VersionProbeResult;
   try {
-    result = await probeVersionCommand(argv, { cwd, env: spawn.env, exec: options.exec, ...(options.signal ? { signal: options.signal } : {}) });
+    // `--version` needs nothing of the brain. Run outside it, so no Bun
+    // configuration the brain holds (a `bunfig.toml` preload, an `.env`)
+    // loads into this host process (#1648).
+    result = await probeVersionCommand(argv, { cwd: "/", env: spawn.env, exec: options.exec, ...(options.signal ? { signal: options.signal } : {}) });
   } catch (error) {
     throw new ClaudeRuntimeUnavailableError(
       `Claude Code at ${spawn.command} cannot be started: ${error instanceof Error ? error.message : String(error)}`

@@ -380,7 +380,9 @@ test("app boot closes a pending restore database before allocating pricing or ba
       await app.close();
     } catch (caught) { error = caught; }
     expect(factory.mock.calls).toHaveLength(0);
-    expect(closed).toBe(1);
+    // Two handles, both closed: the host boundary's reconciliation of an
+    // existing database (#1648), then the boot's own.
+    expect(closed).toBe(2);
     expect(error).toBeInstanceOf(Error); expect((error as Error).message).toBe("inbox_restore_pending");
   } finally { closing.mockRestore(); factory.mockRestore(); }
 });

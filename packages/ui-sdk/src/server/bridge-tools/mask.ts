@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
-import { closeSync, existsSync, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
+import { closeSync, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
 import type { Stats } from "fs";
-import { tmpdir } from "os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "path";
 
 import type {
@@ -10,6 +9,7 @@ import type {
 } from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
 import { resolveInRepo } from "./resolve-in-repo.js";
+import { brainGitSync } from "../maintenance-worker.js";
 
 /**
  * Options for `handleRequestImageMask`; the adapter owns the mask filename.
@@ -131,20 +131,6 @@ function isSymlink(path: string): boolean {
   }
 }
 
-let emptyGitDir: string | null = null;
-
-/** An empty repository, so `check-ignore` can be asked about a brain that is not one. */
-function emptyRepository(): string {
-  if (emptyGitDir && existsSync(emptyGitDir)) return emptyGitDir;
-  const dir = mkdtempSync(join(tmpdir(), "brain-scratch-ignore-"));
-  const init = Bun.spawnSync(["git", "init", "-q", "--bare", dir], { stderr: "pipe" });
-  if (init.exitCode !== 0) {
-    throw new Error(`git init failed, so .gitignore cannot be consulted: ${new TextDecoder().decode(init.stderr).trim()}`);
-  }
-  emptyGitDir = dir;
-  return dir;
-}
-
 /**
  * Whether git excludes the scratch DIRECTORY (the only exclusion nothing
  * below it can re-include): `check-ignore` on the directory path, which has
@@ -152,13 +138,13 @@ function emptyRepository(): string {
  */
 function scratchIgnored(rootReal: string): boolean {
   mkdirSync(join(rootReal, SCRATCH_DIR), { recursive: true });
+  // Git reads the brain's configuration and ignore files, so it answers from
+  // a maintenance worker (#1648); one that cannot run refuses the mask.
   const inRepo =
     existsSync(join(rootReal, ".git")) ||
-    Bun.spawnSync(["git", "-C", rootReal, "rev-parse", "--git-dir"]).exitCode === 0;
-  const argv = inRepo
-    ? ["git", "check-ignore", "-q", "--no-index", "--", SCRATCH_DIR]
-    : ["git", `--git-dir=${emptyRepository()}`, `--work-tree=${rootReal}`, "check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
-  return Bun.spawnSync(argv, { cwd: rootReal }).exitCode === 0;
+    brainGitSync(rootReal, ["rev-parse", "--git-dir"]) === 0;
+  const query = ["check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
+  return brainGitSync(rootReal, query, inRepo ? {} : { emptyRepository: true }) === 0;
 }
 
 /** The scratch directory, verified: neither `.brain` nor `.brain/scratch` is a symlink. */

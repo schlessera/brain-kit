@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createActivityStore } from "../src/activity/store";
 import { createPrincipal } from "../src/db/principals";
-import { httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
+import { CLI_LOG, httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 
 const SECRET = "http-contract-fixture-secret-0123456789";
@@ -126,7 +126,7 @@ for (const [operation, check] of Object.entries(checks)) {
       await check.verify?.(response, t);
       if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {
         const command = operation.split("/").at(-1)!;
-        const args = readFileSync(join(t.root, "cli.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
+        const args = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
         expect(args.some((a) => a[0] === (command === "history" ? "stats" : command))).toBe(true);
       }
     } finally { await t.close(); }
