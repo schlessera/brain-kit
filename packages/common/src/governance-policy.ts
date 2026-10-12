@@ -69,7 +69,10 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
   };
 }
 export type EffectiveGovernancePolicy = ReturnType<typeof resolveGovernancePolicy>;
+export interface GovernanceCommandRuleIndices { deny: number[]; confirm: number[]; }
 export interface GovernancePolicyCheck {
+  /** Internal provenance; non-enumerable so the existing CLI envelope is unchanged. */
+  readonly commandRuleIndices?: GovernanceCommandRuleIndices;
   schema_version: 1; ok: boolean; status: "valid" | "invalid" | "missing";
   content_hash: string | null; errors: string[]; warnings: string[]; effective: EffectiveGovernancePolicy;
 }
@@ -82,17 +85,20 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
     const input = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const data = parseFrontmatter(input).data;
     const warnings: string[] = [];
+    const commandRuleIndices: GovernanceCommandRuleIndices = { deny: [], confirm: [] };
     for (const list of ["deny", "confirm"] as const) {
       const entries = data?.commands?.[list];
       if (Array.isArray(entries)) for (const [index, entry] of entries.entries()) {
         if (typeof entry?.pattern !== "string") continue; // Structural schema reports this as an error.
-        try { new RegExp(entry.pattern, "i"); }
+        try { new RegExp(entry.pattern, "i"); commandRuleIndices[list].push(index); }
         catch (error) { warnings.push(`commands.${list}[${index}]: ${error instanceof Error ? error.message : String(error)}`); }
       }
     }
     const parsed = GovernancePolicySchema.safeParse(data);
     if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
-    return { schema_version: 1, ok: true, status: "valid", content_hash, errors: [], warnings, effective: resolveGovernancePolicy(parsed.data) };
+    const result: GovernancePolicyCheck = { schema_version: 1, ok: true, status: "valid", content_hash, errors: [], warnings, effective: resolveGovernancePolicy(parsed.data) };
+    Object.defineProperty(result, "commandRuleIndices", { value: commandRuleIndices, enumerable: false });
+    return result;
   } catch (error) {
     return { schema_version: 1, ok: false, status: "invalid", content_hash, errors: [error instanceof Error ? error.message : String(error)], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };
   }

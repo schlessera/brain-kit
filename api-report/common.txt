@@ -20,6 +20,7 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   type EffectiveGovernancePolicy
   GOVERNANCE_POLICY_MAX_BYTES
   GOVERNANCE_POLICY_PATH
+  type GovernanceCommandRuleIndices
   type GovernancePolicyCheck
   type GovernancePolicyInput
   GovernancePolicySchema

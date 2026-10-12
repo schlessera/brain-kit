@@ -11,7 +11,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+import { workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -168,7 +168,7 @@ function assembleClaudeSdkTurn(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   const sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
-    outputStagingLimit()] });
+    outputStagingLimit()] }) + "\n\n" + workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns);
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,

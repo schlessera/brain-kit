@@ -16,6 +16,7 @@ import type { AutonomousTurnOptions, BackendBridge } from "@schlessera/brain-ui-
 import type { TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 
 export interface TurnContext {
+  commandPolicy?: import("@schlessera/brain-ui-sdk/internal").WorkerCommandPolicy;
   bridge: BackendBridge | null;
   signal: AbortSignal | null;
   autonomous?: AutonomousTurnOptions;

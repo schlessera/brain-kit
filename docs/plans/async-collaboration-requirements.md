@@ -248,7 +248,7 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:419-507`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:441-529`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
@@ -279,7 +279,7 @@ Stated before the requirements because five of them derive from it.
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
   `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:110-133`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
   credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`)),
@@ -343,7 +343,7 @@ Stated before the requirements because five of them derive from it.
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:575`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:590`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at

@@ -227,6 +227,15 @@ Both shipped backends report it and fail such a turn with
 `resource_limit` governance event (#1651)
 ([wire](wire.md)). It adds no client frame.
 
+The additive server-only `BackendActivityEvent` variants `policy_block` and
+`policy_confirm` (#1661) contain `{ toolUseId, payload }`. The payload names the
+Bash tool/input, truncation, original policy-file rule index/pattern/reason and
+captured policy hash; confirmation also records its approved, declined,
+cancelled or timed-out decision. Both adapters report these through the existing
+Activity callback. The host supplies turn/session/actor/profile attribution and
+keeps the validated governance receipt after Activity detail pruning. They add
+no client frame and confer no execution authority.
+
 The Activity origin vocabulary adds `"autonomous"` for spans and run rollups.
 The SDK schemas accept it, and existing origin filtering selects these runs
 without including interactive or cron work. Runtime identity, usage and principal

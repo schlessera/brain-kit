@@ -340,7 +340,9 @@ export function makeBridge(
         catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
           actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
       }
-      else recorder?.observeActivity(event);
+      else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
+        ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
+        : event);
     },
     ...(queryActivity
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }

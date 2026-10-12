@@ -7,14 +7,14 @@ import { getAgentDir, SessionManager, CURRENT_SESSION_VERSION, type AgentSession
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
-  createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
+import { workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
 
+import { decidePiToolPermission } from "./permission-gate.js";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -110,7 +110,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
-      outputStagingLimit()] });
+      outputStagingLimit()] }) + "\n\n" + workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns);
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
@@ -294,22 +294,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         // Exact application authorization belongs to the server route.
         return { behavior: "allow" };
       }
-      const approval = decideToolPermission({ toolName: msg.toolName, shellToolName: "bash", updateToolName: "brain_update",
-        input: msg.input, allowedTools, confirmPatterns });
-      const decision = approval ? await requestToolPermission(bridge, createToolPermissionRequest({
-        toolUseId: msg.toolCallId, toolName: msg.toolName, input: msg.input, description: approval.reason, approval,
-        outsideEnforcedAllowlist: turnContext.enforceAllowedTools && approval.kind === "tool",
-      }), { noGrantSurface: turnContext.noGrantSurface }) : { behavior: "allow" as const };
+      grants.delete(msg.toolCallId);
+      const decision = await decidePiToolPermission({ turn: turnContext, allowedTools, confirmPatterns }, msg.toolName, msg.input, msg.toolCallId);
       live();
-      if (decision.behavior === "allow") {
-        const edited = "updatedInput" in decision ? decision.updatedInput : undefined;
-        if (edited) {
-          const refusal = checkEditedApproval({ toolName: msg.toolName, shellToolName: "bash", updateToolName: "brain_update",
-            confirmPatterns, originalInput: msg.input, editedInput: edited });
-          if (refusal) return { behavior: "deny", message: refusal };
-        }
-        grants.set(msg.toolCallId, { name: msg.toolName, input: JSON.stringify(edited ?? msg.input) });
-      }
+      if (decision.behavior === "allow") grants.set(msg.toolCallId, { name: msg.toolName, input: JSON.stringify(decision.updatedInput ?? msg.input) });
       return decision;
     }
     if (msg.method === "bridge") {

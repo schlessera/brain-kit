@@ -41,7 +41,7 @@ The same SDK construction is now worker-local (`async newSession`,
 initializes extensions (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:28-103`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:76-100`); it cannot interpose arbitrary
+`packages/ui-backend-pi/src/permission-gate.ts:77-99`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment
 loads a real pi inline extension and observes its parent-side initialization
 changing the policy. Sandboxing only its spawned shell cannot repair that.

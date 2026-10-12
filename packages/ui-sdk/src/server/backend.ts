@@ -237,6 +237,14 @@ export type ActivityQueryResult = Record<string, unknown>;
  * Backend-reported activity enrichment. The host derives baseline spans from
  * the frames it already relays; these events add what only the backend sees.
  */
+interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
+  tool: string;
+  input: string;
+  inputTruncated: boolean;
+  rule: { list: L; index: number; pattern: string; reason?: string };
+  policyHash: string | null;
+}
+
 export type BackendActivityEvent =
   | {
       /** Cumulative completed responses only; never an invoice for the whole turn. */
@@ -290,6 +298,20 @@ export type BackendActivityEvent =
       requestKind: "tool" | "command";
       /** Why, in the words the model was given. */
       reason: string;
+    }
+  | {
+      /** A captured command rule refused this exact input before execution. */
+      kind: "policy_block";
+      toolUseId: string;
+      payload: PolicyCommandRecord<"commands.deny">;
+    }
+  | {
+      /** The existing per-use card's answer for a captured policy command rule. */
+      kind: "policy_confirm";
+      toolUseId: string;
+      payload: PolicyCommandRecord<"commands.confirm"> & {
+        decision: "approved" | "declined" | "timed_out" | "cancelled";
+      };
     }
   | {
       /**

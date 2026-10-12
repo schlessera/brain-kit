@@ -53,8 +53,12 @@ export function createGovernedTurns(options: {
         const resolved = prepareWorkerSandbox(options.brainPath, { profile: selected,
           protectedPaths: protectedPaths(policy.policy),
           maskPaths: options.maskPaths });
-        const sandbox = !availability.available && requested === "governed"
-          ? { ...resolved, fallbackReason: availability.detail } : resolved;
+        const commandPolicy = Object.freeze({ hash: policy.hash,
+          deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
+          confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
+        });
+        const sandbox = { ...resolved, commandPolicy,
+          ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);

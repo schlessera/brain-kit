@@ -73,6 +73,7 @@ export function createPiTurnRunner(
       ? { ...msg, stateRoom: session.stateRoom } : msg, sessionId));
 
     // Bind this session's tool plumbing to the current turn's bridge/signal.
+    turnContext.commandPolicy = req.autonomous ? undefined : req.workerSandbox?.commandPolicy;
     turnContext.bridge = req.bridge;
     const toolController = new AbortController();
     if (req.signal.aborted) toolController.abort();
@@ -183,6 +184,7 @@ export function createPiTurnRunner(
       await Promise.allSettled([...pendingMutations]);
       unsubscribe();
       req.signal.removeEventListener("abort", onAbort);
+      turnContext.commandPolicy = undefined;
       turnContext.bridge = null;
       turnContext.signal = null;
       turnContext.autonomous = undefined;

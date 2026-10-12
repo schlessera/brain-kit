@@ -52,3 +52,6 @@ export { prepareWorkerOutput } from "./server/worker-output.js";
 
 export { DEFAULT_OUTPUT_STAGING_BYTES, OUTPUT_STAGING_BYTES_ENV, OUTPUT_STAGING_BUDGET_ENV, resolveOutputStagingLimits,
   hostOutputStagingLimits, outputStagingLimit } from "./server/worker-state-limits.js";
+export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
+  workerCommandPolicyNote } from "./server/command-policy.js";
+export type { WorkerCommandPolicy, WorkerCommandRule } from "./server/command-policy.js";

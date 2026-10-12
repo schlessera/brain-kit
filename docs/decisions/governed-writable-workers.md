@@ -150,7 +150,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:490-494`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:492-496`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -246,7 +246,7 @@ An activation click would add friction and no protection.
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
 (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:78-100`).
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:81-106`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -258,7 +258,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:23-74`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:23-78`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -266,8 +266,18 @@ retain the process's last valid file/hash, or defaults with a null hash before
 any valid file; known absence selects defaults. True voice uses the voice profile,
 dictation uses interactive, and autonomous authority remains separate. Existing
 host strict overrides and stronger fallback remain effective. This reader does
-not enforce the budget, scope, commands, egress, outward, taint or provider fields.
+not enforce the budget, scope, egress, outward, taint or provider fields.
 Their parsed values are inputs for their owning guardrails.
+
+**Command deny and confirm (#1661).** Admission also captures the command lists
+and their original source positions, including invalid entries skipped before a
+valid rule. Claude checks denies before its PreToolUse shortcuts and callback;
+pi checks them at the host permission RPC and its in-process tool gate. Both
+recheck approved edits before execution. Policy confirmations join the existing
+case-insensitive operator patterns and use per-use command cards; a remembered
+tool grant does not answer them. The capability note lists the captured active
+patterns. The existing governance writer retains each refusal or confirmation
+with its hash and rule provenance, independent of span-detail retention.
 
 **Authoritative agent applications (#1743).** Worker mounts and the privileged
 application route consume the same admitted protection. The application bridge

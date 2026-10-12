@@ -75,7 +75,7 @@ areas and the home mode once per worker
 (`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:608-647`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:463-496`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:465-498`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
@@ -92,13 +92,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:348-367`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:350-369`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:376-387`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:378-389`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -113,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:202-212`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:204-214`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and

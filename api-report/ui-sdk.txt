@@ -838,6 +838,8 @@ export "./internal" (./src/internal.ts)
   WORKER_XDG_DIRS
   type WorkerArea
   type WorkerAreaName
+  type WorkerCommandPolicy
+  type WorkerCommandRule
   type WorkerHome
   WorkerHostError
   type WorkerHostProbe
@@ -867,11 +869,13 @@ export "./internal" (./src/internal.ts)
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
+  compileWorkerCommandPolicy
   createLimitTracker
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
   createWorkerStartupView
+  denyWorkerCommand
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -904,6 +908,7 @@ export "./internal" (./src/internal.ts)
   purgeTurnTemp
   readWebSearchOverride
   readWebSearchRouting
+  requestPolicyPermission
   requireWorkerHost
   resolveOutputStagingLimits
   resolveTurnTempLimits
@@ -922,6 +927,7 @@ export "./internal" (./src/internal.ts)
   validWorkerStateBytes
   webSearchBrief
   webSearchProvider
+  workerCommandPolicyNote
   workerHostBoundary
   workerHostProven
   workerLimitsPlan
@@ -4370,6 +4376,16 @@ signatures (every public export and the types it is made of)
         requestKind: "tool" | "command";
         reason: string;
     } | {
+        kind: "policy_block";
+        toolUseId: string;
+        payload: PolicyCommandRecord<"commands.deny">;
+    } | {
+        kind: "policy_confirm";
+        toolUseId: string;
+        payload: PolicyCommandRecord<"commands.confirm"> & {
+            decision: "approved" | "declined" | "timed_out" | "cancelled";
+        };
+    } | {
         kind: "runtime_observed";
         runtime?: {
             name: string;
@@ -6383,6 +6399,19 @@ signatures (every public export and the types it is made of)
         accuracy?: string;
         pinned: boolean;
         unpinnedWhy?: UnpinnedReason;
+    }
+  PolicyCommandRecord (packages/ui-sdk/src/server/backend.ts)
+    interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
+        tool: string;
+        input: string;
+        inputTruncated: boolean;
+        rule: {
+            list: L;
+            index: number;
+            pattern: string;
+            reason?: string;
+        };
+        policyHash: string | null;
     }
   PrecacheEntry (packages/ui-sdk/src/client/sw-policy.ts)
     export interface PrecacheEntry {
