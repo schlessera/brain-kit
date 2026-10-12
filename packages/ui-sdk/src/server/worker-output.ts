@@ -144,7 +144,8 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
           else unlinkSync(at(handle.fd, handle.name));
         } finally { closeSync(handle.fd); }
       }
-      const directoryModes: { fd: number; mode: number }[] = [];
+      const directoryModes: { fd: number; mode: number; temporaryMode: number; rel: string }[] = [];
+      let publicationError: unknown;
       try {
         for (const rel of changed.filter(rel => after.has(rel)).sort((a, b) => a.split("/").length - b.split("/").length)) {
           const entry = after.get(rel)!;
@@ -158,7 +159,11 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
               const directory = openSync(destination, DIRECTORY);
               // Children must be installed before a final read-only directory
               // mode. Retain the exact opened directory for final chmod.
-              try { fchmodSync(directory, entry.mode | 0o700); directoryModes.push({ fd: directory, mode: entry.mode }); }
+              try {
+                const temporaryMode = entry.mode | 0o700;
+                fchmodSync(directory, temporaryMode);
+                directoryModes.push({ fd: directory, mode: entry.mode, temporaryMode, rel });
+              }
               catch (error) { closeSync(directory); throw error; }
               continue;
             }
@@ -198,12 +203,27 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
             } finally { rmSync(temporary, { force: true }); }
           } finally { closeSync(handle.fd); }
         }
-      } finally {
-        // Deepest directories first; permissions on a parent cannot prevent
-        // finalizing a child through its already-held descriptor.
-        try { for (const directory of [...directoryModes].reverse()) fchmodSync(directory.fd, directory.mode); }
-        finally { for (const directory of directoryModes) closeSync(directory.fd); }
+      } catch (error) { publicationError = error; }
+      // Deepest directories first; permissions on a parent cannot prevent
+      // finalizing a child through its already-held descriptor.
+      for (const directory of directoryModes.reverse()) {
+        try {
+          const handle = parent(brain, directory.rel);
+          try {
+            const visible = lstatSync(at(handle.fd, handle.name), { throwIfNoEntry: false });
+            const held = fstatSync(directory.fd);
+            // A governed peer may chmod or replace a directory while its
+            // children copy. Never overwrite that newer authoritative mode.
+            if (!visible?.isDirectory() || visible.dev !== held.dev || visible.ino !== held.ino
+              || (held.mode & 0o777) !== directory.temporaryMode) throw new Error(`stale maintenance output: ${directory.rel}`);
+            fchmodSync(directory.fd, directory.mode);
+          } finally { closeSync(handle.fd); }
+        } catch (error) { publicationError ??= error; }
+        finally {
+          try { closeSync(directory.fd); } catch (error) { publicationError ??= error; }
+        }
       }
+      if (publicationError) throw publicationError;
     },
   };
   return { ...publication,

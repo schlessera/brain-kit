@@ -9,6 +9,7 @@ import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { createHostExecution } from "../src/brain/host-execution.js";
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
+import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
@@ -83,6 +84,65 @@ test("nested read-only directory modes are finalized after their children", () =
   expect(readFileSync(join(brain, "voyage/harbor/departure.md"), "utf8"), "READ_ONLY_DIRECTORY_CHILD_PUBLISHED").toBe("Odysseus departs.\n");
   expect(statSync(join(brain, "voyage")).mode & 0o777).toBe(0o555);
   expect(statSync(join(brain, "voyage/harbor")).mode & 0o777).toBe(0o555);
+});
+
+test("directory finalization preserves a governed peer's mode and still finalizes other directories", () => {
+  const brain = fixture();
+  for (const dir of ["loom", "voyage"]) mkdirSync(join(brain, dir));
+  const outputs = prepareMaintenanceOutput(brain); cleanup.push(outputs.cleanup);
+  for (const dir of ["loom", "voyage"]) chmodSync(join(outputs.output.source, dir), 0o555);
+  // Populate the readable copy before making its parent read-only.
+  chmodSync(join(outputs.output.source, "voyage"), 0o755);
+  writeFileSync(join(outputs.output.source, "voyage/harbor.md"), "Odysseus departs.\n");
+  chmodSync(join(outputs.output.source, "voyage"), 0o555);
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
+  expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  const original = fs.writeSync;
+  let altered = false;
+  const write = spyOn(fs, "writeSync").mockImplementation((...args: any[]) => {
+    if (!altered && fs.readlinkSync(`/proc/self/fd/${args[0]}`).includes("/.maintenance-")) {
+      const peer = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox, env: { PATH: "/usr/bin:/bin" },
+        command: ["/bin/sh", "-c", 'chmod 777 voyage && printf "PEER_MODE_CHANGED"'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      expect(peer.exitCode, peer.stderr.toString()).toBe(0);
+      expect(peer.stdout.toString()).toBe("PEER_MODE_CHANGED");
+      expect(statSync(join(brain, "voyage")).mode & 0o777).toBe(0o777);
+      altered = true;
+    }
+    return (original as (...input: any[]) => number)(...args);
+  });
+  cleanup.push(() => { for (const dir of ["loom", "voyage"]) chmodSync(join(brain, dir), 0o700); });
+  try {
+    expect(() => outputs.publish(), "DIRECTORY_MODE_REVALIDATED_AT_COMMIT").toThrow("stale maintenance output");
+    expect(altered, "GOVERNED_MODE_PEER_RAN").toBe(true);
+    expect(statSync(join(brain, "voyage")).mode & 0o777, "PEER_DIRECTORY_MODE_PRESERVED").toBe(0o777);
+    expect(statSync(join(brain, "loom")).mode & 0o777, "OTHER_DIRECTORY_FINALIZED_AFTER_REFUSAL").toBe(0o555);
+  } finally { write.mockRestore(); }
+});
+
+test("an injected final chmod error does not leave other directories in temporary modes", () => {
+  const brain = fixture();
+  for (const dir of ["loom", "voyage"]) mkdirSync(join(brain, dir));
+  const outputs = prepareMaintenanceOutput(brain); cleanup.push(outputs.cleanup);
+  for (const dir of ["loom", "voyage"]) chmodSync(join(outputs.output.source, dir), 0o555);
+  const original = fs.fchmodSync;
+  let injected = false;
+  let failedDirectory = "";
+  const chmod = spyOn(fs, "fchmodSync").mockImplementation((fd, mode) => {
+    const path = fs.readlinkSync(`/proc/self/fd/${fd}`);
+    if (!injected && mode === 0o555 && [join(brain, "loom"), join(brain, "voyage")].includes(path)) {
+      injected = true;
+      failedDirectory = path;
+      throw Object.assign(new Error("fixture final chmod EIO"), { code: "EIO" });
+    }
+    return original(fd, mode);
+  });
+  cleanup.push(() => { for (const dir of ["loom", "voyage"]) chmodSync(join(brain, dir), 0o700); });
+  try {
+    expect(() => outputs.publish()).toThrow("fixture final chmod EIO");
+    expect(injected).toBe(true);
+    const other = [join(brain, "loom"), join(brain, "voyage")].find(path => path !== failedDirectory)!;
+    expect(statSync(other).mode & 0o777, "OTHER_DIRECTORY_FINALIZED_AFTER_CHMOD_ERROR").toBe(0o555);
+  } finally { chmod.mockRestore(); }
 });
 test("maintenance publishes explicit output without opening the execution view for writes", async () => {
   const brain = fixture();
