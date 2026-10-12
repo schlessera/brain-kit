@@ -97,3 +97,25 @@ remain readable. Genuine voice shows facts read-only with “Voice uses this
 brain's policy”; dictation retains interactive semantics. Limits use actual
 host enforcement facts or honest unknowns. There is no profile chip adornment,
 new destination, numeric default or voice grant.
+
+## 2026-10-12 — approved policy review (#1662)
+
+The [maintainer interaction approval](https://github.com/schlessera/brain-kit/issues/1662#issuecomment-6128049866)
+places policy proposals in the existing transcript approval card, with the
+frontmatter DiffBlock, visible body-change indicator and body-diff disclosure,
+quoted agent rationale and exact base hash. Section names describe changes;
+there is no loosens/tightens classifier. Decline and Approve and write are
+explicit per-use actions. Pending insertion announces once without taking
+composer focus; explicit answers transfer disappearing-control focus to the
+same-turn receipt. The existing diff dialog focuses its reading heading and
+returns to its trigger. Unknown completion reads the same request through
+Check again; it never blindly repeats a write. Stale/invalid removes approval
+and says nothing was written, requiring a fresh proposal.
+
+Devices & agents contains a read-only Agent policy group showing the shared
+admission cache's hash/profiles/validation notices and recorded enforcing limits.
+Open uses the existing file viewer. There is no new destination or editor.
+Genuine voice and autonomous sessions have no proposal tool. Dictation remains
+ordinary interactive work, but speech grants nothing. Session/account switches
+cannot transfer actions; copy wraps at 320px and 200% zoom, with bounded diffs,
+44px effective targets and existing dark/paper tokens.

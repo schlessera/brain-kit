@@ -49,7 +49,7 @@ export function approvalRequestFrame(
     input: req.input,
     description: req.description,
     ...(req.kind ? { kind: req.kind } : {}),
-    ...(req.outsideEnforcedAllowlist || !hasGrantStore ? { rememberable: false } : {}),
+    ...(req.kind === "policy" || req.outsideEnforcedAllowlist || !hasGrantStore ? { rememberable: false } : {}),
   };
 }
 

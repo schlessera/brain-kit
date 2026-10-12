@@ -1,3 +1,4 @@
+import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
@@ -162,6 +163,7 @@ export function makeBridge(
           msg = { ...msg, workerProfile: host.sessionProfiles.read(turn.principalId, "session", msg.sessionId) };
         }
 
+        host.policyProposals?.bind(turnId, msg.sessionId);
         // The session's pill label follows its latest request (#1004), asked
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {
@@ -253,6 +255,15 @@ export function makeBridge(
       }
     },
     requestPermission: (req) => {
+      // A native permission checkpoint delegates this particular operation to
+      // the host validator. Invalid input never raises a generic approval card.
+      // Its handler later reads the SAME request receipt, without another write.
+      if (req.kind !== "policy" && [PROPOSE_POLICY_CHANGE_TOOL_NAME, `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}`].includes(req.toolName)) {
+        if (!bridge.proposePolicyChange) return Promise.resolve({ behavior: "deny", message: "Policy proposals are unavailable in this turn." });
+        return bridge.proposePolicyChange(req.toolUseId, req.input as PolicyChangeInput)
+          .then(review => review.state === "updated" ? { behavior: "allow" as const } : { behavior: "deny" as const, message: review.message },
+            error => ({ behavior: "deny" as const, message: error instanceof Error ? error.message : "Invalid policy proposal." }));
+      }
       // A remembered "always allow" answers grantable tool requests without
       // a card. NEVER for kind "command" — those are destructive-pattern
       // confirmations for tools that are already auto-allowed, and
@@ -267,7 +278,7 @@ export function makeBridge(
       // enforced posture forbids is answering from the store (here) and
       // adding to it (dispatch.ts) — not knowing what is in it.
       const remembered =
-        req.kind !== "command" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
+        req.kind !== "command" && req.kind !== "policy" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
       if (remembered && req.outsideEnforcedAllowlist) {
         // Body stays constant and the reason rides as an attribute, matching
         // the refusal dispatch.ts records on the write side. A reason spliced
@@ -501,6 +512,20 @@ export function makeBridge(
       });
     },
   };
+  if (host.policyProposals && work?.posture !== "voice") {
+    bridge.proposePolicyChange = (requestId, input) => host.policyProposals!.propose({
+      principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized,
+      isAvailable: () => work?.posture !== "voice",
+      approve: async review => {
+        const decision = await bridge.requestPermission({ toolUseId: requestId,
+          toolName: backendId === "claude" ? `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}` : PROPOSE_POLICY_CHANGE_TOOL_NAME,
+          input: { ...input, policyReview: review }, kind: "policy", description: review.message });
+        return decision.behavior === "allow" && decision.updatedInput === undefined;
+      },
+      emit: review => host.sendToClients(withTurnScope({ type: "tool_result", toolUseId: requestId,
+        output: JSON.stringify(review), isError: !["pending", "writing", "updated", "declined"].includes(review.state), policyChange: review }, turn, turnId)),
+    }, requestId, input);
+  }
   if (host.brainPath && applicationPolicy) {
     const operationTools = backendId === "claude"
       ? { add: "mcp__brain-ui__brain_add", update: "mcp__brain-ui__brain_update", archive: "mcp__brain-ui__brain_archive", write: "mcp__brain-ui__write_file", edit: "mcp__brain-ui__edit_file", staged: "mcp__brain-ui__apply_staged_changes" }

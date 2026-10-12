@@ -112,6 +112,7 @@ function assembleClaudeSdkTurn(
   const askUserList = req.noGrantSurface === true ? undefined : req.bridge.askUserList;
   const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
   const askUserForm = req.noGrantSurface === true ? undefined : req.bridge.askUserForm;
+  const proposePolicyChange = !req.autonomous && !req.noGrantSurface && req.posture !== "voice" ? req.bridge.proposePolicyChange : undefined;
   const queryActivity = req.bridge.queryActivity;
   // Usage and purge of the worker's own size-limited /tmp (#1703): scoped to
   // it by the server's held descriptor, so it needs no approval. Not in the
@@ -173,6 +174,7 @@ function assembleClaudeSdkTurn(
     backend,
     req.client,
     {
+      policyChange: Boolean(proposePolicyChange),
       askUser: Boolean(askUser),
       askUserList: Boolean(askUserList),
       askUserRank: Boolean(askUserRank),
@@ -305,6 +307,7 @@ function assembleClaudeSdkTurn(
   // handler, so the server itself is always present.
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      proposePolicyChange,
       application: req.bridge,
       askUser,
       askUserList,
@@ -358,6 +361,7 @@ function buildAppend(
   options: ClaudeBackendOptions,
   client: ClientEnvironment | undefined,
   tools: {
+    policyChange: boolean;
     askUser: boolean;
     askUserList: boolean;
     askUserRank: boolean;
@@ -379,6 +383,7 @@ function buildAppend(
       ...(client ? { client } : {}),
       ...(turnBudgetMs ? { turnBudgetMs } : {}),
       tools: {
+        policyChange: tools.policyChange ? "mcp__brain-ui__propose_policy_change" : undefined,
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         askUserList: tools.askUserList && ASK_USER_LIST_TOOL_NAME,
         askUserRank: tools.askUserRank && ASK_USER_RANK_TOOL_NAME,

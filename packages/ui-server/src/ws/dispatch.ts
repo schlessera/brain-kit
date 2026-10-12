@@ -410,7 +410,7 @@ export async function handleClientMessage(
         const store = host.toolPermissions;
         const remembers =
           store !== null &&
-          pending.request.kind !== "command" &&
+          pending.request.kind !== "command" && pending.request.kind !== "policy" &&
           !pending.request.outsideEnforcedAllowlist;
         if (msg.always && remembers) {
           store.add(pending.request.toolName);

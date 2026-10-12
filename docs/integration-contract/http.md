@@ -412,3 +412,16 @@ count. At capacity the host refuses a new preference with 507 instead of
 evicting a live confirmed choice. Expired-principal rows are removed on save;
 a successful first-session binding consumes that draft preference into the
 session catalog. Another principal or draft cannot borrow it.
+
+## Policy review reads (additive, #1662)
+
+The internal authenticated `GET /api/policy-proposals/:turnId/:requestId`
+returns only the existing principal-owned `PolicyChangeReview`; an optional
+`session` must match its bound session. Reads never approve, write or revive
+execution. `GET /api/agent-policy` reads the admission policy cache and recorded
+worker-limit facts, without an editor or another policy cache. Their shapes,
+refusal states and recovery behavior are specified in the
+[HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
+The governance event API additionally accepts/returns `policy_change` with
+request id, exact base/proposed hashes, changed sections and updated outcome,
+with actor `user`.

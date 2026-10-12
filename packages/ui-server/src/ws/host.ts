@@ -82,6 +82,7 @@ export interface WsHostOptions {
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
   journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
+  policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
@@ -232,6 +233,7 @@ export class WsHost {
   /** @internal Host wiring (#1648). */
   readonly applicationPlanner?: ApplicationPlanner;
   /** @internal Hosted worker admission/reconciliation. */
+  readonly policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
@@ -305,6 +307,7 @@ export class WsHost {
 
   constructor(options: WsHostOptions) {
     this.journal = options.journal;
+    this.policyProposals = options.policyProposals;
     this.brainPath = options.brainPath;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
@@ -486,6 +489,7 @@ export class WsHost {
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
       ? { ...message, journal: this.journal!.summary(message.turnId) } : message);
+    messages = this.policyProposals?.attachHistory(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
