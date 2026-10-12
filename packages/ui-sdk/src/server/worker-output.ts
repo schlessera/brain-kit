@@ -95,10 +95,10 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   try { output = createWorkerStartupView(view.root, { storage: view.storage }); } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
-  catch (error) { output.cleanup(); if (!options.startupView) view.cleanup(); throw error; }
+  catch (error) { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } throw error; }
   const publication = {
     view, output: { source: output.root, target: WORKER_OUTPUT },
-    cleanup() { output.cleanup(); if (!options.startupView) view.cleanup(); },
+    cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } },
     /**
      * All paths and bases are validated before publication. No link supplied
      * by a worker can redirect a host open, and no worker output writes policy.
@@ -144,54 +144,65 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
           else unlinkSync(at(handle.fd, handle.name));
         } finally { closeSync(handle.fd); }
       }
-      for (const rel of changed.filter(rel => after.has(rel)).sort((a, b) => a.split("/").length - b.split("/").length)) {
-        const entry = after.get(rel)!;
-        const handle = parent(brain, rel);
-        try {
-          if (!equalOutput(before.get(rel), inspect(handle.fd, handle.name))) throw new Error(`stale maintenance output: ${rel}`);
-          const destination = at(handle.fd, handle.name);
-          if (entry.type === "directory") {
-            if (!before.has(rel)) mkdirSync(destination, { mode: entry.mode });
-            else if (before.get(rel)!.type !== "directory") throw new Error("maintenance cannot replace a non-directory with a directory");
-            const directory = openSync(destination, DIRECTORY);
-            try { fchmodSync(directory, entry.mode); } finally { closeSync(directory); }
-            continue;
-          }
-          if (before.get(rel)?.type === "directory") throw new Error("maintenance cannot replace a directory with a non-directory");
-          const temporary = at(handle.fd, `.maintenance-${randomUUID()}`);
+      const directoryModes: { fd: number; mode: number }[] = [];
+      try {
+        for (const rel of changed.filter(rel => after.has(rel)).sort((a, b) => a.split("/").length - b.split("/").length)) {
+          const entry = after.get(rel)!;
+          const handle = parent(brain, rel);
           try {
-            if (entry.type === "symlink") symlinkSync(entry.link!, temporary);
-            else {
-              const source = parent(output.root, rel);
-              let input: number | undefined; let target: number | undefined;
-              try {
-                input = openSync(at(source.fd, source.name), FILE);
-                if (!fstatSync(input).isFile()) throw new Error("not a regular maintenance output");
-                target = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, entry.mode);
-                const buffer = Buffer.alloc(64 * 1024);
-                for (;;) {
-                  const count = readSync(input, buffer); if (!count) break;
-                  let written = 0;
-                  while (written < count) written += writeSync(target, buffer, written, count - written);
-                }
-                fchmodSync(target, entry.mode);
-              } finally { closeSync(source.fd); if (input !== undefined) closeSync(input); if (target !== undefined) closeSync(target); }
-            }
-            // Copying can be slow while governed peers are running. The base
-            // check belongs after that copy, immediately before publication.
             if (!equalOutput(before.get(rel), inspect(handle.fd, handle.name))) throw new Error(`stale maintenance output: ${rel}`);
-            if (before.has(rel)) renameSync(temporary, destination);
-            else {
-              // link(2) installs a new file/link atomically without replacing
-              // an authoritative name created after the final check.
-              try { linkSync(temporary, destination); }
-              catch (error) {
-                if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`stale maintenance output: ${rel}`);
-                throw error;
-              }
+            const destination = at(handle.fd, handle.name);
+            if (entry.type === "directory") {
+              if (!before.has(rel)) mkdirSync(destination, { mode: entry.mode | 0o700 });
+              else if (before.get(rel)!.type !== "directory") throw new Error("maintenance cannot replace a non-directory with a directory");
+              const directory = openSync(destination, DIRECTORY);
+              // Children must be installed before a final read-only directory
+              // mode. Retain the exact opened directory for final chmod.
+              try { fchmodSync(directory, entry.mode | 0o700); directoryModes.push({ fd: directory, mode: entry.mode }); }
+              catch (error) { closeSync(directory); throw error; }
+              continue;
             }
-          } finally { rmSync(temporary, { force: true }); }
-        } finally { closeSync(handle.fd); }
+            if (before.get(rel)?.type === "directory") throw new Error("maintenance cannot replace a directory with a non-directory");
+            const temporary = at(handle.fd, `.maintenance-${randomUUID()}`);
+            try {
+              if (entry.type === "symlink") symlinkSync(entry.link!, temporary);
+              else {
+                const source = parent(output.root, rel);
+                let input: number | undefined; let target: number | undefined;
+                try {
+                  input = openSync(at(source.fd, source.name), FILE);
+                  if (!fstatSync(input).isFile()) throw new Error("not a regular maintenance output");
+                  target = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, entry.mode);
+                  const buffer = Buffer.alloc(64 * 1024);
+                  for (;;) {
+                    const count = readSync(input, buffer); if (!count) break;
+                    let written = 0;
+                    while (written < count) written += writeSync(target, buffer, written, count - written);
+                  }
+                  fchmodSync(target, entry.mode);
+                } finally { closeSync(source.fd); if (input !== undefined) closeSync(input); if (target !== undefined) closeSync(target); }
+              }
+              // Copying can be slow while governed peers are running. The base
+              // check belongs after that copy, immediately before publication.
+              if (!equalOutput(before.get(rel), inspect(handle.fd, handle.name))) throw new Error(`stale maintenance output: ${rel}`);
+              if (before.has(rel)) renameSync(temporary, destination);
+              else {
+                // link(2) installs a new file/link atomically without replacing
+                // an authoritative name created after the final check.
+                try { linkSync(temporary, destination); }
+                catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`stale maintenance output: ${rel}`);
+                  throw error;
+                }
+              }
+            } finally { rmSync(temporary, { force: true }); }
+          } finally { closeSync(handle.fd); }
+        }
+      } finally {
+        // Deepest directories first; permissions on a parent cannot prevent
+        // finalizing a child through its already-held descriptor.
+        try { for (const directory of [...directoryModes].reverse()) fchmodSync(directory.fd, directory.mode); }
+        finally { for (const directory of directoryModes) closeSync(directory.fd); }
       }
     },
   };

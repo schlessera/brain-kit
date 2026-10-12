@@ -955,7 +955,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
         else areaOutput?.publish();
       }
-      finally { areaOutput?.cleanup(); startupView?.cleanup(); }
+      finally { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
       return code;
     });
     return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -967,8 +967,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
-    if (child) void child.exited.finally(() => { areaOutput?.cleanup(); startupView?.cleanup(); });
-    else { areaOutput?.cleanup(); startupView?.cleanup(); }
+    if (child) void child.exited.finally(() => { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } });
+    else { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`

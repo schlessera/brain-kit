@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { prepareMaintenanceOutput } from "../src/brain/maintenance-output.js";
 import { listDirectory } from "../src/files/walker.js";
 import { createHostBoundary } from "../src/brain/host-boundary.js";
+import { createHostExecution } from "../src/brain/host-execution.js";
+import { createUiDb } from "../src/db/client.js";
+import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
@@ -17,6 +20,70 @@ function fixture() {
   writeFileSync(join(brain, "harbor.md"), "Odysseus before launch.\n");
   return brain;
 }
+
+test("hostile output permissions release the real writer gate and all staging storage", async () => {
+  const brain = fixture();
+  const state = mkdtempSync("/var/tmp/odysseus-cleanup-state-");
+  cleanup.push(() => rmSync(state, { recursive: true, force: true }));
+  const dbPath = join(state, "ui.db");
+  const db = createUiDb(dbPath);
+  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} });
+  execution.attach(db);
+  const heldBefore = processStateLedger().outputStagingHeld;
+  try {
+    const program = 'import{mkdirSync,chmodSync}from"node:fs";const root=process.env.BRAIN_ROOT;mkdirSync(root+"/locked");mkdirSync(root+"/locked/nested");chmodSync(root+"/locked/nested",0);chmodSync(root+"/locked",0);console.log("HOSTILE_OUTPUT_CREATED");';
+    const worker = await execution.boundary.launch({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: {},
+      credentials: false, gate: "exclusive", purpose: "hostile output cleanup" });
+    const streams = Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text()]);
+    await expect(worker.exited).rejects.toThrow("EACCES");
+    expect((await streams)[0], "HOSTILE_OUTPUT_WORKER_RAN").toBe("HOSTILE_OUTPUT_CREATED\n");
+    expect(readFileSync(join(brain, "harbor.md"), "utf8")).toBe("Odysseus before launch.\n");
+    expect(existsSync(join(brain, "locked")), "REFUSED_OUTPUT_NOT_PUBLISHED").toBe(false);
+    expect(processStateLedger().outputStagingHeld, "HOSTILE_OUTPUT_STORAGE_RELEASED").toBe(heldBefore);
+    const next = await execution.gate()!.acquire("exclusive", "after hostile output", { signal: AbortSignal.timeout(1000) });
+    next.release();
+    const reader = await execution.boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", 'console.log("READMITTED")'],
+      env: {}, credentials: false, gate: "shared", purpose: "readmission after refused output" });
+    expect(reader.exitCode, reader.stderr).toBe(0);
+    expect(reader.stdout).toBe("READMITTED\n");
+    expect(processStateLedger().outputStagingHeld).toBe(heldBefore);
+  } finally { db.close(); }
+});
+
+test("failed launch cleans read-only copies without changing the live brain mode", async () => {
+  const brain = fixture();
+  const state = mkdtempSync("/var/tmp/odysseus-failed-start-");
+  cleanup.push(() => rmSync(state, { recursive: true, force: true }));
+  const dbPath = join(state, "ui.db");
+  const db = createUiDb(dbPath);
+  const execution = createHostExecution({ brainPath: brain, dbPath, exec: { wrapper: join(state, "absent-wrapper") } });
+  execution.attach(db);
+  expect(execution.boundary.isolated(), "FAILED_START_REAL_BOUNDARY_PROVEN").toBe(true);
+  chmodSync(brain, 0o555); cleanup.push(() => chmodSync(brain, 0o700));
+  const heldBefore = processStateLedger().outputStagingHeld;
+  try {
+    await expect(execution.boundary.launch({ argv: [process.execPath, "--version"], env: {}, credentials: false,
+      gate: "exclusive", purpose: "failed read-only-copy launch" }), "FAILED_START_ORIGINAL_ERROR").rejects.toThrow("does not exist");
+    expect(processStateLedger().outputStagingHeld, "FAILED_START_STORAGE_RELEASED").toBe(heldBefore);
+    expect(statSync(brain).mode & 0o777, "LIVE_DIRECTORY_MODE_UNCHANGED").toBe(0o555);
+    const next = await execution.gate()!.acquire("exclusive", "after failed start", { signal: AbortSignal.timeout(1000) });
+    next.release();
+  } finally { db.close(); }
+});
+
+test("nested read-only directory modes are finalized after their children", () => {
+  const brain = fixture();
+  const outputs = prepareMaintenanceOutput(brain); cleanup.push(outputs.cleanup);
+  mkdirSync(join(outputs.output.source, "voyage/harbor"), { recursive: true });
+  writeFileSync(join(outputs.output.source, "voyage/harbor/departure.md"), "Odysseus departs.\n");
+  chmodSync(join(outputs.output.source, "voyage/harbor"), 0o555);
+  chmodSync(join(outputs.output.source, "voyage"), 0o555);
+  cleanup.push(() => { for (const dir of ["voyage", "voyage/harbor"]) if (existsSync(join(brain, dir))) chmodSync(join(brain, dir), 0o700); });
+  expect(() => outputs.publish(), "READ_ONLY_DIRECTORY_CHILDREN_PUBLISHED").not.toThrow();
+  expect(readFileSync(join(brain, "voyage/harbor/departure.md"), "utf8"), "READ_ONLY_DIRECTORY_CHILD_PUBLISHED").toBe("Odysseus departs.\n");
+  expect(statSync(join(brain, "voyage")).mode & 0o777).toBe(0o555);
+  expect(statSync(join(brain, "voyage/harbor")).mode & 0o777).toBe(0o555);
+});
 test("maintenance publishes explicit output without opening the execution view for writes", async () => {
   const brain = fixture();
   const boundary = createHostBoundary({ brainPath: brain });

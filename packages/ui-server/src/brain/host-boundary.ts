@@ -409,7 +409,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         const git = await prepareMaintenanceGit(launch, outputs);
         worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
       }
-      catch (error) { outputs?.cleanup(); hold?.release(); throw error; }
+      catch (error) { try { outputs?.cleanup(); } finally { hold?.release(); } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
@@ -419,7 +419,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(() => { outputs!.cleanup(); hold?.release(); });
+        .finally(() => { try { outputs!.cleanup(); } finally { hold?.release(); } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };

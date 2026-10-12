@@ -1,6 +1,6 @@
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readlinkSync, readSync, rmSync, symlinkSync, writeSync, chmodSync, fchmodSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
+  readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
 import { createOutputStagingStorage } from "./worker-launcher.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
@@ -17,6 +17,27 @@ export interface WorkerStartupView {
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW;
 const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
+
+/** Remove only this private copy, even when a worker removed directory access. */
+function removePrivateView(owner: string): void {
+  // O_PATH obtains an identity without requiring read permission. O_NOFOLLOW
+  // and O_DIRECTORY refuse links before chmod touches an opened directory.
+  const flags = 0x200000 | constants.O_NOFOLLOW | constants.O_DIRECTORY;
+  function empty(fd: number): void {
+    chmodSync(`/proc/self/fd/${fd}`, 0o700);
+    for (const name of readdirSync(at(fd, "."))) {
+      const path = at(fd, name);
+      if (lstatSync(path).isDirectory()) {
+        const child = openSync(path, flags);
+        try { empty(child); } finally { closeSync(child); }
+        rmdirSync(path);
+      } else unlinkSync(path);
+    }
+  }
+  const fd = openSync(owner, flags);
+  try { empty(fd); } finally { closeSync(fd); }
+  rmdirSync(owner);
+}
 
 /**
  * Copies raw regular-file bytes and link text through anchored descriptors.
@@ -115,10 +136,9 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
     }
     let removed = false;
     return { brain, root, storage, cleanup() { if (removed) return; removed = true;
-      try { rmSync(owner, { recursive: true, force: true }); } finally { storage.release(); } } };
+      try { removePrivateView(owner); } finally { storage.release(); } } };
   } catch (error) {
-    rmSync(owner, { recursive: true, force: true });
-    storage.release();
+    try { removePrivateView(owner); } finally { storage.release(); }
     if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
       `Output staging exceeds its ${mib(storage.allowanceBytes)} allowance (ENOSPC). Starting inputs and publication copies must fit before launch; nothing ran.`);
     throw error;
