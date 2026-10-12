@@ -12,3 +12,6 @@ protected-path selection. Autonomous authority and sibling enforcement remain
 unchanged. Approved budget and scope defaults resolve without enforcing them.
 Authoritative agent Markdown and submitted PNG applications share admitted
 protection, including planned destinations and protected scratch retention.
+
+The CLI and server share the data-only policy reader through the internal common
+package, preserving server imports and declarations without the optional core peer.

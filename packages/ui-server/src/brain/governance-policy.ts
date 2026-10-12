@@ -1,5 +1,5 @@
 /** Process-local last-valid policy. Every admission reads data anew; no repository code runs. */
-import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain/internal";
+import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 
 export interface TurnGovernancePolicy {
   readonly hash: string | null;

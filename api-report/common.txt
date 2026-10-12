@@ -15,6 +15,18 @@ export "./internal/frontmatter" (./src/frontmatter-parse.ts)
   type ParsedFrontmatter
   parseFrontmatter
 
+export "./internal/governance-policy" (./src/governance-policy.ts)
+  BUILTIN_GOVERNANCE_POLICY
+  type EffectiveGovernancePolicy
+  GOVERNANCE_POLICY_MAX_BYTES
+  GOVERNANCE_POLICY_PATH
+  type GovernancePolicyCheck
+  type GovernancePolicyInput
+  GovernancePolicySchema
+  checkGovernancePolicy
+  parseGovernancePolicy
+  resolveGovernancePolicy
+
 export "./internal/protected-paths" (./src/protected-paths.ts)
   PROTECTED_ENV_PREFIX
   PROTECTED_TIER_A

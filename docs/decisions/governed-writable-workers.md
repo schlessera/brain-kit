@@ -244,8 +244,10 @@ the measurements prove it. Outside a turn, ruling 2 makes an edit legitimate.
 An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
-in core (`GovernancePolicySchema`, `packages/core/src/lib/governance-policy.ts:29-42`;
-`parseGovernancePolicy`, `packages/core/src/lib/governance-policy.ts:78-100`).
+in the shared internal common helper, consumed by core and the server
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:78-100`).
+This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
 version identity without a second YAML canonicalization algorithm. The strict
