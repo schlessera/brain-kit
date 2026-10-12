@@ -225,6 +225,79 @@ async function settled() {
   await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
 }
 
+/** Diagnostic only: preserve native activation and emit at most 128 entries on failure. */
+function tracePaletteActivation(button: HTMLElement, root: BrainUiRoot) {
+  const limit = 128;
+  const entries: { event?: Event; snapshot: Record<string, unknown> }[] = [];
+  let dropped = 0;
+  const name = (target: EventTarget | null) => {
+    const element = target as HTMLElement | null;
+    return element?.nodeType === 1
+      ? `${element.tagName}:${element.getAttribute("aria-label") ?? (element.id || element.textContent?.slice(0, 32) || "")}`
+      : target === window ? "window" : target === document ? "document" : null;
+  };
+  const frameFocus = () => {
+    try {
+      return {
+        parentFocus: window.parent.document.hasFocus(),
+        parentActive: name(window.parent.document.activeElement),
+        parentActiveIsFrame: window.parent.document.activeElement === window.frameElement,
+        topFocus: window.top!.document.hasFocus(),
+        topActive: name(window.top!.document.activeElement),
+      };
+    } catch {
+      return { outerFocus: "unavailable across frame origin" };
+    }
+  };
+  const record = (type: string, event?: Event) => {
+    const key = event instanceof KeyboardEvent ? event : undefined;
+    const palette = host?.querySelector<HTMLDialogElement>('dialog[aria-label="Command palette"]');
+    if (entries.length === limit) { entries.shift(); dropped++; }
+    entries.push({ event, snapshot: {
+      type, time: performance.now(), target: name(event?.target ?? null), targetIsButton: event?.target === button,
+      key: key?.key, code: key?.code, repeat: key?.repeat,
+      modifiers: key ? { alt: key.altKey, ctrl: key.ctrlKey, meta: key.metaKey, shift: key.shiftKey } : undefined,
+      trusted: event?.isTrusted, capturePrevented: event?.defaultPrevented,
+      activeElement: name(document.activeElement), innerFocus: document.hasFocus(),
+      visibility: document.visibilityState, ...frameFocus(),
+      buttonActive: button.matches(":active"), buttonFocused: document.activeElement === button,
+      buttonConnected: button.isConnected, buttonDisabled: button.matches(":disabled"),
+      buttonExplicitInert: Boolean(button.closest("[inert]")),
+      paletteOpen: root.stores.ui.getState().paletteOpen,
+      dialogConnected: Boolean(palette?.isConnected), dialogOpen: palette?.open ?? false,
+      eligible: matchMedia("(min-width: 480px)").matches,
+    } });
+  };
+  const types = ["keydown", "keypress", "keyup", "click", "focusin", "focusout", "cancel", "close"];
+  const observe = (event: Event) => record(event.type, event);
+  const observeWindow = (event: Event) => record(`window-${event.type}`, event);
+  for (const type of types) document.addEventListener(type, observe, true);
+  window.addEventListener("focus", observeWindow);
+  window.addEventListener("blur", observeWindow);
+  const unsubscribe = root.stores.ui.subscribe((state, previous) => {
+    if (state.paletteOpen !== previous.paletteOpen) record("palette-store-transition");
+  });
+  record("trace-start");
+  return {
+    report: () => {
+      record("failure");
+      // Events are retained only in this bounded buffer. At failure reporting,
+      // dispatch has completed, so this reads final cancellation rather than
+      // the capture-phase value before React's bubbling handlers ran.
+      console.error("PALETTE_NATIVE_ACTIVATION_TRACE", JSON.stringify({ dropped, entries: entries.map(({ event, snapshot }) => ({
+        ...snapshot, finalDefaultPrevented: event?.defaultPrevented,
+      })) }));
+    },
+    stop: () => {
+      unsubscribe();
+      for (const type of types) document.removeEventListener(type, observe, true);
+      window.removeEventListener("focus", observeWindow);
+      window.removeEventListener("blur", observeWindow);
+      entries.length = 0;
+    },
+  };
+}
+
 for (const theme of ["dark", "light"] as const) {
   for (const width of [320, 390]) {
     test(`no rail and no palette below 480: ${theme}, ${width}`, async () => {
@@ -306,51 +379,59 @@ for (const theme of ["dark", "light"] as const) {
       const { all } = parts(rail);
       const dialog = () => host!.querySelector<HTMLElement>('[role="dialog"][aria-label="Command palette"]');
 
-      await press(all!, mode);
-      await expect.poll(dialog, { message: "pointer opens the palette" }).not.toBeNull();
-      const input = dialog()!.querySelector("input")!;
-      await expect.poll(() => document.activeElement, { message: "focus enters the query" }).toBe(input);
-      const names = [...dialog()!.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent!.replace("⏎", ""));
-      const fine = mode !== "coarse";
-      expect(names.slice(0, 7), "Jump to, remapped, with Graph keyless").toEqual([
-        ...DESTINATIONS.map((d, i) => (fine ? `${d}⌘${i + 1}` : d)), "Graph", "New chat",
-      ]);
-      expect(names.filter((n) => n.startsWith("Sessions")), "Sessions once").toHaveLength(1);
-      await userEvent.keyboard("{Escape}");
-      expect(dialog(), "esc closes").toBeNull();
-      expect(document.activeElement, "esc returns focus to All commands").toBe(all);
+      const trace = tracePaletteActivation(all!, ui);
+      try {
+        await press(all!, mode);
+        await expect.poll(dialog, { message: "pointer opens the palette" }).not.toBeNull();
+        const input = dialog()!.querySelector("input")!;
+        await expect.poll(() => document.activeElement, { message: "focus enters the query" }).toBe(input);
+        const names = [...dialog()!.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent!.replace("⏎", ""));
+        const fine = mode !== "coarse";
+        expect(names.slice(0, 7), "Jump to, remapped, with Graph keyless").toEqual([
+          ...DESTINATIONS.map((d, i) => (fine ? `${d}⌘${i + 1}` : d)), "Graph", "New chat",
+        ]);
+        expect(names.filter((n) => n.startsWith("Sessions")), "Sessions once").toHaveLength(1);
+        await userEvent.keyboard("{Escape}");
+        expect(dialog(), "esc closes").toBeNull();
+        expect(document.activeElement, "esc returns focus to All commands").toBe(all);
 
-      // Enter and space on the focused button, and the existing modifier-K.
-      await userEvent.keyboard("{Enter}");
-      await expect.poll(dialog, { message: "Enter opens" }).not.toBeNull();
-      await userEvent.keyboard("{Escape}");
-      expect(document.activeElement).toBe(all);
-      await userEvent.keyboard(" ");
-      await expect.poll(dialog, { message: "space opens" }).not.toBeNull();
-      await userEvent.keyboard("{Escape}");
-      // A real press on the scrim, outside the box, is a dismissal too, and
-      // the browser's own mousedown focus must not undo the return.
-      await userEvent.keyboard("{Enter}");
-      await expect.poll(dialog, { message: "reopens" }).not.toBeNull();
-      const scrim = dialog()!.querySelector<HTMLElement>(".bk-overlay-scrim")!;
-      const corner = { x: 12, y: innerHeight - 12 };
-      expect(document.elementFromPoint(corner.x, corner.y), "the corner is the scrim").toBe(scrim);
-      if (mode === "fine") {
-        await userEvent.hover(scrim, { position: corner });
-        await commands.buttonPointer("down");
-        await commands.buttonPointer("up");
-      } else {
-        await commands.rankTouch("touchStart", [corner]);
-        await commands.rankTouch("touchEnd", []);
+        // Enter and space on the focused button, and the existing modifier-K.
+        await userEvent.keyboard("{Enter}");
+        await expect.poll(dialog, { message: "Enter opens" }).not.toBeNull();
+        await userEvent.keyboard("{Escape}");
+        expect(document.activeElement).toBe(all);
+        await userEvent.keyboard(" ");
+        await expect.poll(dialog, { message: "space opens" }).not.toBeNull();
+        await userEvent.keyboard("{Escape}");
+        // A real press on the scrim, outside the box, is a dismissal too, and
+        // the browser's own mousedown focus must not undo the return.
+        await userEvent.keyboard("{Enter}");
+        await expect.poll(dialog, { message: "reopens" }).not.toBeNull();
+        const scrim = dialog()!.querySelector<HTMLElement>(".bk-overlay-scrim")!;
+        const corner = { x: 12, y: innerHeight - 12 };
+        expect(document.elementFromPoint(corner.x, corner.y), "the corner is the scrim").toBe(scrim);
+        if (mode === "fine") {
+          await userEvent.hover(scrim, { position: corner });
+          await commands.buttonPointer("down");
+          await commands.buttonPointer("up");
+        } else {
+          await commands.rankTouch("touchStart", [corner]);
+          await commands.rankTouch("touchEnd", []);
+        }
+        await expect.poll(dialog, { message: "the scrim dismisses" }).toBeNull();
+        expect(document.activeElement, "the scrim returns focus to All commands").toBe(all);
+        await userEvent.keyboard("{Control>}k{/Control}");
+        await expect.poll(dialog, { message: "Ctrl+K opens" }).not.toBeNull();
+        // A Graph row, reached through the visibly opened palette.
+        await userEvent.keyboard("gra{Enter}");
+        expect(dialog()).toBeNull();
+        expect(ui.stores.ui.getState().activeView, "Graph runs from the palette").toBe("graph");
+      } catch (error) {
+        trace.report();
+        throw error;
+      } finally {
+        trace.stop();
       }
-      await expect.poll(dialog, { message: "the scrim dismisses" }).toBeNull();
-      expect(document.activeElement, "the scrim returns focus to All commands").toBe(all);
-      await userEvent.keyboard("{Control>}k{/Control}");
-      await expect.poll(dialog, { message: "Ctrl+K opens" }).not.toBeNull();
-      // A Graph row, reached through the visibly opened palette.
-      await userEvent.keyboard("gra{Enter}");
-      expect(dialog()).toBeNull();
-      expect(ui.stores.ui.getState().activeView, "Graph runs from the palette").toBe("graph");
     });
 
     test(`⌘1–⌘5 reach D52's destinations, and Graph has no chord: ${theme}, ${width}`, async () => {
