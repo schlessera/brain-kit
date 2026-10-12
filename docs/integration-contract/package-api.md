@@ -3,6 +3,41 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Maintenance temporary-storage host configuration (additive #1708)
+
+`BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
+each default to `268435456` bytes. Both accept positive, safe, page-aligned
+integer byte counts; the aggregate must cover one command allowance. These
+defaults are independent of agent-session concurrency, agent turn temp,
+runtime state and output staging. Invalid configuration refuses the host edge.
+
+Resolved `ServerConfig.maintenanceTemp` and `CronConfig.maintenanceTemp` contain
+`allowanceBytes` and `budgetBytes`. These fields are optional for existing
+programmatic callers; environment resolvers always supply them, and absent
+callers retain validated SDK defaults. The runner carries the operator
+settings into its own control environment, not the scheduled command's
+authority. Git transport preserves these resolved limits while retaining its
+separate envelope without a brain mount.
+
+Server and cron admission is atomic in a ledger selected from their canonical
+configured UI database identity, with that state's existing access authority.
+Trusted internal maintenance commands propagate this identity through probes,
+streamed/synchronous work and the separate Git transport; no scheduled command
+chooses it. Different launcher uids or temporary directories do not split a
+shared UI-state domain. Standalone SDK calls and in-memory UI configurations
+without shared persistent state retain a private per-uid `/tmp` domain.
+Foreign PID-namespace ownership is conservatively held, not reclaimed as dead.
+Optional trusted `MaintenanceHost` data also reaches first-party backend startup
+and short Git/scratch checks through the existing backend module context and
+host bridge configuration. It is never selected by a scheduled command or
+serialized as worker authority. Standalone helpers retain their existing defaults.
+Exhausted capacity
+uses the existing `worker_state_busy` failure class with a maintenance-specific
+message; nothing ran and no agent runtime state was lost. Filesystem exhaustion
+is `ENOSPC`. No new CLI, HTTP or wire envelope is introduced. See
+[maintenance workers](../hosting/agent-workers.md#maintenance-workers-the-server-never-runs-the-brains-code-1648)
+for storage and supported-host requirements.
+
 <a id="package-entry-points"></a>
 
 ## Package entry points

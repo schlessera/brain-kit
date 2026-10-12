@@ -196,6 +196,7 @@ describe("brain-ui-cron subprocess", () => {
         env: {
           PATH: `${directory}:${process.env.PATH ?? ""}`,
           BRAIN_PATH: brainRoot,
+          DB_PATH: dbPath,
         },
         stdout: "pipe",
         stderr: "pipe",

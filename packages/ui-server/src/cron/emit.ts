@@ -305,6 +305,8 @@ export const CRON_ENV_NAMES = Object.freeze(
 export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   "BRAIN_UI_EXEC_WRAPPER",
   "BRAIN_UI_EXEC_KILLER",
+  "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
+  "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES",
 ];
 
 export function emitEnvironment(

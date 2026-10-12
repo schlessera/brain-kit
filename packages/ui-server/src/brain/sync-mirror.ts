@@ -86,7 +86,7 @@ async function origin(command: MaintenanceCommand): Promise<string | null> {
 }
 
 /** Host-owned transport input; no complete home, brain PATH, arbitrary extra env or repository helper reaches it. */
-export function syncTransportCommand(input: { brain: string; mirror: string; remote: string; env: MaintenanceCommand["env"]; args: readonly string[] }): MaintenanceCommand {
+export function syncTransportCommand(input: { brain: string; mirror: string; remote: string; env: MaintenanceCommand["env"]; args: readonly string[]; tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"] }): MaintenanceCommand {
   const git = Bun.which("git", { PATH: "/usr/bin:/bin" });
   if (!git) throw new Error("host sync needs system git");
   const readPaths: string[] = [];
@@ -118,6 +118,8 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
     }
   }
   return { brainPath: input.brain, credentials: true, env,
+    ...(input.tempLimits ? { tempLimits: input.tempLimits } : {}),
+    ...(input.tempDomain ? { tempDomain: input.tempDomain } : {}),
     command: [git, "--git-dir", input.mirror, "-c", "credential.helper=", "-c", `credential.helper=${CREDENTIAL_HELPER}`,
       "-c", "http.followRedirects=false", "-c", "core.hooksPath=/dev/null", ...input.args.map(arg => arg === "$REMOTE" ? remote : arg)],
     transport: { mirror: input.mirror, readPaths, writePaths } };
@@ -150,7 +152,7 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
   prepareMirror(mirror, brain);
   const transport = async (args: readonly string[]) => {
     assertMirrorStorage(mirror);
-    return runMaintenanceWorker({ ...syncTransportCommand({ brain, mirror, remote, env: input.transportEnv ?? command.env, args }),
+    return runMaintenanceWorker({ ...syncTransportCommand({ brain, mirror, remote, env: input.transportEnv ?? command.env, args, tempLimits: command.tempLimits, tempDomain: command.tempDomain }),
       ...(input.signal ? { signal: input.signal } : {}), timeoutMs: input.timeoutMs ?? 120_000 });
   };
   let last: ExecutionResult = { stdout: "", stderr: "", exitCode: 1 };

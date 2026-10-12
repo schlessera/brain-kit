@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { hostOutputStagingLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { hostOutputStagingLimits, hostMaintenanceTempLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -350,6 +350,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES",
     description: "Aggregate output-staging admission in the shared worker ledger, in bytes (a positive multiple of 4096, at least one allowance). Busy admission refuses as worker_state_busy with Retry; invalid values refuse boot.",
     default: "BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS", required: false,
+  },
+  {
+    name: "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
+    description: "Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC.",
+    default: "268435456",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES",
+    description: "Separate aggregate maintenance temporary-write budget, shared atomically by server and cron processes. Positive page-aligned integer covering at least one command allowance. Busy admission refuses with worker_state_busy before execution. Not derived from agent session concurrency.",
+    default: "268435456",
+    required: false,
   },
   {
     name: "BRAIN_UI_TURN_TIMEOUT_MS",
@@ -714,6 +726,8 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /** Resolved by the host edge; optional for existing programmatic callers, which use SDK defaults. */
+  maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   askUserFormLimits?: AskUserFormLimits;
   brainPath: string;
   dbPath: string;
@@ -775,6 +789,8 @@ type EnvRecord = Record<string, string | undefined>;
 
 /** Configuration resolved specifically for the standalone cron bin. */
 export interface CronConfig {
+  /** Resolved by the runner edge, never forwarded as job authority; absent callers retain defaults. */
+  maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   /** Brain repository inspected by the crontab emitter. */
   brainPath: string;
   /** The deployment database; unlike createApp(), the bin defaults to the container path. */
@@ -975,6 +991,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
   return {
+    maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
     askUserFormLimits: resolveAskUserFormLimits(Object.fromEntries([
       ["maxDepth", env.BRAIN_UI_ASK_USER_FORM_MAX_DEPTH],
@@ -1078,6 +1095,7 @@ export function resolveCronConfig(
     [env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, ...admittedNames].join(",")
   );
   return {
+    maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath: env.BRAIN_PATH || "/data/brain",
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",
     moduleDiscoveryEnv: filterPackageSubprocessEnv(

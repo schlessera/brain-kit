@@ -105,8 +105,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
-    sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
-      : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME });
+    sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
+      : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),

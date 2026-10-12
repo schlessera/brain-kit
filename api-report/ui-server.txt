@@ -564,6 +564,16 @@ signatures (every public export and the types it is made of)
     const MIN_BRAIN_CLI_VERSION: "0.42.0";
   MIN_BRAIN_SCHEMA_VERSION (packages/ui-server/src/db/brain-db.ts)
     const MIN_BRAIN_SCHEMA_VERSION: 3;
+  MaintenanceHost (packages/ui-sdk/src/server/maintenance-worker.ts)
+    export interface MaintenanceHost {
+        tempLimits?: WorkerStateLimits;
+        tempDomain?: MaintenanceTempDomain;
+        maskPaths?: readonly string[];
+    }
+  MaintenanceTempDomain (packages/ui-sdk/src/server/maintenance-temp-budget.ts)
+    export interface MaintenanceTempDomain {
+        statePath: string;
+    }
   MetricPoint (packages/ui-server/src/observability/types.ts)
     export interface MetricPoint {
         name: string;
@@ -678,6 +688,10 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        maintenanceTemp?: {
+            allowanceBytes: number;
+            budgetBytes: number;
+        };
         askUserFormLimits?: AskUserFormLimits;
         brainPath: string;
         dbPath: string;
@@ -813,9 +827,15 @@ signatures (every public export and the types it is made of)
         origins: string[];
         allowLoopbackOrigin: boolean;
     }
+  WorkerStateLimits (packages/ui-sdk/src/server/worker-state-limits.ts)
+    export interface WorkerStateLimits {
+        allowanceBytes: number;
+        budgetBytes: number;
+    }
   WsHost (packages/ui-server/src/ws/host.ts)
     export class WsHost {
         readonly brainPath?: string;
+        readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         readonly askUserFormLimits: AskUserFormLimits;
         readonly registry: BackendRegistry;
         appName: string;
@@ -829,6 +849,7 @@ signatures (every public export and the types it is made of)
     }
   WsHostOptions (packages/ui-server/src/ws/host.ts)
     export interface WsHostOptions {
+        maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         brainPath?: string;
         askUserFormLimits?: Partial<AskUserFormLimits>;
         registry: BackendRegistry;

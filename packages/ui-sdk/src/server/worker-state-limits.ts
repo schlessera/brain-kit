@@ -146,3 +146,15 @@ export function outputStagingLimit(limits: WorkerStateLimits = hostOutputStaging
     onHit: "Immutable starting inputs and private publication copies share this separate allowance; it does not use turn temp. "
       + "Writes past it fail with `ENOSPC`. A turn that cannot reserve it refuses with `worker_state_busy`; Retry after another conversation finishes." };
 }
+
+/** Maintenance has its own fixed defaults, independent of agent concurrency (#1708). */
+export const DEFAULT_MAINTENANCE_TEMP_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES = 256 * 1024 * 1024;
+export const MAINTENANCE_TEMP_BYTES_ENV = "BRAIN_UI_MAINTENANCE_TEMP_BYTES";
+export const MAINTENANCE_TEMP_BUDGET_ENV = "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES";
+export function resolveMaintenanceTempLimits(input: Pick<LimitsInput, "allowanceBytes" | "budgetBytes"> = {}): WorkerStateLimits {
+  const allowanceBytes = validWorkerStateBytes(input.allowanceBytes === undefined ? DEFAULT_MAINTENANCE_TEMP_BYTES : input.allowanceBytes, MAINTENANCE_TEMP_BYTES_ENV, DEFAULT_MAINTENANCE_TEMP_BYTES);
+  const budgetBytes = validWorkerStateBytes(input.budgetBytes === undefined ? DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES : input.budgetBytes, MAINTENANCE_TEMP_BUDGET_ENV, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES);
+  if (budgetBytes < allowanceBytes) throw new WorkerStateConfigError(`${MAINTENANCE_TEMP_BUDGET_ENV} must cover at least one ${MAINTENANCE_TEMP_BYTES_ENV} allowance.`);
+  return { allowanceBytes, budgetBytes };
+}

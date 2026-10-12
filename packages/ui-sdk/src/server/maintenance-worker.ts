@@ -10,16 +10,24 @@
  * (docs/decisions/governed-writable-workers.md, "The host execution boundary").
  */
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, probeHomeOverlay, workerBootstrap, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
+import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
+import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
+import { WorkerStateError } from "./worker-state-budget.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
   "BRAIN_RERANK_MODE", "XDG_BIN_HOME", "GIT_DISCOVERY_ACROSS_FILESYSTEM"] as const;
 
 export interface MaintenanceCommand {
+  /** Trusted, resolved host limits; separate from agent turn temp and output staging. */
+  tempLimits?: WorkerStateLimits;
+  /** Existing host operational-state identity; absent standalone callers use their private domain. */
+  tempDomain?: MaintenanceTempDomain;
   brainPath: string;
   startupView?: WorkerStartupView;
   /** Host-chosen output workspace; never mounted over the configuration view. */
@@ -50,25 +58,19 @@ export interface MaintenanceCommand {
   transport?: NonNullable<WorkerLaunch["transport"]>;
 }
 
+/** Trusted helper configuration shared by hosted startup and short Git checks. */
+export interface MaintenanceHost {
+  tempLimits?: WorkerStateLimits;
+  tempDomain?: MaintenanceTempDomain;
+  maskPaths?: readonly string[];
+}
+
 export interface MaintenanceResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   /** Killed for its deadline or an abort. */
   killed: boolean;
-}
-
-const overlays = new Map<string, boolean>();
-
-/** Whether `home` can be overlaid on this host; measured once per brain and home. */
-function overlayable(brain: string, home: string): boolean {
-  const key = `${brain}\0${home}`;
-  let known = overlays.get(key);
-  if (known === undefined) {
-    known = probeHomeOverlay(brain, home) === true;
-    overlays.set(key, known);
-  }
-  return known;
 }
 
 /** The launch for one maintenance command: the worker sees the Bun that runs this server, and nothing else of its runtime. */
@@ -96,6 +98,8 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     env.BRAIN_MAINTENANCE_GIT = `${input.git.target}/config.json`;
     env.PATH = `${input.git.target}/bin:${env.PATH}`;
   }
+  env.TMPDIR = "/tmp";
+  Object.assign(env, MAINTENANCE_XDG_DIRS);
   if (!input.credentials) {
     // The home is masked; tools that want one get a private, empty directory.
     env.HOME = MAINTENANCE_HOME;
@@ -109,10 +113,12 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     ...(input.startupView ? { startupView: input.startupView } : {}),
     command: input.command,
     env,
-    ...(input.transport ? { transport: input.transport } : { maintenance: {
+    ...(input.transport ? { transport: { ...input.transport,
+      tempBytes: (input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits()).allowanceBytes } } : { maintenance: {
+      tempBytes: (input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits()).allowanceBytes,
       network: input.network ?? input.credentials,
       credentials: input.credentials,
-      ...(home ? { home: { path: home, overlay: overlayable(realpathSync(input.brainPath), home) } } : {}),
+      ...(home ? { home: { path: home, overlay: false } } : {}),
       readPaths: [process.execPath, ...(input.readPaths ?? [])],
       ...(input.maskPaths ? { maskPaths: input.maskPaths } : {}),
       ...(input.writeFiles ? { writeFiles: input.writeFiles } : {}),
@@ -133,23 +139,43 @@ export interface MaintenanceWorker {
   kill(signal?: NodeJS.Signals): void;
 }
 
+/** Shared host state can never be writable repository input. */
+function tempDomain(input: MaintenanceCommand): MaintenanceTempDomain | undefined {
+  if (!input.tempDomain) return undefined;
+  let statePath: string;
+  try { statePath = realpathSync(input.tempDomain.statePath); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    statePath = join(realpathSync(dirname(input.tempDomain.statePath)), basename(input.tempDomain.statePath));
+  }
+  const brain = realpathSync(input.brainPath);
+  const parent = dirname(statePath);
+  if (parent === brain || parent.startsWith(`${brain}/`)) throw new WorkerHostError("maintenance admission state must be outside the authoritative brain");
+  return { statePath };
+}
+
 /**
  * Starts a maintenance worker and hands back its streams. The trusted
  * bootstrap starts outside the brain, so no Bun configuration the brain holds
  * reaches the launcher process either.
  */
 export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceWorker {
-  const startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
+  const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
+  const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
+  let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
   try {
-    const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
+    startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
+    const boot = workerBootstrap({ ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation });
     pipes = createWorkerPipes();
-    const child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
+    child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
     const closeInput = () => { if (!inputClosed) { inputClosed = true; closeSync(ends.stdin); } };
+    const running = child;
     return {
       async input(data) {
         try {
@@ -164,11 +190,16 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       },
       stdout: fifoStream(ends.stdout),
       stderr: fifoStream(ends.stderr),
-      pid: child.pid,
-      exited: child.exited.finally(() => { closeInput(); if (!input.startupView) startupView?.cleanup(); }),
-      kill: (signal?: NodeJS.Signals) => killWorker(child, signal),
+      pid: running.pid,
+      exited: running.exited.finally(() => { try { closeInput(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }),
+      kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
     };
-  } catch (error) { pipes?.cleanup(); if (!input.startupView) startupView?.cleanup(); throw error; }
+  } catch (error) {
+    try { if (child) killWorker(child, "SIGKILL"); } finally {
+      try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -231,7 +262,7 @@ const EMPTY_REPOSITORY = "/tmp/brain-empty-repository";
  * trusts the brain it serves. `emptyRepository` asks through a fresh empty
  * repository inside the worker, for a brain outside any repository.
  */
-export function brainGitSync(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } = {}): number {
+export function brainGitSync(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } & MaintenanceHost = {}): number {
   const git = Bun.which("git");
   if (!git) return 127;
   const root = realpathSync(brain);
@@ -249,9 +280,9 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
     ? ["/bin/sh", "-c", 'r="$1"; shift; "$0" init -q --bare "$r" >/dev/null 2>&1 && exec "$0" --git-dir="$r" --work-tree=. "$@"', git, EMPTY_REPOSITORY, ...safe, ...args]
     : [git, ...safe, ...args];
   try {
-    return runMaintenanceWorkerSync({ brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
+    return runMaintenanceWorkerSync({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
       credentials: false, timeoutMs: options.timeoutMs ?? 10_000 }).exitCode;
-  } catch { return 127; }
+  } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
 }
 
 /**
@@ -259,13 +290,14 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
  * private network namespace) starts on this host for this brain. The
  * ordinary worker host probe does not cover the private network namespace.
  */
-export function probeMaintenanceWorker(brainPath: string): { ok: true } | { ok: false; requirement: string } {
+export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain): { ok: true } | { ok: false; requirement: string } {
   try {
     const result = runMaintenanceWorkerSync({ brainPath, command: ["/bin/sh", "-c", "exit 0"], env: { PATH: "/usr/bin:/bin" },
-      credentials: false, timeoutMs: 5_000 });
+      credentials: false, ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`})` };
   } catch (error) {
+    if (error instanceof WorkerStateError) throw error;
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
   }
 }
@@ -275,15 +307,18 @@ export function probeMaintenanceWorker(brainPath: string): { ok: true } | { ok: 
  * `check-ignore`). No input is passed; the deadline is required.
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
-  const startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
+  const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
+  const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
+  let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
-    const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
+    startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
+    const boot = workerBootstrap({ ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation });
     pipes = createWorkerPipes();
     const child = Bun.spawnSync(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
       stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });
     pipes.closeChild(); pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: child.exitCode ?? 1, killed: child.exitCode === null };
-  } finally { pipes?.cleanup(); if (!input.startupView) startupView?.cleanup(); }
+  } finally { try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }
 }

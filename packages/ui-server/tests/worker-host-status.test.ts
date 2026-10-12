@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
+import { hostExecution } from "../src/brain/host-boundary";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { INBOX_DISPATCH_FIXTURE } from "../src/inbox/dispatch-fixture";
 import { createRecordingObservability } from "../src/observability/index";
@@ -32,7 +33,12 @@ function runAs(uid: number, euid = uid) {
   for (const spy of uids) spy.mockRestore();
   uids = [spyOn(process, "getuid").mockReturnValue(uid), spyOn(process, "geteuid").mockReturnValue(euid)];
 }
-beforeEach(() => runAs(1000));
+let maintenanceProbe: ReturnType<typeof spyOn<typeof hostExecution, "maintenanceProbe">>;
+// This file characterizes status/uid observations with synthetic OS identity.
+// Do not apply that identity to a real filesystem admission; actual native
+// maintenance qualification and busy recovery are proved in runtime tests.
+beforeEach(() => { runAs(1000); maintenanceProbe = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: true }); });
+afterEach(() => maintenanceProbe.mockRestore());
 afterEach(() => { for (const spy of uids) spy.mockRestore(); uids = []; });
 
 describe("boot probe", () => {

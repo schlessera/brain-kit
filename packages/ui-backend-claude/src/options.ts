@@ -19,6 +19,8 @@ export type BackendLogFn = (
 ) => void;
 
 export interface ClaudeBackendOptions {
+  /** Host-only admission for short startup Git queries; absent standalone callers retain private defaults. */
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Full SemVer minima, composed with the package's SDK range. Runtime checks precede prompt release on start and resume. */
   versionRequirements?: BackendVersionRequirements;
   /** Working directory for the agent — the brain repo the model operates on. */

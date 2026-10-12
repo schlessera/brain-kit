@@ -82,6 +82,10 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
       ...(options.renderer ? { renderer: options.renderer } : {}),
     };
     app = await createApp(appOptions);
+    // Mount contracts exercise an idle supported handler. Join the real boot
+    // maintenance pass so its intentionally full reservation cannot race a
+    // synchronous schedule Git query; no budget or worker guard is replaced.
+    await app.wsHost.scratchPrune?.();
   } catch (error) {
     rmSync(root, { recursive: true, force: true });
     throw error;

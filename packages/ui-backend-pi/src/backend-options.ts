@@ -89,6 +89,8 @@ export interface PiProfile {
 }
 
 export interface CreatePiBackendOptions {
+  /** Host-only admission for short startup Git queries; absent standalone callers retain private defaults. */
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Full SemVer minimum for the primary SDK; composed with all three manifest constraints. Pi has no separate runtime identity. */
   versionRequirements?: BackendVersionRequirements;
   /** Absolute path to the brain repository (the agent's cwd). */

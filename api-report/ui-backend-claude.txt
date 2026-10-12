@@ -45,6 +45,7 @@ signatures (every public export and the types it is made of)
     }
   ClaudeBackendOptions (packages/ui-backend-claude/src/options.ts)
     export interface ClaudeBackendOptions {
+        maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         versionRequirements?: BackendVersionRequirements;
         brainPath: string;
         claudeCodePath?: string;
@@ -120,6 +121,16 @@ signatures (every public export and the types it is made of)
         claudeCode: "2.1.293";
         measuredOn: "2026-10-08";
     }>;
+  MaintenanceHost (packages/ui-sdk/src/server/maintenance-worker.ts)
+    export interface MaintenanceHost {
+        tempLimits?: WorkerStateLimits;
+        tempDomain?: MaintenanceTempDomain;
+        maskPaths?: readonly string[];
+    }
+  MaintenanceTempDomain (packages/ui-sdk/src/server/maintenance-temp-budget.ts)
+    export interface MaintenanceTempDomain {
+        statePath: string;
+    }
   ModelSource (packages/ui-backend-claude/src/model-discovery.ts)
     export interface ModelSource {
         list(): InferenceProfileInput[];
@@ -145,6 +156,11 @@ signatures (every public export and the types it is made of)
             status: number;
             at: number;
         };
+    }
+  WorkerStateLimits (packages/ui-sdk/src/server/worker-state-limits.ts)
+    export interface WorkerStateLimits {
+        allowanceBytes: number;
+        budgetBytes: number;
     }
   backendModule (packages/ui-backend-claude/src/module.ts)
     const backendModule: BackendModule;

@@ -35,10 +35,13 @@ export { DEFAULT_TURN_TEMP_BYTES, DEFAULT_WORKER_STATE_BYTES, TURN_TEMP_BUDGET_E
   WORKER_STATE_BYTES_ENV, WORKER_STATE_PAGE, WorkerStateConfigError, mib, parseWorkerStateBytes, resolveTurnTempLimits,
   resolveWorkerStateLimits, validWorkerStateBytes } from "./server/worker-state-limits.js";
 export type { WorkerStateLimits } from "./server/worker-state-limits.js";
+export { DEFAULT_MAINTENANCE_TEMP_BYTES, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES, MAINTENANCE_TEMP_BYTES_ENV,
+  MAINTENANCE_TEMP_BUDGET_ENV, resolveMaintenanceTempLimits } from "./server/worker-state-limits.js";
+export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
 export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
-export type { MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
+export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
 export { createWorkerStartupView } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }

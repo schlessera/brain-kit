@@ -330,6 +330,27 @@ directories and resolved database/token/quarantine targets. The refusal gives mi
 state directory outside the brain, point the configuration at it, and restart.
 The same diagnostic is reflected in host boundary status and the boot error/log.
 No strict private-state exclusions are introduced and no mask is weakened.
+**Maintenance temporary storage (2026-10-12).** Each command receives a
+256 MiB temporary allowance, reserved in full against a separate 256 MiB
+cross-process maintenance budget before repository code runs. Trusted
+configuration can raise either limit; the budget must cover one allowance.
+Server and cron share admission through their existing canonical UI-state
+identity and access authority, independently of launcher uid or private
+temporary directory. Standalone SDK callers retain a private per-uid domain.
+Crashed ownership is recovered only when its process identity is positively
+dead; unknown foreign PID-namespace ownership remains held. These limits do
+not consume or derive
+from agent-state capacity.
+
+All maintenance temporary paths share one sized tmpfs. Maintenance workers
+and their separate host-owned Git transport require bubblewrap's paired
+`--disable-userns` and `--assert-userns-disabled` flags; startup refuses hosts
+that cannot enforce
+this maintenance-only restriction. The outer worker isolation and agent
+capabilities stay as previously decided. Credentialed Git transport remains
+separate and never evaluates repository code. This exception to general
+capability preservation was explicitly approved in
+[the #1708 decision](https://github.com/schlessera/brain-kit/issues/1708#issuecomment-6128047037).
 
 The journal and revert run no git and import no repository code at all (see
 below). The server itself must not run with the brain as its working
@@ -630,7 +651,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:791-791`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:815-815`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1026,7 +1047,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:176`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:180`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1038,7 +1059,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1176`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1200`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;

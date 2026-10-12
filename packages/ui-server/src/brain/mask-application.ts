@@ -91,6 +91,7 @@ export function readMaskBase(root: string, imagePath: string, backend: MaskBacke
 }
 
 export function createMaskApplication(options: {
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   root: string;
   /** Trusted host backend identity; never selected by a worker message. */
   backend?: MaskBackend;
@@ -145,7 +146,7 @@ export function createMaskApplication(options: {
         let temp: string | undefined;
         try {
           const scratch = input.maskPath.startsWith(".brain/scratch/");
-          if (scratch) assertScratchMask(root, input.maskPath, join(root, input.maskPath));
+          if (scratch) assertScratchMask(root, input.maskPath, join(root, input.maskPath), options.maintenance);
           temp = `/proc/self/fd/${mask.chain.at(-1)!.fd}/.brain-mask-${crypto.randomUUID()}`;
           const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, mask.mode ?? 0o600);
           try { if (mask.mode !== undefined) fchmodSync(fd, mask.mode); writeFileSync(fd, png); fsyncSync(fd); } finally { closeSync(fd); }

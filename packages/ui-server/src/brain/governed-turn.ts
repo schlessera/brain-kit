@@ -52,7 +52,7 @@ export function createGovernedTurns(options: {
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolved = prepareWorkerSandbox(options.brainPath, { profile: selected,
           protectedPaths: protectedPaths(policy.policy),
-          maskPaths: options.maskPaths });
+          maskPaths: options.maskPaths, maintenance: options.execution.boundary.maintenance });
         const sandbox = !availability.available && requested === "governed"
           ? { ...resolved, fallbackReason: availability.detail } : resolved;
         const governed = workerProfile(sandbox) === "governed";
