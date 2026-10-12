@@ -9,9 +9,9 @@
  * the host read-only, masked and unreachable
  * (docs/decisions/governed-writable-workers.md, "The host execution boundary").
  */
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createWorkerPipes } from "./worker-pipes.js";
+import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, probeHomeOverlay, workerBootstrap, type WorkerLaunch } from "./worker-launcher.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
@@ -92,9 +92,10 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
 }
 
 export interface MaintenanceWorker {
-  stdin: NodeJS.WritableStream;
-  stdout: NodeJS.ReadableStream;
-  stderr: NodeJS.ReadableStream;
+  /** Writes the command's whole input, then closes its stdin. */
+  input(data: string): Promise<void>;
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
   pid: number;
   exited: Promise<number>;
   kill(signal?: NodeJS.Signals): void;
@@ -112,8 +113,25 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
     const child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
-    const streams = pipes.streams();
-    return { ...streams, pid: child.pid, exited: child.exited, kill: (signal?: NodeJS.Signals) => killWorker(child, signal) };
+    const ends = pipes.take();
+    let inputClosed = false;
+    const closeInput = () => { if (!inputClosed) { inputClosed = true; closeSync(ends.stdin); } };
+    return {
+      async input(data) {
+        try {
+          // Bun's file sink polls the FIFO as well, so a large input waits for
+          // the worker to read without holding a thread.
+          const sink = Bun.file(ends.stdin).writer();
+          if (data) sink.write(data);
+          await sink.end();
+        } catch { /* A command that never reads its input. */ } finally { closeInput(); }
+      },
+      stdout: fifoStream(ends.stdout),
+      stderr: fifoStream(ends.stderr),
+      pid: child.pid,
+      exited: child.exited.finally(closeInput),
+      kill: (signal?: NodeJS.Signals) => killWorker(child, signal),
+    };
   } catch (error) { pipes.cleanup(); throw error; }
 }
 
@@ -137,10 +155,8 @@ function killWorker(child: { pid: number; kill(signal?: NodeJS.Signals): void },
   if (!reached) child.kill(signal);
 }
 
-async function collect(stream: NodeJS.ReadableStream): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream as AsyncIterable<Buffer | string>) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-  return Buffer.concat(chunks).toString("utf8");
+async function collect(stream: ReadableStream<Uint8Array>): Promise<string> {
+  return new Response(stream).text();
 }
 
 /** Runs one maintenance command to completion. An abort or the deadline kills the whole worker. */
@@ -156,8 +172,7 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   input.signal?.addEventListener("abort", kill, { once: true });
   const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs) : undefined;
   try {
-    worker.stdin.on("error", () => { /* A command that never reads its input. */ });
-    worker.stdin.end(input.stdin ?? "");
+    void worker.input(input.stdin ?? "");
     const [stdout, stderr, exitCode] = await Promise.all([collect(worker.stdout), collect(worker.stderr), worker.exited]);
     input.signal?.throwIfAborted();
     return { stdout, stderr, exitCode, killed };

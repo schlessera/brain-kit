@@ -327,20 +327,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       let worker: ReturnType<typeof launchMaintenanceWorker>;
       try { worker = launchMaintenanceWorker(command(execution)); }
       catch (error) { hold?.release(); throw error; }
-      worker.stdin.on("error", () => { /* A command that never reads its input. */ });
-      worker.stdin.end(execution.stdin ?? "");
+      void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.finally(() => hold?.release());
-      const toWeb = (stream: NodeJS.ReadableStream) => new ReadableStream<Uint8Array>({
-        async start(controller) {
-          try { for await (const chunk of stream as AsyncIterable<Buffer | string>) controller.enqueue(typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk)); }
-          catch (error) { controller.error(error); return; }
-          controller.close();
-        },
-      });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
-      return { stdout: toWeb(worker.stdout), stderr: toWeb(worker.stderr), exited, get signalCode() { return signalCode; }, kill };
+      return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };
     },
     runSync(execution) {
       if (!isolated()) {
