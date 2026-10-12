@@ -21,6 +21,7 @@ import type { DraftStore } from "../drafts/store.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
 import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { ConversationHost } from "./conversation.js";
 import type { Labeller } from "../labels/labeller.js";
@@ -78,6 +79,8 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
+  governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
@@ -217,9 +220,12 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * modules (#1053; docs/decisions/public-export-boundary.md).
  */
 export class WsHost {
+  /** Shared across adapters, native tools, curated applications and index refresh. */
+  readonly workerLock = createKeyedLock();
   readonly brainPath?: string;
   /** @internal Host wiring (#1648). */
   readonly applicationPlanner?: ApplicationPlanner;
+  readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -290,6 +296,7 @@ export class WsHost {
   constructor(options: WsHostOptions) {
     this.brainPath = options.brainPath;
     this.applicationPlanner = options.applicationPlanner;
+    this.governedTurns = options.governedTurns;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);

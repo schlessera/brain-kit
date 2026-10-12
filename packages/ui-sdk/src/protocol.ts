@@ -1654,7 +1654,15 @@ export interface WorkerLimitsStatus {
 /** Why `governed` cannot run on a server (#1648). */
 export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "worker_host_unavailable";
 
-export type GovernedStatus = { hostExecution: "worker" | "host" }
+export type GovernedStatus = {
+  hostExecution: "worker" | "host";
+  /** Current ordinary-turn default; a turn resolves its own protection again. */
+  profile?: "governed" | "strict";
+  protectedPaths?: Array<{ path: string; mode: "read_only" | "mask_file" | "mask_directory" | "absent"; reason: string }>;
+  profileFallback?: string;
+  identity?: "shared_uid";
+  configurationView?: "live" | "startup";
+}
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
 export interface SystemStatus {

@@ -60,6 +60,7 @@ export interface TurnRecorderDeps {
 }
 
 export interface TurnRecorder {
+  setWorkerProfile(profile: GovernanceProfile): void;
   /** The run id (one run per turn). */
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
@@ -215,6 +216,7 @@ export function createTurnRecorder(
   }
 
   return {
+    setWorkerProfile(profile) { turn.profile = profile; },
     runId,
 
     observeFrame(msg) {
@@ -424,7 +426,7 @@ export function createTurnRecorder(
                 deps.governance({ kind: "resource_limit", payload: { limits: event.limits.slice(0, 20), fatal: event.fatal },
                   sessionId: sessionId ?? null, turnId: runId,
                   actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
-                  model: null, profile: turn.origin === "autonomous" ? "restricted" : null });
+                  model: null, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
               } catch (error) {
                 // A refused record must not break the turn it describes.
                 log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });

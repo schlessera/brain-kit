@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -892,4 +892,25 @@ describe("archiving through brain_update", () => {
       }
     }
   });
+});
+
+test("governed direct writes refuse a peer's change since the session read", async () => {
+  const brain = await makeEmptyBrain();
+  try {
+    const turn = createTurnContext();
+    const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn,
+      directWrites: true, lock: toolLockFromKeyed(createKeyedLock()) }));
+    writeFileSync(join(brain.root, "loom.md"), "Penelope before the read.");
+    await tools.read_file.execute("read", { path: "loom.md" }, undefined, undefined, CTX);
+    writeFileSync(join(brain.root, "loom.md"), "Penelope from the other session.");
+    for (const name of ["write_file", "edit_file"] as const) {
+      const input = name === "write_file" ? { path: "loom.md", content: "overwritten" }
+        : { path: "loom.md", old_string: "Penelope", new_string: "Odysseus" };
+      await expect(tools[name].execute(name, input, undefined, undefined, CTX)).rejects.toThrow("changed since you read it");
+      expect(readFileSync(join(brain.root, "loom.md"), "utf8")).toBe("Penelope from the other session.");
+    }
+    await tools.read_file.execute("reread", { path: "loom.md" }, undefined, undefined, CTX);
+    await tools.edit_file.execute("edit", { path: "loom.md", old_string: "Penelope", new_string: "Odysseus" }, undefined, undefined, CTX);
+    expect(readFileSync(join(brain.root, "loom.md"), "utf8")).toBe("Odysseus from the other session.");
+  } finally { brain.cleanup(); }
 });

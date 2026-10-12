@@ -65,7 +65,7 @@ export interface HostExecution {
 }
 
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
-  requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
+  profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
   let gate: WriterGate | null = null;
   let manifests: GovernedManifests | null = null;
   let history = false;
@@ -73,7 +73,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   let quarantineDir: string | undefined;
   const open = (db: Database) => createGovernedManifests(db, { brainPath: options.brainPath,
     quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}) });
-  const boundary = createHostBoundary({ brainPath: options.brainPath, dbPath: options.dbPath,
+  const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath,
     ...(options.exec ? { exec: options.exec } : {}), ...(options.home ? { home: options.home } : {}),
     ...(options.log ? { log: options.log } : {}), ...(options.requireGate ? { requireGate: true } : {}),
     ...(options.workerHost ? { workerHost: options.workerHost } : {}),

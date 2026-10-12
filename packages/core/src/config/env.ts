@@ -45,6 +45,8 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal maintenance output root, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input.", required: false },
+  { name: "BRAIN_WORKER_CONFIG_ROOT", description: "Internal immutable maintenance configuration execution root. Only applies when the requested root equals BRAIN_WORKER_DATA_ROOT.", required: false },
   {
     name: "BRAIN_ROOT",
     description: "Brain repository root, overriding cwd-based discovery.",
@@ -179,4 +181,9 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
     typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
   };
+}
+
+/** @internal The trusted maintenance launch's separate data and execution roots. */
+export function maintenanceConfigRoots(): { data: string | undefined; config: string | undefined } {
+  return { data: process.env.BRAIN_WORKER_DATA_ROOT, config: process.env.BRAIN_WORKER_CONFIG_ROOT };
 }

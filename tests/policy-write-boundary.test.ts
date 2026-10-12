@@ -266,3 +266,34 @@ afterAll(() => {
     bubblewrap: Bun.spawnSync(["bwrap", "--version"]).stdout.toString().trim(), brainFilesystem: statfsSync(tmpdir()).type.toString(16),
     versions, passed }, null, 2) + "\n");
 });
+
+for (const adapter of ["claude", "pi"] as const) test(`${adapter} governed: native, shell and CLI writes succeed while policy and ancestors hold`, async () => {
+  const r = await probe(adapter, "governed");
+  expect(r.after.policy, "GOVERNED_POLICY_UNCHANGED").toBe(POLICY);
+  expect(r.after.members).toEqual(MEMBERS);
+  const native = calls(r, adapter === "claude" ? "Write" : "write_file");
+  expect(native[0]!.result.isError, native[0]!.result.output).toBe(false);
+  expect(r.changed, "NATIVE_WRITE_VISIBLE_OUTSIDE_WORKER").toContain("notes/native.md");
+  expect(r.changed, "SHELL_WRITE_VISIBLE_OUTSIDE_WORKER").toContain("notes/shell.md");
+  expect(r.changed.some((path: string) => path.startsWith("notes/") && !["notes/native.md", "notes/shell.md"].includes(path)), "CLI_WRITE_VISIBLE_OUTSIDE_WORKER").toBe(true);
+  expect(r.changed).not.toContain(".claude/settings.local.json");
+  expect(r.receipt.governance.some((event: any) => event.kind === "quarantine" && event.profile === "governed"
+    && event.payload.path === ".claude/settings.local.json"), "GOVERNED_CONFIG_CREATION_RECORDED").toBe(true);
+  for (const call of calls(r, adapter === "claude" ? "Bash" : "bash")) expect(call.result.isError, call.result.output).toBe(false);
+}, TIMEOUT);
+
+test("two governed Pi sessions hold the same server Git lock through commit", async () => {
+  const r = await probe("pi", "governed-lock");
+  expect(r.receipt.serialization, "PI_GIT_LOCK_NO_INTERLEAVING").toMatch(/^(start-A\nend-A\nstart-B\nend-B\n|start-B\nend-B\nstart-A\nend-A\n)$/);
+  for (const call of calls(r, "bash")) expect(call.result.isError, call.result.output).toBe(false);
+  expect(r.after.policy).toBe(POLICY);
+}, TIMEOUT);
+
+test("governed voice retains its narrow roster and captures through the authoritative route", async () => {
+  const r = await probe("claude", "governed-voice");
+  expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
+  expect(r.receipt.unavailable).toContain("Write");
+  expect(r.receipt.posture).toBe("voice");
+  expect(r.receipt.applications.some((application: any) => application.operation === "add" && application.ok), "GOVERNED_VOICE_CAPTURE").toBe(true);
+  expect(r.after.policy).toBe(POLICY);
+}, TIMEOUT);

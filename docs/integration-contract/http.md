@@ -347,3 +347,12 @@ pruning records it with actor `server`, null session/turn/model/profile, and the
 existing unbound-event retention. A failed event write falls back to the overage
 log; pinned files remain protected. The closed kind/payload specification is in
 [the HTTP reference](../http-api.md#governance-events-additive-1651).
+
+## Governed profile status (additive, 0.42.0, #1649)
+
+`runtime.workerHost.governed` adds optional `profile` (`governed` or `strict`),
+`protectedPaths` (objects with `path`, `mode` and `reason`), `profileFallback`,
+`identity` (`shared_uid`) and `configurationView` (`live` or `startup`). A mode
+is `read_only`, `mask_file`, `mask_directory` or `absent`. These describe the
+current ordinary-turn default; each turn resolves its protections again.
+The existing availability and host-execution fields keep their meaning.

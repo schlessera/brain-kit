@@ -75,7 +75,7 @@ areas and the home mode once per worker
 (`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:497-534`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:440-470`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:463-496`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
@@ -92,13 +92,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:336-355`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:348-367`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:364-375`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:376-387`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -113,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:190-200`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:202-212`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -174,14 +174,14 @@ message says nothing written now is kept. The `read_only_brain` code and its
 
 **Serving.** The file routes refuse any symlink at or below `.brain` for a
 scratch path, and a scratch listing omits links
-(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:115`).
+(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:116`).
 Elsewhere in the brain an in-brain link resolves as before. Those checks
 run before the open, so a file whose requested or resolved path lies in
 `.brain/scratch/` or `workspaces/` is then read once, from its resolved
 path, through descriptors that never follow a link (each directory from the brain root opened with
 `O_NOFOLLOW | O_DIRECTORY` through the previous one, the file with
 `O_NOFOLLOW`), and the route serves that snapshot; the size cap bounds it
-(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:157-192`).
+(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:158-193`).
 Core's prune reads every entry with `lstat`, and on Linux removes each file
 and emptied directory through its parent's descriptor in the same way
 (`function anchored`, `packages/core/src/lib/scratch.ts:498-528`), because a

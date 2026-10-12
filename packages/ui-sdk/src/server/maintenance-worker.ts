@@ -13,13 +13,19 @@ import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, probeHomeOverlay, workerBootstrap, type WorkerLaunch } from "./worker-launcher.js";
+import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
-  "BRAIN_RERANK_MODE", "XDG_BIN_HOME"] as const;
+  "BRAIN_RERANK_MODE", "XDG_BIN_HOME", "GIT_DISCOVERY_ACROSS_FILESYSTEM"] as const;
 
 export interface MaintenanceCommand {
   brainPath: string;
+  startupView?: WorkerStartupView;
+  /** Host-chosen output workspace; never mounted over the configuration view. */
+  output?: { source: string; target: string };
+  /** A server-built Git adapter: immutable config and program inputs, writable metadata. */
+  git?: { source: string; target: string; entry: string; binary: string };
   /** Absolute executable and literal arguments, run with the brain as working directory. */
   command: readonly string[];
   /** The complete environment. `PATH` gains the server's Bun directory first. */
@@ -81,6 +87,15 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
       env[`GIT_CONFIG_VALUE_${index}`] = value;
     });
   }
+  if (input.output) {
+    env.BRAIN_ROOT = input.output.target;
+    env.BRAIN_WORKER_DATA_ROOT = input.output.target;
+    env.BRAIN_WORKER_CONFIG_ROOT = input.brainPath;
+  }
+  if (input.git) {
+    env.BRAIN_MAINTENANCE_GIT = `${input.git.target}/config.json`;
+    env.PATH = `${input.git.target}/bin:${env.PATH}`;
+  }
   if (!input.credentials) {
     // The home is masked; tools that want one get a private, empty directory.
     env.HOME = MAINTENANCE_HOME;
@@ -91,6 +106,7 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
   const home = input.credentials && input.home ? realpathSync(input.home) : undefined;
   return {
     brainPath: input.brainPath,
+    ...(input.startupView ? { startupView: input.startupView } : {}),
     command: input.command,
     env,
     ...(input.transport ? { transport: input.transport } : { maintenance: {
@@ -101,6 +117,8 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
       ...(input.maskPaths ? { maskPaths: input.maskPaths } : {}),
       ...(input.writeFiles ? { writeFiles: input.writeFiles } : {}),
       ...(input.writeDirectories ? { writeDirectories: input.writeDirectories } : {}),
+      ...(input.output ? { output: input.output } : {}),
+      ...(input.git ? { git: input.git } : {}),
     } }),
   };
 }
@@ -121,7 +139,8 @@ export interface MaintenanceWorker {
  * reaches the launcher process either.
  */
 export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceWorker {
-  const boot = workerBootstrap(maintenanceLaunch(input));
+  const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
+  const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
   const pipes = createWorkerPipes();
   try {
     const child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
@@ -145,10 +164,10 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       stdout: fifoStream(ends.stdout),
       stderr: fifoStream(ends.stderr),
       pid: child.pid,
-      exited: child.exited.finally(closeInput),
+      exited: child.exited.finally(() => { closeInput(); if (!input.startupView) startupView.cleanup(); }),
       kill: (signal?: NodeJS.Signals) => killWorker(child, signal),
     };
-  } catch (error) { pipes.cleanup(); throw error; }
+  } catch (error) { pipes.cleanup(); if (!input.startupView) startupView.cleanup(); throw error; }
 }
 
 /**
@@ -229,7 +248,7 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
     ? ["/bin/sh", "-c", 'r="$1"; shift; "$0" init -q --bare "$r" >/dev/null 2>&1 && exec "$0" --git-dir="$r" --work-tree=. "$@"', git, EMPTY_REPOSITORY, ...safe, ...args]
     : [git, ...safe, ...args];
   try {
-    return runMaintenanceWorkerSync({ brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":") },
+    return runMaintenanceWorkerSync({ brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
       credentials: false, timeoutMs: options.timeoutMs ?? 10_000 }).exitCode;
   } catch { return 127; }
 }
@@ -255,7 +274,8 @@ export function probeMaintenanceWorker(brainPath: string): { ok: true } | { ok: 
  * `check-ignore`). No input is passed; the deadline is required.
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
-  const boot = workerBootstrap(maintenanceLaunch(input));
+  const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
+  const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
   const pipes = createWorkerPipes();
   try {
     const child = Bun.spawnSync(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
@@ -263,5 +283,5 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
     pipes.closeChild(); pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: child.exitCode ?? 1, killed: child.exitCode === null };
-  } finally { pipes.cleanup(); }
+  } finally { pipes.cleanup(); if (!input.startupView) startupView.cleanup(); }
 }

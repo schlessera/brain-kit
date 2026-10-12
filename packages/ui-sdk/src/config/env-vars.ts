@@ -1,5 +1,9 @@
 /** Data-only environment descriptors, safe for the SDK's browser-facing root. */
 export const ENV_VARS = [{
+  name: "BRAIN_MAINTENANCE_GIT",
+  description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.",
+  required: "trusted maintenance Git adapter only",
+}, {
   name: "BRAIN_WORKER_LAUNCH",
   description: "Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override.",
   required: "trusted worker bootstrap only",

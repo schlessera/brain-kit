@@ -31,6 +31,9 @@ import { killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/br
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
+import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
+import { prepareMaintenanceOutput } from "./maintenance-output.js";
+import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
 export type { GovernedUnavailableReason };
@@ -62,6 +65,8 @@ export interface BrainExecution {
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
+  /** @internal Take the contention lock after writer-gate admission, never before it. */
+  lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
 }
 
 export interface ExecutionResult {
@@ -163,6 +168,7 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  profile?: "governed" | "strict";
   brainPath: string;
   exec?: ExecWrapperConfig;
   /** The UI database file; its directory is masked from every maintenance worker. */
@@ -314,7 +320,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     brainPath: brain,
     isolated,
     governed,
-    status: () => ({ hostExecution: isolated() ? "worker" : "host", ...governed() }),
+    status: () => {
+      const availability = governed();
+      const protection = resolveWorkerProtection(brain);
+      const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
+      return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
+        protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
+        ...(protection.reason ? { profileFallback: protection.reason } : {}),
+        identity: "shared_uid", configurationView: profile === "governed" ? "live" : "startup" };
+    },
     withGate,
     async run(execution) {
       execution.signal?.throwIfAborted();
@@ -333,9 +347,18 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return gated(execution, async () => {
         if (execution.sync) return runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-        const result = await runMaintenanceWorker({ ...command(execution), stdin: execution.stdin,
-          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-        return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+        const run = async () => {
+          const outputs = prepareMaintenanceOutput(brain);
+          try {
+            const launch = command(execution);
+            const git = await prepareMaintenanceGit(launch, outputs);
+            const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
+              ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
+            if (!result.killed) outputs.publish();
+            return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+          } finally { outputs.cleanup(); }
+        };
+        return execution.lock ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run();
       });
     },
     async launch(execution) {
@@ -375,11 +398,19 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         } catch (error) { hold?.release(); throw error; }
       }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
-      try { execution.signal?.throwIfAborted(); worker = launchMaintenanceWorker(command(execution)); }
-      catch (error) { hold?.release(); throw error; }
+      let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
+      try {
+        execution.signal?.throwIfAborted();
+        outputs = prepareMaintenanceOutput(brain);
+        const launch = command(execution);
+        const git = await prepareMaintenanceGit(launch, outputs);
+        worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
+      }
+      catch (error) { outputs?.cleanup(); hold?.release(); throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
-      const exited = worker.exited.finally(() => hold?.release());
+      const exited = worker.exited.then(code => { if (!signalCode) outputs!.publish(); return code; })
+        .finally(() => { outputs!.cleanup(); hold?.release(); });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };

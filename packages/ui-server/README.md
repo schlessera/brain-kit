@@ -374,6 +374,7 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_WS_BURST` | Inbound WebSocket frames absorbable in one burst before the sustained rate applies. Opening the app legitimately fires several at once. | 60 |
 | `BRAIN_UI_WS_MAX_CONNECTIONS` | Maximum number of WebSocket connections accepted by one server process. | 32 |
 | `BRAIN_UI_WS_RATE` | Sustained inbound WebSocket frames per second per connection. 0 disables metering entirely. | 20 |
+| `BRAIN_WORKER_DATA_ROOT` | Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input. | unset outside maintenance |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token from `claude setup-token`: authenticates every Claude profile without its own credential, and model discovery. The Claude backend consumes it; this package reads only whether it is set, for /api/status. Minted off the host and rotated by redeploy (docs/hosting, "Claude subscription login"). | — |
 | `CLAUDE_CODE_PATH` | Path to a Claude Code binary to run instead of the Agent SDK's built-in one. Unset runs the built-in binary, the version the lockfile pins. | — |
 | `COASTLINE_CACHE_DIR` | Directory holding fetched map geometry. Cached forever; coastlines do not move. | $BRAIN_PATH/.brain-ui/geo |

@@ -81,6 +81,7 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input.", default: "unset outside maintenance", required: false },
   { name: "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", required: false, default: "5", description: "Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup." },
   { name: "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", required: false, default: "0", description: "Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup." },
   { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", required: false, default: "0", description: "Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup." },
@@ -1203,3 +1204,8 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "inherited variable supported server configuration.",
   },
 ];
+
+/** @internal Trusted application-maintenance output location. */
+export function maintenanceDataRoot(): string | undefined {
+  return process.env.BRAIN_WORKER_DATA_ROOT;
+}

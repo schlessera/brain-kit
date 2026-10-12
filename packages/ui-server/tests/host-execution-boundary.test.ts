@@ -80,7 +80,7 @@ function helperSource(sentinel: string, proof: string, label: string): string {
 import { dirname } from "node:path";
 try { mkdirSync(dirname(${JSON.stringify(sentinel)}), { recursive: true }); writeFileSync(${JSON.stringify(sentinel)}, ${JSON.stringify(label)}); } catch {}
 // A read-only view of the brain (the worker host probe's) records nothing.
-try { appendFileSync(${JSON.stringify(proof)}, ${JSON.stringify(label)} + " ran; dotenv=" + (process.env.BRAIN_DOTENV_MARK ?? "unset") + "; sentinel " + (existsSync(${JSON.stringify(sentinel)}) ? "written" : "refused") + "\\n"); } catch {}
+try { appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/evaluated.log" : ${JSON.stringify(proof)}, ${JSON.stringify(label)} + " ran; dotenv=" + (process.env.BRAIN_DOTENV_MARK ?? "unset") + "; sentinel " + (existsSync(${JSON.stringify(sentinel)}) ? "written" : "refused") + "\\n"); } catch {}
 `;
 }
 
@@ -182,10 +182,10 @@ describe("the host execution boundary (#1648)", () => {
     mkdirSync(refs);
     symlinkSync(refs, join(f.brain, ".git/refs/heads"));
     installCli(f.brain, `if (args[0] === "sync") {
-  const run = cmd => Bun.spawnSync(["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...cmd], { stdout: "ignore", stderr: "pipe" });
+  const run = cmd => Bun.spawnSync(["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...cmd], { cwd: process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd(), stdout: "ignore", stderr: "pipe" });
   run(["add", "-A"]);
   const commit = run(["commit", "-q", "-m", "Harbor log"]);
-  await Bun.write(process.cwd() + "/commit.log", "exit " + commit.exitCode + "\\n" + commit.stderr.toString());
+  await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/commit.log", "exit " + commit.exitCode + "\\n" + commit.stderr.toString());
 }`);
     const brain = createBrainClient({ brainPath: f.brain, exec: {}, boundary: boundaryFor(f.brain, f.outside) });
     await brain.sync();
@@ -302,14 +302,16 @@ describe("cron jobs (#1648)", () => {
   test("an abort kills the whole maintenance worker, and the call settles only once it is gone", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain, `if (args[0] === "search") { await Bun.write(process.cwd() + "/started", "x"); await Bun.sleep(60_000); }`);
+    installCli(f.brain, `if (args[0] === "search") { await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/started", "x"); await Bun.sleep(60_000); }`);
     const brain = createBrainClient({ brainPath: f.brain, exec: {}, boundary: boundaryFor(f.brain, f.outside) });
     const controller = new AbortController();
     const call = brain.search("loom", { signal: controller.signal });
-    while (!existsSync(join(f.brain, "started"))) await new Promise(resolve => setTimeout(resolve, 20));
     const running = () => readdirSync("/proc").filter(name => /^\d+$/.test(name)).filter(name => {
       try { return readFileSync(`/proc/${name}/cmdline`, "utf8").includes(join(f.brain, "node_modules/.bin/brain")); } catch { return false; }
     });
+    // Read the named output through the actual worker namespace; it has not been published.
+    while (!running().some(pid => existsSync(`/proc/${pid}/root/tmp/brain-maintenance-output/started`))) await new Promise(resolve => setTimeout(resolve, 20));
+    expect(existsSync(join(f.brain, "started"))).toBe(false);
     expect(running().length).toBeGreaterThan(0);
     controller.abort(new Error("deadline"));
     await expect(call).rejects.toThrow("deadline");
@@ -342,7 +344,7 @@ describe("governed availability", () => {
     const app = await bootApp(f.brain, dbPath);
     try {
       const status = (await (await app.fetch(new Request("http://localhost/api/status"))).json()) as SystemStatus;
-      expect(status.runtime?.workerHost?.governed).toEqual({ available: false, reason: "server_cwd_in_brain",
+      expect(status.runtime?.workerHost?.governed).toMatchObject({ available: false, reason: "server_cwd_in_brain",
         detail: expect.stringContaining("start the server from a directory outside the brain"), hostExecution: "host" });
       const db = new Database(dbPath);
       try {

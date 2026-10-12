@@ -123,7 +123,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       // The real launcher, with this worker's allowance, before anything is
       // restored, admitted or copied.
       requireWorkerHost(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes,
-        turnTempBytes: turnTempLimits.allowanceBytes });
+        turnTempBytes: turnTempLimits.allowanceBytes,
+        ...(sandbox?.profile && sandbox.profile !== "restricted" ? { profile: sandbox.profile } : {}) });
       immediateSignal.throwIfAborted();
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {

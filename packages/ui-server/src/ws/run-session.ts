@@ -10,6 +10,9 @@ import type {
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { lstatSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
@@ -474,8 +477,20 @@ async function runRetainedSession(
       work?.started(turn.turnId);
       let workOutcome: HostWorkOutcome = "error";
       let workReason: string | undefined;
+      let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       try {
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal);
+        if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
+        const fallback = governedHold?.sandbox.fallbackReason;
+        if (fallback) {
+          const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);
+          if (match || fallback.includes("another mount")) host.activity?.governance?.({
+            kind: "strict_fallback", payload: { path: match?.[1] ?? ".", reason: match?.[2] === "symlink" ? "symlink" : match ? "hardlink" : "mount_point" },
+            turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: "strict",
+          });
+        }
         await backend.startTurn({
+          ...(governedHold ? { workerSandbox: governedHold.sandbox, workerLock: host.workerLock } : {}),
           prompt,
           attachments,
           sessionId: resumeId,
@@ -535,6 +550,20 @@ async function runRetainedSession(
           ? "Turn timed out"
           : err instanceof Error ? err.message : String(err);
       } finally {
+        try {
+          const reconciled = governedHold?.end();
+          for (const item of reconciled?.quarantined ?? []) {
+            const info = lstatSync(item.to);
+            host.activity?.governance?.({ kind: "quarantine", payload: { path: item.path,
+              tier: isEnvName(item.path) || PROTECTED_TIER_A.includes(item.path as never) ? "A" : "B",
+              entry: info.isFile() ? "file" : info.isDirectory() ? "directory" : info.isSymbolicLink() ? "symlink" : "other",
+              bytes: info.isFile() ? info.size : null, trigger: "turn_end", objectId: createHash("sha256").update(item.to).digest("hex") },
+              turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
+              profile: governedHold?.sandbox.profile ?? "strict" });
+          }
+        }
+        catch (error) { host.log.emit({ severityText: "ERROR", body: `governed reconciliation failed: ${String(error)}` }); }
+        if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
         // The recorder has written the terminal: from here on the Activity
         // record, not this slot, answers for the request (#964).
         turn.revision = undefined;

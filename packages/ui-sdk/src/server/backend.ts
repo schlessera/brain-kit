@@ -417,6 +417,10 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Host-resolved filesystem view, never a client or model grant. */
+  workerSandbox?: import("./worker-sandbox.js").WorkerSandbox;
+  /** @internal The host's shared contention locks, including server applications. */
+  workerLock?: import("./keyed-lock.js").KeyedLock;
   /** Server-only explicit mode. Absent preserves the ordinary session contract. */
   autonomous?: AutonomousTurnOptions;
   prompt: string;

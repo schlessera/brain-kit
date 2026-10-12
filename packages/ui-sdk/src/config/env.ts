@@ -10,3 +10,10 @@ export function workerLaunchPayload(): string | undefined {
 export function workerLimitsSpec(): string | undefined {
   return readEnvVar("BRAIN_UI_WORKER_LIMITS");
 }
+
+/** Internal immutable Git adapter inputs and the worker's own explicit child environment. */
+export function maintenanceGitEnvironment(): { path: string | undefined; env: NodeJS.ProcessEnv } {
+  return { path: readEnvVar("BRAIN_MAINTENANCE_GIT"), env: { ...process.env } };
+}
+export const DYNAMIC_ENV_READS = [{ source: "maintenance Git subprocess environment",
+  description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." }] as const;

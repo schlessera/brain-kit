@@ -79,7 +79,7 @@ hygiene checks, index rules, excludes and cron, but no tools
 - **Unload or hide a tool when its module goes dormant, mid-process.** #527
   excludes runtime unloading. `brain.config.ts` is loaded with a dynamic
   `import()` (`const mod = await import(tsPath)`,
-  `packages/core/src/lib/config.ts:601`), and a process caches that import,
+  `packages/core/src/lib/config.ts:603`), and a process caches that import,
   so a running server cannot reliably see a config change anyway. Promising
   it would be promising something the loader cannot deliver.
 
@@ -168,7 +168,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
   produces `mcp__brain__jobs_review`, so 64 leaves headroom under 128.
 - **Collisions are impossible by construction and still checked.** Module
   names are unique at load (`if (seenNames.has(manifest.name))`,
-  `packages/core/src/lib/module-loader.ts:104-107`), local names are keys of
+  `packages/core/src/lib/module-loader.ts:106-109`), local names are keys of
   one record, and `brain` is reserved. Registration nevertheless checks
   every composed name against the names already registered, core's first,
   then modules in config order. On a duplicate it fails with
@@ -181,7 +181,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:488-490`). |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:26-82`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:488-490`). |
 | `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`toolWarnings: (...warnings)`, `packages/core/src/mcp-server.ts:516-520`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
@@ -413,7 +413,7 @@ failed.
 
 - **The pi backend.** It does not use `brain mcp`. It builds its brain tools
   in-process with its own names (`export const TOOL_RISK`,
-  `packages/ui-backend-pi/src/tools.ts:219`), and it keeps `bash`, so
+  `packages/ui-backend-pi/src/tools.ts:220`), and it keeps `bash`, so
   `brain jobs review` is reachable there already. Serving module tools on pi
   would need collision rules against pi's flat namespace (`read_file`,
   `ask_user` and `web_search` all parse as `<module>_<local>`). It needs its

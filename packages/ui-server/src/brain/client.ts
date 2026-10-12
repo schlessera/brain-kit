@@ -68,7 +68,7 @@ export interface BrainClient {
     content: string,
     opts?: { type?: string; title?: string; tags?: string[] }
   ): Promise<BrainAddResult>;
-  index(opts?: { force?: boolean }): Promise<void>;
+  index(opts?: { force?: boolean; lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock }): Promise<void>;
   validate(): Promise<string>;
   /** Run `brain skills sync` — re-materialize every agent's skill links. */
   skillsSync(): Promise<string>;
@@ -212,7 +212,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     throw new Error("searchTimeoutMs must be a positive finite number");
   }
 
-  async function execBrain(args: string[], signal?: AbortSignal, input?: string): Promise<ExecResult> {
+  async function execBrain(args: string[], signal?: AbortSignal, input?: string, lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock): Promise<ExecResult> {
     signal?.throwIfAborted();
     const command = brainCliCommand(brainPath);
     if (minimumVersion !== undefined) {
@@ -235,6 +235,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       gate,
       purpose: `brain ${args.slice(0, 2).join(" ")}`,
       ...(args[0] === "sync" ? { sync: true } : {}),
+      ...(lock ? { lock: { keyed: lock, key: "brain-docs" } } : {}),
       ...(input !== undefined ? { stdin: input } : {}),
       // Only read-only search passes a signal. Kill even a CLI that ignores
       // SIGTERM; abandoning a request must not leave the local process alive.
@@ -405,7 +406,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       // Full rebuild; indexing is incremental by default since brain 22e82e1.
       if (opts?.force) args.push("--force");
 
-      const result = await execBrain(args);
+      const result = await execBrain(args, undefined, undefined, opts?.lock);
       if (result.exitCode !== 0) {
         throw new Error(`brain index failed: ${result.stderr}`);
       }

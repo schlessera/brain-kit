@@ -108,7 +108,7 @@ export function createClaudeTurnRunner(options: {
     const turn: RunningTurn = { pendingReleases: new Map(), ended: false };
     const turnLock = createTurnLockBinding({
       turn,
-      writeLock: options.writeLock,
+      writeLock: req.workerLock ?? options.writeLock,
       lockWaitMs: options.lockWaitMs,
       log: options.log,
       admission: {

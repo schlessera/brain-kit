@@ -194,6 +194,7 @@ export function toolLockFromWriteLock(writeLock: WriteLock): ToolLock {
 export interface BrainToolDeps {
   /** Worker shell writes stay in fresh scratch; never a privileged cwd. */
   shellCwd?: string;
+  directWrites?: boolean;
   brain: BrainAccess;
   turn: TurnContext;
   /**
@@ -324,17 +325,26 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   };
 
   const bases = new WeakMap<BackendBridge, Map<string, string>>();
+  const directBases = new Map<string, string>();
   const rememberBase = (path: string, raw: string): string =>
     rememberHash(path, createHash("sha256").update(raw, "utf8").digest("hex"));
   // The receipt is always a whole-document hash: a paged brain_read_base
   // remembers the server's hash, never one recomputed from its page.
   const rememberHash = (path: string, hash: string): string => {
+    if (deps.directWrites) directBases.set(resolveOrThrow(path), hash);
     if (turn.bridge?.applyBrain) {
       let entries = bases.get(turn.bridge);
       if (!entries) { entries = new Map(); bases.set(turn.bridge, entries); }
       entries.set(path, hash);
     }
     return hash;
+  };
+  const assertDirectBase = (abs: string): void => {
+    if (!deps.directWrites) return;
+    let hash: string | undefined;
+    try { hash = createHash("sha256").update(readFileSync(abs)).digest("hex"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (hash !== directBases.get(abs)) throw new Error("File changed since you read it; read it again before writing.");
   };
   const read_file = {
     name: "read_file",
@@ -476,8 +486,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // in the tool_call event.
       const abs = resolveOrThrow(params.path);
       return lock.withKey(`path:${abs}`, () => {
+        assertDirectBase(abs);
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, params.content, "utf-8");
+        rememberBase(params.path, params.content);
         return textResult(`Wrote ${params.content.length} bytes to ${params.path}.`, {
           path: params.path,
         });
@@ -502,6 +514,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // Read-modify-write is atomic under the file's own lock key.
       const abs = resolveOrThrow(params.path);
       return lock.withKey(`path:${abs}`, () => {
+        assertDirectBase(abs);
         const raw = readFileSync(abs, "utf-8");
         const occurrences = raw.split(params.old_string).length - 1;
         if (occurrences === 0) throw new Error(`old_string not found in ${params.path}.`);
@@ -511,6 +524,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
           );
         }
         writeFileSync(abs, raw.replace(params.old_string, params.new_string), "utf-8");
+        rememberBase(params.path, raw.replace(params.old_string, params.new_string));
         return textResult(`Edited ${params.path}.`, { path: params.path });
       });
     },
@@ -825,7 +839,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       capabilities,
     }),
   ];
-  const routed = brainApplicationInput.options.map(schema => {
+  const routed = brainApplicationInput.options.filter(schema => !deps.directWrites || !["write", "edit"].includes(schema.shape.operation.value)).map(schema => {
     const operation = schema.shape.operation.value;
     const name = BRAIN_APPLICATION_TOOLS[operation];
     const legacy = tools.find(t => t.name === name);

@@ -156,7 +156,8 @@ function assembleClaudeSdkTurn(
   const childEnv = envelope?.env ?? turnEnv(profile);
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
-  const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted: Boolean(envelope), home: childEnv.HOME });
+  const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
+    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});
@@ -220,7 +221,7 @@ function assembleClaudeSdkTurn(
     // when no ask-user handler is present.
     disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
-    ] : []), ...(hosted ? ["Write", "Edit", "NotebookEdit"] : [])],
+    ] : []), ...(hosted && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
       req,
       allowedTools: allowed,

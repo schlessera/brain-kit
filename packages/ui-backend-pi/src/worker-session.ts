@@ -8,10 +8,12 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
+import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
   requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
+
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -69,8 +71,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const init = { type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
-    loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
+  const { workerSandbox, workerLock, ...workerSessionEnv } = env;
+  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+    loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
   // holds the worker's session state too (#1703).
@@ -101,7 +104,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
-    sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
+    sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
+      : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME });
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined)] });
@@ -131,6 +135,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }
   // The relay lives exactly as long as the worker it serves.
   if (envelope) void child.exited.finally(() => envelope.relay.stop());
+  const releases = new Map<string, () => void>();
+  void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); });
   // A worker that never ran a turn has nothing to promote; one that did is
   // cleaned up by `promote` once its answer has been read.
   let prompted = false;
@@ -252,6 +258,21 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (msg.id <= lastRpcId) throw new Error("Replayed pi worker RPC");
     lastRpcId = msg.id;
     const bridge = turnContext.bridge!;
+    if (msg.method === "unlock") {
+      if (typeof msg.input.lockId !== "string" || Object.keys(msg.input).length !== 1 || !releases.has(msg.input.lockId)) throw new Error("Unknown pi worker lock");
+      releases.get(msg.input.lockId)!(); releases.delete(msg.input.lockId); return { ok: true };
+    }
+    if (msg.method === "lock") {
+      const grant = grants.get(msg.toolCallId);
+      if (!workerLock || !grant || grant.name !== msg.toolName) throw new Error("Pi worker lock has no server permission grant");
+      const input = JSON.parse(grant.input);
+      const key = msg.toolName === "bash" ? bashLockKey(input.command)
+        : ["write_file", "edit_file"].includes(msg.toolName) ? `path:${join(backend.brainPath, input.path)}` : BRAIN_LOCK_KEY;
+      if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
+      const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
+      try { live(); } catch (error) { release(); throw error; }
+      const lockId = randomUUID(); releases.set(lockId, release); return { lockId };
+    }
     if (msg.method === "syncAuth") {
       if (Object.keys(msg.input).length !== 1 || typeof msg.input.content !== "string") throw new Error("Malformed native pi state request");
       syncPiAuth(agentDir, agentFiles["auth.json"], msg.input.content);
@@ -262,7 +283,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (isCompletedAutonomousToolCall(turnContext.autonomous, msg.toolName, msg.input)) {
         return { behavior: "deny", message: "This call already completed before yielding; inspect its retained result instead of replaying it." };
       }
-      if (bridge.applyBrain && Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)) {
+      if (bridge.applyBrain && Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)
+        && !(workerSandbox?.profile === "governed" && ["write_file", "edit_file"].includes(msg.toolName))) {
         // Exact application authorization belongs to the server route.
         return { behavior: "allow" };
       }

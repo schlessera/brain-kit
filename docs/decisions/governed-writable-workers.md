@@ -108,7 +108,8 @@ Everything else in that record still binds:
 - R31 and the restricted envelope for autonomous turns are unchanged.
 - The validated application route, its approvals and the PNG mask operation
   are unchanged.
-- Writable overlays and copied scratch brains stay declined.
+- Writable overlays and copied scratch brains stay declined. The approved
+  read-only startup execution view below is a separate exception.
 
 The [voice decision](voice-permission.md) still binds: speech may refuse a tool
 but never grant one.
@@ -149,7 +150,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:487-491`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:488-492`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -416,12 +417,12 @@ durable quarantine:
 3. **Recovery after a crash.** At boot, every turn that has a manifest but no
    end record is reconciled the same way, before any maintenance worker or new
    turn launches.
-4. **Every launch reconciles against active turns.** A protected name that
-   exists now but is absent from the start manifest of any active turn appeared
-   during that turn. The new worker sees it masked, with `/dev/null` for a file
-   or an empty read-only tmpfs for a directory, until quarantine resolves it.
-   A turn that launches while another is running therefore never consumes
-   another turn's unapproved preload or permission file.
+4. **Startup execution views, and equal-authority peers.** The maintainer's
+   [peer-visibility ruling](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6120164424)
+   allows governed peers to consume configuration another governed turn creates
+   while they overlap. These are G7 steering changes, journaled and revertible
+   by the journal work. This replaces active-peer masking. Every other
+   consumer freezes both bytes and absence at its own launch, as below.
 5. **Credentialed maintenance is exclusive.** A maintenance worker that holds a
    credential (in the interim, see above) holds the writer gate exclusively
    from validation through execution and reconciliation (see "Revert").
@@ -438,6 +439,52 @@ brain.
 **The probe changes.** `probeWorkerHost` gains a `governed` mode. It proves
 that a protected sentinel is unchanged and that an unprotected sentinel *was*
 written, in addition to today's checks.
+
+## Immutable startup configuration and explicit outputs
+
+The maintainer's [complete-view ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6120567225)
+approves complete read-only startup views for strict, restricted, maintenance
+and host configuration consumers. A single frozen `brain.config.ts` is not
+enough: its helpers, arbitrary transitive imports and configured resources must
+be frozen too. Governed peers retain the live brain. A running snapshot
+consumer sees neither new bytes nor a newly created configuration name; a new
+consumer takes the then-current bytes at its own launch.
+
+The view copies raw file bytes and link text through descriptor-anchored opens,
+without evaluating repository code or sharing writable inodes. It is mounted
+read-only at the original brain path. Concurrent changes during copying refuse
+launch. Special nodes refuse copying; restricted views keep only an empty `.git`
+mount point, since that profile masks Git and its daemon sockets anyway.
+External runtime paths stay read-only under the existing explicit envelope;
+the worker cannot reach the live brain through an alternate source path.
+
+| Configuration consumer | Inputs in the complete startup view |
+| --- | --- |
+| Core config and modules | `brain.config.ts/json`, every imported helper and module, dependency manifests, locks, package resolution trees and data used by config |
+| Bun child startup | `bunfig.toml`, preloads and their transitive inputs; `.env*` remains masked in credential-free workers |
+| Git maintenance | Local config, worktree config, includes, hooks and configured hook paths, filters, fsmonitor, attributes, ignore files and programs/dependencies |
+| Claude strict | Project settings, `.mcp.json`, instructions, skills, hooks, plugins and configured resources; restricted startup retains its existing exclusions |
+| Pi strict | Project settings, package/extension/skill/prompt/theme resources, context files, `SYSTEM.md`/`APPEND_SYSTEM.md` and reload inputs |
+| Host data configuration readers | Immutable parser inputs captured at operation startup; no host config imports, Git or CLI evaluation |
+
+**Explicit writable outputs.** The execution view receives no write mount.
+Strict persistent areas are mounted at `/tmp/brain-worker-areas/scratch` and
+`/tmp/brain-worker-areas/workspaces`, outside it, with their canonical link
+paths stated in the note. Restricted staging and inference remain outside the
+brain. Maintenance receives `/tmp/brain-maintenance-output`, a private output
+workspace; `BRAIN_ROOT` names that workspace and core configuration/module
+resolution still uses the immutable execution view. Index files, skills sync,
+module settings and sync state are validated and published by the server after
+the whole worker exits. Worker output cannot change tier A inputs or escape
+through a link, and a stale authoritative base refuses publication. Directory
+versus file replacements are refused during preflight, before any deletion.
+
+Git's server-built adapter retains expanded startup config, immutable hooks
+and an attributes tree while directing repository state to the output workspace.
+No host Git evaluates the repository. Curated application writes retain their
+existing authoritative server path and exact-base checks. Credentials and
+writer-gate admission retain their interim rules. This is an execution-input
+snapshot, not a second authoritative brain or a writable overlay.
 
 ## The three write areas
 
@@ -494,7 +541,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:670-696`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:731-757`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -702,8 +749,8 @@ classification:
   `BRAIN_LOCK_KEY` (`export function lockKeyForTool`,
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
-- Pi takes its lock inside the worker (`lock: toolLockFromKeyed(createKeyedLock())`,
-  `packages/ui-backend-pi/src/worker-entry.ts:105`). Under `governed`, pi's tool
+- Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
+  `packages/ui-backend-pi/src/worker-entry.ts:107`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -715,9 +762,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:221`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:222`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:519`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:533`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -830,7 +877,7 @@ Reaching a cap is recorded as a governance event and as a roadblock.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:266`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:268`).
 
 **What changes:**
 
@@ -890,7 +937,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:161`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:170`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -902,7 +949,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:966`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1044`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1406,9 +1453,10 @@ else here is read through the report.
   it. Every unrouted tool, from Chromium to `git fetch`, would need its own
   route. Production showed that the gap is the way the maintainer works, not
   an edge case.
-- **Writable overlays or copied brains.** They were declined on 2026-10-05,
+- **Writable overlays or copied authoritative brains.** They were declined on 2026-10-05,
   and they would also hide one session's writes from parallel sessions until
-  commit.
+  commit. The complete read-only startup execution view is the explicit
+  2026-10-12 exception, with separate server-validated output publication.
 - **File watching.** inotify misses changes under load and has watch limits.
   fanotify needs capabilities that the unprivileged worker host lacks.
 - **Landlock to deny protected paths.** Landlock only grants rights on

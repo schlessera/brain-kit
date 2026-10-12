@@ -179,6 +179,8 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;
+  workerLock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
   autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;
   caps: SessionCaps;

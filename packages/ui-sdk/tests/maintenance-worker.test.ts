@@ -73,12 +73,12 @@ console.log(JSON.stringify({
 }));`;
 
 describe("maintenance worker (#1648)", () => {
-  test("credential-free: the brain is writable, the host is not, and nothing of the server's secrets or network reaches it", async () => {
+  test("credential-free: configuration inputs and the host are read-only, and nothing of the server's secrets or network reaches it", async () => {
     if (!supported) return;
     const f = fixture();
     const r = await inWorker(f.brain, PROBE(f), { credentials: false });
-    expect(r.brainWrite, "BRAIN_WRITABLE").toBe("ok");
-    expect(readFileSync(join(f.brain, "notes/written.md"), "utf8")).toBe("Penelope weaves.");
+    expect(r.brainWrite, "CONFIG_VIEW_READ_ONLY").toBe("EROFS");
+    expect(existsSync(join(f.brain, "notes/written.md"))).toBe(false);
     expect(r.hostWrite, "HOST_READ_ONLY").toBe("EROFS");
     expect(existsSync(join(f.host, "escaped"))).toBe(false);
     expect(r.env, "the brain's .env cannot be opened").toBe("EACCES");
@@ -94,7 +94,7 @@ describe("maintenance worker (#1648)", () => {
     if (!supported) return;
     const f = fixture();
     const r = await inWorker(f.brain, PROBE(f), { credentials: true });
-    expect(r.brainWrite).toBe("ok");
+    expect(r.brainWrite).toBe("EROFS");
     expect(r.hostWrite).toBe("EROFS");
     expect(r.env).toBe("BRAIN_DOTENV_MARK=from-the-brain\n");
     expect(r.dotenv).toBe("from-the-brain");

@@ -335,8 +335,15 @@ there is no operator switch that disables worker admission.
 
 | Variable | What it controls | Unset |
 | --- | --- | --- |
+| `BRAIN_MAINTENANCE_GIT` | Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input. | **required** — trusted maintenance Git adapter only |
 | `BRAIN_UI_WORKER_LIMITS` | Resource limits for each agent worker, as comma-separated name=value pairs over the defaults: processes, data, file_size and open_files (rlimits), memory, pids and cpu (the per-worker cgroup, when the host delegates one), and cgroup=on\|off. Sizes take KiB, MiB, GiB or TiB; `unlimited` turns one limit off. A malformed entry refuses agent turns and names the entry. See docs/hosting/agent-workers.md#resource-limits. | processes=4096, data and memory=half the server's memory (physical, or a lower cgroup cap above it), file_size=16GiB, open_files=65536, pids=4096, cpu=all CPUs but one, cgroup=on |
 | `BRAIN_WORKER_LAUNCH` | Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override. | **required** — trusted worker bootstrap only |
+
+Reads whose variable *name* is configuration rather than code:
+
+| Name comes from | What the value is used for |
+| --- | --- |
+| maintenance Git subprocess environment | Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential. |
 
 Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->

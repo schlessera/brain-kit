@@ -26,6 +26,8 @@ interface Init {
   agentFiles: Record<string, string>;
   /** Rendered by the server from this worker's resolved mounts (#1626). */
   sandboxNote?: string;
+  governed?: boolean;
+  sharedLock?: boolean;
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
 }
@@ -102,11 +104,19 @@ async function initialize(init: Init): Promise<void> {
       baseUrl: `http://127.0.0.1:${forward.port}${init.inference.basePath}`, apiKey: init.inference.placeholder } } }));
   }
   const resources = createSessionResources({ backend: init.backend,
-    brain: createBrainAccess(init.backend.brainPath), lock: toolLockFromKeyed(createKeyedLock()),
+    brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ? {
+      async withKey(key, fn) {
+        if (key === null) return fn();
+        const scope = toolScope.getStore();
+        if (!scope) throw new Error("A shared lock needs the active tool call");
+        const { lockId } = await rpc("lock", scope.name, scope.id, { key });
+        try { return await fn(); } finally { await rpc("unlock", scope.name, scope.id, { lockId }); }
+      },
+    } : toolLockFromKeyed(createKeyedLock()),
     allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
-    shellCwd: WORKER_SCRATCH,
+    ...(init.governed ? { directWrites: true } : { shellCwd: WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
       pi.on("tool_call", async event => {

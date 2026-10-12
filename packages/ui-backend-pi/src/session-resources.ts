@@ -35,6 +35,7 @@ export function createSessionResources(options: {
   settingsSnapshot?: string;
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
   shellCwd?: string;
+  directWrites?: boolean;
   /** The worker's sandbox note, rendered by the server from its resolved mounts (#1626). */
   sandboxNote?: string;
 }) {
@@ -49,6 +50,7 @@ export function createSessionResources(options: {
       turn: turnContext,
       lock,
       shellCwd: options.shellCwd,
+      directWrites: options.directWrites,
       capabilities: {
         location: caps.location,
         activity: caps.activity,

@@ -7,13 +7,15 @@ import { createWorkerPipes } from "./worker-pipes.js";
 import { validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_XDG_DIRS,
+import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_DIRS,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
+import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
+import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -42,6 +44,8 @@ export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host w
 
 export interface WorkerLaunch {
   brainPath: string;
+  /** Host-owned immutable execution view for snapshot consumers. */
+  startupView?: WorkerStartupView;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
   scratchPath?: string;
   /**
@@ -110,6 +114,11 @@ export const HOST_MASKS = ["/run", "/var/run", "/var/lib", "/home", "/root", "/m
 export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";
 
 export interface MaintenanceEnvelope {
+  git?: { source: string; target: string; entry: string; binary: string };
+  /** The server's named output workspace, separate from all configuration inputs. */
+  output?: { source: string; target: string };
+  /** Agent profiles make the empty host masks read-only. */
+  readOnlyMasks?: boolean;
   /** The host network namespace. Otherwise a private one with only loopback. */
   network: boolean;
   /**
@@ -338,24 +347,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
   argv.push("--bind", brain, brain);
   if (!envelope.credentials) {
     argv.push("--dir", MAINTENANCE_HOME);
-    const covered = new Set<string>();
-    for (const name of readdirSync(brain)) {
-      if (!isEnvName(name)) continue;
-      const path = join(brain, name);
-      const info = lstatSync(path, { throwIfNoEntry: false });
-      if (info?.isDirectory()) { argv.push("--tmpfs", path); continue; }
-      // A link is covered where it leads, without following it in a mount
-      // destination: the file it resolves to now (in the brain or on the
-      // host) is replaced, so Bun reads nothing through it. A link that
-      // resolves to nothing has nothing to read.
-      let target = path;
-      if (info?.isSymbolicLink()) {
-        try { target = realpathSync(path); } catch { continue; }
-      }
-      if (covered.has(target) || !lstatSync(target, { throwIfNoEntry: false })?.isFile()) continue;
-      covered.add(target);
-      argv.push("--ro-bind", "/dev/null", target);
-    }
+    argv.push(...maintenanceEnvMasks(brain, brain));
   }
   for (const requested of envelope.writeFiles ?? []) {
     const real = realpathSync(requested);
@@ -370,6 +362,32 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     }
     argv.push("--bind", real, real);
   }
+  if (envelope.readOnlyMasks) argv.push(...masks.flatMap(mask => ["--remount-ro", mask]));
+  return argv;
+}
+
+/** Applied after the complete startup view too, so a snapshot never lifts the secret mask. */
+function maintenanceEnvMasks(source: string, brain: string): string[] {
+    const argv: string[] = [];
+    const covered = new Set<string>();
+    for (const name of readdirSync(source)) {
+      if (!isEnvName(name)) continue;
+      const path = join(source, name);
+      const info = lstatSync(path, { throwIfNoEntry: false });
+      if (info?.isDirectory()) { argv.push("--tmpfs", join(brain, name), "--remount-ro", join(brain, name)); continue; }
+      // A link is covered where it leads, without following it in a mount
+      // destination: the file it resolves to now (in the brain or on the
+      // host) is replaced, so Bun reads nothing through it. A link that
+      // resolves to nothing has nothing to read.
+      let target = path;
+      if (info?.isSymbolicLink()) {
+        try { target = realpathSync(path); } catch { continue; }
+      }
+      if (covered.has(target) || !lstatSync(target, { throwIfNoEntry: false })?.isFile()) continue;
+      covered.add(target);
+      if (within(source, target)) target = brain + target.slice(source.length);
+      argv.push("--ro-bind", "/dev/null", target);
+    }
   return argv;
 }
 
@@ -421,9 +439,37 @@ export function workerCommand(input: WorkerLaunch): string[] {
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev",
     ...(sized ? ["--size", String(input.turnTempBytes), "--tmpfs", TURN_TEMP_ROOT] : ["--tmpfs", TURN_TEMP_ROOT]),
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
-    ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : ["--ro-bind", brain, brain]),
+    ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
+      network: true, credentials: false, readOnlyMasks: true,
+      readPaths: input.sandbox.readPaths ?? restrictedReadPaths(input.command.filter(path => isAbsolute(path) && existsSync(path))),
+      maskPaths: input.sandbox.maskPaths,
+    }, brain) : ["--ro-bind", brain, brain]),
+    // Strict restores the old read-only brain after the common masks/runtime view.
+    ...(input.startupView ? ["--ro-bind", input.startupView.root, brain]
+      : !maintenance && input.sandbox?.profile === "strict" ? ["--ro-bind", brain, brain] : []),
     ...(input.restricted ? maskedGit(brain) : []),
-    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds, "--clearenv"];
+    ...(maintenance?.output ? ["--bind", maintenance.output.source, maintenance.output.target] : []),
+    ...(input.startupView && maintenance && !maintenance.credentials ? maintenanceEnvMasks(input.startupView.root, brain) : []),
+    ...(maintenance?.output && !maintenance.credentials ? maintenanceEnvMasks(maintenance.output.source, maintenance.output.target) : []),
+    ...(maintenance?.git ? ["--ro-bind", maintenance.git.source, maintenance.git.target, "--ro-bind", maintenance.git.entry, maintenance.git.entry,
+      "--ro-bind", maintenance.git.binary, maintenance.git.binary,
+      "--bind", join(maintenance.output!.source, ".git"), `${maintenance.output!.target}/.git`,
+      "--ro-bind", join(maintenance.git.source, "empty-config"), `${maintenance.output!.target}/.git/config`,
+      ...["hooks", "info", "modules"].flatMap(name => {
+        const source = join(input.startupView!.root, ".git", name);
+        const target = `${maintenance.output!.target}/.git/${name}`;
+        return existsSync(source) ? ["--ro-bind", source, target] : ["--tmpfs", target, "--remount-ro", target];
+      }),
+    ] : []),
+    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []), "--clearenv"];
+  // Last: neither a complete view nor a protected-path bind may restore a
+  // secret over an earlier mask. The masks are about reads, not writes.
+  if (!maintenance) {
+    const clear = argv.pop();
+    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain), clear!);
+  }
+
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
   // and no other worker's namespace can see it (#1625). It lands on top of
   // the turn-temp /tmp and is not part of it.
@@ -470,7 +516,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
       || within(path, scratch) || within(scratch, path) || (state !== undefined && (within(path, state) || within(state, path)))) {
       throw new WorkerHostError(`the writable ${name} area must be a real directory at its own path inside the brain`);
     }
-    out.binds.push("--bind", path, path);
+    out.binds.push("--bind", path, input.sandbox?.profile === "governed" ? path : `${WORKER_AREA_ROOT}/${name}`);
   }
   // `$HOME` stays the host's, read-only; what tools write there goes to the
   // per-turn XDG directories in turn temp instead (#1703).
@@ -482,6 +528,11 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
 }
 
 export interface PrepareWorkerSandboxOptions {
+  profile?: "governed" | "strict";
+  protectedPaths?: readonly string[];
+  appearedPaths?: readonly string[];
+  readPaths?: readonly string[];
+  maskPaths?: readonly string[];
   restricted?: boolean;
   /** The `HOME` the worker will be given; scratch is checked with it. */
   home?: string;
@@ -504,6 +555,9 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
       ...(options.restricted ? {} : { home: { mode: "xdg" } }) };
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
+  const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
+    paths: options.protectedPaths, appeared: options.appearedPaths,
+  }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
   for (const name of options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])) {
@@ -523,7 +577,14 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   // No per-turn home overlay: bubblewrap resolves an overlay's upper
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
-  return { brain, restricted: false, areas, scratchAliasesRemoved: removed, home };
+  return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
+    ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
+      ...(resolved ? { protection: resolved.protection } : {}),
+      ...(resolved?.reason ? { fallbackReason: resolved.reason } : {}),
+      readPaths: options.readPaths, maskPaths: options.maskPaths } : {}),
+    // Profile workers never restore the host home over its mask.
+    home };
+
 }
 
 /**
@@ -725,6 +786,7 @@ function launchDiagnostics(stderr: number): string {
  * verified and populated.
  */
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
+  let startupView = input.startupView;
   const plan = launchLimits(input);
   let cgroup: WorkerCgroup | undefined;
   if (plan.cgroup.available) {
@@ -740,6 +802,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let stateFd: number | undefined, tempFd: number | undefined;
   try {
+    startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
+    input = { ...input, ...(startupView ? { startupView } : {}) };
     pipes = createWorkerPipes();
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
     child = Bun.spawn(boot.command, { env: boot.env,
@@ -799,6 +863,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       final = report(code);
       if (cgroup) final.peak = cgroup.peak();
       cgroup?.remove();
+      startupView?.cleanup();
       return code;
     });
     return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -810,6 +875,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
+    if (child) void child.exited.finally(() => startupView?.cleanup());
+    else startupView?.cleanup();
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`
@@ -832,6 +899,7 @@ const FRESH_PROC_REQUIREMENT = "the kernel refused the worker a fresh /proc beca
   + " in Docker, run the container with --security-opt systempaths=unconfined";
 
 export interface WorkerHostProbeOptions {
+  profile?: "governed" | "strict";
   /** Also establish the restricted envelope: a private network namespace and an explicit read envelope. */
   restricted?: boolean;
   /**
@@ -875,6 +943,13 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     const target = join(fixture, "sentinel");
     const golden = "Odysseus: authoritative bytes.\n";
     writeFileSync(target, golden);
+    const writableTarget = join(fixture, "writable");
+    const sandbox: WorkerSandbox | undefined = options.profile && !options.restricted ? {
+      brain: brainPath, restricted: false, profile: options.profile, areas: [], scratchAliasesRemoved: [],
+      protection: { ancestors: [normalize(fixture.slice(brainPath.length + 1))], paths: [
+        { rel: target.slice(brainPath.length + 1), reason: "probe sentinel", mode: "read_only" },
+      ] }, readPaths: [process.execPath],
+    } : undefined;
     let restricted: RestrictedEnvelope | undefined;
     if (options.restricted) {
       relayDir = mkdtempSync(join(tmpdir(), "brain-inference-probe-"));
@@ -895,6 +970,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       const scratch=process.env.BRAIN_WORKER_SCRATCH+"/positive";
       writeFileSync(scratch,"Odysseus: scratch works.");
       if(!denied || readFileSync(scratch,"utf8")!=="Odysseus: scratch works.") process.exit(1);
+      ${options.profile === "governed" && !options.restricted ? `writeFileSync(${JSON.stringify(writableTarget)},"Odysseus: governed works.");` : ""}
       ${options.restricted ? `const links=readFileSync("/proc/net/dev","utf8").split("\\n").slice(2).map(l=>l.split(":")[0].trim()).filter(Boolean);
       if(links.join()!=="lo") process.exit(2);
       if(!existsSync(${JSON.stringify(WORKER_INFERENCE_DIR)})) process.exit(4);` : ""}
@@ -905,9 +981,10 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       console.log("worker-boundary-pass");`;
     // The probe starts outside the brain and loads no `.env`: the brain's own
     // `bunfig.toml` or `.env` must never decide whether the boundary holds (#1648).
-    const boot = workerBootstrap({ brainPath, command: ["/bin/sh", "-c", 'cd / && exec "$0" --no-env-file -e "$1"', process.execPath, program], env: {}, restricted, limits,
+    const boot = workerBootstrap({ brainPath, command: ["/bin/sh", "-c", 'cd / && exec "$0" --no-env-file -e "$1"', process.execPath, program], env: {}, restricted, limits, sandbox,
       ...(options.stateBytes !== undefined ? { stateBytes: options.stateBytes } : {}),
       ...(options.turnTempBytes !== undefined ? { turnTempBytes: options.turnTempBytes } : {}) });
+
     const pipes = createWorkerPipes();
     try {
       // Opens the start gate up front; the probe has nothing to copy in.
@@ -917,7 +994,8 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       pipes.closeChild(); pipes.closeInput();
       const output = readFileSync(pipes.parent[1], "utf8");
       const errors = readFileSync(pipes.parent[2], "utf8");
-      if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden) {
+      if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden
+        || (options.profile === "governed" && !options.restricted && (!existsSync(writableTarget) || readFileSync(writableTarget, "utf8") !== "Odysseus: governed works."))) {
         const detail = errors.trim().slice(0, 400);
         if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
         if (gated(options) && NO_TMPFS_SIZE.test(errors)) {

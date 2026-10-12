@@ -58,6 +58,8 @@ export const WORKER_AREAS = {
   workspaces: BRAIN_WORKSPACES_DIR,
 } as const;
 export type WorkerAreaName = keyof typeof WORKER_AREAS;
+/** Strict workers write named areas outside their configuration execution view. */
+export const WORKER_AREA_ROOT = "/tmp/brain-worker-areas";
 
 export interface WorkerArea {
   readonly name: WorkerAreaName;
@@ -70,6 +72,16 @@ export interface WorkerSandbox {
   /** Canonical brain path the layout was resolved for. */
   readonly brain: string;
   readonly restricted: boolean;
+  /** Resolved filesystem profile. Omitted legacy layouts are strict. */
+  readonly profile?: WorkerProfile;
+  /** Why a requested governed turn had to use the stronger strict profile. */
+  readonly fallbackReason?: string;
+  /** Protected mounts and their ancestors, resolved before the start manifest. */
+  readonly protection?: WorkerProtection;
+  /** Runtime paths to restore below the host masks, read-only. */
+  readonly readPaths?: readonly string[];
+  /** Host-private operational state, hidden in addition to the standard masks. */
+  readonly maskPaths?: readonly string[];
   /** The areas resolved for this worker, in mount order. Empty in a restricted turn. */
   readonly areas: readonly WorkerArea[];
   /** Repo-relative scratch names unlinked because their file had a name outside scratch. */
@@ -336,8 +348,6 @@ function shown(paths: readonly string[]): string {
 export function resolveScratchMount(brain: string): { mount: WorkerMount; removed: string[] } {
   const dir = realBrainDirectory(brain, BRAIN_SCRATCH_DIR, true);
   if (dir === null || typeof dir === "object") return { mount: { writable: false, reason: dir?.refused ?? "missing" }, removed: [] };
-  const ignored = scratchIgnoredByGit(brain);
-  if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed: [] };
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
   const scan = scanForOutsideLinks(brain, dir);
   if (scan.overLimit) return { mount: { writable: false, reason: `.brain/scratch/ holds more than ${WORKER_MOUNT_SCAN_LIMIT} entries; run \`brain scratch prune\`` }, removed: [] };
@@ -351,6 +361,8 @@ export function resolveScratchMount(brain: string): { mount: WorkerMount; remove
       return { mount: { writable: false, reason: `the scratch alias ${rel} could not be removed (${(error as NodeJS.ErrnoException).code ?? error})` }, removed };
     }
   }
+  const ignored = scratchIgnoredByGit(brain);
+  if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed };
   return { mount: { writable: true, path: dir }, removed };
 }
 
@@ -380,10 +392,20 @@ export function resolveWorkspacesMount(brain: string, limit = WORKER_MOUNT_SCAN_
  * (#1649) adds `governed` here and to `PROFILE_LINES`, rendered from its
  * resolved protected-path list, and resolves it onto the sandbox.
  */
-export type WorkerProfile = "strict" | "restricted";
+export type WorkerProfile = "governed" | "strict" | "restricted";
+
+export interface ProtectedWorkerPath {
+  readonly rel: string;
+  readonly reason: string;
+  readonly mode: "read_only" | "mask_file" | "mask_directory" | "absent";
+}
+export interface WorkerProtection {
+  readonly paths: readonly ProtectedWorkerPath[];
+  readonly ancestors: readonly string[];
+}
 
 export function workerProfile(sandbox: WorkerSandbox): WorkerProfile {
-  return sandbox.restricted ? "restricted" : "strict";
+  return sandbox.restricted ? "restricted" : sandbox.profile ?? "strict";
 }
 
 /**
@@ -408,16 +430,17 @@ export interface WorkerNoteFacts {
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
-  strict: () => `**Profile: \`strict\`.** ${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
+  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. The worker shares the server's uid; protection is mask-only until an identity helper is installed. Egress is unrecorded. Maintenance workers may receive provider or git credentials until the relays and host-owned mirror land. Change journaling and revert are not yet available.`,
+  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */
-const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea) => string> = {
-  scratch: ({ rel, mount }) => mount.writable
-    ? `   - \`${rel}/\` is writable. Write the file there (\`brain render --scratch\` and \`brain image --scratch\` do), then link its repo-relative path, such as \`${rel}/<name>.pdf\`.`
+const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string) => string> = {
+  scratch: ({ rel, mount }, target) => mount.writable
+    ? `   - \`${target}/\` is writable. Write the file there, then link its repo-relative destination, such as \`${rel}/<name>.pdf\`.`
     : `   - \`${rel}/\` is read-only this turn: ${mount.reason}. There is nowhere to put a file for the reader; say so instead of linking a turn-temp file.`,
-  workspaces: ({ rel, mount }) => mount.writable
-    ? `   - \`${rel}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
+  workspaces: ({ rel, mount }, target) => mount.writable
+    ? `   - \`${target}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
     : mount.missing
       ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.`
       : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
@@ -457,7 +480,10 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       sandbox.areas.some(area => area.mount.writable)
         ? "2. **Persistent areas: kept across turns.**"
         : "2. **Persistent areas: none writable this turn.**",
-      ...sandbox.areas.map(area => AREA_LINES[area.name](area)),
+      ...sandbox.areas.map(area => AREA_LINES[area.name](area, profile === "governed" ? area.rel : `${WORKER_AREA_ROOT}/${area.name}`)),
+      ...(profile === "strict" ? ["Configuration executes from an immutable startup view, including imported helpers and absent names.",
+        ...sandbox.areas.filter(area => area.mount.writable).map(area =>
+          `Write \`${area.rel}/\` through \`${WORKER_AREA_ROOT}/${area.name}/\`, outside that view; link the repo-relative destination.`)] : []),
       ...(sandbox.areas.length ? [] : ["   - No directory outside the brain's documents is writable this turn."]),
       "3. **The brain: canonical and versioned.**",
       "",

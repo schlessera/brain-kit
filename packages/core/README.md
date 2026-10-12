@@ -31,6 +31,8 @@ to touch `process.env`.
 | `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. Cannot enable model reranking: reranker.enabled must be true. | the configured provider when enabled and available, else heuristic |
 | `BRAIN_ROOT` | Brain repository root, overriding cwd-based discovery. | nearest ancestor with brain.config.* or .git, else cwd |
 | `BRAIN_UI_CHROME_NO_SANDBOX` | Same as BRAIN_CHROME_NO_SANDBOX, in the BRAIN_UI_* spelling a chat-server deployment sets; the server passes it to the brain CLI it spawns. | sandbox on |
+| `BRAIN_WORKER_CONFIG_ROOT` | Internal immutable maintenance configuration execution root. Only applies when the requested root equals BRAIN_WORKER_DATA_ROOT. | — |
+| `BRAIN_WORKER_DATA_ROOT` | Internal maintenance output root, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input. | — |
 | `CLAUDE_CODE_PATH` | Claude Code binary the Claude agent runner spawns, as for the chat server. | the Agent SDK's built-in binary when the SDK is installed, else `claude` on PATH |
 | `GEMINI_API_KEY` | Default API key for the built-in Gemini embedding/completion providers (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades vector search to FTS. | — |
 | `NO_COLOR` | Any non-empty value suppresses ANSI color in CLI output. | — |

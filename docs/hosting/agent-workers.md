@@ -757,3 +757,30 @@ do not propagate a JavaScript test preload into arbitrary future worker code;
 the tests prove the named component operations, not runtime or egress containment.
 The test harness keeps workspace output ownership with the existing ancestor
 instead of transferring its writable lock descriptor into the worker bootstrap.
+
+## Governed and strict hosted turns (0.42.0)
+
+Interactive and voice turns default to `governed`: ordinary brain files are
+writable inside the isolated worker. Policy, Git config/hooks, startup code,
+installed dependencies and permission configuration remain protected. Existing
+protected names are read-only, with self-bound ancestors; `.env*` is masked.
+Unsafe linked or mounted protected paths select `strict`, with the cause in the
+agent's note. Autonomous turns keep their restricted envelope.
+
+`createApp({ workerProfile: "strict" })` opts ordinary hosted turns into strict.
+Strict and restricted workers execute configuration from complete immutable
+startup views, including imported helpers and absent names. Strict persistent
+writes use `/tmp/brain-worker-areas/scratch` and
+`/tmp/brain-worker-areas/workspaces`; link their canonical brain destinations.
+Maintenance writes use a separate server-validated output workspace. Curated
+writes retain their authoritative route. A governed turn triggers an incremental
+index refresh after its workers exit, serialized on the server lock.
+
+`runtime.workerHost.governed` states the selected default, resolved protected
+paths, configuration view and shared-uid protection. Per-turn capabilities name
+the actual mounts, fallback cause and limits. Without an identity helper,
+protection is mask-only. Maintenance credentials, egress recording and the
+change journal retain the interim limits stated in the capabilities note.
+Governed peers may see one another's configuration immediately; snapshot
+consumers retain their startup inputs until the next launch. See the
+[governed-worker decision](../decisions/governed-writable-workers.md).
