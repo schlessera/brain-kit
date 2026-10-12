@@ -29,6 +29,7 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { walker: ReturnType<typeof createJournalWalker>; previous: JournalSnapshot; stop: (error: Error) => void; sequence: number }>();
+  const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
   const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
@@ -156,7 +157,10 @@ export function createTurnJournal(db: Database, options: {
   }
   return {
     /** @internal Host scope monitor consumes this same observation window. */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void) { observers.add(observer); return () => observers.delete(observer); },
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+      observers.add(observer); if (periodic) periodicObservers.add(periodic);
+      return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
+    },
     begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void) {
       for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
       observe();
@@ -186,8 +190,14 @@ export function createTurnJournal(db: Database, options: {
       active.set(turnId, { walker, previous: snapshot, stop, sequence: 0 }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          try { observe(); } catch (error) {
+          let completed = false;
+          try {
+            for (const observer of periodicObservers) observer.before();
+            observe(); completed = true;
+          } catch (error) {
             for (const [id, turn] of active) { fail(id, error); turn.stop(error instanceof Error ? error : new Error(String(error))); }
+          } finally {
+            for (const observer of periodicObservers) observer.after(completed);
           }
         }, 15_000);
         scopeTimer.unref?.();

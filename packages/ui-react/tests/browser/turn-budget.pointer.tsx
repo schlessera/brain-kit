@@ -44,6 +44,10 @@ async function mount(width: number, paper = false) {
     const path = new URL(input, "http://fixture.invalid").pathname;
     if (path.endsWith("/providers"))
       return Response.json({ providers: [{ id: "claude", label: "Ithaca model", backendId: "claude" }], backends: { claude: { id: "claude", capabilities: { concurrentSessions: true, followUp: false } } } });
+    if (path.endsWith("/revert/plan"))
+      return Response.json({ turnId: "voyage", action: new URL(input, "http://fixture.invalid").searchParams.get("action") ?? "revert", paths: [] });
+    if (path.endsWith("/revert"))
+      return Response.json({ receipt: null });
     if (path.endsWith("/journal"))
       return Response.json({ turnId: "voyage", sessionId: "ithaca", summary: summary(budget()), changes: [], missing: [] });
     if (path.endsWith("/sessions"))

@@ -1264,7 +1264,10 @@ signatures (every public export and the types it is made of)
             changedPaths: number;
             observedBytes: number;
             partial: boolean;
-        }) => void): () => boolean;
+        }) => void, periodic?: {
+            after(completed: boolean): void;
+            before(): void;
+        }): () => boolean;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {

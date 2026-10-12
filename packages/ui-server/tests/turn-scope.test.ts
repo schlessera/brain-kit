@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync, readdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { writeFileSync, chmodSync, readdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
@@ -78,19 +78,31 @@ test("true voice stops without a grant and preserves partial work", async () => 
 });
 
 test("one long single Bash loop is frozen by the real 15-second observation before finishing", async () => {
-  const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined;
+  const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined, monitor: ReturnType<typeof Bun.spawn> | undefined;
   try {
-    f.begin(); child = f.worker('i=0; while [ "$i" -lt 10000 ]; do i=$((i+1)); printf Ithaca > .brain/scratch/sail-$i; sleep 0.05; done; printf done > finished');
-    let crossing = 0; await wait(() => { if (readdirSync(join(f.brain, ".brain/scratch")).length >= 20) { crossing = Date.now(); return true; } return false; });
+    f.begin();
+    const samples = join(f.root, "external-counts.jsonl");
+    // A separate host process observes progress while synchronous CAS retention
+    // occupies the test host. Receipt time truthfully follows that capture.
+    monitor = Bun.spawn([process.execPath, "--no-env-file", "-e", 'const fs=require("node:fs"); setInterval(()=>{fs.appendFileSync(process.argv[2],JSON.stringify({at:Date.now(),count:fs.readdirSync(process.argv[1]).length})+"\\n");},20);', join(f.brain, ".brain/scratch"), samples], { stdout: "ignore", stderr: "pipe" });
+    child = f.worker('i=0; while [ "$i" -lt 10000 ]; do i=$((i+1)); printf Ithaca > .brain/scratch/sail-$i; sleep 0.05; done; printf done > finished');
+    let frozenAt = 0; const freeze = child.freeze; child.freeze = () => { freeze(); frozenAt ||= Date.now(); };
+    await wait(() => { if (readdirSync(join(f.brain, ".brain/scratch")).length >= 20) return true; return false; });
     await wait(() => f.journal.summary("voyage").scope!.receipts.length > 0, 16_000);
     const receipt = f.receipt(), count = readdirSync(join(f.brain, ".brain/scratch")).length;
-    expect(receipt.dimension).toBe("files_changed"); expect(receipt.observedAt - crossing, "SCOPE_FROZEN_WITHIN_OBSERVATION_INTERVAL").toBeLessThanOrEqual(15_000);
+    const progress = readFileSync(samples, "utf8").trim().split("\n").map(line => JSON.parse(line) as { at: number; count: number });
+    const crossing = progress.find(sample => sample.count >= 20)!;
+    expect(receipt.dimension).toBe("files_changed");
+    expect(frozenAt - crossing.at, "SCOPE_FROZEN_WITHIN_OBSERVATION_INTERVAL").toBeLessThanOrEqual(15_000);
+    expect(progress.at(-1)!.count, "SCOPE_EXTERNAL_WRITER_PROGRESS_STOPS_BEFORE_RETENTION").toBe(count);
+    expect(progress.some(sample => sample.at > frozenAt + 150 && sample.count === count), "SCOPE_EXTERNAL_OBSERVER_CONFIRMS_PAUSE_DURING_CAPTURE").toBe(true);
+    console.log("SCOPE_EXTERNAL_TIMING", JSON.stringify({ crossingAt: crossing.at, frozenAt, receiptAt: receipt.observedAt, finalCount: count }));
     expect(receipt.count, "SCOPE_COUNT_TAKEN_AFTER_CONFIRMED_FREEZE").toBe(count);
     expect(receipt.overshoot).toBe(count - 20); expect(receipt.overshoot, "SCOPE_OBSERVATION_RATE_BOUND").toBeLessThanOrEqual(300);
     await Bun.sleep(150); expect(readdirSync(join(f.brain, ".brain/scratch")).length, "SCOPE_LONG_BASH_REALLY_FROZEN").toBe(count);
     expect(await Bun.file(join(f.brain, "finished")).exists()).toBe(false);
     f.scope.decide(f.message("stop"), true); await child.exited;
-  } finally { child?.kill("SIGKILL"); if (child) await child.exited; f.close(); }
+  } finally { monitor?.kill("SIGKILL"); if (monitor) await monitor.exited; child?.kill("SIGKILL"); if (child) await child.exited; f.close(); }
 }, 30_000);
 
 test.each(["running", "pausedFloor"])("small tmpfs brain: %s crosses the real statfs floor and permits Stop only", async mode => {
@@ -140,20 +152,20 @@ test("wall time uses the frozen policy independently of later edits and hard lim
 
 test("namespace freeze never signals the host or an unrelated worker", async () => {
   expect(() => createWorkerFreezer(process.pid), "SCOPE_HOST_NAMESPACE_REFUSED_BEFORE_SIGNAL").toThrow("verified private PID namespace");
-  const f = scopeFixture({ max_tool_calls: 1 }); let own: ReturnType<typeof f.worker> | undefined, neighbor: ReturnType<typeof launchAgentWorker> | undefined;
+  const f = scopeFixture({ max_tool_calls: 1 }), neighborBrain = mkdtempSync(join(tmpdir(), "odysseus-scope-neighbor-")); let own: ReturnType<typeof f.worker> | undefined, neighbor: ReturnType<typeof launchAgentWorker> | undefined;
   try {
     f.begin(); own = f.worker('while :; do printf x >> own-heartbeat; sleep 0.02; done');
-    neighbor = launchAgentWorker({ brainPath: f.brain, sandbox: prepareWorkerSandbox(f.brain, { profile: "governed", areas: [] }),
+    neighbor = launchAgentWorker({ brainPath: neighborBrain, sandbox: prepareWorkerSandbox(neighborBrain, { profile: "governed", areas: [] }),
       command: ["/bin/sh", "-c", 'while :; do printf x >> neighbor-heartbeat; sleep 0.02; done'], env: { PATH: "/usr/bin:/bin" } });
     neighbor.stdout.resume(); neighbor.stderr.resume(); neighbor.stdin.end();
-    await wait(() => Bun.file(join(f.brain, "own-heartbeat")).size > 0 && Bun.file(join(f.brain, "neighbor-heartbeat")).size > 0);
+    await wait(() => Bun.file(join(f.brain, "own-heartbeat")).size > 0 && Bun.file(join(neighborBrain, "neighbor-heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom");
-    const ownBytes = Bun.file(join(f.brain, "own-heartbeat")).size, neighborBytes = Bun.file(join(f.brain, "neighbor-heartbeat")).size;
+    const ownBytes = Bun.file(join(f.brain, "own-heartbeat")).size, neighborBytes = Bun.file(join(neighborBrain, "neighbor-heartbeat")).size;
     await Bun.sleep(100);
     expect(Bun.file(join(f.brain, "own-heartbeat")).size).toBe(ownBytes);
-    expect(Bun.file(join(f.brain, "neighbor-heartbeat")).size, "SCOPE_UNRELATED_NAMESPACE_STAYS_RUNNING").toBeGreaterThan(neighborBytes);
-    f.scope.decide(f.message("stop"), true); await own.exited;
-  } finally { own?.kill("SIGKILL"); neighbor?.kill("SIGKILL"); if (own) await own.exited; if (neighbor) await neighbor.exited; f.close(); }
+    expect(Bun.file(join(neighborBrain, "neighbor-heartbeat")).size, "SCOPE_UNRELATED_NAMESPACE_STAYS_RUNNING").toBeGreaterThan(neighborBytes);
+    expect(f.scope.decide(f.message("stop"), true).state, "SCOPE_UNRELATED_WORKER_STOP_ACKNOWLEDGED").toBe("accepted"); await own.exited;
+  } finally { own?.kill("SIGKILL"); neighbor?.kill("SIGKILL"); if (own) await own.exited; if (neighbor) await neighbor.exited; f.close(); rmSync(neighborBrain, { recursive: true, force: true }); }
 });
 
 test("failed freeze or resume stops the real worker, retains work and exposes an ended readback without a second effect", async () => {
@@ -177,3 +189,44 @@ test("failed freeze or resume stops the real worker, retains work and exposes an
     } finally { child?.kill("SIGKILL"); if (child) await child.exited; f.close(); }
   }
 });
+
+
+test("periodic capture resumes a productive worker and snapshot failure terminates its held worker", async () => {
+  for (const failCapture of [false, true]) {
+    const f = scopeFixture(); let child: ReturnType<typeof f.worker> | undefined;
+    try {
+      f.begin(); child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done');
+      await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
+      if (failCapture) {
+        // Actual non-root CAS publication fails on this owned read-only store.
+        // The worker must stay stopped after the observation window ends.
+        chmodSync(join(f.root, "objects"), 0o555);
+      }
+      let freezes = 0, resumes = 0;
+      let captureWitness: { before: number; after: number } | undefined;
+      if (!failCapture) f.journal.onObservation(() => {
+        const before = Bun.file(join(f.brain, "heartbeat")).size;
+        // Model a finite slow downstream observation consumer while the actual
+        // worker heartbeat independently runs or stays frozen.
+        Bun.sleepSync(200);
+        captureWitness = { before, after: Bun.file(join(f.brain, "heartbeat")).size };
+      });
+      const freeze = child.freeze, resume = child.resume;
+      child.freeze = () => { freeze(); freezes++; };
+      child.resume = () => { resume(); resumes++; };
+      await wait(() => failCapture ? freezes > 0 : captureWitness !== undefined, 16_000);
+      if (failCapture) {
+        await child.exited;
+        expect(resumes, "SCOPE_CAPTURE_FAILURE_NEVER_RESUMES_ENDED_WORKER").toBe(0);
+        expect(f.stopped).toContain("journal");
+        expect(f.journal.summary("voyage").state).toBe("partial");
+      } else {
+        expect(captureWitness!.after, "SCOPE_PERIODIC_CAPTURE_STOPS_PRODUCTIVE_WORKER").toBe(captureWitness!.before);
+        const before = Bun.file(join(f.brain, "heartbeat")).size;
+        await wait(() => Bun.file(join(f.brain, "heartbeat")).size > before);
+        expect(resumes, "SCOPE_PRODUCTIVE_OBSERVATION_RESUMES_ONLY_TEMPORARY_HOLD").toBe(1);
+        expect(f.journal.summary("voyage").scope!.receipts).toEqual([]);
+      }
+    } finally { child?.kill("SIGKILL"); if (child) await child.exited; chmodSync(join(f.root, "objects"), 0o700); f.close(); }
+  }
+}, 45_000);

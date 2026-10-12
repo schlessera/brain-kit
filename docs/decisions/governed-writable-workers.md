@@ -1109,6 +1109,13 @@ The monitor consumes the existing shared journal snapshots and the adapters'
 parent lifecycle. It confirms cgroup freeze where delegated, otherwise STOP/CONT
 of the verified worker namespace process tree. The trusted bubblewrap PID-1
 reaper stays responsive to parent death while agent processes are stopped.
+Periodic observation briefly freezes currently productive owned workers before
+retaining changed versions. It resumes only those temporary holds whose turn
+still has authority and has no cap pause; existing paused work never resumes.
+Capture failure ends held work. This keeps cold retention cost from delaying
+actual process freeze beyond the observation interval. The recorded observation
+time follows capture and may be later than actual freeze; it is not relabelled
+as the instant the writer stopped.
 A frozen snapshot records observed overshoot. Bytes count captured changed
 regular-file versions; snapshots do not capture overwritten intermediate writes,
 and incomplete snapshots never imply zero or complete coverage.

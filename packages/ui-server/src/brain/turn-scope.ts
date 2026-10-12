@@ -77,7 +77,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
       // No worker means no proven pause; fail closed, never claim nothing is running.
-      if (frozen) {
+      // A periodic snapshot was already taken after our confirmed hold.
+      if (frozen && !periodicHeld.has(turnId)) {
         turn.checking = true;
         try { options.journal.observe(); } finally { turn.checking = false; }
       }
@@ -99,13 +100,45 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     }
     save(turnId, turn);
   }
+  // Capture may synchronously retain many changed versions. Hold productive
+  // workers at the periodic deadline, before that cost, rather than freezing
+  // only after retention completes. Actual cap pauses stay held for user input.
+  const periodicHeld = new Map<string, { turn: Live; workers: Worker[] }>();
+  const periodic = {
+    before() {
+      for (const [turnId, turn] of active) {
+        if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
+        const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
+        for (const worker of turn.workers) { held.push(worker); worker.freeze(); }
+      }
+    },
+    after(completed: boolean) {
+      for (const { turn, workers } of periodicHeld.values()) {
+        // Storage/reporting may itself fail before the journal's stop callback.
+        // A failed capture never resumes a productive temporary hold.
+        if (!completed) {
+          for (const worker of workers) worker.kill("SIGKILL");
+          if (turn.current()) turn.stop("Scope observation failed; the turn stopped. Partial work remains.");
+          continue;
+        }
+        if (turn.summary.receipts.some(receipt => receipt.state === "paused") && turn.current()) continue;
+        if (!turn.current()) { for (const worker of workers) worker.kill("SIGKILL"); continue; }
+        try { for (const worker of workers) worker.resume(); }
+        catch (error) {
+          for (const worker of turn.workers) worker.kill("SIGKILL");
+          turn.stop(`The host could not resume the worker after scope observation; it stopped. Partial work remains. ${String(error)}`);
+        }
+      }
+      periodicHeld.clear();
+    },
+  };
   const unsubscribe = options.journal.onObservation((turnId, facts) => {
     const turn = active.get(turnId); if (!turn) return;
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn);
-  });
+  }, periodic);
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
       policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; stop: Live["stop"] }) {
