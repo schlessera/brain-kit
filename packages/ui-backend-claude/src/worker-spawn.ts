@@ -6,7 +6,7 @@ import { isAbsolute } from "node:path";
 import { createTurnTempPromoter, launchAgentWorker, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
-import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { wrapCommand, type ExecWrapperConfig, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { processStateLedger } from "./worker-state-budget.js";
@@ -91,6 +91,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   const turnTempLimits: WorkerStateLimits = stateOptions.turnTempLimits ?? resolveTurnTempLimits({});
   /** The running worker's turn temp, for the `turn_temp` tool and the pressure warnings. */
   let liveTurnTemp: WorkerStateHandle | undefined;
+  let observation: StateRoomObservation | undefined;
   /**
    * The first worker-state refusal or stop (#1625). The runtime only sees a
    * failed spawn or a write error, so the turn reports this instead.
@@ -110,6 +111,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     turnTempBytes: turnTempLimits.allowanceBytes,
     /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
     turnTempRoot: (): string | undefined => liveTurnTemp?.root,
+    stateRoom: (): StateRoomObservation | undefined => observation,
     /** The same, once the workers have exited or `waitMs` has passed. */
     async settledLimits(waitMs = 3_000): Promise<WorkerLimitReport> {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -133,7 +135,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
-        const populateState = (root: string) => state.populate(root);
+        const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
           // No host home exists in the envelope; runtime state is the fresh tmpfs.
           childEnv.HOME = WORKER_STATE;

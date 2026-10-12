@@ -70,7 +70,7 @@ export interface BackendRegistry {
   listUnavailableProviders(): Promise<UnavailableProfileInfo[]>;
   getPreferredProfileId(): Promise<string | null>;
   getBackendsInfo(): Promise<
-    Record<string, { id: string; capabilities: BackendCapabilities }>
+    Record<string, { id: string; capabilities: BackendCapabilities; stateRoomAllowance?: { bytes: number; observedAt: number } }>
   >;
   getModelSource(): Promise<ModelDiscoverySource | null>;
   invalidateProfiles(): void;
@@ -740,7 +740,8 @@ function makeRegistry(
       return Object.fromEntries(
         backends.map((backend) => [
           backend.id,
-          { id: backend.id, capabilities: backend.capabilities },
+          { id: backend.id, capabilities: backend.capabilities,
+            ...(backend.stateRoomAllowanceBytes !== undefined ? { stateRoomAllowance: { bytes: backend.stateRoomAllowanceBytes, observedAt: Date.now() } } : {}) },
         ])
       );
     },

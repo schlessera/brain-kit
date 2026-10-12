@@ -375,6 +375,8 @@ export const chatFrameHandlers = {
     context.state.setAskUserFormRequest(context.key, msg.requestId, formSpecFromInput({ prompt: msg.prompt, nodes: msg.nodes }), context.frameTurnId);
   },
   result: (msg, context) => {
+    if (context.key !== null && msg.stateRoom
+      && !["worker_state_busy", "session_too_large", "worker_state_exceeded"].includes(msg.failure?.errorClass ?? "")) context.state.setStateRoom(context.key, msg.stateRoom);
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);
@@ -422,6 +424,7 @@ export const chatFrameHandlers = {
       // pending reconnect resync so we don't redundantly re-fetch it, and
       // mark this session cold-resumed so idle-status handling doesn't loop.
       context.state.setMessages(context.key, converted);
+      if (context.key !== null) context.state.setStateRoom(context.key, msg.stateRoom, true);
       context.markHistoryReplaced(context.key);
     }
     if (context.key !== null) context.state.noteHistoryLoaded(context.key);

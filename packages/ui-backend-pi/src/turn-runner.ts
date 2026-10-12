@@ -68,7 +68,9 @@ export function createPiTurnRunner(
     // Scope every frame this turn emits to its session so a multiplexed client
     // can demux concurrent sessions. Follow-up frames flow through this same
     // emit (the subscription below stays live for the whole turn).
-    const emit = (msg: ServerMessage) => req.bridge.emit(scopeFrame(msg, sessionId));
+    const emit = (msg: ServerMessage) => req.bridge.emit(scopeFrame(msg.type === "result" && session.stateRoom
+      && !["worker_state_busy", "session_too_large", "worker_state_exceeded"].includes(msg.failure?.errorClass ?? "")
+      ? { ...msg, stateRoom: session.stateRoom } : msg, sessionId));
 
     // Bind this session's tool plumbing to the current turn's bridge/signal.
     turnContext.bridge = req.bridge;

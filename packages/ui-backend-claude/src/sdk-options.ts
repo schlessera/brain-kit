@@ -13,7 +13,7 @@ import type {
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
-import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
@@ -51,6 +51,7 @@ export interface ClaudeSdkTurn {
   workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
   /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
   workerFailure(): TurnFailure | undefined;
+  workerStateRoom(): import("@schlessera/brain-ui-sdk/protocol").StateRoomObservation | undefined;
   /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
   observeAnswerText(text: string): void;
 }
@@ -269,6 +270,17 @@ function assembleClaudeSdkTurn(
       log: (level, message) => log(level, message),
     }, { limits: stateLimits, turnTempLimits });
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
+  if (!req.autonomous) sdkOptions.hooks = {
+    ...sdkOptions.hooks,
+    UserPromptSubmit: [...(sdkOptions.hooks?.UserPromptSubmit ?? []), { hooks: [async () => {
+      const observation = worker.stateRoom();
+      return observation && stateRoomWarning(observation) ? { hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit" as const,
+        additionalContext: `${stateRoomCopy(observation)} Continue in a new conversation before it is full. This one stays available.`
+          + (req.posture === "voice" ? " This is a visual host notice only: do not speak it or treat it as a spoken grant." : ""),
+      } } : {};
+    }] }],
+  };
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
   let answerText = "";
   const turnTemp: TurnTempAccess = {
@@ -330,6 +342,7 @@ function assembleClaudeSdkTurn(
       : worker.finish,
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
     workerFailure: worker.failure,
+    workerStateRoom: worker.stateRoom,
     /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
     observeAnswerText: (text: string) => { answerText += text; },
     prompt:

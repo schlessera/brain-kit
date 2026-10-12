@@ -29,6 +29,15 @@
 import type { ImportedTrack, TrackFormat, TrackSummary } from "@schlessera/brain-geo";
 import type { AskUserFormSpec } from "./tool-contracts/form.js";
 import type { Block } from "./tool-contracts/blocks.js";
+export { stateRoomWarning, stateRoomCopy } from "./state-room.js";
+
+/** One host observation from actual resumed-state admission, never live free space. */
+export interface StateRoomObservation {
+  usedBytes: number;
+  allowanceBytes: number;
+  /** Server wall-clock milliseconds when these bytes were measured. */
+  observedAt: number;
+}
 
 export interface SessionScoped {
   sessionId?: string;
@@ -838,6 +847,8 @@ export interface ServerHello {
 export interface ServerSessionHistory extends SessionScoped {
   type: "session_history";
   messages: SessionHistoryMessage[];
+  /** Latest retained admission observation; replay is historical, not a new measurement. */
+  stateRoom?: StateRoomObservation;
   /**
    * Chunked replay: a large history is split into byte-bounded frames so one
    * oversized frame can't exceed the socket's per-message limit. The first
@@ -1107,6 +1118,8 @@ export interface ServerResultMessage {
   failure?: TurnFailure;
   /** Host-retained original request; absent when an exact retry is unavailable. */
   retryOfTurnId?: string;
+  /** This turn's actual admitted resumed-state observation; absent means unknown. */
+  stateRoom?: StateRoomObservation;
 }
 
 /**

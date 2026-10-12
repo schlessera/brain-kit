@@ -216,6 +216,10 @@ signatures (every public export and the types it is made of)
         getBackendsInfo(): Promise<Record<string, {
             id: string;
             capabilities: BackendCapabilities;
+            stateRoomAllowance?: {
+                bytes: number;
+                observedAt: number;
+            };
         }>>;
         getModelSource(): Promise<ModelDiscoverySource | null>;
         invalidateProfiles(): void;

@@ -42,7 +42,7 @@ content on scrolling screens; that exclusion constrains their alt text.
 
 ## Readiness includes the environment that produced the pixels
 
-Use the shared pin (`const IMAGE =`, `scripts/visual.mjs:50-50`)
+Use the shared pin (`const IMAGE =`, `scripts/visual.mjs:50`)
 and its matching installed dependency. D10's measured rendering differences
 make a host browser an inadequate replacement for the declared environment.
 The paper renderer (`async function looksRightOnPaper(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:179-184`)
@@ -65,7 +65,7 @@ define the captions, rather than a list of everything mounted in the DOM.
 
 ## Motion explains an input gesture
 
-The ranked-question source (`export const RankUntouched`, `packages/ui-kit/stories/decisions/AskUserRankCard.stories.tsx:34-34`)
+The ranked-question source (`export const RankUntouched`, `packages/ui-kit/stories/decisions/AskUserRankCard.stories.tsx:34`)
 uses the real component's local ordering. A captured pointer drag moves Circe's
 island from third to first while preserving all five choices and announcing
 the result. A short clip shows pickup and the changing drop position; before

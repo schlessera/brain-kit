@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:83-260`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-261`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:225-319`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:236-330`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

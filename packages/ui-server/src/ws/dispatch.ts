@@ -609,7 +609,7 @@ export async function handleClientMessage(
           host.reportSessionResume(msg.sessionId, "unauthorized");
           return;
         }
-        sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
+        sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages), host.catalog.readStateRoom?.(msg.sessionId));
         host.reportSessionResume(msg.sessionId, "loaded", { messages: messages.length });
         resumeReported = true;
         // The history just REPLACED this client's transcript, and with it any

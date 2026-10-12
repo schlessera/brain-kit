@@ -22,7 +22,7 @@ export { sharedFileMetaSchema } from "./track-schemas.js";
 
 import { z } from "zod";
 import { CONVERSATION_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
-import type { ThinkingLevel } from "./protocol.js";
+import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
 
@@ -1204,6 +1204,12 @@ const turnUsageSchema = modelUsageSchema.extend({
   perModel: z.record(z.string(), modelUsageSchema).optional(),
 }) satisfies z.ZodType<TurnUsage>;
 
+export const stateRoomObservationSchema = z.looseObject({
+  usedBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  allowanceBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  observedAt: z.number().int().nonnegative().max(8_640_000_000_000_000),
+}) satisfies z.ZodType<StateRoomObservation>;
+
 export const serverResultSchema = z.looseObject({
   type: z.literal("result"),
   sessionId: z.string().max(MAX_ID_CHARS),
@@ -1218,6 +1224,7 @@ export const serverResultSchema = z.looseObject({
   outcomeDetail: z.string().max(200).optional(),
   failure: turnFailureSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
+  stateRoom: stateRoomObservationSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
@@ -1257,6 +1264,7 @@ export const serverSessionHistorySchema = z.looseObject({
   type: z.literal("session_history"),
   messages: z.array(historyMessageSchema),
   append: z.boolean().optional(),
+  stateRoom: stateRoomObservationSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerSessionHistory>;
 

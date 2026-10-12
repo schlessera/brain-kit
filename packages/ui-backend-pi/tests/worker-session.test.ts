@@ -93,6 +93,19 @@ test("near-bound session with its growth reserve still runs", async () => {
   expect(bytes).toBeGreaterThan(12 * MiB);
   expect(bytes + sessionReserveBytes(bytes)).toBeLessThan(PI_PIPE_MAX_BYTES);
 });
+for (const bytes of [6 * MiB, 10 * MiB]) test(`resumed state observation and agent note share the unchanged admission payload (${bytes})`, async () => {
+  save(bytes);
+  const result = terminal(await turn());
+  const { sandboxNote, ...admissionInput } = receivedInit;
+  const payloadBytes = Buffer.byteLength(JSON.stringify(admissionInput) + "\n");
+  const usedBytes = payloadBytes + sessionReserveBytes(payloadBytes);
+  expect(result, "PI_STATE_ROOM_FROM_ADMISSION_INPUT").toHaveProperty("stateRoom", {
+    usedBytes, allowanceBytes: 16 * MiB, observedAt: expect.any(Number),
+  });
+  expect(sandboxNote.includes("This conversation is nearing its saved-state limit:")).toBe(bytes === 10 * MiB);
+  if (bytes === 10 * MiB) expect(sandboxNote).toContain("Continue in a new conversation before it is full. This one stays available.");
+  expect(launch).toHaveBeenCalledTimes(1);
+});
 test("initialization size includes native settings and UTF-8 bytes", async () => {
   save(1);
   mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
@@ -106,7 +119,9 @@ test("initialization size includes native settings and UTF-8 bytes", async () =>
 });
 test("snapshot overflow reaches the terminal TurnFailure", async () => {
   save(1); overflow = true;
-  expect(terminal(await turn())).toMatchObject({ outcome: "error", failure: { errorClass: "session_too_large" } });
+  const result = terminal(await turn());
+  expect(result).toMatchObject({ outcome: "error", failure: { errorClass: "session_too_large" } });
+  expect(result.stateRoom).toBeUndefined();
   expect(launch).toHaveBeenCalledTimes(1);
 });
 test("a turn's linked turn-temp file is promoted into scratch and the saved answer links the copy (#1655)", async () => {

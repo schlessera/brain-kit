@@ -125,6 +125,62 @@ one. The existing model-picker, session-menu and palette entries remain
 cross-backend shortcuts; recovery opens the sheet directly, including on a
 single-backend host.
 
+## Measured saved-state warning (#1679)
+
+The [2026-10-12 maintainer ruling](https://github.com/schlessera/brain-kit/issues/1679#issuecomment-6128049819)
+approved one dismissible notice beside the composer at the existing 75%
+threshold. Its copy is `This conversation is nearing its saved-state limit:
+{used MiB} of {allowance MiB} ({percent}%).` It follows with `Continue in a new
+conversation before it is full. This one stays available.` Both numbers,
+percentage, agent context and quiet history event derive from the same actual
+server observation. No second warning band or capacity change was selected.
+The common threshold and copy are (`stateRoomWarning`,
+`packages/ui-sdk/src/state-room.ts:4-6`) and (`stateRoomCopy`,
+`packages/ui-sdk/src/state-room.ts:9-13`). Claude observes the completed actual
+copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:199-220`);
+Pi retains its existing payload/reserve admission (`checkSessionSize`,
+`packages/ui-backend-pi/src/worker-protocol.ts:21-26`).
+
+The notice labels the measurement `As of the last turn` with its age, including
+historical/offline replay. Unknown measurements show no invented percentage.
+`Not now` persists dismissal for that session and allowance and returns focus
+to the composer. A known allowance change invalidates that dismissal and old
+ratio until a fresh measurement, even while another conversation is visible.
+Insertion takes no focus, and a newly displayed measured warning is announced
+once. During voice it is visual only, neither spoken nor a spoken grant.
+
+`Continue in a new conversation` opens the existing reviewed handoff with the
+source profile preferred. The warning itself runs no summary or destination
+turn. Opening the review retains R1's disclosed summary cost, cancellation,
+fallback and explicit destination start. Unavailable host/profile reasons stay
+disabled; active-reply/history failures follow the existing review. An actual
+size refusal takes precedence over the notice, and shared-budget busy keeps
+its distinct retry treatment. Nothing archives, purges or automatically sends.
+The notice's presentation and actions are (`StateRoomNotice`,
+`packages/ui-react/src/components/chat/state-room-notice.tsx:22-100`); the host
+keeps the measurement and first quiet event (`if (msg.type === "result") {`,
+`packages/ui-server/src/ws/bridge.ts:167-178`).
+
+### Historical state directories remain untouched
+
+The [second 2026-10-12 ruling on #1679](https://github.com/schlessera/brain-kit/issues/1679#issuecomment-6129069373)
+corrected the obsolete automatic-cleanup criterion. The
+[original host-directory writer](https://github.com/schlessera/brain-kit/blob/90d83d8705f190cd175554edf07e5207c9efb6e6/packages/ui-backend-claude/src/worker-state.ts)
+and [last writer before replacement](https://github.com/schlessera/brain-kit/blob/5c4ee702cceebf03009140beaa1bbb4b48b65813/packages/ui-backend-claude/src/worker-state.ts)
+created `brain-claude-state-*` without any ownership marker. Their removal
+authority was the creator's closure over its own exact path. The private-state
+replacement in `c41f1730ccc4303eee8a66187e68a2d9aceb2f84` removed that host-directory
+creation. Historical leftovers therefore remain unknown ownership and are
+retained. A new marker format cannot retroactively identify their dead owner.
+
+Current workers create no new legacy directory during creation, failed-start
+cleanup or normal cleanup. Runtime proof observes actual filesystem creation
+calls without listing a real installation, retains owned unknown-state fixtures,
+and checks admission release after both successful and failed runtime starts
+(`STATE_ROOM_NO_NEW_LEGACY_HOST_DIRECTORY`,
+`packages/ui-backend-claude/tests/state-room-warning.test.ts:54-56`). Capacity,
+saved-state authority and the private-mount lifecycle remain unchanged.
+
 ## Known limits
 
 - There is no file picker in the client yet; `+ add a file` takes a

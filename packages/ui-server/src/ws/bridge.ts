@@ -2,6 +2,7 @@ import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mas
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import { createHash } from "node:crypto";
+import { stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   ActivityQuery,
   BackendBridge,
@@ -165,6 +166,16 @@ export function makeBridge(
       }
       if (msg.type === "result") {
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
+        if (turn.turnId === turnId && msg.stateRoom && msg.failure?.errorClass !== "session_too_large"
+          && msg.failure?.errorClass !== "worker_state_exceeded" && msg.failure?.errorClass !== "worker_state_busy") {
+          catalog.recordStateRoom?.(msg.sessionId, msg.stateRoom);
+          if (stateRoomWarning(msg.stateRoom)) catalog.recordGovernanceEvent?.({
+            kind: "state_room_warning", sessionId: msg.sessionId, turnId,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null,
+            payload: { usedBytes: msg.stateRoom.usedBytes, allowanceBytes: msg.stateRoom.allowanceBytes, observedAt: msg.stateRoom.observedAt },
+            dedupeKey: `state-room:${backendId}:${msg.sessionId}:${msg.stateRoom.allowanceBytes}`,
+          });
+        }
         if (turn.turnId === turnId && msg.failure && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError))) {
           onTerminalFailure?.(msg.sessionId, msg.failure);
         }

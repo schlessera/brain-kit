@@ -1,4 +1,4 @@
-import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -197,7 +197,12 @@ export function createClaudeTurnRunner(options: {
     // session_info already carry their own sessionId; the spread is a no-op on
     // them.
     let sessionId: string | null = req.sessionId ?? null;
+    let workerStateRoom: (() => StateRoomObservation | undefined) | undefined;
     const emit = (msg: ServerMessage): void => {
+      const observation = msg.type === "result"
+        && !["worker_state_busy", "session_too_large", "worker_state_exceeded"].includes(msg.failure?.errorClass ?? "")
+        ? workerStateRoom?.() : undefined;
+      if (msg.type === "result" && observation) msg = { ...msg, stateRoom: observation };
       // The cast is safe: backends never emit the (unscoped) server_hello
       // frame, and every other ServerMessage accepts a sessionId.
       req.bridge.emit(sessionId !== null ? ({ ...msg, sessionId } as ServerMessage) : msg);
@@ -347,6 +352,7 @@ export function createClaudeTurnRunner(options: {
       });
       finishWorker = sdkTurn.finishWorker;
       workerFailure = sdkTurn.workerFailure;
+      workerStateRoom = sdkTurn.workerStateRoom;
       archiveEnv = sdkTurn.options.env;
       workerLimits = sdkTurn.workerLimits;
       observeAnswerText = sdkTurn.observeAnswerText;

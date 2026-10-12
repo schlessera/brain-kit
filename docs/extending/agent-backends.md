@@ -107,6 +107,8 @@ export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
   capabilities: BackendCapabilities;
+  /** Optional resolved admission allowance, for presentation only. */
+  stateRoomAllowanceBytes?: number;
   /** Model/endpoint profiles this backend can run. Never exposes keys. */
   listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
   /** Configured profiles that cannot run now, with a closed reason (#1044). */

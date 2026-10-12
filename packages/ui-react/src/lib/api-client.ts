@@ -191,6 +191,8 @@ export interface PricingState {
 /** Backend id + capability flags the client renders behavior from. */
 export interface BackendInfo {
   id: string;
+  /** Current intrinsic state allowance; absent is unknown, not zero. */
+  stateRoomAllowance?: { bytes: number; observedAt: number };
   capabilities: {
     concurrentSessions: boolean;
     followUp: boolean;

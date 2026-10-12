@@ -41,6 +41,16 @@ function sparse(id: string, size: number) {
   const fd = fs.openSync(join(saved, project, `${id}.jsonl`), "w");
   try { fs.ftruncateSync(fd, size); } finally { fs.closeSync(fd); }
 }
+test("the copied resumed snapshot reports the same measured bytes and admitted allowance", () => {
+  const allowance = 64 * 4096;
+  sparse(ID, 51 * 4096 - 4096);
+  const snapshot = state(ID, { allowanceBytes: allowance, budgetBytes: allowance });
+  expect(snapshot.observation).toBeUndefined();
+  snapshot.populate(tmpfs());
+  expect(snapshot.observation, "STATE_ROOM_MEASURED_FROM_ADMISSION_COPY").toEqual({
+    usedBytes: 51 * 4096, allowanceBytes: allowance, observedAt: expect.any(Number),
+  });
+});
 test("only a resumed session is copied, regardless of other large transcripts", () => {
   put(ID, "Odysseus\n"); sparse(OTHER, 339 * MiB);
   fs.mkdirSync(join(saved, project, ID)); fs.writeFileSync(join(saved, project, ID, "agent.jsonl"), "Athena\n");

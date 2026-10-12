@@ -1,4 +1,4 @@
-import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { SessionHistoryMessage, StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { type WSContext, sendTo } from "./clients.js";
 import { HISTORY_CHUNK_BYTES, jsonBytes, shrinkForReplication } from "./shrink.js";
 
@@ -18,10 +18,11 @@ import { HISTORY_CHUNK_BYTES, jsonBytes, shrinkForReplication } from "./shrink.j
 export function sendSessionHistory(
   ws: WSContext,
   sessionId: string,
-  messages: SessionHistoryMessage[]
+  messages: SessionHistoryMessage[],
+  stateRoom?: StateRoomObservation,
 ): void {
   if (messages.length === 0) {
-    sendTo(ws, { type: "session_history", sessionId, messages: [] });
+    sendTo(ws, { type: "session_history", sessionId, messages: [], ...(stateRoom ? { stateRoom } : {}) });
     return;
   }
 
@@ -33,6 +34,7 @@ export function sendSessionHistory(
       type: "session_history",
       sessionId,
       messages: batch,
+      ...(isFirst && stateRoom ? { stateRoom } : {}),
       ...(isFirst ? {} : { append: true }),
     });
     isFirst = false;

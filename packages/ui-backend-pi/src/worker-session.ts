@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { getAgentDir, SessionManager, CURRENT_SESSION_VERSION, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
@@ -76,8 +77,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const turnTempLimits = resolveTurnTempLimits({ ...backend.turnTemp,
     names: { allowance: "turnTemp.allowanceBytes", budget: "turnTemp.budgetBytes" } });
   let reservation: Reservation | undefined;
+  let admissionObservation: StateRoomObservation;
   try {
-    checkSessionSize(init);
+    admissionObservation = checkSessionSize(init);
     requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
     // Admitted against the same per-process ledger as Claude workers; a busy
     // budget refuses as worker_state_busy before anything launches.
@@ -103,6 +105,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined)] });
+    if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
+      sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
+    }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       command: [process.execPath, entry], env: workerEnv, sandbox, limits,
@@ -415,6 +420,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }
   const session: PiSessionLike = {
+    ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
     sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },
     getAvailableThinkingLevels: () => levels,
     setThinkingLevel(level) { thinkingLevel = level; send({ type: "thinking", level }); },

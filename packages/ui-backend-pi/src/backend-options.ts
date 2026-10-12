@@ -18,6 +18,8 @@ import type { TurnContext } from "./turn-context.js";
  * surface for the cross-backend contract tests (no live model needed).
  */
 export interface PiSessionLike {
+  /** Production worker's actual admitted resumed-state observation; absent in older doubles. */
+  readonly stateRoom?: import("@schlessera/brain-ui-sdk/protocol").StateRoomObservation;
   readonly sessionId: string;
   /** Native effort surface; optional only for older injected test sessions. */
   readonly model?: Model<any>;

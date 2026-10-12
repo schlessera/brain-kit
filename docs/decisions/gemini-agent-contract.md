@@ -35,7 +35,7 @@ The shared `renderContractBlock` normalizes only whitespace surrounding the
 installed body (`renderContractBlock`,
 `packages/core/src/lib/skills/emitters/contract-block.ts:12-21`). The installed
 file has the same relative location from source and built emitters
-(`CONTRACT_FILE`, `packages/core/src/lib/skills/emitters/contract-block.ts:9-9`).
+(`CONTRACT_FILE`, `packages/core/src/lib/skills/emitters/contract-block.ts:9`).
 Changing the installed body changes the next generated block; an identical
 result causes no write.
 

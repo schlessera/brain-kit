@@ -290,6 +290,7 @@ export "." (./src/index.ts)
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
+  type StateRoomObservation
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -324,6 +325,8 @@ export "." (./src/index.ts)
   isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
+  stateRoomCopy
+  stateRoomWarning
   subscriptionAuthAction
   sumModelUsage
 
@@ -700,6 +703,7 @@ export "./client" (./src/client/index.ts)
   type ShowBlockInput
   type ShowBlockPayload
   type SpeechCapabilities
+  type StateRoomObservation
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -760,6 +764,8 @@ export "./client" (./src/client/index.ts)
   planPlaces
   registerAsrClient
   registerToolRenderers
+  stateRoomCopy
+  stateRoomWarning
   subscriptionAuthAction
   sumModelUsage
   toolBriefLines
@@ -1215,6 +1221,7 @@ export "./protocol" (./src/protocol.ts)
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
+  type StateRoomObservation
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -1249,6 +1256,8 @@ export "./protocol" (./src/protocol.ts)
   isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
+  stateRoomCopy
+  stateRoomWarning
   subscriptionAuthAction
   sumModelUsage
 
@@ -1390,6 +1399,7 @@ export "./schemas" (./src/schemas.ts)
   sessionDraftLimitsSchema
   sessionRecoverySchema
   sharedFileMetaSchema
+  stateRoomObservationSchema
   v1ResolutionEffectSchema
   validateResolutionEffect
 
@@ -1843,6 +1853,7 @@ export "./server" (./src/server/index.ts)
   type SpeechSession
   SpeechTranscriptionError
   type StartTurnRequest
+  type StateRoomObservation
   type SubprocessEnvAudience
   type SubscriptionAuthAction
   type SurfaceTools
@@ -1959,6 +1970,8 @@ export "./server" (./src/server/index.ts)
   rtkRewriteCommand
   signedArea
   simplify
+  stateRoomCopy
+  stateRoomWarning
   stitch
   subscriptionAuthAction
   sumModelUsage
@@ -2811,6 +2824,7 @@ signatures (every public export and the types it is made of)
     export interface AgentBackend {
         id: string;
         capabilities: BackendCapabilities;
+        stateRoomAllowanceBytes?: number;
         listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
         listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
         brainApplicationPolicy?(req: Pick<StartTurnRequest, "profileId" | "posture" | "autonomous" | "noGrantSurface" | "enforceAllowedTools">): import("./brain-application.js").BrainApplicationPolicy;
@@ -8248,6 +8262,7 @@ signatures (every public export and the types it is made of)
         outcomeDetail?: string;
         failure?: TurnFailure;
         retryOfTurnId?: string;
+        stateRoom?: StateRoomObservation;
     }
   ServerRetryReceipt (packages/ui-sdk/src/protocol.ts)
     export interface ServerRetryReceipt extends SessionScoped {
@@ -8266,6 +8281,7 @@ signatures (every public export and the types it is made of)
     export interface ServerSessionHistory extends SessionScoped {
         type: "session_history";
         messages: SessionHistoryMessage[];
+        stateRoom?: StateRoomObservation;
         append?: boolean;
     }
   ServerSessionInfo (packages/ui-sdk/src/protocol.ts)
@@ -8590,6 +8606,12 @@ signatures (every public export and the types it is made of)
         noGrantSurface?: boolean;
         posture?: "voice";
         turnId?: string;
+    }
+  StateRoomObservation (packages/ui-sdk/src/protocol.ts)
+    export interface StateRoomObservation {
+        usedBytes: number;
+        allowanceBytes: number;
+        observedAt: number;
     }
   StoredShare (packages/ui-sdk/src/client/share-store.ts)
     export interface StoredShare {
@@ -13447,6 +13469,11 @@ signatures (every public export and the types it is made of)
         outcomeDetail: z.ZodOptional<z.ZodString>;
         retryOfTurnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         sessionId: z.ZodString;
+        stateRoom: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            allowanceBytes: z.ZodNumber;
+            observedAt: z.ZodNumber;
+            usedBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         type: z.ZodLiteral<"result">;
         usage: z.ZodOptional<z.ZodObject<{
             cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
@@ -13921,6 +13948,11 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
         sessionId: z.ZodOptional<z.ZodString>;
+        stateRoom: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            allowanceBytes: z.ZodNumber;
+            observedAt: z.ZodNumber;
+            usedBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"session_history">;
     }, z.core.$loose>, z.ZodObject<{
@@ -15512,6 +15544,11 @@ signatures (every public export and the types it is made of)
         outcomeDetail: z.ZodOptional<z.ZodString>;
         retryOfTurnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         sessionId: z.ZodString;
+        stateRoom: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            allowanceBytes: z.ZodNumber;
+            observedAt: z.ZodNumber;
+            usedBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         type: z.ZodLiteral<"result">;
         usage: z.ZodOptional<z.ZodObject<{
             cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
@@ -15959,6 +15996,11 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
         sessionId: z.ZodOptional<z.ZodString>;
+        stateRoom: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            allowanceBytes: z.ZodNumber;
+            observedAt: z.ZodNumber;
+            usedBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"session_history">;
     }, z.core.$loose>;
@@ -16173,6 +16215,16 @@ signatures (every public export and the types it is made of)
     const sharedFileMetaSchema: z.ZodType<SharedFileMeta>;
   signedArea (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   simplify (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  stateRoomCopy (packages/ui-sdk/src/state-room.ts)
+    export function stateRoomCopy(observation: StateRoomObservation): string;
+  stateRoomObservationSchema (packages/ui-sdk/src/schemas.ts)
+    const stateRoomObservationSchema: z.ZodObject<{
+        allowanceBytes: z.ZodNumber;
+        observedAt: z.ZodNumber;
+        usedBytes: z.ZodNumber;
+    }, z.core.$loose>;
+  stateRoomWarning (packages/ui-sdk/src/state-room.ts)
+    export function stateRoomWarning(observation: StateRoomObservation): boolean;
   stitch (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   subscriptionAuthAction (packages/ui-sdk/src/protocol.ts)
     export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction;
