@@ -272,6 +272,7 @@ signatures (every public export and the types it is made of)
         }): Promise<BrainAddResult>;
         index(opts?: {
             force?: boolean;
+            lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
         }): Promise<void>;
         validate(): Promise<string>;
         skillsSync(): Promise<string>;
@@ -415,6 +416,7 @@ signatures (every public export and the types it is made of)
     }
   CreateAppOptions (packages/ui-server/src/app.ts)
     export interface CreateAppOptions {
+        workerProfile?: "governed" | "strict";
         versionRequirements?: HostVersionRequirements;
         config?: ServerConfig;
         staticRoot?: string;

@@ -2930,3 +2930,7 @@ ordinary turns. Autonomous turns remain restricted. Server application tools
 keep their approvals and exact-base semantics. Snapshot consumers execute
 configuration from complete read-only startup views with a separate validated
 write path, as ruled on #1649. Internal launch/request fields remain internal.
+
+Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
+(`WsHost.workerLock`) are internal wiring. They do not extend the supported
+embedder surface of `WsHost`; generated API reports retain that classification.

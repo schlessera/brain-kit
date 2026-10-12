@@ -850,6 +850,7 @@ export "./internal" (./src/internal.ts)
   type WorkerProfile
   WorkerResourceLimitError
   type WorkerSandbox
+  type WorkerStartupView
   WorkerStateConfigError
   WorkerStateError
   type WorkerStateErrorClass
@@ -867,6 +868,7 @@ export "./internal" (./src/internal.ts)
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
+  createWorkerStartupView
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -878,6 +880,7 @@ export "./internal" (./src/internal.ts)
   limitFailureMessage
   linkedTurnTempPaths
   loadedSdkIdentity
+  maintenanceGitEntry
   maintenanceLaunch
   mergeLimitReports
   mib
@@ -886,6 +889,7 @@ export "./internal" (./src/internal.ts)
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareWorkerOutput
   prepareWorkerSandbox
   probeMaintenanceWorker
   probeWorkerHost
@@ -897,6 +901,7 @@ export "./internal" (./src/internal.ts)
   requireWorkerHost
   resolveTurnTempLimits
   resolveWebSearchConfigPath
+  resolveWorkerProtection
   resolveWorkerStateLimits
   restrictedReadPaths
   runMaintenanceWorker
@@ -5374,6 +5379,10 @@ signatures (every public export and the types it is made of)
         readonly description: "Resource limits for each agent worker, as comma-separated name=value pairs over the defaults: processes, data, file_size and open_files (rlimits), memory, pids and cpu (the per-worker cgroup, when the host delegates one), and cgroup=on|off. Sizes take KiB, MiB, GiB or TiB; `unlimited` turns one limit off. A malformed entry refuses agent turns and names the entry. See docs/hosting/agent-workers.md#resource-limits.";
         readonly name: "BRAIN_UI_WORKER_LIMITS";
         readonly required: false;
+    }, {
+        readonly description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.";
+        readonly name: "BRAIN_MAINTENANCE_GIT";
+        readonly required: "trusted maintenance Git adapter only";
     }];
   EXEC_KILLER_ENV (packages/ui-sdk/src/server/exec-wrapper.ts)
     const EXEC_KILLER_ENV: "BRAIN_UI_EXEC_KILLER";
@@ -5496,6 +5505,15 @@ signatures (every public export and the types it is made of)
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
         hostExecution: "worker" | "host";
+        profile?: "governed" | "strict";
+        protectedPaths?: Array<{
+            path: string;
+            mode: "read_only" | "mask_file" | "mask_directory" | "absent";
+            reason: string;
+        }>;
+        profileFallback?: string;
+        identity?: "shared_uid";
+        configurationView?: "live" | "startup";
     } & ({
         available: true;
     } | {
