@@ -112,8 +112,12 @@ export function SearchPanel({
     setState("idle");
     setSelected(0);
     // Focus after the slide-in starts; focusing mid-transform fights the
-    // mobile keyboard on some browsers.
-    const t = setTimeout(() => inputRef.current?.focus(), 120);
+    // mobile keyboard on some browsers. The user may already have moved to
+    // another control by then; opening focus must not replace that choice.
+    const openingFocus = document.activeElement;
+    const t = setTimeout(() => {
+      if (document.activeElement === openingFocus) inputRef.current?.focus();
+    }, 120);
     return () => { clearTimeout(t); cancelSearch(); };
   }, [open, cancelSearch, api]);
 
