@@ -45,6 +45,7 @@ const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> }
   strict_fallback: { path: ".claude/settings.json", reason: "symlink" },
   revert_conflict: { conflicts: [{ path: "notes/penelope-loom.md", state: "changed" }], restored: 3 },
   outward_action: { tool: "Bash", input: "gh issue comment 12 --body 'Home soon'", inputTruncated: false, action: "gh_write", target: "github.com", historyRewrite: false, tainted: false, decision: "approved", rule: null },
+  steering_change: { path: "AGENTS.md", sequence: 1, beforeHash: null, afterHash: null, taintSourceEventId: null, overlappingTurnIds: [] },
   taint: { source: "web_fetch", tool: "WebFetch", detail: "https://sirens.example/song" },
   provider_unavailable: { provider: "openai", capability: "embeddings", command: "brain search \"Ithaca harbor\"", degradedTo: "keyword_search" },
   resource_limit: { limits: [{ limit: "pids", source: "cgroup", value: 512, events: 3 }], fatal: false },

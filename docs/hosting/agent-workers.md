@@ -504,6 +504,46 @@ voice profile; dictation remains interactive. Autonomous turns do not load this
 policy. Check an edit with `brain policy check --json`; a valid check does not
 imply budget, scope, network, outward or provider enforcement is active.
 
+## Per-turn scope caps (#1670)
+
+Hosted interactive turns use the frozen admitted policy's scope fields. Built-in
+caps are 500 tool calls, 120 wall minutes, 1,000 distinct observed changed paths
+and 4 GiB of captured changed regular-file versions. Calls/time derive from the
+recorded distribution; file/byte defaults are provisional maintainer choices,
+not measurements. Explicit policy values override them. The existing independent
+host timeout, resource limits and bounded storage still apply, including paused
+time; the picker and capabilities note state the actual enforced inputs.
+
+The shared raw journal observes each tool completion and every 15 seconds,
+including brain, scratch and workspaces, and the monitor reads `statfs` at each
+observation. It freezes a running worker on a reached cap or below free space
+max(5% of filesystem capacity, 2 GiB). A delegated cgroup confirms its freezer;
+otherwise the parent verifies the worker PID namespace and stops its process
+tree. The trusted namespace reaper remains alive to handle host death; agent
+processes and descendants stop. No host execution fallback or unrelated signals
+are used. A final frozen snapshot records the observed count and overshoot.
+Snapshots cannot capture intermediate writes overwritten before observation;
+missing data remains unknown and overlapping writers share attribution.
+
+Interactive work waits on the existing in-turn Continue/Stop card. Continue
+adds exactly the original cap once for that dimension in this turn; the exact
+new ceiling is displayed first. A second hit for that dimension permits Stop
+only. Other dimensions retain independent grants. The disk floor permits Stop
+only, including when another writer crosses the floor during an existing pause.
+The newest floor pause replaces the active Continue control without granting it.
+True voice stops without granting; dictation remains interactive. Pi
+continues to refuse true voice admission because it declares no voice posture.
+Autonomous Queue limits are unchanged.
+
+A paused worker stays paused while an authorized client that can answer for its
+session is connected. After 30 minutes with none connected it stops; independent
+hard limits can end it sooner. Reconnection never resumes it automatically.
+Restart ends the worker and records an interrupted receipt, preserving partial
+work and retained journal observations. Decisions/readback require current
+approval authority and exact event/turn/session identities; retries have one
+effect and another device's answer is reported. Scope facts use the same single
+turn disclosure as changes and cost, without a new destination or control cache.
+
 ## The restricted envelope for autonomous turns (#676)
 
 `runAutonomousTurn` sends every autonomous turn with

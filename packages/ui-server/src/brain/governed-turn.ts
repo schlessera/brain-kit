@@ -64,7 +64,7 @@ export function createGovernedTurns(options: {
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });
-        const sandbox = { ...resolved, commandPolicy,
+        const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
           ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);

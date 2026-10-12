@@ -162,6 +162,7 @@ export function createJournalWalker(brain: string, store: JournalSnapshotObjects
     return result;
   }
   return {
+    cover(paths: readonly string[]): void { for(const path of paths) initiallyCovered.add(path); },
     begin(): JournalSnapshot { if (started) throw new Error("journal walk already started"); const snapshot = take(); started = true; return snapshot; },
     observe(): JournalSnapshot { if (!started) throw new Error("journal walk not started"); return take(); },
   };

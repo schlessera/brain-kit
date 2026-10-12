@@ -424,6 +424,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     // So do local exchange results (#582): one names its message by exchange
     // id, wherever that message is, and it says nothing about run state.
     if (
+      msg.type === "scope_decision_receipt" ||
       msg.type === "server_hello" ||
       msg.type === "activity_snapshot" ||
       msg.type === "activity_delta" ||
@@ -487,7 +488,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       // `message_links` may (#1698); neither may reopen a finished session
       // or touch a queued follow-up that may already be running, so they
       // take no part in run state.
-      if (msg.type !== "message_blocks" && msg.type !== "message_links" && msg.type !== "turn_journal" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
+      if (msg.type !== "message_blocks" && msg.type !== "message_links" && msg.type !== "turn_journal" && msg.type !== "usage" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
         state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
       }
     }

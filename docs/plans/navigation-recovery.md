@@ -365,11 +365,11 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:651-658`).
 
-- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:1053-1069`).
+- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:1055-1071`).
 
 - Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:180-235`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2062-2071`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2069-2078`).
 
 - Composer draft/acknowledgement: [`const [input, setInput] = useState("");`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62-L85), before #951 moved the draft into the root's draft store (`stores/draft-state.ts`).
 
@@ -377,31 +377,31 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:79-90`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:461-535`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:462-536`).
 
-- History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:422-433`).
+- History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:436-447`).
 
 - Single background drawer row: [`const backgroundSessionId =`](https://github.com/schlessera/brain-kit/blob/ea8506b0eb511a3e16dba685d250d34e5340afa4/packages/ui-react/src/components/chat/session-drawer.tsx#L59-L60), before #950 replaced it with the Working group.
 
 - Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:126-192`).
 
-- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:593-654`).
+- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:600-661`).
 
 - Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:255-294`).
 
-- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1556-1572`).
+- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1563-1579`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:126-127`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:128-129`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2896-2919`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2903-2926`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:142-275`).
 
-- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:714`).
+- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:722`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:754-798`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:835-879`).
 
-- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1194-1224`).
+- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1196-1226`).
 
 ## Bounded follow-up ownership
 

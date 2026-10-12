@@ -37,7 +37,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { killWrapped } from "@schlessera/brain-ui-sdk/server";
-import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
 import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
@@ -195,6 +195,8 @@ export interface BrainToolDeps {
   /** Worker shell writes stay in fresh scratch; never a privileged cwd. */
   shellCwd?: string;
   directWrites?: boolean;
+  /** Trusted worker entry reports observation phases; it never supplies a hash or grant. */
+  nativeFileObservation?: (phase: "read_start" | "read_end" | "write_check" | "write_end", path: string, toolCallId: string) => Promise<void>;
   brain: BrainAccess;
   turn: TurnContext;
   /**
@@ -326,13 +328,13 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   };
 
   const bases = new WeakMap<BackendBridge, Map<string, string>>();
-  const directBases = new Map<string, string>();
+  const directBases = new NativeFileVersions();
   const rememberBase = (path: string, raw: string): string =>
     rememberHash(path, createHash("sha256").update(raw, "utf8").digest("hex"));
   // The receipt is always a whole-document hash: a paged brain_read_base
   // remembers the server's hash, never one recomputed from its page.
   const rememberHash = (path: string, hash: string): string => {
-    if (deps.directWrites) directBases.set(resolveOrThrow(path), hash);
+    if (deps.directWrites) directBases.remember(resolveOrThrow(path), hash);
     if (turn.bridge?.applyBrain) {
       let entries = bases.get(turn.bridge);
       if (!entries) { entries = new Map(); bases.set(turn.bridge, entries); }
@@ -341,11 +343,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     return hash;
   };
   const assertDirectBase = (abs: string): void => {
-    if (!deps.directWrites) return;
-    let hash: string | undefined;
-    try { hash = createHash("sha256").update(readFileSync(abs)).digest("hex"); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    if (hash !== directBases.get(abs)) throw new Error("File changed since you read it; read it again before writing.");
+    if (!deps.directWrites || !directBases.hasObservation(abs)) return;
+    const refusal = directBases.check(abs, nativeFileVersion(abs));
+    if (refusal) throw new Error(refusal);
   };
   const read_file = {
     name: "read_file",
@@ -357,9 +357,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     }),
     async execute(_id: string, params: { path: string }) {
       const abs = resolveOrThrow(params.path);
-      const raw = readFileSync(abs, "utf-8");
-      const hash = rememberBase(params.path, raw);
-      return textResult(clip(raw, MAX_READ_BYTES), { path: params.path, ...(turn.bridge?.applyBrain ? { expectedBaseHash: hash } : {}) });
+      await deps.nativeFileObservation?.("read_start", params.path, _id);
+      const bytes = readFileSync(abs);
+      await deps.nativeFileObservation?.("read_end", params.path, _id);
+      const hash = rememberHash(params.path, createHash("sha256").update(bytes).digest("hex"));
+      return textResult(clip(bytes.toString("utf-8"), MAX_READ_BYTES), { path: params.path, ...(turn.bridge?.applyBrain ? { expectedBaseHash: hash } : {}) });
     },
   } satisfies ToolDefinition;
 
@@ -486,11 +488,13 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // in parallel. Approval (when the gate requires one) already happened
       // in the tool_call event.
       const abs = resolveOrThrow(params.path);
-      return lock.withKey(`path:${abs}`, () => {
+      return lock.withKey(`path:${abs}`, async () => {
+        await deps.nativeFileObservation?.("write_check", params.path, _id);
         assertDirectBase(abs);
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, params.content, "utf-8");
         rememberBase(params.path, params.content);
+        await deps.nativeFileObservation?.("write_end", params.path, _id);
         return textResult(`Wrote ${params.content.length} bytes to ${params.path}.`, {
           path: params.path,
         });
@@ -514,7 +518,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     ) {
       // Read-modify-write is atomic under the file's own lock key.
       const abs = resolveOrThrow(params.path);
-      return lock.withKey(`path:${abs}`, () => {
+      return lock.withKey(`path:${abs}`, async () => {
+        await deps.nativeFileObservation?.("write_check", params.path, _id);
         assertDirectBase(abs);
         const raw = readFileSync(abs, "utf-8");
         const occurrences = raw.split(params.old_string).length - 1;
@@ -526,6 +531,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         }
         writeFileSync(abs, raw.replace(params.old_string, params.new_string), "utf-8");
         rememberBase(params.path, raw.replace(params.old_string, params.new_string));
+        await deps.nativeFileObservation?.("write_end", params.path, _id);
         return textResult(`Edited ${params.path}.`, { path: params.path });
       });
     },

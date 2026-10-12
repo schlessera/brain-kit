@@ -436,3 +436,48 @@ refusal states and recovery behavior are specified in the
 The governance event API additionally accepts/returns `policy_change` with
 request id, exact base/proposed hashes, changed sections and updated outcome,
 with actor `user`.
+
+
+### Steering observations (additive, #1658)
+
+Journal details may add `tainted: true` and `taintSourceEventId` to a steering
+change only when an existing taint record preceded the observation in that
+session or turn. The ID is retained with the change; replay never derives it
+from later events. A missing flag is not a claim that untrusted-input coverage
+is complete. Policy changes remain class `policy`, with user attribution, and
+are excluded from `steeringFiles`.
+
+The governance event API accepts/returns `steering_change`, version 1, with
+`path`, journal `sequence`, nullable `beforeHash`/`afterHash`, nullable
+`taintSourceEventId`, and `overlappingTurnIds`. It records an observation, not
+an exclusive writer or per-write interception. Configuration inventory that
+cannot identify a retained local input is named in journal `missing` with
+`configuration_inputs_not_fully_identified`; raw-version availability remains
+independent of that classification limitation.
+
+
+### Observed shared-window conflicts (additive, #1659)
+
+`TurnJournalChange.conflict` may contain `versions` and `latest`, each an
+explicit retained `{ turnId, sequence, side: "after" }` observation reference.
+The host marks a conflict only after two distinct after-version identities were
+observed in a shared window. A single version with overlap remains shared
+attribution, not a conflict or an exclusive writer claim. Raw versions
+superseded between observations remain unrecoverable.
+
+Existing user `/revert` POST and `createBrainApi.turnRevert` additionally accept
+`keep_version` or `keep_both`, `path`, `version`, `expected`, and (for keep both)
+`otherVersion`. All references must belong to that path's original retained
+turn; `expected` names its reviewed latest observation. At application the
+actual raw state must still match; later work is skipped. The durable operation
+identity includes the selected references. Receipt `resolution` preserves them;
+Check again never repeats an effect or revives authority.
+
+Keep both creates the other regular-file version with exclusive creation beside
+the selected file, using sync-style `-remote.md`, `-remote-2.md` naming (for other
+suffixes, `-remote` follows the whole name). Existing names are never overwritten.
+The generated sibling receives explicit journal coverage and index refresh.
+Both effects remain user journal entries, with existing conflict-safe Undo.
+Partial writes or unavailable storage remain partial/unknown, not an atomic
+merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
+and cross-session restrictions remain binding.

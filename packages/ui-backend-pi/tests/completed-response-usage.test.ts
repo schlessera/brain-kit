@@ -29,3 +29,29 @@ for (const reason of ["aborted", "error"] as const) test(`pi excludes ${reason} 
   expect(receipts[1]).toMatchObject({ atToolBoundary: false, usage: { inputTokens: 10, outputTokens: 5 } });
   expect(receipts[2]).toMatchObject({ atToolBoundary: false, usage: { inputTokens: 10, outputTokens: 5 } });
 });
+
+
+test("ordinary Pi turns emit general completed usage and never count terminal redelivery or aborted partials twice", async () => {
+  const events: BackendActivityEvent[] = [];
+  let listener: (event: AgentSessionEvent) => void = () => {};
+  const message = { role: "assistant", model: "odysseus-model", stopReason: "toolUse", content: [],
+    usage: { input: 10, output: 5, cacheRead: 20, cacheWrite: 3, cost: { total: 0.1 } } };
+  const event = (type: string, value = message) => ({ type, message: value } as unknown as AgentSessionEvent);
+  const session: PiSessionLike = { sessionId: "ithaca", subscribe: fn => { listener = fn; return () => {}; },
+    async prompt() {
+      listener(event("message_end"));
+      listener({ type: "turn_end", message } as unknown as AgentSessionEvent);
+      listener(event("message_start", { ...message, stopReason: "stop" }));
+      listener(event("message_end", { ...message, stopReason: "aborted", usage: { ...message.usage, input: 100 } }));
+    }, abort: async () => {}, getSessionStats: () => ({ cost: 0 }), dispose() {} };
+  const pool = createSessionPool({ newSession: async () => ({ session, turnContext: createTurnContext() }),
+    openSession: async () => { throw Error("No fixture resume"); } });
+  try {
+    await createPiTurnRunner(pool, { brainPath: "/brain" })({ prompt: "Odysseus reviews the harbor.", signal: new AbortController().signal,
+      bridge: { emit() {}, activity: event => events.push(event), requestPermission: async () => ({ behavior: "deny", message: "No fixture authority" }) } });
+    const receipts = events.filter(event => String(event.kind) === "usage");
+    expect(receipts.length, "BUDGET_PI_GENERAL_COMPLETED_RECEIPT").toBeGreaterThan(0);
+    expect(receipts.at(-1)).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 } });
+    expect(events.filter(event => event.kind === "autonomous_usage")).toEqual([]);
+  } finally { session.dispose(); }
+});

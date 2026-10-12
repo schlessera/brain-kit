@@ -99,7 +99,9 @@ function scriptedBackend(): AgentBackend {
       }
       return structuredClone(transcripts.get(sessionId) ?? []);
     },
-    async startTurn({ prompt, bridge, sessionId: resumed, signal, attachments }) {
+    async startTurn({ prompt: contextPrompt, bridge, sessionId: resumed, signal, attachments }) {
+      // Route the fixture command independently of appended host budget context.
+      const prompt = contextPrompt.split("\n", 1)[0]!;
       const sessionId = resumed ?? `odysseus-continuity-${++sequence}`;
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
       if (!titles.has(sessionId)) titles.set(sessionId, title);

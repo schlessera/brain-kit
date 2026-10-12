@@ -902,7 +902,9 @@ test("governed direct writes refuse a peer's change since the session read", asy
       directWrites: true, lock: toolLockFromKeyed(createKeyedLock()) }));
     writeFileSync(join(brain.root, "loom.md"), "Penelope before the read.");
     await tools.read_file.execute("read", { path: "loom.md" }, undefined, undefined, CTX);
-    writeFileSync(join(brain.root, "loom.md"), "Penelope from the other session.");
+    const peer = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn: createTurnContext(),
+      directWrites: true, lock: toolLockFromKeyed(createKeyedLock()) }));
+    await peer.edit_file.execute("peer-edit", { path: "loom.md", old_string: "before the read", new_string: "from the other session" }, undefined, undefined, CTX);
     for (const name of ["write_file", "edit_file"] as const) {
       const input = name === "write_file" ? { path: "loom.md", content: "overwritten" }
         : { path: "loom.md", old_string: "Penelope", new_string: "Odysseus" };
@@ -912,5 +914,19 @@ test("governed direct writes refuse a peer's change since the session read", asy
     await tools.read_file.execute("reread", { path: "loom.md" }, undefined, undefined, CTX);
     await tools.edit_file.execute("edit", { path: "loom.md", old_string: "Penelope", new_string: "Odysseus" }, undefined, undefined, CTX);
     expect(readFileSync(join(brain.root, "loom.md"), "utf8")).toBe("Odysseus from the other session.");
+  } finally { brain.cleanup(); }
+});
+
+test("governed native writes keep the approved never-read behavior for existing paths", async () => {
+  const brain = await makeEmptyBrain();
+  try {
+    const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn: createTurnContext(),
+      directWrites: true, lock: toolLockFromKeyed(createKeyedLock()) }));
+    writeFileSync(join(brain.root, "loom.md"), "Penelope weaves.");
+    await tools.edit_file.execute("edit-unread", { path: "loom.md", old_string: "weaves", new_string: "unweaves" }, undefined, undefined, CTX);
+    expect(readFileSync(join(brain.root, "loom.md"), "utf8"), "PI_NEVER_READ_EXISTING_EDIT_ALLOWED").toBe("Penelope unweaves.");
+    writeFileSync(join(brain.root, "voyage.md"), "An earlier voyage.");
+    await tools.write_file.execute("write-unread", { path: "voyage.md", content: "Odysseus returns." }, undefined, undefined, CTX);
+    expect(readFileSync(join(brain.root, "voyage.md"), "utf8"), "PI_NEVER_READ_EXISTING_WRITE_ALLOWED").toBe("Odysseus returns.");
   } finally { brain.cleanup(); }
 });

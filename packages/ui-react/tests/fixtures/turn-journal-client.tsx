@@ -8,7 +8,7 @@ import type { ServerMessage, TurnJournalSummary } from "@schlessera/brain-ui-sdk
 const root = createBrainUiRoot({ storage: null });
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.theme = params.get("theme") ?? "dark";
-const seed = (window as any).__journalSeed as { turnId: string; summary: TurnJournalSummary };
+const seed = (params.has("conflict") ? (window as any).__conflictSeed : (window as any).__journalSeed) as { turnId: string; summary: TurnJournalSummary };
 function Scene() {
   const message = useChatStore(state => state.buffers["ithaca"]?.messages.at(-1));
   useEffect(() => {

@@ -1162,11 +1162,7 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
-        turnRevert: (sessionId: string, turnId: string, request: {
-            action?: "restore" | "revert";
-            id: string;
-            path?: string;
-        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevert: (sessionId: string, turnId: string, request: import("@schlessera/brain-ui-sdk/protocol").TurnRevertRequest) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
             receipt: import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt | null;
         }>;
@@ -1571,11 +1567,7 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
-        turnRevert: (sessionId: string, turnId: string, request: {
-            action?: "restore" | "revert";
-            id: string;
-            path?: string;
-        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevert: (sessionId: string, turnId: string, request: import("@schlessera/brain-ui-sdk").TurnRevertRequest) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
             receipt: import("@schlessera/brain-ui-sdk").TurnRevertReceipt | null;
         }>;

@@ -248,6 +248,13 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { kind: "budget_backstop" }
+  | {
+      /** Cumulative completed-response inference usage for interactive and voice turns. */
+      kind: "usage";
+      usage: import("../protocol.js").TurnUsage;
+      atToolBoundary: boolean;
+    }
   | {
       /** Cumulative completed responses only; never an invoice for the whole turn. */
       kind: "autonomous_usage";
@@ -460,6 +467,8 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Parent-owned lifecycle control; never serialized into a worker. */
+  workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "resume" | "kill" | "exited">) => void;
   /** @internal Host-resolved filesystem view, never a client or model grant. */
   workerSandbox?: import("./worker-sandbox.js").WorkerSandbox;
   /** @internal The host's shared contention locks, including server applications. */
@@ -487,6 +496,8 @@ export interface StartTurnRequest {
    * model can size its work to the cap instead of discovering it mid-flight.
    */
   turnBudgetMs?: number;
+  /** Host remaining turn list-price budget; Claude uses its SDK backstop. */
+  maxBudgetUsd?: number;
   bridge: BackendBridge;
   /**
    * What the reader is on, as the browser measured it at send time. Absent

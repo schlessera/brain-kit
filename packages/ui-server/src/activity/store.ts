@@ -992,7 +992,8 @@ function usageForPricing(root: SpanRow, spans: SpanRow[]): PricingUsage {
  * by model id alone. Variant/route/snapshot fallbacks are the pricing
  * service's job (`resolve()`); the store only propagates the estimate flag.
  */
-function priceUsage(
+/** @internal Shared list-price calculation for retained rollups and live budgets. */
+export function priceUsage(
   byModel: Record<string, PricedTokens>,
   pricing: RollupPricing,
   route?: PricingRoute

@@ -1,5 +1,6 @@
 /** Host-recorded facts for one turn; absent counts and prices are never zero. */
 export interface TurnJournalSummary {
+  scope?: TurnScopeSummary;
   state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
   changedFiles: number | null;
   steeringFiles: number | null;
@@ -13,6 +14,8 @@ export interface TurnJournalSummary {
   policyHash: string | null;
   sharedAttribution: boolean;
   observedAt: number | null;
+  /** List-price inference budget facts; effective costUsd above remains billing-aware. */
+  budget?: import("./turn-budgets.js").TurnBudgetReceipt;
 }
 
 export interface JournalVersion {
@@ -24,6 +27,27 @@ export interface JournalVersion {
   ignored: boolean;
 }
 
+export interface JournalObservationReference {
+  turnId: string;
+  sequence: number;
+  side: "after";
+}
+export type TurnHistoryAction = "revert" | "restore" | "keep_version" | "keep_both";
+export interface ConflictVersionSelection {
+  path: string;
+  version: JournalObservationReference;
+  otherVersion?: JournalObservationReference;
+  expected: JournalObservationReference;
+}
+export interface TurnRevertRequest {
+  id: string;
+  path?: string;
+  action?: TurnHistoryAction;
+  version?: JournalObservationReference;
+  otherVersion?: JournalObservationReference;
+  expected?: JournalObservationReference;
+}
+
 export interface TurnJournalChange {
   sequence: number;
   path: string;
@@ -33,6 +57,11 @@ export interface TurnJournalChange {
   before: JournalVersion | null;
   after: JournalVersion | null;
   overlappingTurnIds: string[];
+  /** Present only when an existing same-session/turn taint event preceded this observation. */
+  tainted?: true;
+  taintSourceEventId?: number;
+  /** At least two distinct retained after-versions observed in one shared window. */
+  conflict?: { versions: JournalObservationReference[]; latest: JournalObservationReference };
 }
 
 /** An admission receipt, not a claim that the external action completed. */
@@ -75,8 +104,37 @@ export interface TurnRevertReceipt {
   sourceTurnId: string;
   journalTurnId: string;
   state: "waiting" | "applying" | "complete" | "partial" | "failed" | "unknown";
-  action: "revert" | "restore";
+  action: TurnHistoryAction;
+  resolution?: ConflictVersionSelection;
   undoAvailable: boolean;
   paths: TurnRevertPath[];
   error: string | null;
+}
+
+/** Scope facts come from the host's frozen turn policy and shared journal observations. */
+export type ScopeDimension = "files_changed" | "minutes" | "tool_calls" | "turn_bytes" | "free_space_floor";
+export interface ScopeCapReceipt {
+  eventId: string;
+  dimension: ScopeDimension;
+  count: number;
+  cap: number;
+  overshoot: number;
+  newCap?: number;
+  observedAt: number;
+  frozen: boolean;
+  state: "paused" | "continued" | "stopped" | "voice_stopped" | "ended_before_answer";
+  submissionId?: string;
+  reason?: string;
+}
+export interface TurnScopeSummary {
+  policySource: "policy" | "default";
+  limits: Record<Exclude<ScopeDimension, "free_space_floor">, number>;
+  hardTimeoutMs: number;
+  calls: number;
+  minutes: number;
+  changedPaths: number | null;
+  observedBytes: number | null;
+  coverage: "observed_versions" | "partial";
+  observedAt: number;
+  receipts: ScopeCapReceipt[];
 }

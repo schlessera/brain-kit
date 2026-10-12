@@ -34,6 +34,7 @@ type ChatFrame =
   | "message_blocks"
   | "message_links"
   | "turn_journal"
+  | "usage"
   | "local_exchange_result"
   | "session_history"
   | "status";
@@ -415,12 +416,32 @@ export const chatFrameHandlers = {
     // streamed text still links turn temp. Any time around the result.
     context.state.rewriteMessageLinks(context.key, msg.links, context.frameTurnId);
   },
-  turn_journal: (msg, context) => { context.state.setTurnJournal(context.key, msg.turnId, msg.journal); },
+  usage: (msg,context) => {
+    if (!msg.budget) return;
+    const buffer=context.key === null ? context.state.draft : context.state.buffers[context.key];
+    const current=buffer?.journals?.[msg.turnId] ?? buffer?.messages.findLast(message=>(message.turnId ?? message.streamTurnId) === msg.turnId)?.journal;
+    if (current?.budget && current.budget.observedAt > msg.observedAt) return;
+    context.state.setTurnJournal(context.key,msg.turnId,{...(current ?? {state:"unrecorded",changedFiles:null,steeringFiles:null,
+      costUsd:null,costIsEstimate:null,profile:null,actor:null,model:null,policyHash:null,sharedAttribution:false,observedAt:null}),budget:msg.budget});
+  },
+  turn_journal: (msg,context) => {
+    const buffer=context.key === null ? context.state.draft : context.state.buffers[context.key];
+    const current=buffer?.journals?.[msg.turnId] ?? buffer?.messages.findLast(message=>(message.turnId ?? message.streamTurnId) === msg.turnId)?.journal;
+    const budget=current?.budget && (!msg.journal.budget || current.budget.observedAt > msg.journal.budget.observedAt) ? current.budget : msg.journal.budget;
+    context.state.setTurnJournal(context.key,msg.turnId,{...msg.journal,...(budget ? {budget} : {})});
+  },
   local_exchange_result: (msg, context) => {
     context.state.markLocalExchange(msg.exchangeId, msg.saved ? "saved" : "unsaved", msg.reason);
   },
   session_history: (msg, context) => {
-    const converted = msg.messages.map(convertHistoryMessage);
+    const buffer=context.key === null ? context.state.draft : context.state.buffers[context.key];
+    const converted = msg.messages.map(convertHistoryMessage).map(message=>{
+      if (!message.turnId) return message;
+      const old=buffer?.journals?.[message.turnId] ?? buffer?.messages.findLast(prior=>(prior.turnId ?? prior.streamTurnId) === message.turnId)?.journal;
+      if (!old?.budget || message.journal?.budget && message.journal.budget.observedAt >= old.budget.observedAt) return message;
+      return {...message,journal:{...(message.journal ?? {state:"unrecorded" as const,changedFiles:null,steeringFiles:null,costUsd:null,
+        costIsEstimate:null,profile:null,actor:null,model:null,policyHash:null,sharedAttribution:false,observedAt:null}),budget:old.budget}};
+    });
     if (msg.append) {
       context.state.appendMessages(context.key, converted);
     } else {

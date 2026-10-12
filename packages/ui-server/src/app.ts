@@ -2,6 +2,7 @@ import { recordGovernanceEvent } from "./governance/events.js";
 import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
 import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
+import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
@@ -11,6 +12,7 @@ import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
@@ -471,21 +473,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
-  const sessionProfiles = createSessionProfiles(db, governedTurns);
+  const budgets = createTurnBudgets(db, pricing);
+  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
-    changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: summary }); } });
+    changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => recordGovernanceEvent(db, { kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
       payload: { requestId: review.requestId, baseHash: review.baseHash, proposedHash: review.proposedHash, sections: review.sections, outcome: "updated" }, dedupeKey: `${turn.turnId}:${review.requestId}` }),
   });
+  const scope = createTurnScope(db, { brainPath: config.brainPath, journal,
+    connected: () => host.clients.hasClients(),
+    changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const host = new WsHost({
+    scope,
     policyProposals,
     journal,
     governedTurns,
     sessionProfiles,
     maintenance: boundary.maintenance,
+    budgets,
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,

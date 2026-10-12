@@ -72,6 +72,7 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
 
 interface ClaudeSdkTurnOptions {
   backend: ClaudeBackendOptions;
+  fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
   abortController: AbortController;
@@ -167,7 +168,7 @@ function assembleClaudeSdkTurn(
   const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
   // And so is turn temp's, next to the tool that frees it (#1703).
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
-  const sandboxNote = [workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+  const sandboxNote = [workerSandboxNote(sandbox, { hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
@@ -230,6 +231,8 @@ function assembleClaudeSdkTurn(
       allowedTools: allowed,
       confirmPatterns,
       brainPath: backend.brainPath,
+      fileVersions: options.fileVersions,
+      observeFile: path => worker.observeFile(path),
       turnLock,
       childEnv,
       configurationRoot: () => worker.configurationRoot(),
@@ -274,7 +277,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits }, req.workerLock);
+    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) sdkOptions.hooks = {
     ...sdkOptions.hooks,

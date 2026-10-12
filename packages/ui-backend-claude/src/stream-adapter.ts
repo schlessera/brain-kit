@@ -66,12 +66,20 @@ export class StreamAdapter {
         // Partial streaming for subagent output is suppressed: the chat
         // surface streams the MAIN transcript only; subagent content arrives
         // at block granularity via the activity channel.
-        if (parentToolUseId) break;
         const event = msg.event;
         if (this.options.autonomousUsage) {
-          const receipt = this.completedUsage.observe(event);
-          if (receipt) this.report({ kind: "autonomous_usage", ...receipt });
+          // Queue accounting keeps its existing root-only checkpoint semantics.
+          if (!parentToolUseId) {
+            const receipt = this.completedUsage.observe(event);
+            if (receipt) this.report({ kind: "autonomous_usage", ...receipt });
+          }
+        } else {
+          // Child inference is counted once in the turn's cumulative receipt;
+          // its text still never enters the main chat stream.
+          const receipt = this.completedUsage.observe(event, parentToolUseId ?? "root");
+          if (event.type === "message_stop" && receipt) this.report({ kind: "usage", ...receipt });
         }
+        if (parentToolUseId) break;
 
         if (event.type === "content_block_start") {
           const block = event.content_block;
@@ -200,6 +208,7 @@ export class StreamAdapter {
       }
 
       case "result": {
+        if (msg.subtype === "error_max_budget_usd") this.report({kind:"budget_backstop"});
         // Status BEFORE result: `result` is the turn's terminal frame and
         // must be the last thing a consumer sees for the turn.
         messages.push({ type: "status", status: "idle" });

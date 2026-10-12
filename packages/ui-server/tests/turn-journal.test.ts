@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
+import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 
 function fixture(capBytes?: number) {
@@ -146,5 +147,65 @@ test("approved policy writes retain user attribution in the original active wind
     let executed = false;
     expect(() => f.journal.observeUserPolicy("odysseus", () => { executed = true; })).toThrow("active complete observation window");
     expect(executed, "JOURNAL_COMPLETED_TURN_NEVER_REVIVED").toBe(false);
+  } finally { f.close(); }
+});
+
+test("actual journal classifies steering and local transitive configuration separately from content and policy", () => {
+  const f = fixture();
+  try {
+    for (const path of [".claude/skills/voyage", ".claude", "config", "hooks", "context/scheduled-tasks", "context/policies"]) mkdirSync(join(f.brain, path), { recursive: true });
+    const inputs = {
+      ".claude/skills/voyage/SKILL.md": "# Voyage\n",
+      "AGENTS.md": "Athena's instructions\n", ".mcp.json": "{}\n",
+      ".claude/settings.json": JSON.stringify({ hooks: { PostToolUse: [{ hooks: [{ type: "command", command: "bun ./hooks/voyage.ts" }] }] } }),
+      "hooks/voyage.ts": 'import "../config/routes.json";\n',
+      "brain.config.ts": 'import "./config/helper.ts"; throw new Error("must never execute config");\n',
+      "config/helper.ts": 'import "./routes.json";\n', "config/routes.json": '{"harbour":"Ithaca"}\n',
+      "context/scheduled-tasks/voyage.md": "Athena reviews the schedule.\n",
+      "context/policies/governance.md": "Original policy\n",
+    };
+    for (const [path, bytes] of Object.entries(inputs)) writeFileSync(join(f.brain, path), bytes);
+    f.begin("steering");
+    for (const [path, bytes] of Object.entries(inputs)) if (path !== "context/policies/governance.md") writeFileSync(join(f.brain, path), bytes + "\n");
+    writeFileSync(join(f.brain, "notes/a.md"), "Odysseus returns.\n");
+    f.journal.observeUserPolicy("steering", () => writeFileSync(join(f.brain, "context/policies/governance.md"), "Approved policy\n"));
+    f.journal.finish("steering");
+    const details = f.journal.details("ithaca", "steering")!;
+    for (const path of Object.keys(inputs).filter(path => path !== "context/policies/governance.md")) expect(details.changes.find(change => change.path === path)?.class, `STEERING_ACTUAL_INPUT_${path}`).toBe("steering");
+    expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
+    expect(details.changes.find(change => change.path === "context/policies/governance.md")).toMatchObject({ class: "policy", actor: "user" });
+    expect(details.summary.steeringFiles, "STEERING_COUNT_EXCLUDES_POLICY").toBe(9);
+    expect(queryGovernanceEvents(f.db, { turnId: "steering", kinds: ["steering_change"], limit: 100 })).toHaveLength(9);
+  } finally { f.close(); }
+});
+
+test("steering retains only taint recorded before observation, including sticky session evidence and overlap", () => {
+  const f = fixture();
+  try {
+    f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+    writeFileSync(join(f.brain, "AGENTS.md"), "Original instructions\n");
+    f.begin("untainted"); writeFileSync(join(f.brain, "AGENTS.md"), "First instructions\n"); f.journal.finish("untainted");
+    const source = recordGovernanceEvent(f.db, { kind: "taint", sessionId: "ithaca", turnId: "prior-turn", actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } });
+    f.begin("odysseus"); f.begin("athena"); writeFileSync(join(f.brain, "AGENTS.md"), "Shared instructions\n"); f.journal.finish("odysseus"); f.journal.finish("athena");
+    expect(f.journal.details("ithaca", "untainted")!.changes[0], "STEERING_NO_RETROACTIVE_TAINT").not.toHaveProperty("tainted");
+    for (const id of ["odysseus", "athena"]) {
+      const change = f.journal.details("ithaca", id)!.changes.find(change => change.path === "AGENTS.md")!;
+      expect(change, "STEERING_REAL_TAINT_SOURCE").toMatchObject({ class: "steering", tainted: true, taintSourceEventId: source.id });
+      expect(change.overlappingTurnIds).toHaveLength(1);
+    }
+  } finally { f.close(); }
+});
+
+test("opaque configuration input limitations survive replay without executing code or fabricating a steering dependency", () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.brain, "brain.config.ts"), 'import("./" + selectRoute() + ".json"); throw new Error("no host evaluation");\n');
+    f.begin("opaque-config"); writeFileSync(join(f.brain, "notes/a.md"), "Odysseus keeps the route.\n"); f.journal.finish("opaque-config");
+    const replay = createTurnJournal(f.db, { brainPath: f.brain, dbPath: join(f.root, "ui.db"), objectsRoot: join(f.root, "objects") });
+    try {
+      const details = replay.details("ithaca", "opaque-config")!;
+      expect(details.missing, "STEERING_OPAQUE_INPUT_HONEST_REPLAY").toContainEqual({ path: "brain.config.ts", reason: "configuration_inputs_not_fully_identified" });
+      expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
+    } finally { replay.close(); }
   } finally { f.close(); }
 });

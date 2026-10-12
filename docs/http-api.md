@@ -1142,6 +1142,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
+| `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds` | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is an existing prior taint event or `null`. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
 | `promotion` | 1 | `source`, `destination`, `bytes`, `originalLink`, `rewrittenLink` | A linked turn-temp file was copied into `.brain/scratch/turns/<turnId>/` and its link rewritten. `destination` is brain-relative. |
@@ -1155,7 +1156,7 @@ read by any authenticated principal.
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
 | `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
-| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `continued`, `stopped`, `voice_stopped` or `turn_ended`. |
+| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. |
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`. |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
@@ -1188,3 +1189,24 @@ resource facts). It uses the same `GovernedTurns.facts` reader/cache as admissio
 It returns 503 when shared facts are unavailable or changed during the read.
 It does not treat parsed cost/scope/network policy values as already enforced,
 and it does not imply a running turn changed its frozen policy.
+
+
+### Shared-window conflict choices
+
+The retained journal details may add `conflict: { versions, latest }` to a
+changed path. Each link names an existing after-observation by turn and sequence;
+it never names an arbitrary object hash. Two distinct observed versions within
+one overlapping window are required. Merely sharing a single observation does
+not identify conflicting writers.
+
+The existing authenticated user history POST accepts `action: "keep_version"`
+or `"keep_both"`, with `path`, selected `version`, reviewed latest `expected`,
+and `otherVersion` for keep both. Each reference is
+`{ turnId, sequence, side: "after" }` from that same path and original turn.
+Malformed references return 400; unavailable/expired or changed selection
+returns 409; the raw file is compared again at application. Receipt `resolution`
+records the explicit selection; generated numbered siblings appear in its paths.
+These actions reuse the existing queue, identity-bound readback, partial
+receipts, journal and user Undo. No additional endpoint, automatic merge or
+agent permission is introduced. The reader calls versions observed, never
+exclusive "mine" or "theirs" ownership.

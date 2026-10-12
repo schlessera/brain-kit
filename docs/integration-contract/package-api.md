@@ -3029,3 +3029,31 @@ existing card layout. `AgentPolicyRead` carries read-only policy hash/source,
 validation notices, effective profiles, protected paths and the host's recorded
 worker-resource limits. Parsed budget/scope/egress values are not enforcement
 facts. No new extension seam or editor is introduced.
+
+### Completed inference budget facts (additive, #1669)
+
+`BackendActivityEvent.usage` reports cumulative completed-response usage for
+ordinary interactive/voice turns; the existing autonomous variants retain
+their Queue semantics. `budget_backstop` reports Claude's SDK budget stop.
+`StartTurnRequest.maxBudgetUsd` passes the host's remaining turn limit to that
+SDK. `ServerUsage`, `TurnBudgetReceipt`, `BudgetObservation` and `BudgetScope`
+are the additive public wire types. `TurnJournalSummary.budget` shares the
+existing receipt; its list-price cost never changes the effective billing cost.
+`TurnFailure.budgetScope` supports the reviewed conversation handoff and UTC
+day refusal. These are facts on existing backend and protocol surfaces, not a
+new policy parser, budget provider or grant interface.
+
+### Scope lifecycle and decision facts (additive, #1670)
+
+The SDK protocol exports `ClientScopeDecision`, `ServerScopeDecisionReceipt`,
+`ScopeDimension`, `ScopeCapReceipt` and `TurnScopeSummary`.
+`TurnJournalSummary.scope` is optional. `StartTurnRequest.workerStarted` is a
+server-only parent lifecycle callback; it is never serialized into workers and
+never accepts a client/model capability. Both first-party adapters notify it
+with the launched worker's concrete freeze/resume/kill/exit handle.
+`WorkerSandbox.scopePolicy` feeds the existing capabilities-note generator from
+the immutable admitted policy; `WorkerNoteFacts.hardTimeoutMs` states the
+independent hard deadline. Kit `AskUserOption`/`ChoiceOptionProps.disabled`
+make pending/offline scope options inert with a readable reason supplied by
+the surrounding card. These additions ship in a minor; the wire behavior is
+[specified separately](wire.md#turn-scope-additive-1670).

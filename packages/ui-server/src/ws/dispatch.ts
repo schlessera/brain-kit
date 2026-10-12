@@ -272,6 +272,13 @@ export async function handleClientMessage(
       return;
     }
 
+    case "scope_decision": {
+      const receipt = host.scope?.decide(msg, connection.authorization.valid && connection.authorization.expiresAt > Date.now())
+        ?? { ...msg, type: "scope_decision_receipt" as const, state: "refused" as const, reason: "This host cannot answer scope decisions." };
+      if (receipt.state !== "refused" && host.journal) host.sendMessage(ws, { type: "turn_journal", sessionId: msg.sessionId, turnId: msg.turnId, journal: { ...host.journal.summary(msg.turnId), ...(host.budgets?.saved(msg.turnId) ? { budget: host.budgets.saved(msg.turnId) } : {}) } });
+      host.sendMessage(ws, receipt);
+      return;
+    }
     case "ask_user_response":
     case "ask_user_list_response":
     case "ask_user_rank_response":

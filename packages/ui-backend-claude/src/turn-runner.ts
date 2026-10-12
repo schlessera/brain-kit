@@ -14,7 +14,7 @@ import {
   BackendRequestError,
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
-import { createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
+import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
   type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -80,6 +80,7 @@ export function createClaudeTurnRunner(options: {
   // new-session turns always coexist. The slot is re-keyed to the real session
   // id once the SDK reports it.
   const activeTurns = new Map<string, RunningTurn>();
+  const fileVersionsBySession = new Map<string, NativeFileVersions>();
   const queryFn = options.backend.queryFn ?? query;
 
   async function followUp(req: FollowUpRequest): Promise<void> {
@@ -127,6 +128,8 @@ export function createClaudeTurnRunner(options: {
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
+    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey) ?? new NativeFileVersions();
+    if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     activeTurns.set(turnKey, turn);
 
     // The host owns cancellation. Mirror its signal onto an internal
@@ -342,6 +345,7 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
+        fileVersions,
         req: { ...req, signal: abortController.signal },
         profile,
         abortController,
@@ -445,7 +449,7 @@ export function createClaudeTurnRunner(options: {
             return true;
           })
         : input.messages;
-      const result = queryFn({ prompt, options: sdkTurn.options });
+      const result = queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
       resolveQuery(result);
       // The account the CLI selected, for the per-turn report below. The SDK
       // answers every call from the one handshake, so this and the gate agree.
@@ -498,6 +502,7 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
+            if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);
             turnKey = sessionId;
@@ -647,6 +652,8 @@ export function createClaudeTurnRunner(options: {
       req.signal.removeEventListener("abort", onHostAbort);
       // Backstop: release any write lock still held (a mutating tool whose
       // result never streamed, e.g. an aborted turn) and free the busy slot.
+      fileVersions?.cancelPending();
+      if (!sessionId) fileVersionsBySession.delete(turnKey);
       turnLock.close();
       activeTurns.delete(turnKey);
       if (!req.autonomous) await archiveIdleSessions({

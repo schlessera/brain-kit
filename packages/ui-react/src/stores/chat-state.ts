@@ -374,6 +374,8 @@ export interface ChatState {
   invalidateStateRoom(sessionId: string, observedAt: number): void;
   markStateRoomAnnounced(sessionId: string, allowanceBytes: number): void;
   /** Ephemeral correlated chat acknowledgements; never written to browser storage. */
+  scopeDecisionReceipts: Record<string, import("@schlessera/brain-ui-sdk/protocol").ServerScopeDecisionReceipt>;
+  setScopeDecisionReceipt(receipt: import("@schlessera/brain-ui-sdk/protocol").ServerScopeDecisionReceipt): void;
   chatReceipts: Record<string, { state: "accepted" | "refused"; sessionId?: string }>;
   setChatReceipt(requestId: string, state: "accepted" | "refused", sessionId?: string): void;
   clearChatReceipt(requestId: string): void;
@@ -1224,6 +1226,11 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
     }
 
     return {
+      scopeDecisionReceipts: {},
+      setScopeDecisionReceipt(receipt) {
+        const entries = Object.entries(get().scopeDecisionReceipts).filter(([id]) => id !== receipt.eventId).slice(-255);
+        set({ scopeDecisionReceipts: Object.fromEntries([...entries, [receipt.eventId, receipt]]) });
+      },
       chatReceipts: {},
       setChatReceipt(requestId, state, sessionId) {
         if (get().chatReceipts[requestId]?.state === "accepted") return;

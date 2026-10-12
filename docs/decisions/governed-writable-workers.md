@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:533-537`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:543-547`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -674,7 +674,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:817-817`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:824-824`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -940,12 +940,39 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:225`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:534`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
+
+**Native stale writes.** Interactive sessions remember SHA-256 observations of
+native file reads and writes. Before Claude `Write`, `Edit` or `NotebookEdit`,
+and Pi `write_file` or `edit_file`, a different observed byte version refuses the
+write with an ordinary native tool error. A path the session never read remains
+writable. This is an optimistic check before writing, not a lock against an
+external editor throughout a native tool's execution.
+
+The parent observes the worker's resolved mount sources, including strict
+startup copies and writable area aliases; it does not substitute newer
+canonical bytes for a frozen view (`createWorkerFileObserver`,
+`packages/ui-sdk/src/server/worker-file-observer.ts:13`). A failed or changing
+read cannot establish a new version. Claude's native `file_unchanged` response
+also preserves the previous observation: it supplied no new bytes
+(`const finishNativeFile`,
+`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+
+Claude keeps these observations in its backend-owned session map
+(`const fileVersionsBySession`,
+`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+backend-owned session runtime across fresh per-turn workers
+(`const nativeFileVersions`,
+`packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
+observation phases for the actual granted native operation, not a supplied hash
+or authority. Both preserve ordinary next turns on the running host. Neither
+restores the observations after a backend restart; resuming a saved transcript
+after restart does not establish restart-safe stale-write protection.
 
 ## Monitoring
 
@@ -966,10 +993,9 @@ The brain's git history stays the durable record of its content.
 - **Per-response usage events.** Claude reports `CompletedResponseUsage`
   (`export class CompletedResponseUsage`, `packages/ui-backend-claude/src/usage.ts:11`)
   at `message_stop`. Pi reports usage at `message_end`.
-- **Today those events are sent only for autonomous turns**
-  (`kind: "autonomous_usage"`, `packages/ui-backend-claude/src/stream-adapter.ts:73`).
-  They become a general `usage` frame for every turn. Adding a new frame kind
-  to the protocol is an additive contract change.
+- **General completed usage** is now reported for ordinary turns; autonomous
+  Queue accounting keeps its separate sidechannel. The host stamps the
+  additive `usage` wire receipt before presenting its shared below-turn facts.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
@@ -986,11 +1012,11 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:423`).
-- **Unpriced models.** A USD limit cannot be evaluated when the price is
-  unknown. The turn is recorded as unpriced and a token limit is the
-  enforceable alternative. Unknown is never treated as zero, and it never
-  blocks by itself.
+  `stream-adapter.ts:432`).
+- **Unpriced models.** The unknown portion has no invented USD price. A
+  known priced lower bound may still reach a USD stop; otherwise token
+  fallback is the enforceable alternative. Unknown is never treated as zero,
+  and it never blocks by itself.
 
 **Paid calls outside the agent's own stream.** A Bash call can run the `brain`
 CLI's embedding, completion or image providers over and over. Those calls
@@ -1010,11 +1036,46 @@ covers everything.
 appears once, beside the existing cost display. It is also added to the
 agent's next turn context.
 
-**Default limits (G3).** Blocking limits are on by default. A brain without a
-`budgets` key still gets built-in turn and day limits. The budget sub-issue
-derives them from the measured distribution of recorded turn cost in Activity
-rollups, using a generous multiple of the observed high percentile, and records
-the numbers. Ordinary turns never reach a default limit; a runaway turn does.
+**Default limits (G3), approved 2026-10-12.** The
+[maintainer ruling](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
+approves turn warn $100/stop $200 and conversation/UTC-day warn $2,000/stop
+$4,000. Unpriced token fallback stops are 512,000,000 per turn and
+8,000,000,000 per conversation/day. Explicit policy values override defaults;
+independent runtime/resource limits still apply.
+
+The [public measured proposal](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128436103)
+uses four times the relevant observed p99, rounded upward: typed turn cost
+$44.48 gives $177.92 → $200; recent complete tokens 116.52 million give
+466.10 million → 512 million. Session/day known-cost lower-bound p99
+$644.89/$813.45 give $2,579.55/$3,253.81 → $4,000; token lower bounds
+1.5546/1.9834 billion give 6.2183/7.9336 billion → 8 billion. Warnings are
+half the USD stops. The retained sample has 723 completed root session turns,
+699 with known list prices. It excludes preparation, labels, cron and child
+span cost; missing values and censored timeout tails limit this one workload's
+measurement. Subscription effective zeros do not establish invoice percentiles
+or a guarantee for every workload.
+
+The host freezes the already admitted policy, uses the Activity calculator and
+retained root rollups, and stores per-turn completed-response receipts outside
+the brain. A measured new turn never takes a resumed SDK transcript's
+cumulative terminal total: that can include earlier turns. Legacy Activity
+rows remain historical inputs with explicit legacy attribution. Completed
+responses contribute once to their server-observed UTC day; legacy history
+uses its recorded start day. A terminal rollup never adds the live ledger a
+second time. The concrete ledger is (`createTurnBudgets`,
+`packages/ui-server/src/brain/turn-budgets.ts:43-193`).
+Known priced lower bounds survive an unpriced model joining;
+unknown usage alone never blocks. A token fallback remains enforceable.
+
+The same receipt drives (`inferenceBudgetNote`,
+`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
+single disclosure. Crossing keys retain once-only warning events by scope,
+identity, unit and threshold. Conversation blocks offer the existing reviewed
+handoff; a new conversation does not reset the day. Day stops display the
+server's next UTC midnight. Neither stopped inference nor unavailable
+accounting automatically retries. Warning arrivals do not steal focus and are
+visual only in genuine voice; speech cannot grant a continuation. Autonomous
+Queue budgets keep their existing admission and containment semantics.
 
 ### Scope caps (G4)
 
@@ -1051,11 +1112,55 @@ Queue.
 
 Reaching a cap is recorded as a governance event and as a roadblock.
 
+### Approved scope defaults and finite recovery — 2026-10-12 (#1670)
+
+The [maintainer decision](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)
+selects 500 calls (4 × observed p99 118, rounded upward) and 120 wall minutes
+(4 × successful-turn p99 21.09 minutes, rounded upward). The call sample has
+148 turns with complete retained detail; the successful duration population
+has 699 turns. The all-outcome timeout tail was censored, not an uncapped
+measurement. The 1,000 distinct-path and 4 GiB byte defaults are explicitly
+provisional maintainer choices because historical distributions were absent.
+Policy overrides remain supported; independent hard limits are unchanged.
+
+Continue adds the original cap exactly once per dimension in the turn, with
+the finite ceiling displayed first. A second hit for that dimension is Stop-only;
+other dimensions retain independent grants. The existing max(5%, 2 GiB) free-space
+floor is Stop-only. True voice stops, dictation is interactive, and Queue authority
+is unchanged. Paused work remains paused with an authorized session client;
+30 minutes with none connected stops it. Reconnect never resumes it. Restart
+ends work and records interruption; event/turn/session-bound authenticated
+replies are idempotent and expose answered-elsewhere/ended-before-answer receipts.
+
+The monitor consumes the existing shared journal snapshots and the adapters'
+parent lifecycle. It confirms cgroup freeze where delegated, otherwise STOP/CONT
+of the verified worker namespace process tree. The trusted bubblewrap PID-1
+reaper stays responsive to parent death while agent processes are stopped.
+Periodic observation briefly freezes currently productive owned workers before
+retaining changed versions. It resumes only those temporary holds whose turn
+still has authority and has no cap pause; existing paused work never resumes.
+Capture failure ends held work. This keeps cold retention cost from delaying
+actual process freeze beyond the observation interval. The recorded observation
+time follows capture and may be later than actual freeze; it is not relabelled
+as the instant the writer stopped.
+A frozen snapshot records observed overshoot. Bytes count captured changed
+regular-file versions; snapshots do not capture overwritten intermediate writes,
+and incomplete snapshots never imply zero or complete coverage.
+
+The approved interaction reuses the in-turn ask-user card and the single
+under-turn Disclosure. There is no free-text grant. Arrival never steals focus;
+a local activated answer focuses its receipt only in the same active chat.
+Disconnected/pending actions state their reason, and lost/failed receipts have
+manual readback/recovery. Escape does nothing to the server operation. Exact
+numbers wrap at the approved 320 CSS-pixel minimum and at 200% zoom in both
+themes, with 44px targets and reduced motion. The picker exposes the actual
+limits from the same policy inputs and states independent hard limits.
+
 ### Tool and command audit
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:268`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
 
 **What changes:**
 
@@ -1115,7 +1220,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:180`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:182`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1127,7 +1232,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1203`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1218`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1459,21 +1564,35 @@ the turn may send out and how its writes are labelled.
 
 ### Steering artifacts (G7)
 
-Steering artifacts are:
+Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
+files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
+`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
+configuration, dependency manifests and retained local import/resource inputs.
+The journal follows retained literal local references as data. It never imports
+or evaluates configuration to classify it. Ignored, oversized or opaque inputs
+are named as classification limitations; this does not assert arbitrary
+runtime-consumption coverage (`journalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:13-63`).
 
-- `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`;
-- `.claude/skills/` and `.agents/`;
-- Claude memory notes, once #1621 persists them;
-- `.claude/` hooks, which are tier B;
-- `context/scheduled-tasks/`.
+Changes are allowed and journaled with class `steering`. The single initially
+collapsed turn disclosure includes the steering count; expanded steering comes
+first. Review uses the existing raw diff reader and user per-file/whole-turn
+revert controls. No extra collapsed banner or steering-group action is added.
+Policy is separate, class `policy`, excluded from the steering count, and only
+the approved user route writes it.
 
-Changes to them are allowed and journaled with the class `steering`. History
-shows them first, as a separate group, with one-click revert. A steering change
-made by a tainted session carries a flag, and its review card names the
-untrusted source that preceded it.
+Each steering observation retains a governance event and shared-window
+attribution. If an existing same-session/turn taint event precedes an agent
+observation, the journal retains its source ID with that change. Replay never
+infers taint from a later event, and absence of evidence does not assert complete
+untrusted-input detection. User history operations are not tainted agent writes
+(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-176`).
 
-The policy file is not a steering artifact. It is tier A, and only the
-approved route writes it.
+Claude auto-memory currently persists outside the authoritative brain through
+its backend state service. That service supplies no journal version receipt;
+the canonical brain/workspace journal does not invent a memory path or user
+restore authority. Its external memory integration remains a separate source
+limitation, not a claim of delivered raw-memory review/revert.
 
 ### Concurrent edits
 
@@ -1500,6 +1619,20 @@ entries that overlap this turn's window. When both changed a path, every
 version an observation captured is kept, and the entry is marked as a
 conflict. The user resolves it from history by keeping one version or keeping
 both, as `brain sync` does.
+
+The history reader names explicit retained observations rather than inferring
+exclusive "mine" or "theirs" ownership. A conflict requires two distinct
+observed after-versions sharing an overlapping turn; one version remains shared
+attribution. User choices use the existing authenticated history operation,
+comparing current raw state with the reviewed latest observation before effects
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+Keep both creates the other version beside the selected file with sync's
+numbered `-remote` convention, using exclusive descriptor-rooted creation,
+existing CAS leases and explicit coverage for its final generated name
+(`createJournalSibling`, `packages/ui-server/src/brain/revert-files.ts:74-102`).
+The same user journal records both effects and enables stale-safe Undo; index
+refresh follows. Nothing here promises atomic merging or recovers an
+unobserved overwritten version.
 
 **The guarantee is narrower than "nothing is lost".** A version that one shell
 write created and another overwrote between two observations was never
@@ -1530,7 +1663,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:468-512`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-515`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

@@ -1032,6 +1032,12 @@ signatures (every public export and the types it is made of)
     }
   WorkerSandbox (packages/ui-sdk/src/server/worker-sandbox.ts)
     export interface WorkerSandbox {
+        readonly scopePolicy?: {
+            max_files_changed: number;
+            max_minutes: number;
+            max_tool_calls: number;
+            max_bytes_written: number;
+        };
         readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
         readonly brain: string;
         readonly restricted: boolean;
@@ -1249,11 +1255,20 @@ signatures (every public export and the types it is made of)
         }, stop: (error: Error) => void): void;
         bindSession(turnId: string, sessionId: string): void;
         close(): void;
+        coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): void;
         finishReserved(turnId: string): void;
         observe(): void;
         observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+        onObservation(observer: (turnId: string, facts: {
+            changedPaths: number;
+            observedBytes: number;
+            partial: boolean;
+        }) => void, periodic?: {
+            after(completed: boolean): void;
+            before(): void;
+        }): () => boolean;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {

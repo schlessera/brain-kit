@@ -1456,3 +1456,12 @@ describe("turn budget in the system prompt", () => {
 });
 
 mockWorkerHostForSdkStream();
+
+test("the admitted remaining USD budget reaches Claude's SDK backstop and its stop reports host control",async()=>{
+ let captured:number|undefined;const events:import("@schlessera/brain-ui-sdk/server").BackendActivityEvent[]=[];
+ async function* stream(options:Options):AsyncGenerator<unknown>{captured=options.maxBudgetUsd;yield initMsg("ithaca-budget");yield {...resultMsg("ithaca-budget"),subtype:"error_max_budget_usd",errors:[]};}
+ const backend=createClaudeBackend({brainPath:"/brain",queryFn:makeQueryFn(stream)}),fixture=makeBridge();
+ await backend.startTurn(makeReq({...fixture.bridge,activity:event=>events.push(event)},new AbortController().signal,{maxBudgetUsd:37.25}));
+ expect(captured,"BUDGET_CLAUDE_ACTUAL_SDK_OPTION").toBe(37.25);expect(events.filter(event=>event.kind==="budget_backstop")).toHaveLength(1);
+ expect(fixture.frames.find(frame=>frame.type==="result")).toMatchObject({outcomeDetail:"max_budget"});
+});

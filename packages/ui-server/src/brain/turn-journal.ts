@@ -1,16 +1,17 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { Database } from "bun:sqlite";
-import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import { createJournalWalker, type JournalSnapshot, type JournalSnapshotEntry } from "./journal-snapshot.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
-import { queryGovernanceEvents } from "../governance/events.js";
+import { journalSteeringInputs } from "./journal-steering.js";
+import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; failure: string };
-type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; overlaps: string };
+type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
+type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
   ...(entry.hash ? { hash: entry.hash } : {}), ...(entry.target !== undefined ? { target: entry.target } : {}),
@@ -29,6 +30,8 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { walker: ReturnType<typeof createJournalWalker>; previous: JournalSnapshot; stop: (error: Error) => void; sequence: number }>();
+  const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -50,10 +53,11 @@ export function createTurnJournal(db: Database, options: {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
     if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
     const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; sharedAttribution: boolean } : undefined;
-    const counts = db.query("SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class IN ('steering','policy') THEN path END) AS steeringFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?").get(turnId) as { changedFiles: number; steeringFiles: number; sharedAttribution: number };
+    const counts = db.query("SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?").get(turnId) as { changedFiles: number; steeringFiles: number; sharedAttribution: number };
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
     const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
-    return { state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
+    const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as { summary: string } | null;
+    return { ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
       sharedAttribution: retained?.sharedAttribution ?? Boolean(counts.sharedAttribution), costUsd: cost?.effective_cost_usd ?? null,
       costIsEstimate: cost?.pricing_estimate == null ? null : Boolean(cost.pricing_estimate),
       profile: row.profile, actor: row.actor, kind: row.kind, ...(row.source_turn_id ? { sourceTurnId: row.source_turn_id } : {}), model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
@@ -113,8 +117,10 @@ export function createTurnJournal(db: Database, options: {
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
     const missing = new Map<string, { path: string; reason: string }[]>();
+    const snapshots: JournalSnapshot[] = [];
     for (const [turnId, turn] of active) {
       const snapshot = turn.walker.observe();
+      snapshots.push(turn.previous, snapshot);
       const before = new Map(turn.previous.entries.map(entry => [entry.path, entry]));
       const after = new Map(snapshot.entries.map(entry => [entry.path, entry]));
       const uncertain = new Set(snapshot.missing.map(entry => entry.path));
@@ -127,16 +133,38 @@ export function createTurnJournal(db: Database, options: {
       turn.previous = snapshot;
       if (snapshot.missing.length) missing.set(turnId, snapshot.missing);
     }
+    const steering = journalSteeringInputs(snapshots, objects.read);
     for (const [turnId, turn] of active) {
       try {
+        const metadata = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
+        const taint = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
+          .get(turnId, metadata.session_id, metadata.session_id) as { id: number } | null;
         retain(() => accounting.write(() => {
           for (const item of changed.values()) {
             const sequence = ++turn.sequence;
             const approvedPolicy = userPolicy && item.path === "context/policies/governance.md";
-            db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES (?,?,?,?,?,?,?,?,?)")
-              .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, approvedPolicy ? "policy" : "content", approvedPolicy || (db.query("SELECT kind FROM turn_journal_turns WHERE turn_id=?").get(turnId) as {kind:string})?.kind === "revert" ? "user" : "agent", JSON.stringify(overlaps.filter(id => id !== turnId)));
+            const classification = approvedPolicy ? "policy" : steering.paths.has(item.path) ? "steering" : "content";
+            const actor = approvedPolicy || metadata.kind === "revert" ? "user" : "agent";
+            const source = classification === "steering" && actor === "agent" && taint ? taint.id : null;
+            const overlappingTurnIds = overlaps.filter(id => id !== turnId);
+            db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+              .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source);
+            if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,
+              actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
+              payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds } });
             pin(turnId, item.before); pin(turnId, item.after);
+            const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
+            const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
+            const conflicting = new Map<number, JournalObservationReference>();
+            for (const other of participants) {
+              const shared = observed.filter(row => (JSON.parse(row.overlaps) as string[]).includes(other));
+              if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
+              for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
+            }
+            if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
+              .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
+          db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
           const failures = missing.get(turnId) ?? [];
           if (failures.length) db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify(failures), turnId);
         }));
@@ -144,9 +172,20 @@ export function createTurnJournal(db: Database, options: {
           ? new JournalCapacityError() : new JournalStorageUnavailable("some observed paths could not be retained"));
       } catch (error) { fail(turnId, error); turn.stop(error instanceof Error ? error : new Error(String(error))); throw error; }
       publish(turnId);
+      const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
+        coalesce(sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND
+          (json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash') OR json_extract(after_json,'$.ignored')=1)
+          THEN json_extract(after_json,'$.bytes') ELSE 0 END),0) AS observedBytes
+        FROM turn_journal_changes WHERE turn_id=?`).get(turnId) as { changedPaths: number; observedBytes: number };
+      for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
     }
   }
   return {
+    /** @internal Host scope monitor consumes this same observation window. */
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+      observers.add(observer); if (periodic) periodicObservers.add(periodic);
+      return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
+    },
     begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void) {
       for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
       observe();
@@ -176,8 +215,14 @@ export function createTurnJournal(db: Database, options: {
       active.set(turnId, { walker, previous: snapshot, stop, sequence: 0 }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          try { observe(); } catch (error) {
+          let completed = false;
+          try {
+            for (const observer of periodicObservers) observer.before();
+            observe(); completed = true;
+          } catch (error) {
             for (const [id, turn] of active) { fail(id, error); turn.stop(error instanceof Error ? error : new Error(String(error))); }
+          } finally {
+            for (const observer of periodicObservers) observer.after(completed);
           }
         }, 15_000);
         scopeTimer.unref?.();
@@ -193,6 +238,11 @@ export function createTurnJournal(db: Database, options: {
     },
     bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
     observe(): void { observe(); },
+    /** @internal Only the authenticated history service selects generated sibling coverage. */
+    coverPaths(turnId: string, paths: readonly string[]): void {
+      const turn=active.get(turnId); if(!turn)throw new JournalStorageUnavailable("history coverage requires an active observation window");
+      turn.walker.cover(paths);
+    },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
     observeUserPolicy(turnId: string, approvedWrite: () => void): void {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");
@@ -245,13 +295,15 @@ export function createTurnJournal(db: Database, options: {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
       const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[] }));
+        before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}),
+        ...(JSON.parse(item.conflict_observations).length ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
+          latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
       const failure = failures.get(turnId) ?? row.failure.trim();
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
         decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(JSON.parse(row.steering_inventory_missing) as string[]).map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);

@@ -16,6 +16,14 @@ const HEADLINES: Record<string, string> = {
 
 /** Class-driven copy; a class never establishes whether tools already ran. */
 export function failurePresentation(failure: TurnFailure) {
+  if (failure.errorClass === "budget_unavailable") return {
+    headline:"Inference budget accounting became unavailable.",explanation:failure.message,
+    operator:true,tone:"red" as const,retry:false,report:true,
+  };
+  if (failure.errorClass === "budget_exceeded") return {
+    headline:"The inference budget was reached.", explanation:failure.message ?? "Review partial work before continuing.",
+    operator:false,tone:"gold" as const,retry:false,report:false,
+  };
   if (failure.errorClass === "journal_capacity" || failure.errorClass === "journal_unavailable") return {
     headline: failure.errorClass === "journal_capacity" ? "The change journal ran out of room." : "The change journal became unavailable.",
     explanation: "The turn stopped. Partial work remains, and some changes could not be retained. Review the incomplete journal before continuing.",

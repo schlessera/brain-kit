@@ -182,6 +182,7 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"];
   workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;
   workerLock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
   autonomous?: AutonomousTurnOptions;

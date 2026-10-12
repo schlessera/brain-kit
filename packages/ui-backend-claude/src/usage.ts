@@ -11,34 +11,35 @@ type StreamEvent = Extract<SDKMessage, { type: "stream_event" }>["event"];
 export class CompletedResponseUsage {
   private readonly models: Record<string, ModelUsage> = {};
   private readonly seen = new Set<string>();
-  private current?: { id: string; model: string; usage: ModelUsage; tool: boolean };
+  private readonly current = new Map<string, { id: string; model: string; usage: ModelUsage; tool: boolean }>();
   private receipt(atToolBoundary: boolean) {
     return Object.keys(this.models).length ? { usage: sumModelUsage(structuredClone(this.models)), atToolBoundary } : undefined;
   }
-  observe(event: StreamEvent): { usage: TurnUsage; atToolBoundary: boolean } | undefined {
+  observe(event: StreamEvent, channel = "root"): { usage: TurnUsage; atToolBoundary: boolean } | undefined {
     if (event.type === "message_start") {
       const m = event.message, u = m.usage;
-      this.current = { id: m.id, model: m.model, tool: false, usage: {
+      this.current.set(channel, { id: m.id, model: m.model, tool: false, usage: {
         inputTokens: u.input_tokens, outputTokens: u.output_tokens,
         cacheReadTokens: u.cache_read_input_tokens ?? 0,
         cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
-      } };
+      } });
       return this.receipt(false);
     }
-    if (event.type === "message_delta" && this.current) {
+    const current = this.current.get(channel);
+    if (event.type === "message_delta" && current) {
       // Some runtimes supply updated input/cache counts here too. Never add a
       // cumulative delta to the message_start counts.
       const u = event.usage;
       for (const [source, target] of [["input_tokens", "inputTokens"], ["output_tokens", "outputTokens"],
         ["cache_read_input_tokens", "cacheReadTokens"], ["cache_creation_input_tokens", "cacheCreationTokens"]] as const) {
         const n = u[source];
-        if (n != null) this.current.usage[target] = n;
+        if (n != null) current.usage[target] = n;
       }
-      this.current.tool = event.delta.stop_reason === "tool_use";
+      current.tool = event.delta.stop_reason === "tool_use";
     }
-    if (event.type !== "message_stop" || !this.current) return undefined;
-    const response = this.current;
-    this.current = undefined;
+    if (event.type !== "message_stop" || !current) return undefined;
+    const response = current;
+    this.current.delete(channel);
     if (this.seen.has(response.id)) return undefined;
     const values = Object.values(response.usage);
     if (!response.id || !response.model || values.length !== 4 || values.some(n => !Number.isSafeInteger(n) || n! < 0)) return this.receipt(false);

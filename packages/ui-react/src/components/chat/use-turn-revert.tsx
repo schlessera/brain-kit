@@ -1,5 +1,5 @@
 import { Button, Overlay } from "@schlessera/brain-ui-kit";
-import type { TurnRevertPlan, TurnRevertReceipt } from "@schlessera/brain-ui-sdk/protocol";
+import type { TurnRevertPlan, TurnRevertReceipt, TurnHistoryAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useRef, useState } from "react";
 import { useBrainUiRoot } from "../../root-context.js";
 
@@ -48,12 +48,12 @@ export function useTurnRevert(sessionId: string | null, turnId: string | undefin
     }, 500);
     return () => { clearInterval(timer); controller.abort(); };
   }, [root, key, sessionId, receipt?.id, receipt?.sourceTurnId, receipt?.state]);
-  async function start(sourceTurnId: string, action: "revert" | "restore", path?: string) {
+  async function start(sourceTurnId: string, action: TurnHistoryAction, path?: string, choice?: {version:JournalObservationReference;expected:JournalObservationReference;otherVersion?:JournalObservationReference}) {
     if (!sessionId || postingRef.current || pending(latestReceipt.current)) return;
     const ownKey = key, id = crypto.randomUUID(); operation.current = id; postingRef.current = true; setPosting(true); setError(null); setReview(null);
-    const unknown: TurnRevertReceipt = { id, sourceTurnId, journalTurnId: `revert_${id}`, action, state: "unknown", undoAvailable: false, paths: [], error: null };
+    const unknown: TurnRevertReceipt = { id, sourceTurnId, journalTurnId: `revert_${id}`, action, state: "unknown", undoAvailable: false, paths: [], error: null, ...(choice ? {resolution:{path:path!,...choice}}:{}) };
     latestReceipt.current = unknown; setReceipt(unknown);
-    try { accept(await root.api.turnRevert(sessionId, sourceTurnId, { id, action, ...(path ? { path } : {}) }), ownKey); }
+    try { accept(await root.api.turnRevert(sessionId, sourceTurnId, { id, action, ...(path ? { path } : {}), ...(choice??{}) }), ownKey); }
     catch { if (identity.current === ownKey) { setPosting(false); postingRef.current = false; setReceipt(unknown); setError("The response was not confirmed. Check the original receipt; no action will be retried automatically."); } }
   }
   function action(path: string) {
@@ -65,6 +65,7 @@ export function useTurnRevert(sessionId: string | null, turnId: string | undefin
     {plan?.paths.some(item => item.state === "eligible") && <span data-revert-review=""><Button label="Review whole-turn revert" tone="quiet" style={{ minHeight: 44 }} disabled={posting || pending(receipt)} onClick={() => { reviewTrigger.current = controlsRef.current?.querySelector<HTMLElement>("[data-revert-review] [role=button]") ?? null; setReview(plan); }} /></span>}
     {receipt && <div className="grid gap-2 text-sm break-words" data-revert-receipt={receipt.state}>
       <p>{copy(receipt)}</p>
+      {receipt.resolution && <p>Selected after observation {receipt.resolution.version.sequence}{receipt.resolution.otherVersion ? ` and ${receipt.resolution.otherVersion.sequence}` : ""}. Writer ownership remains shared.</p>}
       {receipt.error && <p>Recorded outcome: {receipt.error}.</p>}
       {receipt.paths.map(path => <p key={path.path}>{path.path}: {path.state}{path.reason ? ` (${path.reason})` : ""}</p>)}
       {["waiting", "applying", "unknown", "failed"].includes(receipt.state) && <Button label="Check again" tone="quiet" style={{ minHeight: 44 }} disabled={posting} onClick={() => void check()} />}
@@ -83,5 +84,12 @@ export function useTurnRevert(sessionId: string | null, turnId: string | undefin
       <Button label="Close" tone="quiet" style={{ minHeight: 44 }} onClick={() => setReview(null)} />
     </div>
   </Overlay>;
-  return { controls, action, dialog, announcement: <span className="sr-only" role="status" aria-live="polite">{announcement}</span> };
+  return { controls, action, dialog,
+    canResolve: loadedKey===key&&enabled,
+    resolutionPending: posting||pending(receipt),
+    resolve(path:string,action:"keep_version"|"keep_both",version:JournalObservationReference,expected:JournalObservationReference,otherVersion?:JournalObservationReference) {
+      if(loadedKey!==key||!enabled)return;
+      void start(turnId!,action,path,{version,expected,...(otherVersion?{otherVersion}:{})});
+    },
+    announcement: <span className="sr-only" role="status" aria-live="polite">{announcement}</span> };
 }

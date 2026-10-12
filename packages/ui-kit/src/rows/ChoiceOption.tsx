@@ -75,6 +75,7 @@ export interface ChoiceOptionProps {
    */
   tabStop?: boolean;
   radius?: number;
+  disabled?: boolean;
   onClick?: () => void;
   /**
    * Fires when the option takes focus, by Tab or by an arrow key. The group
@@ -172,10 +173,11 @@ export function ChoiceOption(p: ChoiceOptionProps) {
       className={act ? "bk-row bk-row-border" : undefined}
       role={act ? (multi ? "checkbox" : "radio") : undefined}
       aria-checked={act ? sel : undefined}
-      tabIndex={act ? (p.tabStop === false ? -1 : 0) : undefined}
-      onClick={p.onClick}
+      aria-disabled={act && p.disabled ? true : undefined}
+      tabIndex={act && !p.disabled ? (p.tabStop === false ? -1 : 0) : undefined}
+      onClick={p.disabled ? undefined : p.onClick}
       onFocus={act ? p.onFocus : undefined}
-      onKeyDown={act ? onKeyDown : undefined}
+      onKeyDown={act && !p.disabled ? onKeyDown : undefined}
     >
       {p.mark !== false ? (
         <span style={mark}>{sel ? <Icon icon="confirm" size={10} color={color.onInkSolid} /> : null}</span>

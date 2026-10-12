@@ -109,6 +109,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
   | ClientRetryStatus
@@ -785,6 +786,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
   | ServerTextDelta
@@ -824,7 +826,8 @@ export type ServerMessage =
   | ServerConversationWork
   | ServerConversationOutput
   | ServerConversationPermission
-  | ServerTurnJournal;
+  | ServerTurnJournal
+  | ServerUsage;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -1166,6 +1169,8 @@ export interface TurnFailure {
   attempts?: number;
   /** Observed subscription limit reset, in epoch milliseconds; absent means unknown. */
   resetsAt?: number;
+  /** Host budget scope; only a conversation block offers the reviewed handoff. */
+  budgetScope?: "turn" | "session" | "day";
   /** The failure as the runtime worded it. */
   message: string;
   /**
@@ -1182,7 +1187,7 @@ type FirstPartyFailureClass =
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1211,6 +1216,8 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   worker_state_busy: "worker_state_busy",
   worker_state_exceeded: "worker_state_exceeded",
   worker_state_save_refused: "worker_state_save_refused",
+  budget_exceeded: "budget_exceeded",
+  budget_unavailable:"budget_unavailable",
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
   unknown: "unknown",
@@ -3583,7 +3590,7 @@ export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
 }
 
-export type { JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction } from "./turn-journal.js";
+export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction } from "./turn-journal.js";
 
 /** Durable journal progress can arrive after the terminal result without reopening the turn. */
 export interface ServerTurnJournal extends SessionScoped {
@@ -3604,3 +3611,33 @@ export interface AgentPolicyRead {
   protectedPaths: string[];
   workerLimits: WorkerLimitsStatus | null;
 }
+
+export type { BudgetScope, BudgetObservation, TurnBudgetReceipt } from "./turn-budgets.js";
+
+/** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
+export interface ServerUsage extends SessionScoped {
+  type: "usage";
+  turnId: string;
+  usage: TurnUsage;
+  observedAt: number;
+  budget?: import("./turn-budgets.js").TurnBudgetReceipt;
+}
+/** Authenticated visual action, bound to the exact paused event, turn and session. */
+export interface ClientScopeDecision {
+  type: "scope_decision";
+  sessionId: string;
+  turnId: string;
+  eventId: string;
+  submissionId: string;
+  action: "continue" | "stop" | "readback";
+}
+export interface ServerScopeDecisionReceipt {
+  type: "scope_decision_receipt";
+  sessionId: string;
+  turnId: string;
+  eventId: string;
+  submissionId: string;
+  state: "accepted" | "pending" | "answered_elsewhere" | "ended_before_answer" | "refused" | "failed";
+  reason?: string;
+}
+export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";
