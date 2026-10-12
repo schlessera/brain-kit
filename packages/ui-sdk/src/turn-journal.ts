@@ -36,6 +36,9 @@ export interface TurnJournalChange {
   before: JournalVersion | null;
   after: JournalVersion | null;
   overlappingTurnIds: string[];
+  /** Present only when an existing same-session/turn taint event preceded this observation. */
+  tainted?: true;
+  taintSourceEventId?: number;
 }
 
 /** An admission receipt, not a claim that the external action completed. */

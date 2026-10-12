@@ -60,6 +60,9 @@ function kind<T extends z.ZodType>(version: number, payload: T) {
  * docs/http-api.md ("Governance events"); keep the two in step.
  */
 export const GOVERNANCE_EVENT_SCHEMAS = {
+  steering_change: kind(1, z.strictObject({ path, sequence: count,
+    beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
+    overlappingTurnIds: z.array(z.string().min(1).max(200)).max(1000) })),
   policy_change: kind(1, z.strictObject({ requestId: z.string().min(1).max(200),
     baseHash: policyHash, proposedHash: policyHash, sections: z.array(z.string().max(200)).max(100),
     outcome: z.literal("updated") })),

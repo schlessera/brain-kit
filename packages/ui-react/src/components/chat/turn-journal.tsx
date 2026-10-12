@@ -50,16 +50,18 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   useEffect(() => { if (!readable) setSelected(null); }, [readable]);
   const count = summary?.changedFiles;
   const changes = count == null ? "Changes unknown" : `${count} changed ${count === 1 ? "file" : "files"}`;
+  const steering = summary?.steeringFiles == null ? "Steering unknown" : `${summary.steeringFiles} steering`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
   const budget = summary?.budget;
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
-  const label = `${changes} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
+  const label = `${changes} · ${steering} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
     if (!live || !turnId || announced.current === turnId || !["complete", "partial"].includes(state)) return;
     announced.current = turnId; setAnnouncement(`Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}`);
   }, [live, turnId, state, changes, cost]);
   const groups = details ? [
-    ["Steering", details.changes.filter(change => change.class === "steering" || change.class === "policy")],
+    ["Steering", details.changes.filter(change => change.class === "steering")],
+    ["Policy", details.changes.filter(change => change.class === "policy")],
     ["Content", details.changes.filter(change => change.class === "content" && !change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
     ["Workspaces", details.changes.filter(change => change.class === "content" && !!change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
     ["Non-revertible changes", details.changes.filter(change => change.class === "content" && (change.before?.ignored || change.after?.ignored || (change.before?.kind ?? change.after?.kind) === "other"))],
@@ -88,6 +90,10 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {error && <p role="status">{error}</p>}
         {details?.missing.map((missing, index) => <p key={`${missing.path}-${index}`} className="break-words">Unavailable: {missing.path} ({missing.reason})</p>)}
         {revert.controls}
+        {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+          <span className="break-all min-w-0">{change.path}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
+          {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
+        </li>)}</ul></section>)}
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
           <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
           <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">
@@ -95,16 +101,13 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           </li>)}</ul>
           {details.outwardActionsTruncated && <p className="mt-2">Showing the first 1,000 outward receipts. More remain in the retained governance records.</p>}
         </section>}
-        {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-          <span className="break-all min-w-0">{change.path} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
-          {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
-        </li>)}</ul></section>)}
       </div>
     </Disclosure>
     <Overlay open={!!selected && readable} variant="dialog" size="xl" label="Retained change" initialFocus={heading} returnFocus={() => trigger.current?.isConnected ? trigger.current : wrapper.current?.querySelector<HTMLElement>("summary,button") ?? null} onClose={() => setSelected(null)}>
       <div className="grid gap-4 min-w-0 p-4">
         <h2 ref={heading} tabIndex={-1} className="font-medium break-all">{selected?.path}</h2>
         <p className="text-sm text-muted-foreground">Observed raw version · {selected?.before?.bytes ?? 0} → {selected?.after?.bytes ?? 0} bytes</p>
+        {selected?.tainted === true && selected.taintSourceEventId && <p className="text-sm">Review recommended: this steering observation follows recorded untrusted input (source event {selected.taintSourceEventId}).</p>}
         {!preview && !previewError && <p>Loading retained version…</p>}
         {previewError && <p role="status">{previewError}</p>}
         {preview?.inline ? <div className="max-h-[60vh] overflow-auto min-w-0"><DiffBlock tinted variant="inset" text={diffText(computeDiffRows(preview.before ?? "", preview.after ?? ""))} /></div> : preview && <p>Inline diff unavailable ({preview.reason}). Raw versions remain available below.</p>}

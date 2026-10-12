@@ -1537,21 +1537,35 @@ the turn may send out and how its writes are labelled.
 
 ### Steering artifacts (G7)
 
-Steering artifacts are:
+Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
+files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
+`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
+configuration, dependency manifests and retained local import/resource inputs.
+The journal follows retained literal local references as data. It never imports
+or evaluates configuration to classify it. Ignored, oversized or opaque inputs
+are named as classification limitations; this does not assert arbitrary
+runtime-consumption coverage (`journalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:13-63`).
 
-- `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`;
-- `.claude/skills/` and `.agents/`;
-- Claude memory notes, once #1621 persists them;
-- `.claude/` hooks, which are tier B;
-- `context/scheduled-tasks/`.
+Changes are allowed and journaled with class `steering`. The single initially
+collapsed turn disclosure includes the steering count; expanded steering comes
+first. Review uses the existing raw diff reader and user per-file/whole-turn
+revert controls. No extra collapsed banner or steering-group action is added.
+Policy is separate, class `policy`, excluded from the steering count, and only
+the approved user route writes it.
 
-Changes to them are allowed and journaled with the class `steering`. History
-shows them first, as a separate group, with one-click revert. A steering change
-made by a tainted session carries a flag, and its review card names the
-untrusted source that preceded it.
+Each steering observation retains a governance event and shared-window
+attribution. If an existing same-session/turn taint event precedes an agent
+observation, the journal retains its source ID with that change. Replay never
+infers taint from a later event, and absence of evidence does not assert complete
+untrusted-input detection. User history operations are not tainted agent writes
+(`observe`, `packages/ui-server/src/brain/turn-journal.ts:112-162`).
 
-The policy file is not a steering artifact. It is tier A, and only the
-approved route writes it.
+Claude auto-memory currently persists outside the authoritative brain through
+its backend state service. That service supplies no journal version receipt;
+the canonical brain/workspace journal does not invent a memory path or user
+restore authority. Its external memory integration remains a separate source
+limitation, not a claim of delivered raw-memory review/revert.
 
 ### Concurrent edits
 

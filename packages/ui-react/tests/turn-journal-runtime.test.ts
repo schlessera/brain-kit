@@ -13,6 +13,8 @@ import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath) throw new Error("Turn journal proof requires real Chrome");
 const repo = resolve(import.meta.dir, "../../.."), password = "the bow only Odysseus can string", turnId = "odysseus-journal";
+const skillPath = ".claude/skills/voyage-log/SKILL.md";
+let taintSourceEventId = 0;
 let root = "", origin = "", browser: Browser, app: Awaited<ReturnType<typeof createApp>>, server: ReturnType<typeof Bun.serve>;
 async function child(args: string[]) {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
@@ -25,12 +27,16 @@ beforeAll(async () => {
   const brain = resolve(root, "brain"), assets = resolve(root, "assets");
   await createFixtureBrain(repo, brain); await mkdir(assets);
   await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
+  await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
+  await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
   await child([process.execPath, "-e", 'const result=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!result.success){console.error(result.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/turn-journal-client.tsx"), assets]);
   const backend = makeFakeBackend({ id: "journal-fixture" });
   app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() });
   app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
+  await writeFile(resolve(brain, skillPath), "# Voyage log\nAthena reviews the crossing.\n");
   app.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
+  taintSourceEventId = recordGovernanceEvent(app.db, { kind: "taint", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } }).id;
   for (const decision of ["approved", "declined"] as const) recordGovernanceEvent(app.db, { kind: "outward_action", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed",
     payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
   app.wsHost.journal!.finish(turnId);
@@ -56,6 +62,8 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (con
   try {
     const disclosure = page.getByRole("button", { name: /changed file/ });
     expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(await disclosure.innerText(), "STEERING_COLLAPSED_COUNT").toContain("1 steering");
+    expect(await page.getByRole("heading", { name: "Steering", exact: true }).count()).toBe(0);
     expect((await disclosure.boundingBox())!.height, "JOURNAL_DISCLOSURE_44PX").toBeGreaterThanOrEqual(44);
     await page.getByRole("textbox", { name: "Message" }).focus();
     await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: (window as any).__journalSeed.summary }), turnId);
@@ -64,6 +72,10 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (con
     expect(await page.evaluate(() => (window as any).__journalFixture.state().runState), "JOURNAL_RECEIPT_NEVER_REOPENS_RUN_STATE").toBe("idle");
     await disclosure.focus(); await page.keyboard.press("Enter");
     const review = page.getByRole("button", { name: "Review notes/voyage.md", exact: true }); await review.waitFor();
+    const groupHeadings = await page.locator("[data-turn-journal] section h3").allTextContents();
+    expect(groupHeadings.indexOf("Steering"), "STEERING_FIRST_RECORDED_GROUP").toBeLessThan(groupHeadings.indexOf("Content"));
+    expect(await page.getByText(`Review recommended: recorded untrusted input (source event ${taintSourceEventId}).`, { exact: true }).count(), "STEERING_RECORDED_TAINT_ONLY").toBe(1);
+    expect(await page.getByRole("button", { name: /Revert steering/i }).count()).toBe(0);
     expect(await page.getByRole("heading", { name: "Outward actions", exact: true }).count(), "OUTWARD_JOURNAL_IRREVERSIBLE_VISIBLE").toBe(1);
     expect(await page.getByText("These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.", { exact: true }).count(), "OUTWARD_JOURNAL_TRUTHFUL_SCOPE").toBe(1);
     expect(await page.getByText("Git push · Approved · github.com/odysseus/voyage.git", { exact: true }).count()).toBe(1);
@@ -111,7 +123,7 @@ test("whole-turn review reads first; Escape has no effect, waiting receipt stays
     await page.keyboard.press("Escape"); await dialog.waitFor({state:"hidden"});
     await page.waitForFunction(()=>document.activeElement?.textContent === "Review whole-turn revert");
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"), "REVERT_ESCAPE_NEVER_EXECUTES").toBe("Athena charts the return.\r\n");
-    await trigger.click();const commit=page.getByRole("button",{name:"Revert 1 file",exact:true});expect((await commit.boundingBox())!.height).toBeGreaterThanOrEqual(44);await commit.click();
+    await trigger.click();const commit=page.getByRole("button",{name:"Revert 2 files",exact:true});expect((await commit.boundingBox())!.height).toBeGreaterThanOrEqual(44);await commit.click();
     await page.getByText("Waiting for running turns.",{exact:true}).waitFor();
     expect(await page.locator("[data-turn-journal] [data-revert-receipt='waiting']").count(),"REVERT_RECEIPT_SAME_DISCLOSURE").toBe(1);
     expect(await page.getByRole("button",{name:/Cancel revert|Cancel operation/}).count()).toBe(0);
@@ -120,7 +132,7 @@ test("whole-turn review reads first; Escape has no effect, waiting receipt stays
     expect(await page.locator("[data-revert-receipt]").getAttribute("data-revert-receipt"), await page.locator("[data-revert-receipt]").innerText()).toBe("partial");
     expect(await page.locator("[data-revert-receipt]").innerText(), "REVERT_EXCLUDED_IGNORED_PATH_NAMED").toContain("excluded (version_unavailable)");
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"),"REVERT_BROWSER_ORIGINAL_BYTES").toBe("Ithaca\r\n");
-    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("heading",{name:"Review Undo",exact:true}).waitFor();await page.getByRole("button",{name:"Revert 1 file",exact:true}).click();
+    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("heading",{name:"Review Undo",exact:true}).waitFor();await page.getByRole("button",{name:"Revert 2 files",exact:true}).click();
     await page.waitForFunction(()=>document.querySelector("[data-revert-receipt]")?.getAttribute("data-revert-receipt")==="complete");
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"),"REVERT_BROWSER_UNDO_BYTES").toBe("Athena charts the return.\r\n");
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),"REVERT_PHONE_BOUNDS").toBe(true);expect(outside).toEqual([]);
@@ -168,4 +180,29 @@ test("voice and expired facts remove actions; an old POST response cannot attach
     await page.evaluate(()=>(window as any).__journalFixture.switchSession());releaseResponse!();hold.release();await page.waitForTimeout(100);
     expect(await page.locator("[data-revert-receipt]").count(),"REVERT_STALE_SESSION_RESPONSE_IGNORED").toBe(0);expect(await page.getByRole("dialog").count()).toBe(0);
   } finally {releaseResponse?.();hold.release();await context.close();}
+});
+
+for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
+  const { context, page, outside } = await scene(width, theme, true);
+  try {
+    await page.getByRole("button", { name: /changed file/ }).click();
+    const trigger = page.getByRole("button", { name: `Review ${skillPath}`, exact: true }); await trigger.waitFor();
+    await trigger.focus(); await page.keyboard.press("Enter");
+    const heading = page.getByRole("heading", { name: skillPath, exact: true }); await heading.waitFor();
+    expect(await heading.evaluate(element => document.activeElement === element), "STEERING_READER_READING_FOCUS").toBe(true);
+    expect(await page.getByText(`Review recommended: this steering observation follows recorded untrusted input (source event ${taintSourceEventId}).`, { exact: true }).count()).toBe(1);
+    await page.getByText("Athena reviews the crossing.", { exact: true }).waitFor();
+    await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "STEERING_PHONE_ZOOM_BOUNDS").toBe(true);
+    await page.keyboard.press("Escape"); await page.waitForFunction(path => document.activeElement?.getAttribute("aria-label") === `Review ${path}`, skillPath);
+    await trigger.click(); await page.getByRole("button", { name: `Revert ${skillPath}`, exact: true }).click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await readFile(resolve(root, "brain", skillPath), "utf8"), "STEERING_BROWSER_REVERT_RESTORES_SKILL").toBe("# Voyage log\nOdysseus records the crossing.\n");
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await page.getByRole("button", { name: "Revert 1 file", exact: true }).click();
+    await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await readFile(resolve(root, "brain", skillPath), "utf8")).toBe("# Voyage log\nAthena reviews the crossing.\n");
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
 });

@@ -9253,6 +9253,8 @@ signatures (every public export and the types it is made of)
         before: JournalVersion | null;
         after: JournalVersion | null;
         overlappingTurnIds: string[];
+        tainted?: true;
+        taintSourceEventId?: number;
     }
   TurnJournalDetails (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalDetails {
