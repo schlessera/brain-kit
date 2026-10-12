@@ -297,3 +297,26 @@ describe("rejections", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+
+test("policy approval and live/replay receipts survive the validated additive boundary", () => {
+  const policyChange = {
+    requestId: "policy-1", turnId: "turn-1", path: "context/policies/governance.md", state: "updated",
+    rationale: "Use strict for the next voyage turn.", baseHash: "a".repeat(64), proposedHash: "b".repeat(64),
+    frontmatterDiff: "- interactive: governed\n+ interactive: strict", bodyChanged: true,
+    bodyDiff: "- Odysseus reviews.\n+ Odysseus approves.", sections: ["profiles.interactive"], warnings: [],
+    message: "Policy updated. Applies from the next turn.",
+  } satisfies import("../src/tool-contracts/policy.js").PolicyChangeReview;
+  const frames: ServerMessage[] = [
+    { type: "tool_approval_request", toolUseId: "policy-1", toolName: "propose_policy_change", kind: "policy", input: { policyReview: { ...policyChange, state: "pending" } }, sessionId: "s1", turnId: "turn-1", rememberable: false },
+    { type: "tool_result", toolUseId: "policy-1", output: policyChange.message, isError: false, policyChange, sessionId: "s1", turnId: "turn-1" },
+    { type: "session_history", sessionId: "s1", messages: [{ role: "assistant", content: "", turnId: "turn-1", toolCalls: [{ id: "policy-1", name: "propose_policy_change", input: {}, output: policyChange.message, policyChange }] }] },
+  ];
+  for (const frame of frames) {
+    const result = parse(frame);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.message).toEqual(frame);
+  }
+  expect(parse({ ...frames[1], policyChange: { ...policyChange, state: "approve_by_voice" } }).ok).toBe(false);
+  expect(parse({ ...frames[1], policyChange: { ...policyChange, baseHash: undefined } }).ok).toBe(false);
+});
