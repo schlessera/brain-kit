@@ -384,7 +384,7 @@ Map output is an explicit chosen PNG path. The command resolves requested routin
 before rasterization and then repeats destination containment after those awaits.
 Scratch retains its existing ignored/genuine-directory policy. A local initialized-
 brain guard covers option-prefixed and bare-terminator forms as well as normal bin
-routing (`runMap`, `packages/core/src/cli/commands/geo.ts:208-259`).
+routing (`runMap`, `packages/core/src/cli/commands/geo.ts:208-263`).
 Source omissions count toward the aggregate map budget: many recovered inputs with
 little retained geometry must not bypass the metadata/text allocation bound.
 The full legend stays complete; exceeding the bound refuses rather than truncates.

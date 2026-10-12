@@ -313,7 +313,9 @@ exported from `@schlessera/brain` — and that test fails when this document, th
   and prune after writing: `brain render` (`--scratch`, stdin without `--out`,
   or `--out` into it), `brain image` (`--scratch` or `--out` into it),
   `brain okf export --out` into it, and the chat UI's `request_image_mask`
-  beside a draft there. Each refuses to write until git excludes the
+  beside a draft there. A writer's own prune never removes the output it
+  reports; later passes apply the usual policy to it. Each refuses to write
+  until git excludes the
   directory itself (`brain doctor --fix` adds the line; a rule on the files
   alone does not count) and refuses a `.brain` or `.brain/scratch` that is a
   symlink. Other commands that write where a caller points them (`add`,

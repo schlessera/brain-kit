@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BRAIN_MASK_MAX_BYTES, createKeyedLock, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
@@ -90,6 +90,20 @@ test("scratch mask prunes under the same authority and records actual removals",
   expect(result.ok).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
   expect(result.changes).toContainEqual({ path: ".brain/scratch/old.png", contentHash: null });
   expect(existsSync(join(root, ".brain/scratch/old.png"))).toBe(false); expect(records).toEqual([result]);
+});
+
+test("retained pins over the cap do not let the scratch mask's own prune delete it (#1691)", async () => {
+  mkdirSync(join(root, ".brain/scratch"), { recursive: true }); writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n");
+  const imagePath = ".brain/scratch/raft.png", maskPath = ".brain/scratch/raft-mask.png";
+  const pinned = join(root, ".brain/scratch/voyage-log.bin");
+  writeFileSync(pinned, ""); truncateSync(pinned, 1024 * 1024 * 1024 + 1); // sparse, over the 1 GiB cap
+  mkdirSync(join(root, ".brain/scratch-pins")); writeFileSync(join(root, ".brain/scratch-pins/pins.json"),
+    JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": [".brain/scratch/voyage-log.bin", imagePath] } }));
+  writeFileSync(join(root, imagePath), png);
+  const result = await app()({ principalId: "odysseus", turnId: "raft-turn", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
+  expect(result.ok).toBe(true); expect(result.changes).toEqual([{ path: maskPath, contentHash: expect.any(String) }]);
+  expect(readFileSync(join(root, maskPath))).toEqual(png);
+  expect(statSync(pinned).size).toBe(1024 * 1024 * 1024 + 1);
 });
 
 test.each([

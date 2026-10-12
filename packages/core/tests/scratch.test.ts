@@ -3,7 +3,7 @@
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
@@ -649,6 +649,23 @@ describe("the OKF exporter, as a writer into scratch", () => {
     expect(report.filesExported).toBe(1);
     expect(existsSync(join(root, SCRATCH_DIR, "export", "notes", "a.md"))).toBe(true);
     expect(existsSync(stale)).toBe(false);
+  });
+
+  test("retained pins over the cap do not let its own prune delete the bundle it reports (#1691)", async () => {
+    brain();
+    ignoreScratch(root);
+    const pinned = join(root, SCRATCH_DIR, "voyage-log.bin");
+    mkdirSync(join(root, SCRATCH_DIR), { recursive: true }); writeFileSync(pinned, "");
+    truncateSync(pinned, SCRATCH_MAX_BYTES + 1); // sparse
+    mkdirSync(join(root, ".brain/scratch-pins"), { recursive: true });
+    writeFileSync(join(root, ".brain/scratch-pins/pins.json"),
+      JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": [`${SCRATCH_DIR}/voyage-log.bin`] } }));
+    const report = await exportOkfBundle({ root, taxonomy: buildTaxonomy({}), outDir: `${SCRATCH_DIR}/export` });
+    expect(report.filesExported).toBe(1);
+    const bundle = readdirSync(join(root, SCRATCH_DIR, "export"), { recursive: true }).map(String).sort();
+    expect(bundle).toEqual(expect.arrayContaining(["index.md", "notes", "notes/a.md", "notes/index.md"]));
+    expect(readFileSync(join(root, SCRATCH_DIR, "export", "notes", "a.md"), "utf8")).toContain("Hello");
+    expect(statSync(pinned).size).toBe(SCRATCH_MAX_BYTES + 1);
   });
 });
 

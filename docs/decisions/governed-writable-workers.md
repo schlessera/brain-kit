@@ -482,11 +482,15 @@ bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:590`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:595`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
-overage is reported. Pinned files are never deleted.
+overage is reported. Pinned files are never deleted. A writer that prunes
+after writing into scratch also passes the paths it just produced, protected
+for that one call (`pinnedPaths`), so retained pins over the cap cannot make it
+delete the output it reports; the next ordinary prune treats that output like
+any other unlinked file (#1691).
 
 The server scans retained backend histories before pruning and records stored
 assistant links at turn boundaries. Its session-keyed snapshot is

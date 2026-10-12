@@ -4,10 +4,11 @@
 // write tests stub `fetch` with a Gemini-shaped reply, so no request leaves
 // either.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildTaxonomy, SCRATCH_DIR } from "@schlessera/brain/module";
+import { SCRATCH_MAX_BYTES } from "../../core/src/lib/scratch.js";
 import { ignoreScratch } from "../../core/src/lib/scratch.js";
 
 import { imageCommand } from "../src/cli";
@@ -95,6 +96,22 @@ describe("brain image --scratch", () => {
     expect(payload.bytes).toBe(PNG_BYTES.length);
     expect(existsSync(stale)).toBe(false);
     expect(scratchFiles()).toHaveLength(1);
+  });
+
+  test("retained pins over the cap do not let its own prune delete the image it reports (#1691)", async () => {
+    ignoreScratch(root);
+    const pinned = join(root, SCRATCH_DIR, "voyage-log.bin");
+    mkdirSync(join(root, SCRATCH_DIR), { recursive: true }); writeFileSync(pinned, "");
+    truncateSync(pinned, SCRATCH_MAX_BYTES + 1); // sparse
+    mkdirSync(join(root, ".brain/scratch-pins"), { recursive: true });
+    writeFileSync(join(root, ".brain/scratch-pins/pins.json"),
+      JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": [`${SCRATCH_DIR}/voyage-log.bin`] } }));
+    stubProvider();
+    expect(await run(["a lighthouse", "--draft", "--scratch"])).toBe(0);
+    const payload = JSON.parse(out.join("\n")) as { output: string; outputs: string[] };
+    for (const path of payload.outputs) expect(readFileSync(join(root, path), "utf8")).toBe(PNG_BYTES);
+    expect(existsSync(join(root, payload.output))).toBe(true);
+    expect(statSync(pinned).size).toBe(SCRATCH_MAX_BYTES + 1);
   });
 
   test("two drafts of one prompt keep both files", async () => {

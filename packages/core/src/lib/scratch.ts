@@ -586,6 +586,11 @@ function removeEmptyDirs(root: string, scratch: string, dir: string): void {
  * files until the rest fit in `maxBytes`. Safe to call when scratch does not
  * exist, and from any process: an entry that another process removed in the
  * meantime is neither an error nor reported. Refuses a redirected scratch.
+ *
+ * `pinnedPaths` protects files for this call only, on top of the retained
+ * pins: brain-relative or absolute paths, such as the ones `writeScratchFile`
+ * returns. A writer that prunes after writing passes what it just produced,
+ * so its own cleanup cannot delete the output it is about to report (#1691).
  */
 export function pruneScratch(
   root: string,
@@ -626,7 +631,8 @@ export function pruneScratch(
   };
   const entries = listFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
   let pins: ReadonlySet<string>;
-  const currentPins = () => new Set([...readScratchPins(rootReal), ...(pinsFile ? readScratchPins(rootReal, pinsFile) : []), ...(pinnedPaths ?? [])]);
+  const explicit = [...(pinnedPaths ?? [])].map(path => rel(resolve(rootReal, path)));
+  const currentPins = () => new Set([...readScratchPins(rootReal), ...(pinsFile ? readScratchPins(rootReal, pinsFile) : []), ...explicit]);
   try {
     // Explicit pins only add protection; they cannot bypass the durable set.
     pins = currentPins();

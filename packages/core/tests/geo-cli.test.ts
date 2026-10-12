@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { SCRATCH_MAX_BYTES } from "../src/lib/scratch.js";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness.js";
 
 let root: string, server: Server, endpoint: string;
@@ -127,6 +128,22 @@ describe("actual brain geo command contracts", () => {
     expect(png.readUInt32BE(16)).toBe(320); expect(result.artifact.bytes).toBe(png.byteLength);
     expect(result.png).toBeUndefined(); expect(result.svg).toBeUndefined(); expect(result.attribution).toEqual([]);
     expect(readFileSync(join(root, "walk.gpx"), "utf8")).toBe(gpx); expect(requests).toHaveLength(0);
+  });
+
+  test("a map written into scratch survives its own prune when retained pins exceed the cap (#1691)", async () => {
+    writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n");
+    const pinned = join(root, ".brain/scratch/voyage-log.bin");
+    mkdirSync(join(root, ".brain/scratch"), { recursive: true }); writeFileSync(pinned, "");
+    truncateSync(pinned, SCRATCH_MAX_BYTES + 1); // sparse
+    mkdirSync(join(root, ".brain/scratch-pins"), { recursive: true });
+    writeFileSync(join(root, ".brain/scratch-pins/pins.json"),
+      JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": [".brain/scratch/voyage-log.bin"] } }));
+    const response = await runCli(root, ["geo", "map", "walk.gpx", "--width", "320", "--no-background", "--out", ".brain/scratch/walk.png", "--json"]);
+    expect(response.code).toBe(0); const result = JSON.parse(response.stdout);
+    expect(result.artifact).toMatchObject({ path: ".brain/scratch/walk.png", format: "png" });
+    expect(existsSync(join(root, ".brain/scratch/walk.png"))).toBe(true);
+    expect(statSync(join(root, ".brain/scratch/walk.png")).size).toBe(result.artifact.bytes);
+    expect(statSync(pinned).size).toBe(SCRATCH_MAX_BYTES + 1);
   });
 
   test("map resolves requested routing before rasterization and retains every missing leg and cropped stop", async () => {
