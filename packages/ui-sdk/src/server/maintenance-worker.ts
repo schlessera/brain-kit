@@ -36,6 +36,12 @@ export interface MaintenanceCommand {
   maskPaths?: readonly string[];
   /** Existing host files the command may append to, such as a span sink. */
   writeFiles?: readonly string[];
+  /** Host-selected storage only: writable object/ref directories of a private sync mirror. */
+  writeDirectories?: readonly string[];
+  /** Host-selected Git overrides, applied after environment filtering. Never contains credentials. */
+  gitConfig?: readonly (readonly [string, string])[];
+  /** Credentialed host transport; replaces the maintenance envelope and never binds the brain. */
+  transport?: NonNullable<WorkerLaunch["transport"]>;
 }
 
 export interface MaintenanceResult {
@@ -68,6 +74,13 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     if (value !== undefined && (input.credentials || (CREDENTIAL_FREE_ENV as readonly string[]).includes(key))) env[key] = value;
   }
   env.PATH = [dirname(bun), env.PATH].filter(Boolean).join(":");
+  if (input.gitConfig) {
+    env.GIT_CONFIG_COUNT = String(input.gitConfig.length);
+    input.gitConfig.forEach(([key, value], index) => {
+      env[`GIT_CONFIG_KEY_${index}`] = key;
+      env[`GIT_CONFIG_VALUE_${index}`] = value;
+    });
+  }
   if (!input.credentials) {
     // The home is masked; tools that want one get a private, empty directory.
     env.HOME = MAINTENANCE_HOME;
@@ -80,14 +93,15 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     brainPath: input.brainPath,
     command: input.command,
     env,
-    maintenance: {
+    ...(input.transport ? { transport: input.transport } : { maintenance: {
       network: input.network ?? input.credentials,
       credentials: input.credentials,
       ...(home ? { home: { path: home, overlay: overlayable(realpathSync(input.brainPath), home) } } : {}),
       readPaths: [process.execPath, ...(input.readPaths ?? [])],
       ...(input.maskPaths ? { maskPaths: input.maskPaths } : {}),
       ...(input.writeFiles ? { writeFiles: input.writeFiles } : {}),
-    },
+      ...(input.writeDirectories ? { writeDirectories: input.writeDirectories } : {}),
+    } }),
   };
 }
 

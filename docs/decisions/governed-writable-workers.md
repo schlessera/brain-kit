@@ -494,7 +494,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:628-654`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:670-696`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -668,7 +668,7 @@ A credentialed maintenance worker holds it exclusively.
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
 turn waits for is credential-free; for example, the synchronous index after a
-curated application. Credentialed work, such as sync or an interim keyed
+curated application. Credentialed work, such as Git transport or an interim keyed
 reindex, is queued, and runs once no shared holder remains.
 
 Revert takes the gate exclusively too:
@@ -890,7 +890,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:157`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:161`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -902,7 +902,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:924`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:966`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;

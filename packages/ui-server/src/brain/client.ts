@@ -234,6 +234,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       credentials,
       gate,
       purpose: `brain ${args.slice(0, 2).join(" ")}`,
+      ...(args[0] === "sync" ? { sync: true } : {}),
       ...(input !== undefined ? { stdin: input } : {}),
       // Only read-only search passes a signal. Kill even a CLI that ignores
       // SIGTERM; abandoning a request must not leave the local process alive.

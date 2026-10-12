@@ -30,6 +30,7 @@ import {
 import { killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
+import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 
 /** Why `governed` cannot run on this server. */
 export type { GovernedUnavailableReason };
@@ -59,6 +60,8 @@ export interface BrainExecution {
   timeoutMs?: number;
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
+  /** A complete hosted sync: its only credentialed part is the host mirror transport. */
+  sync?: boolean;
 }
 
 export interface ExecutionResult {
@@ -193,6 +196,17 @@ function absoluteArgv(brain: string, argv: readonly string[], path: string): str
 /** The server's maintenance program; `bun` resolves its source, the build its output. */
 export const MAINTENANCE_ENTRY = Bun.resolveSync("./maintenance-entry", import.meta.dir);
 
+/** Cancelling an output reader discards output; it cannot interrupt lifecycle cleanup. */
+function syncOutput() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let closed = false;
+  const stream = new ReadableStream<Uint8Array>({ start(value) { controller = value; }, cancel() { closed = true; } });
+  return { stream,
+    write(text: string) { if (!closed && text) controller.enqueue(new TextEncoder().encode(text)); },
+    close() { if (!closed) { closed = true; controller.close(); } },
+  };
+}
+
 let serverRuntime: string[] | undefined;
 /**
  * The server's own installation, read-only: this package with the
@@ -212,6 +226,7 @@ function serverInstallation(): string[] {
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const brain = real(options.brainPath);
   const exec = options.exec ?? {};
+  let mirror: string | undefined;
   let probed: WorkerHostProbe | undefined;
   // The latest ordinary probe: the server's own record when it keeps one,
   // otherwise one probe of this boundary's.
@@ -244,6 +259,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
     env.PATH = path;
+    // Git credentials belong only to the mirror transport, including while
+    // provider-credentialed maintenance remains an interim exposure.
+    delete env.GITHUB_TOKEN;
+    delete env.BRAIN_UI_SYNC_GITHUB_TOKEN;
     if (execution.credentials && options.home) env.HOME = options.home;
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
@@ -312,20 +331,51 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
       }
       return gated(execution, async () => {
+        if (execution.sync) return runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
         const result = await runMaintenanceWorker({ ...command(execution), stdin: execution.stdin,
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
         return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
       });
     },
     async launch(execution) {
+      execution.signal?.throwIfAborted();
       if (!isolated()) {
         const proc = hostSpawn(execution);
         return { stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
           get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") };
       }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
+      if (execution.sync) {
+        try {
+          // An abort can arrive while the gate is resolving. Check it before
+          // preparation; attaching a listener alone would miss that event.
+          execution.signal?.throwIfAborted();
+          const selectedCommand = command(execution);
+          const selectedMirror = mirror ??= syncMirrorPath(brain, options.dbPath);
+          const abort = new AbortController();
+          const stdout = syncOutput();
+          const stderr = syncOutput();
+          let signalCode: string | null = null;
+          const onAbort = () => abort.abort(execution.signal?.reason);
+          execution.signal?.addEventListener("abort", onAbort, { once: true });
+          const exited = runMirrorSync({ command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
+            ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+            stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
+          }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
+            .finally(() => {
+              try { stdout.close(); } finally {
+                try { stderr.close(); } finally {
+                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { hold?.release(); }
+                }
+              }
+            });
+          return { stdout: stdout.stream, stderr: stderr.stream, exited, get signalCode() { return signalCode; },
+            kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
+        } catch (error) { hold?.release(); throw error; }
+      }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
-      try { worker = launchMaintenanceWorker(command(execution)); }
+      try { execution.signal?.throwIfAborted(); worker = launchMaintenanceWorker(command(execution)); }
       catch (error) { hold?.release(); throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
