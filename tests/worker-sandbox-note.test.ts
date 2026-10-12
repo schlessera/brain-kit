@@ -47,8 +47,10 @@ afterEach(() => {
 /** The note for this brain and home, from the generator itself. */
 function expectedNote(extra: worker.WorkerNoteLimit[] = [], sandbox?: worker.WorkerSandbox): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
-  return worker.workerSandboxNote(sandbox ?? worker.prepareWorkerSandbox(brain, { home }),
-    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] });
+  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { home });
+  return [worker.workerSandboxNote(resolved,
+    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] }),
+    worker.workerCommandPolicyNote(resolved.commandPolicy, []), worker.workerOutwardNote()].filter(Boolean).join("\n\n");
 }
 
 function claudeAppend(sandbox?: worker.WorkerSandbox): string {

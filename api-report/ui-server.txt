@@ -524,10 +524,16 @@ signatures (every public export and the types it is made of)
             }>>;
         }, z.core.$strict>>;
         outward: z.ZodOptional<z.ZodObject<{
-            allow: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            allow: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodObject<{
                 command: z.ZodString;
                 remotes: z.ZodArray<z.ZodString>;
-            }, z.core.$strict>>>;
+            }, z.core.$strict>>, z.ZodTransform<{
+                command: string;
+                remotes: string[];
+            }[], {
+                command: string;
+                remotes: string[];
+            }[]>>>;
             hosts: z.ZodOptional<z.ZodArray<z.ZodString>>;
         }, z.core.$strict>>;
         profiles: z.ZodOptional<z.ZodObject<{
@@ -941,6 +947,7 @@ signatures (every public export and the types it is made of)
   TurnGovernancePolicy (packages/ui-server/src/brain/governance-policy.ts)
     export interface TurnGovernancePolicy {
         readonly commandRuleIndices: Readonly<GovernanceCommandRuleIndices>;
+        readonly outwardRuleIndices: readonly number[];
         readonly hash: string | null;
         readonly source: "policy" | "default" | "last_valid";
         readonly policy: EffectiveGovernancePolicy;
@@ -986,6 +993,7 @@ signatures (every public export and the types it is made of)
     export type WorkerAreaName = keyof typeof WORKER_AREAS;
   WorkerCommandPolicy (packages/ui-sdk/src/server/command-policy.ts)
     export interface WorkerCommandPolicy {
+        readonly outwardAllow?: readonly import("./outward-policy.js").WorkerOutwardRule[];
         readonly hash: string | null;
         readonly deny: readonly WorkerCommandRule[];
         readonly confirm: readonly WorkerCommandRule[];
@@ -1009,6 +1017,12 @@ signatures (every public export and the types it is made of)
         reason: string;
         missing?: true;
     };
+  WorkerOutwardRule (packages/ui-sdk/src/server/outward-policy.ts)
+    export interface WorkerOutwardRule {
+        readonly command: string;
+        readonly remotes: readonly string[];
+        readonly index: number;
+    }
   WorkerProfile (packages/ui-sdk/src/server/worker-sandbox.ts)
     export type WorkerProfile = "governed" | "strict" | "restricted";
   WorkerProtection (packages/ui-sdk/src/server/worker-sandbox.ts)
