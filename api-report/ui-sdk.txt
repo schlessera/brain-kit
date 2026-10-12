@@ -865,6 +865,7 @@ export "./internal" (./src/internal.ts)
   workerSandboxWarnings
 
 export "./internal/client" (./src/internal-client.ts)
+  type LinkEdit
   type ShareTargetError
   askUserFormPayload
   askUserFormSpec
@@ -879,6 +880,7 @@ export "./internal/client" (./src/internal-client.ts)
   resolveAskUserFormLimits
   resolveThinkingLevel
   rewriteLinkDestinations
+  rewriteLinkDestinationsWithEdits
   speechUiHints
 
 export "./package.json" (./package.json) [asset]

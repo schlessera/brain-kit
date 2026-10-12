@@ -115,6 +115,31 @@ describe("session demux (handleServerMessage)", () => {
     expect(useChatStore.getState().buffers["A"].messages).toBe(state.buffers["A"].messages);
   });
 
+  for (const blocksFirst of [true, false]) test(`classified blocks follow the rewritten links, whichever frame comes first (${blocksFirst ? "blocks" : "links"} first, #1698)`, () => {
+    const store = useChatStore.getState();
+    store.setMessages("A", []);
+    store.setActiveSession("A");
+    const link = "$BRAIN_WORKER_SCRATCH/report.pdf";
+    const to = ".brain/scratch/turns/t1/report.pdf";
+    const quote = "> Sing to me of the man, Muse.";
+    const streamed = `See [the report](${link}).\n\n${quote}\n\n[ref]: ${link}\n\n${quote}`;
+    handleServerMessage({ type: "text_delta", text: streamed, sessionId: "A", turnId: "t1" } as ServerMessage);
+    handleServerMessage({ type: "result", sessionId: "A", turnId: "t1", costUsd: 0, durationMs: 1, numTurns: 1, isError: false } as ServerMessage);
+    const spans = [streamed.indexOf(quote), streamed.lastIndexOf(quote)];
+    const blocks = { type: "message_blocks", sessionId: "A", turnId: "t1", blocks: spans.map((start) => (
+      { partIndex: 0, start, end: start + quote.length, block: { kind: "quote", quote: "Sing to me of the man, Muse." }, confidence: 0.9 })) } as ServerMessage;
+    // A block the rewrite cuts across is dropped rather than drawn over the wrong text.
+    const cut = { type: "message_blocks", sessionId: "A", turnId: "t1", blocks: [
+      { partIndex: 0, start: 2, end: streamed.indexOf(link) + 3, block: { kind: "quote", quote: "x" }, confidence: 0.9 }] } as ServerMessage;
+    const links = { type: "message_links", sessionId: "A", turnId: "t1", links: [{ from: link, to }] } as ServerMessage;
+    for (const frame of blocksFirst ? [blocks, links] : [links, blocks]) handleServerMessage(frame);
+    const answer = () => useChatStore.getState().buffers["A"].messages.find((m) => m.role === "assistant")!;
+    expect(answer().content).toBe(streamed.replaceAll(link, to));
+    expect(answer().blocks!.map((b) => answer().content.slice(b.start, b.end))).toEqual([quote, quote]);
+    handleServerMessage(cut);
+    expect(answer().blocks).toEqual([]);
+  });
+
   test("a scoped frame for a session with no buffer only updates its badge", () => {
     useChatStore.getState().setActiveSession("A");
     handleServerMessage({ type: "text_delta", text: "ghost", sessionId: "Z" } as ServerMessage);

@@ -407,9 +407,14 @@ Rules a consumer may rely on:
   a reference definition, outside fenced and inline code. The result is the
   saved answer's text, so the open conversation shows what a reload would.
   The first-party client changes the link in place, with no marker.
-- **It may come before or after the turn's `result`.** For a backend that
-  promotes once its worker has exited, it follows `result`. It says nothing
-  about whether the session is running, so it must not change run state.
+- **It may come before or after the turn's `result`.** The Claude backend
+  promotes once its worker has exited, after `result`; the pi backend
+  promotes before it sends `result`. The frame says nothing about whether the
+  session is running, so it must not change run state.
+- **`message_blocks` spans stay anchored to the streamed text.** The host
+  classifies the text as it streamed, whichever frame comes first. A client
+  that applies both moves each span by the rewrites before it, and drops a
+  block a rewrite cuts across.
 - **It is sent only when a file was promoted.** A turn with no promotion,
   or with only refused promotions, gets no frame, and its answer keeps the
   links as written.

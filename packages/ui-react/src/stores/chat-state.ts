@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
+import { rebaseBlocks, rewriteTexts } from "../lib/promoted-links.js";
 import type {
   SharedFileMeta,
   LocalExchange,
@@ -70,6 +71,12 @@ export interface ChatMessage {
    * never evidence that the turn was seen.
    */
   streamTurnId?: string;
+  /**
+   * @internal What the host's promoted links (#1698) were applied to: the
+   * text parts as they streamed, every link named so far, and the blocks as
+   * the host sent them, anchored to that streamed text.
+   */
+  linkRewrite?: { texts: string[]; links: Record<string, string>; blocks?: MessageBlock[] };
   /**
    * A turn shell (#964, D52 §4): drawn to hold a restored approval whose
    * replay ended on the user's message. It has no text of its own, and its
@@ -683,6 +690,11 @@ function restoreClippedParts(parts: MessagePart[], old: ChatMessage): MessagePar
     offsets[part.kind] = all.startsWith(text, at) ? at + text.length : at;
     return text === part.text ? part : { ...part, text };
   });
+}
+
+/** A message's text parts, in order. */
+function textsOf(m: ChatMessage): string[] {
+  return m.parts.flatMap((part) => (part.kind === "text" ? [part.text] : []));
 }
 
 function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
@@ -1743,15 +1755,19 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             }
           }
           if (index === -1) return {};
-          msgs[index] = { ...msgs[index], blocks };
+          // Blocks are anchored to the streamed text: after promoted links
+          // rewrote it (#1698), they follow the rewrite.
+          const rewrite = msgs[index].linkRewrite;
+          msgs[index] = rewrite
+            ? { ...msgs[index], blocks: rebaseBlocks(blocks, rewriteTexts(rewrite.texts, rewrite.links).map((result) => result.edits)),
+              linkRewrite: { ...rewrite, blocks } }
+            : { ...msgs[index], blocks };
           return { messages: msgs };
         }),
 
       rewriteMessageLinks: (key, links, turnId) =>
         mutateBuffer(key, (chat) => {
-          const map = new Map(links.map((link) => [link.from, link.to]));
-          if (map.size === 0) return {};
-          const rewrite = (text: string) => rewriteLinkDestinations(text, (destination) => map.get(destination) ?? destination);
+          if (links.length === 0) return {};
           const ofTurn = (m: ChatMessage) => m.role === "assistant" && !!turnId && (m.turnId ?? m.streamTurnId) === turnId;
           let targets = chat.messages.filter(ofTurn);
           if (targets.length === 0) {
@@ -1762,18 +1778,25 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           let changed = false;
           const msgs = chat.messages.map((m) => {
             if (!targets.includes(m)) return m;
-            const content = rewrite(m.content);
-            let partsChanged = false;
-            const parts = m.parts.map((part) => {
-              if (part.kind !== "text") return part;
-              const text = rewrite(part.text);
-              if (text === part.text) return part;
-              partsChanged = true;
-              return { ...part, text };
-            });
-            if (content === m.content && !partsChanged) return m;
+            const current = textsOf(m);
+            // Always from the streamed text, so every edit is in its offsets.
+            const base = m.linkRewrite && m.linkRewrite.texts.length === current.length
+              ? m.linkRewrite
+              : { texts: current, links: {}, ...(m.blocks ? { blocks: m.blocks } : {}) };
+            const merged = { ...base.links, ...Object.fromEntries(links.map((link) => [link.from, link.to])) };
+            const results = rewriteTexts(base.texts, merged);
+            if (results.every((result, k) => result.text === current[k])) return m;
             changed = true;
-            return { ...m, content, ...(partsChanged ? { parts } : {}) };
+            let k = 0;
+            const parts = m.parts.map((part) => (part.kind === "text" ? { ...part, text: results[k++]!.text } : part));
+            const texts = results.map((result) => result.text);
+            const map = new Map(Object.entries(merged));
+            // Live, the aggregate is the parts joined; otherwise rewrite it as it is.
+            const content = m.content === current.join("")
+              ? texts.join("")
+              : rewriteLinkDestinations(m.content, (destination) => map.get(destination) ?? destination);
+            const blocks = base.blocks ? rebaseBlocks(base.blocks, results.map((result) => result.edits)) : undefined;
+            return { ...m, content, parts, ...(blocks ? { blocks } : {}), linkRewrite: { ...base, links: merged } };
           });
           return changed ? { messages: msgs } : {};
         }),

@@ -34,18 +34,58 @@ function codeRanges(text: string): Array<[number, number]> {
 const INLINE_LINK = /(\]\(\s*)(<[^<>\n]+>|(?:[^\s()<>]|\((?:[^\s()<>]|\([^\s()<>]*\))*\))+)(?=\s*\)|\s+["'(])/g;
 const REFERENCE_DEFINITION = /^( {0,3}\[[^\]\n]+\]:[ \t]*)(<[^<>\n]+>|\S+)/gm;
 
+/** One replaced destination: `[start, end)` of the original text now reads `length` characters. */
+export interface LinkEdit {
+  start: number;
+  end: number;
+  length: number;
+}
+
 /**
  * `text` with each link or image destination and reference definition
  * outside code replaced by what `replace` returns for it, as written
  * (angle brackets included). Returning the destination unchanged keeps it.
  */
 export function rewriteLinkDestinations(text: string, replace: (destination: string) => string): string {
+  return rewriteLinkDestinationsWithEdits(text, replace).text;
+}
+
+/**
+ * {@link rewriteLinkDestinations}, also saying where the text changed, in
+ * the original text's offsets and in order, so spans anchored to it can
+ * follow. `edits` is null when two changes overlap and no offset can be
+ * trusted.
+ */
+export function rewriteLinkDestinationsWithEdits(text: string, replace: (destination: string) => string):
+  { text: string; edits: LinkEdit[] | null } {
   // Code ranges are recomputed for the second pattern, because the first
   // may have changed the length of the text before them.
   const pass = (current: string, pattern: RegExp) => {
     const code = codeRanges(current);
-    return current.replace(pattern, (whole, lead: string, destination: string, offset: number) =>
-      code.some(([start, end]) => offset >= start && offset < end) ? whole : `${lead}${replace(destination)}`);
+    const edits: LinkEdit[] = [];
+    const next = current.replace(pattern, (whole, lead: string, destination: string, offset: number) => {
+      if (code.some(([start, end]) => offset >= start && offset < end)) return whole;
+      const replaced = replace(destination);
+      const at = offset + lead.length;
+      if (replaced !== destination) edits.push({ start: at, end: at + destination.length, length: replaced.length });
+      return `${lead}${replaced}`;
+    });
+    return { text: next, edits };
   };
-  return pass(pass(text, INLINE_LINK), REFERENCE_DEFINITION);
+  const first = pass(text, INLINE_LINK);
+  const second = pass(first.text, REFERENCE_DEFINITION);
+  // The second pass's offsets are in the first pass's output: take them back.
+  const edits = [...first.edits];
+  for (const edit of second.edits) {
+    let shift = 0;
+    for (const before of first.edits) {
+      const outStart = before.start + shift, outEnd = outStart + before.length;
+      if (edit.end <= outStart) break;
+      if (edit.start < outEnd) return { text: second.text, edits: null };
+      shift += before.length - (before.end - before.start);
+    }
+    edits.push({ start: edit.start - shift, end: edit.end - shift, length: edit.length });
+  }
+  edits.sort((a, b) => a.start - b.start);
+  return { text: second.text, edits };
 }
