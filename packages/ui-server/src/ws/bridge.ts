@@ -41,7 +41,9 @@ export function makeBridge(
   onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void,
   /** The pill label the request already has, read when the session is named (#1004). */
   promptLabel?: () => string | undefined,
-  applicationPolicy?: BrainApplicationPolicy
+  applicationPolicy?: BrainApplicationPolicy,
+  /** Frozen policy protection captured after this turn's gate admission. */
+  protectedPaths?: readonly string[]
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -487,6 +489,7 @@ export function makeBridge(
       : { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
     const apply = createBrainApplication({
       root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
+      protectedPaths,
       ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
       isAuthorized,
       approve: async (input, destructive) => {
@@ -506,6 +509,7 @@ export function makeBridge(
     bridge.applyBrain = input => apply({ principalId, turnId, input });
     if (backendId === "claude" || backendId === "pi") {
       const applyMask = createMaskApplication({ root: host.brainPath, backend: backendId, principalId, turnId, signal,
+        protectedPaths,
         lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;

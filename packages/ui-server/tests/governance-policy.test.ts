@@ -67,7 +67,7 @@ test("invalid edits retain the last actual policy/hash and record the validation
     expect(invalid.sandbox.profile, "POLICY_LAST_VALID_PROFILE_RETAINED").toBe("strict");
     expect(invalid.policy.hash).toBe(hash); expect(invalid.policy.source).toBe("last_valid");
     expect(invalid.policy.errors.length).toBeGreaterThan(0);
-    const row = f.db.query("SELECT policy_hash, errors FROM turn_governance_policy WHERE turn_id = ?").get(`invalid-${index}`) as { policy_hash: string; errors: string };
+    const row = f.db.query("SELECT policy_hash, errors FROM turn_governance_policy WHERE turn_id = ?").get(`invalid-${index}`) as { policy_hash: string | null; errors: string };
     expect(row.policy_hash).toEqual(hash); expect(JSON.parse(row.errors).length).toBeGreaterThan(0); invalid.end();
   }
   expect(f.notices.filter(value => value.includes("Governance policy invalid")).length).toBe(4);
@@ -106,7 +106,7 @@ test.each(["interactive", "voice", "dictation"] as const)("real session routing 
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     expect(child.stdout.toString(), "POLICY_ROUTED_ORIGIN_RUNTIME").toBe(origin === "voice" ? "readonly" : "writable");
     request.bridge.emit({ type: "session_info", sessionId: `session-${origin}`, isNew: true });
-    request.bridge.emit({ type: "result", sessionId: `session-${origin}`, durationMs: 1 });
+    request.bridge.emit({ type: "result", sessionId: `session-${origin}`, durationMs: 1, numTurns: 1, isError: false });
   } });
   const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => f.db) });
   try {

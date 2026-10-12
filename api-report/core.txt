@@ -1326,11 +1326,12 @@ signatures (every public export and the types it is made of)
         source: z.ZodString;
     }, z.core.$strict>;
   pruneScratch (packages/core/src/lib/scratch.ts)
-    export function pruneScratch(root: string, now?: number, { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile }?: {
+    export function pruneScratch(root: string, now?: number, { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile, protectedPaths }?: {
         ttlMs?: number;
         maxBytes?: number;
         pinnedPaths?: ReadonlySet<string>;
         pinsFile?: string;
+        protectedPaths?: readonly string[];
     }): ScratchPruneReport;
   readGraphClusters (packages/core/src/queries/index.ts)
     export function readGraphClusters(opts: Root & {

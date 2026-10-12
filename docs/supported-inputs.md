@@ -77,6 +77,14 @@ rulings supply these defaults. The reader selects profiles and protected paths;
 budget, scope, command, egress, outward, taint and provider enforcement belongs
 to the corresponding guardrails and is not implied by a valid check.
 
+The same captured protection governs authoritative agent Markdown applications,
+planner-derived capture/archive destinations and submitted PNG masks. Protected
+targets, directory descendants and ancestor replacement refuse as
+`policy_denied` without partial effects; permitted reads and existing approvals
+remain intact. A mask's scratch cleanup also retains protected files, directories
+and ancestors. Neither a later session nor a new policy load can replace an
+already admitted application's protection (#1743).
+
 At every interactive/voice admission, the host reads the policy as data and
 captures an immutable effective policy/hash for that turn. Invalid edits record
 their validation notice and retain the process's last valid policy/hash; before
