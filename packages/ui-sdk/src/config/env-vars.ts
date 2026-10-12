@@ -12,4 +12,10 @@ export const ENV_VARS = [{
   name: "BRAIN_MAINTENANCE_GIT",
   description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.",
   required: "trusted maintenance Git adapter only",
+}, {
+  name: "BRAIN_UI_OUTPUT_STAGING_BYTES", description: "Immutable starting inputs and private worker outputs share a separate bounded tmpfs; positive page-aligned bytes. Writes past it fail with ENOSPC.", default: "268435456 (256 MiB)", required: false,
+}, {
+  name: "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES", description: "Aggregate output-staging capacity in the shared worker admission ledger; positive page-aligned bytes, at least one allowance. Busy admission refuses with worker_state_busy and Retry.", default: "BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS", required: false,
+}, {
+  name: "MAX_CONCURRENT_SESSIONS", description: "Concurrent-session cap used to derive the default aggregate output-staging budget.", default: "3", required: false,
 }] as const;

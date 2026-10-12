@@ -496,3 +496,15 @@ describe("buildWikilinkMap with internally discovered rejected paths", () => {
     });
   });
 });
+
+
+test("browsing parses its ignore snapshot despite an unrelated FIFO", async () => {
+  const fifo = join(root, "notes/odysseus.pipe");
+  const made = Bun.spawnSync(["mkfifo", fifo], { stdout: "pipe", stderr: "pipe" });
+  expect(made.exitCode, made.stderr.toString()).toBe(0);
+  try {
+    const listing = await listDirectory("", root);
+    expect(listing.some(entry => entry.name === "README.md"), "IGNORE_DATA_SNAPSHOT_ONLY").toBe(true);
+    expect(listing.some(entry => entry.name === "secret")).toBe(false);
+  } finally { await rm(fifo, { force: true }); }
+});

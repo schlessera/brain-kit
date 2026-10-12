@@ -12,6 +12,8 @@
  * worker's `/tmp` is a private tmpfs of exactly its allowance.
  */
 
+import { outputStagingEnvironment } from "../config/env.js";
+
 /** tmpfs allocates whole pages; an allowance must be a whole number of them. */
 export const WORKER_STATE_PAGE = 4096;
 /** 64 MiB, the maintainer's default (#1625). */
@@ -119,4 +121,28 @@ export function resolveWorkerStateLimits(input: LimitsInput): WorkerStateLimits 
 export function resolveTurnTempLimits(input: LimitsInput): WorkerStateLimits {
   return resolveLimits(input, { bytes: DEFAULT_TURN_TEMP_BYTES,
     names: { allowance: TURN_TEMP_BYTES_ENV, budget: TURN_TEMP_BUDGET_ENV } });
+}
+
+/** Output publication and its immutable starting copy share this separate allowance (#1649). */
+export const DEFAULT_OUTPUT_STAGING_BYTES = 256 * 1024 * 1024;
+export const OUTPUT_STAGING_BYTES_ENV = "BRAIN_UI_OUTPUT_STAGING_BYTES";
+export const OUTPUT_STAGING_BUDGET_ENV = "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES";
+export function resolveOutputStagingLimits(input: LimitsInput): WorkerStateLimits {
+  return resolveLimits(input, { bytes: DEFAULT_OUTPUT_STAGING_BYTES,
+    names: { allowance: OUTPUT_STAGING_BYTES_ENV, budget: OUTPUT_STAGING_BUDGET_ENV } });
+}
+/** Trusted server environment only; never a worker or repository environment. */
+export function hostOutputStagingLimits(env: Record<string, string | undefined> = outputStagingEnvironment()): WorkerStateLimits {
+  return resolveOutputStagingLimits({
+    allowanceBytes: parseWorkerStateBytes(env[OUTPUT_STAGING_BYTES_ENV], OUTPUT_STAGING_BYTES_ENV, DEFAULT_OUTPUT_STAGING_BYTES),
+    budgetBytes: parseWorkerStateBytes(env[OUTPUT_STAGING_BUDGET_ENV], OUTPUT_STAGING_BUDGET_ENV, DEFAULT_OUTPUT_STAGING_BYTES),
+    maxConcurrentSessions: Math.max(1, Number(env.MAX_CONCURRENT_SESSIONS) || DEFAULT_WORKER_STATE_SESSIONS),
+  });
+}
+
+/** Rendered from the trusted value used by startup-view admission and storage. */
+export function outputStagingLimit(limits: WorkerStateLimits = hostOutputStagingLimits()): import("./worker-sandbox.js").WorkerNoteLimit {
+  return { name: "Output staging", value: mib(limits.allowanceBytes),
+    onHit: "Immutable starting inputs and private publication copies share this separate allowance; it does not use turn temp. "
+      + "Writes past it fail with `ENOSPC`. A turn that cannot reserve it refuses with `worker_state_busy`; Retry after another conversation finishes." };
 }

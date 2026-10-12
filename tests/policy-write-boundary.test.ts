@@ -300,3 +300,13 @@ test("governed voice retains its narrow roster and captures through the authorit
   expect(r.added, "GOVERNED_VOICE_CAPTURE").toContain("notes/voice-raft.md");
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);
+
+
+test("governed Pi writes through an internal symlink using the canonical server lock", async () => {
+  const r = await probe("pi", "governed-alias");
+  const writes = calls(r, "write_file");
+  expect(writes.length).toBe(1);
+  expect(writes[0]!.result.isError, "PI_INTERNAL_ALIAS_LOCK").toBe(false);
+  expect(r.after.target).toBe("Odysseus writes through the harbor alias.\n");
+  expect(r.after.policy).toBe(POLICY);
+}, TIMEOUT);

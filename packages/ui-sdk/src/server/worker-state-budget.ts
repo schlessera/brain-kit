@@ -1,13 +1,14 @@
 /**
  * Aggregate admission for agent workers' private tmpfs mounts: runtime state
- * (#1625) and turn temp (#1703).
+ * (#1625), turn temp (#1703) and output staging (#1649).
  *
  * Each worker's runtime state and its `/tmp` are private tmpfs mounts of a
- * fixed allowance, so one worker can never fill another's. Those mounts still
+ * fixed allowance, so one worker can never fill another's. Output staging
+ * admits immutable inputs and publication copies together against its own budget. Those mounts still
  * share the host's memory, so before a worker launches it reserves each whole
  * allowance against the server's budget for it. Reserving is logical
- * accounting, not an allocation. A worker's allowances are reserved together
- * or not at all. Reserve and release are synchronous, so within the server
+ * accounting, not an allocation. Each reservation admits all requested allowances together
+ * or not at all. Staging retains its reservation through server publication. Reserve and release are synchronous, so within the server
  * process no two admissions interleave. The ledger is one per process, shared
  * by every backend instance and both backends, so recreating a backend or
  * changing its configuration never forgets a running worker's reservation.
@@ -37,28 +38,31 @@ export interface Reservation {
   readonly bytes: number;
   /** The turn-temp allowance this worker was admitted with, fixed for its lifetime; 0 without one. */
   readonly turnTempBytes: number;
+  /** Immutable startup inputs and writable publication storage. */
+  readonly outputStagingBytes: number;
   /** Idempotent; every exit path calls it. */
   release(): void;
 }
 
 export interface StateLedger {
   /**
-   * Reserves each whole allowance against its budget, both or neither, or
+   * Reserves each requested allowance against its budget, all or none, or
    * refuses as `worker_state_busy`. `limits` is runtime state's, `turnTemp`
-   * turn temp's; either may be absent.
+   * turn temp's, and `outputStaging` staging's; any may be absent.
    */
-  reserve(limits: WorkerStateLimits | undefined, turnTemp?: WorkerStateLimits): Reservation;
+  reserve(limits: WorkerStateLimits | undefined, turnTemp?: WorkerStateLimits, outputStaging?: WorkerStateLimits): Reservation;
   /** Runtime-state bytes held by live reservations. */
   readonly held: number;
   /** Turn-temp bytes held by live reservations. */
   readonly turnTempHeld: number;
+  readonly outputStagingHeld: number;
   /** Live reservations. */
   readonly live: number;
 }
 
 export function createStateLedger(): StateLedger {
-  const entries = new Set<{ bytes: number; turnTempBytes: number }>();
-  let held = 0, turnTempHeld = 0;
+  const entries = new Set<{ bytes: number; turnTempBytes: number; outputStagingBytes: number }>();
+  let held = 0, turnTempHeld = 0, outputStagingHeld = 0;
   const busy = (what: string, allowance: number, inUse: number, budget: number) => {
     const running = entries.size;
     return new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy,
@@ -70,8 +74,9 @@ export function createStateLedger(): StateLedger {
   return {
     get held() { return held; },
     get turnTempHeld() { return turnTempHeld; },
+    get outputStagingHeld() { return outputStagingHeld; },
     get live() { return entries.size; },
-    reserve(limits, turnTemp) {
+    reserve(limits, turnTemp, outputStaging) {
       // Each live reservation keeps its own bytes. A budget lowered since it
       // was admitted refuses new workers until enough of them finish.
       if (limits && held + limits.allowanceBytes > limits.budgetBytes) {
@@ -80,17 +85,23 @@ export function createStateLedger(): StateLedger {
       if (turnTemp && turnTempHeld + turnTemp.allowanceBytes > turnTemp.budgetBytes) {
         throw busy("turn-temp", turnTemp.allowanceBytes, turnTempHeld, turnTemp.budgetBytes);
       }
-      const entry = { bytes: limits?.allowanceBytes ?? 0, turnTempBytes: turnTemp?.allowanceBytes ?? 0 };
+      if (outputStaging && outputStagingHeld + outputStaging.allowanceBytes > outputStaging.budgetBytes) {
+        throw busy("output-staging", outputStaging.allowanceBytes, outputStagingHeld, outputStaging.budgetBytes);
+      }
+      const entry = { outputStagingBytes: outputStaging?.allowanceBytes ?? 0, bytes: limits?.allowanceBytes ?? 0, turnTempBytes: turnTemp?.allowanceBytes ?? 0 };
       entries.add(entry);
       held += entry.bytes;
       turnTempHeld += entry.turnTempBytes;
+      outputStagingHeld += entry.outputStagingBytes;
       return {
         bytes: entry.bytes,
         turnTempBytes: entry.turnTempBytes,
+        outputStagingBytes: entry.outputStagingBytes,
         release() {
           if (!entries.delete(entry)) return;
           held -= entry.bytes;
           turnTempHeld -= entry.turnTempBytes;
+          outputStagingHeld -= entry.outputStagingBytes;
         },
       };
     },

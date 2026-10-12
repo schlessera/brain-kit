@@ -1,3 +1,4 @@
+import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -10,7 +11,7 @@ import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, br
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
-  requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
+  outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
 
@@ -108,7 +109,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME });
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
-      turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined)] });
+      turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
+      outputStagingLimit()] });
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
@@ -266,8 +268,12 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       const grant = grants.get(msg.toolCallId);
       if (!workerLock || !grant || grant.name !== msg.toolName) throw new Error("Pi worker lock has no server permission grant");
       const input = JSON.parse(grant.input);
+      const fileTool = ["write_file", "edit_file"].includes(msg.toolName);
+      // The worker locks the canonical contained target, including an internal
+      // symlink or a missing leaf below an existing parent. Validate identically.
+      const target = fileTool && typeof input.path === "string" ? safeResolve(backend.brainPath, input.path) : null;
       const key = msg.toolName === "bash" ? bashLockKey(input.command)
-        : ["write_file", "edit_file"].includes(msg.toolName) ? `path:${join(backend.brainPath, input.path)}` : BRAIN_LOCK_KEY;
+        : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
       if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
       const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
       try { live(); } catch (error) { release(); throw error; }

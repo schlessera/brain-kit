@@ -17,3 +17,9 @@ export function maintenanceGitEnvironment(): { path: string | undefined; env: No
 }
 export const DYNAMIC_ENV_READS = [{ source: "maintenance Git subprocess environment",
   description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." }] as const;
+
+/** Trusted host settings for output staging; callers pass these only before worker launch. */
+export function outputStagingEnvironment(): Record<string, string | undefined> {
+  return Object.fromEntries(["BRAIN_UI_OUTPUT_STAGING_BYTES", "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES", "MAX_CONCURRENT_SESSIONS"]
+    .map(name => [name, readEnvVar(name)]));
+}

@@ -471,6 +471,39 @@ system directories and installed packages, so this needs a host process that
 listens inside one of them. Hostile content cannot create such a listener. Keep
 host daemons' sockets out of the brain directory on a hosted install.
 
+## Output-staging allowance
+
+Strict, restricted and maintenance configuration consumers use immutable startup
+inputs. Strict persistent areas and maintenance results use private copies,
+validated against the authoritative brain before publication. Each consumer
+reserves a separate **256 MiB** allowance in the same admission ledger as runtime
+state and turn temp. Starting input bytes, publication copies, Git adapter data,
+and filesystem overhead all occupy that one bounded tmpfs. Turn temp is separate.
+
+| Host setting | Default | Meaning |
+| --- | --- | --- |
+| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The total private startup and output staging capacity for one consumer. |
+| `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (768 MiB at defaults) | Aggregate admitted output-staging capacity. |
+
+Both values must be positive multiples of 4096, with the budget at least one
+allowance; invalid values refuse server startup. A consumer unable to reserve
+its whole allowance refuses immediately with `worker_state_busy` and Retry.
+Starting copies must fit before any repository code runs; an oversized copy
+refuses with `worker_state_exceeded`, naming output staging and `ENOSPC`.
+Subsequent writes that fill the filesystem fail with `ENOSPC` (`No space left on
+device`). A strict publication copy normally needs room for two copies of its
+starting contents, plus the turn's changes. Set an allowance and aggregate
+budget appropriate for the complete input tree, including dependencies and
+workspaces. No host-backed overflow fallback exists. The agent's limits note
+states the same resolved allowance.
+
+A trusted helper keeps this private mount alive through publication. The
+launcher uses util-linux `nsenter` with `--user`, `--mount` and
+`--preserve-credentials` to start bubblewrap inside its completed mount namespace;
+bubblewrap still creates the worker's own namespaces, fresh `/proc`, masks and
+private turn temp. Install `nsenter` alongside bubblewrap and permit `setns` in
+the container seccomp profile. No added host capabilities are needed.
+
 ## Running the server in a Docker container
 
 Docker's defaults stop the worker at three separate launcher steps. Each needs
@@ -491,7 +524,7 @@ Derive the seccomp profile from Docker's default profile for your Docker
 version, adding one rule:
 
 ```sh
-jq '.syscalls += [{"names":["clone","mount","umount2","unshare","pivot_root"],"action":"SCMP_ACT_ALLOW"}]' \
+jq '.syscalls += [{"names":["clone","mount","umount2","unshare","setns","pivot_root"],"action":"SCMP_ACT_ALLOW"}]' \
   default.json > worker-seccomp.json
 docker run --user 1000:1000 \
   --security-opt seccomp=worker-seccomp.json \
@@ -499,7 +532,7 @@ docker run --user 1000:1000 \
 ```
 
 `--security-opt seccomp=unconfined` also passes, but it disables every
-syscall filter rather than five. Do not add `--cap-add SYS_ADMIN` or
+syscall filter rather than the listed namespace calls. Do not add `--cap-add SYS_ADMIN` or
 `--privileged`: neither is needed once seccomp allows these calls, and adding
 `SYS_ADMIN` did not fix the `/proc` step in any measured combination.
 

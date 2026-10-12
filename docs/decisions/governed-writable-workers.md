@@ -486,6 +486,25 @@ existing authoritative server path and exact-base checks. Credentials and
 writer-gate admission retain their interim rules. This is an execution-input
 snapshot, not a second authoritative brain or a writable overlay.
 
+### Bounded startup and output staging (maintainer, 2026-10-12)
+
+The [output-staging ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6123713987)
+gives publication storage its own per-worker allowance: 256 MiB by default,
+host-configurable and validated. Its aggregate budget defaults to allowance
+multiplied by the concurrent-session cap, with an explicit override. Admission
+extends the runtime-state/turn-temp ledger; refusal is `worker_state_busy` with
+Retry. Writes over capacity fail with named `ENOSPC`, never by overflowing a
+host-backed directory. Read-only startup-copy occupancy and writable copies
+share this capacity. An oversized starting copy refuses before execution.
+The agent's limits list and the hosting guide state the enforcing value.
+
+The implementation retains a trusted tmpfs mount helper until publication and
+starts the worker's bubblewrap inside that namespace using `nsenter`. Its
+starting view is still read-only, its output view still separate, and its own
+fresh namespaces/masks still apply. Fixed parser inputs such as `.gitignore`
+are captured through anchored descriptor reads and parsed as data; they need
+no execution tree because the parser imports or executes no repository code.
+
 ## The three write areas
 
 Ruling 6 adopts the maintainer's model. Each area has a lifecycle contract, and

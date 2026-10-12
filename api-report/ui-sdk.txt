@@ -781,6 +781,7 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
   GIT_LOCK_KEY
@@ -796,6 +797,8 @@ export "./internal" (./src/internal.ts)
   type MaintenanceEnvelope
   type MaintenanceResult
   type MaintenanceWorker
+  OUTPUT_STAGING_BUDGET_ENV
+  OUTPUT_STAGING_BYTES_ENV
   PROMOTED_SCRATCH_DIR
   PROMOTION_FILE_MAX_BYTES
   PROMOTION_TURN_MAX_BYTES
@@ -873,6 +876,7 @@ export "./internal" (./src/internal.ts)
   execWrapperSpawnOptions
   handleTurnTemp
   hasWebSearchCredential
+  hostOutputStagingLimits
   isEnvName
   launchAgentWorker
   launchLimits
@@ -885,6 +889,7 @@ export "./internal" (./src/internal.ts)
   mergeLimitReports
   mib
   observeClassification
+  outputStagingLimit
   parseWorkerStateBytes
   piMaskFilename
   piReportedMaskPath
@@ -899,6 +904,7 @@ export "./internal" (./src/internal.ts)
   readWebSearchOverride
   readWebSearchRouting
   requireWorkerHost
+  resolveOutputStagingLimits
   resolveTurnTempLimits
   resolveWebSearchConfigPath
   resolveWorkerProtection
@@ -5383,6 +5389,21 @@ signatures (every public export and the types it is made of)
         readonly description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.";
         readonly name: "BRAIN_MAINTENANCE_GIT";
         readonly required: "trusted maintenance Git adapter only";
+    }, {
+        readonly default: "268435456 (256 MiB)";
+        readonly description: "Immutable starting inputs and private worker outputs share a separate bounded tmpfs; positive page-aligned bytes. Writes past it fail with ENOSPC.";
+        readonly name: "BRAIN_UI_OUTPUT_STAGING_BYTES";
+        readonly required: false;
+    }, {
+        readonly default: "BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS";
+        readonly description: "Aggregate output-staging capacity in the shared worker admission ledger; positive page-aligned bytes, at least one allowance. Busy admission refuses with worker_state_busy and Retry.";
+        readonly name: "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES";
+        readonly required: false;
+    }, {
+        readonly default: "3";
+        readonly description: "Concurrent-session cap used to derive the default aggregate output-staging budget.";
+        readonly name: "MAX_CONCURRENT_SESSIONS";
+        readonly required: false;
     }];
   EXEC_KILLER_ENV (packages/ui-sdk/src/server/exec-wrapper.ts)
     const EXEC_KILLER_ENV: "BRAIN_UI_EXEC_KILLER";

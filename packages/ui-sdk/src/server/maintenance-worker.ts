@@ -140,9 +140,10 @@ export interface MaintenanceWorker {
  */
 export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceWorker {
   const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
-  const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
-  const pipes = createWorkerPipes();
+  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
+    const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
+    pipes = createWorkerPipes();
     const child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
@@ -167,7 +168,7 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       exited: child.exited.finally(() => { closeInput(); if (!input.startupView) startupView.cleanup(); }),
       kill: (signal?: NodeJS.Signals) => killWorker(child, signal),
     };
-  } catch (error) { pipes.cleanup(); if (!input.startupView) startupView.cleanup(); throw error; }
+  } catch (error) { pipes?.cleanup(); if (!input.startupView) startupView.cleanup(); throw error; }
 }
 
 /**
@@ -275,13 +276,14 @@ export function probeMaintenanceWorker(brainPath: string): { ok: true } | { ok: 
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
   const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
-  const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
-  const pipes = createWorkerPipes();
+  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
+    const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
+    pipes = createWorkerPipes();
     const child = Bun.spawnSync(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
       stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });
     pipes.closeChild(); pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: child.exitCode ?? 1, killed: child.exitCode === null };
-  } finally { pipes.cleanup(); if (!input.startupView) startupView.cleanup(); }
+  } finally { pipes?.cleanup(); if (!input.startupView) startupView.cleanup(); }
 }

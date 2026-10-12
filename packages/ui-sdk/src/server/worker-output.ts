@@ -1,5 +1,5 @@
 /** Publication of maintenance results. The worker never receives the live brain as a write mount. */
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
+import { closeSync, constants, fstatSync, fchmodSync, lstatSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
   renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -91,7 +91,7 @@ function current(root: string, rel: string): Entry | undefined {
 export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[] } = {}) {
   const view = options.startupView ?? createWorkerStartupView(brain);
   let output: WorkerStartupView;
-  try { output = createWorkerStartupView(view.root); } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
+  try { output = createWorkerStartupView(view.root, { storage: view.storage }); } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
   catch (error) { output.cleanup(); if (!options.startupView) view.cleanup(); throw error; }
@@ -152,6 +152,10 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
           if (entry.type === "directory") {
             if (!before.has(rel)) mkdirSync(destination, { mode: entry.mode });
             else if (before.get(rel)!.type !== "directory") throw new Error("maintenance cannot replace a non-directory with a directory");
+            else {
+              const directory = openSync(destination, DIRECTORY);
+              try { fchmodSync(directory, entry.mode); } finally { closeSync(directory); }
+            }
             continue;
           }
           if (before.get(rel)?.type === "directory") throw new Error("maintenance cannot replace a directory with a non-directory");

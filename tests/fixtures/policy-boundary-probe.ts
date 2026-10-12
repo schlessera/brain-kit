@@ -117,6 +117,7 @@ async function outer(): Promise<void> {
   writeFileSync(policyPath, POLICY);
   writeFileSync(notebookPath, JSON.stringify({ cells: [{ cell_type: "markdown", id: "crew", source: [POLICY], metadata: {} }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
   writeFileSync(targetPath, TARGET);
+  if (scenario === "governed-alias") symlinkSync("harbor-log.md", join(brainPath, "notes/harbor-alias.md"));
   // Case 1: a preexisting hardlink elsewhere in the brain, a policy alias where
   // host scratch used to live, and symlinked file/directory aliases.
   if (!scenario.startsWith("governed")) { linkSync(policyPath, aliases.hardlink); linkSync(policyPath, aliases.hostScratch); }
@@ -307,6 +308,11 @@ async function server(): Promise<void> {
     ] : [
       [{ name: "probe_worker", input: { config: attackConfig } }, bash(attack)],
       bashWrites.map(bash), routed, bridgeEffects, [permitted],
+    ];
+  } else if (scenario === "governed-alias") {
+    script = [
+      [{ name: "read_file", input: { path: "notes/harbor-alias.md" } }],
+      [{ name: "write_file", input: { path: "notes/harbor-alias.md", content: "Odysseus writes through the harbor alias.\n" } }],
     ];
   } else if (scenario.startsWith("governed") && scenario !== "governed-voice") {
     script = [

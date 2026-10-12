@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
-import { validWorkerStateBytes } from "./worker-state-limits.js";
+import { hostOutputStagingLimits, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_DIRS,
@@ -12,6 +12,7 @@ import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
+import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
@@ -480,6 +481,19 @@ export function workerCommand(input: WorkerLaunch): string[] {
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
+  if (input.startupView) {
+    const storage = input.startupView.storage;
+    const nsenter = Bun.which("nsenter");
+    if (!nsenter) throw new WorkerHostError("util-linux nsenter is required for bounded output staging");
+    // Resolve these sources inside the trusted keeper's mount namespace. The
+    // worker receives no server descriptor and still gets its own fresh namespaces.
+    for (let i = 0; i < argv.length - 2; i++) {
+      if (["--bind", "--ro-bind"].includes(argv[i]!) && argv[i + 1]!.startsWith(`${storage.root}/`)) {
+        argv[i + 1] = `${storage.mount}/${argv[i + 1]!.slice(storage.root.length + 1)}`;
+      }
+    }
+    return [nsenter, "--user", "--mount", "--preserve-credentials", "--target", String(storage.namespacePid), "--", ...argv];
+  }
   return argv;
 }
 
@@ -699,8 +713,8 @@ function sandboxPid(bwrap: number, deadline: number): number {
  * tmpfs of exactly the allowance, and empty. Until then it would still name
  * the host's directory, or nothing.
  */
-function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number): number {
-  const path = `/proc/${pid}/root${WORKER_STATE}`;
+function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE): number {
+  const path = `/proc/${pid}/root${mount}`;
   let last = "it never appeared";
   for (;;) {
     let fd: number | undefined;
@@ -769,6 +783,71 @@ function heldTmpfs(fd: number): WorkerStateHandle {
     space() { const fs = statfsSync(root); return { total: fs.blocks * fs.bsize, free: fs.bavail * fs.bsize }; },
     close() { if (open) { open = false; closeSync(fd); } },
   };
+}
+
+/**
+ * A server-owned, kernel-bounded tmpfs, held by a trusted mount helper
+ * until publication finishes. No host directory backs the stored bytes.
+ * Startup inputs and writable output copies occupy the same allowance.
+ */
+export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutputStagingLimits()) {
+  const reservation = processStateLedger().reserve(undefined, undefined, limits);
+  let mount: string;
+  try { mount = mkdtempSync("/tmp/brain-output-staging-"); } catch (error) { reservation.release(); throw error; }
+  let fd: number | undefined;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
+  try {
+    validWorkerStateBytes(limits.allowanceBytes, "output staging allowance");
+    const bwrap = Bun.which("bwrap");
+    if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
+    pipes = createWorkerPipes();
+    // This helper executes only the literal shell below, never repository
+    // inputs. Preserve source mount writability so the final worker can
+    // rebind an explicitly allowed maintenance span sink. The final worker
+    // applies its own read-only root and complete boundary before agent code.
+    child = Bun.spawn([bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts",
+      "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--bind", "/", "/", "--proc", "/proc",
+      ...["null", "zero", "full", "random", "urandom", "tty"].flatMap(name => ["--dev-bind", `/dev/${name}`, `/dev/${name}`]),
+      "--size", String(limits.allowanceBytes), "--tmpfs", mount,
+      "--clearenv", "--", "/bin/sh", "-c", 'printf "ready\\n"; IFS= read -r go; exit 0'],
+      { env: {}, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    pipes.closeChild();
+    const deadline = Date.now() + STATE_SETUP_MS;
+    fd = openPrivateState(child.pid, sandboxPid(child.pid, deadline), limits.allowanceBytes, deadline, mount);
+    const owned = fd;
+    const namespacePid = sandboxPid(child.pid, deadline);
+    // Older bubblewrap switches user namespaces after mounting. Wait for
+    // the trusted shell itself before asking nsenter to join the finished pair.
+    const ready = openSync(`/proc/self/fd/${pipes.parent[1]}`, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      let received = "";
+      const buffer = Buffer.alloc(16);
+      while (received !== "ready\n") {
+        try { received += buffer.subarray(0, readSync(ready, buffer)).toString(); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
+        if (received === "ready\n") break;
+        if (exited(child.pid) || Date.now() > deadline) throw new WorkerHostError("output-staging helper did not become ready");
+        Bun.sleepSync(1);
+      }
+    } finally { closeSync(ready); }
+    let refs = 0, closed = false;
+    // Only the server reads this descriptor alias. Worker mount sources are
+    // resolved inside the keeper namespace, then masked by their own /tmp.
+    const root = `/proc/${process.pid}/fd/${owned}`;
+    void child.exited.finally(() => pipes!.cleanup());
+    return { root, mount, namespacePid, allowanceBytes: reservation.outputStagingBytes,
+      retain() { if (closed) throw new Error("output staging is closed"); refs++; },
+      release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
+    };
+  } catch (error) {
+    child?.kill("SIGKILL");
+    if (fd !== undefined) closeSync(fd);
+    const detail = pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    pipes?.cleanup(); rmSync(mount, { recursive: true, force: true }); reservation.release();
+    if (detail) throw new WorkerHostError(detail);
+    throw error;
+  }
 }
 
 /** What bubblewrap wrote to the worker's stderr so far, read without waiting. */

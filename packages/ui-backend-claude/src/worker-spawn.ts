@@ -152,7 +152,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { state.release(); throw error; }
+      } catch (error) { record(error); state.release(); throw error; }
       reports.push(worker.limitReport);
       const handle = worker.state!;
       const turnTemp = worker.turnTemp;

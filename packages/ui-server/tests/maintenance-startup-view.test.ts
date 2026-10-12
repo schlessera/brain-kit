@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareMaintenanceOutput } from "../src/brain/maintenance-output.js";
@@ -132,4 +132,16 @@ test("deleting a directory refuses changed membership before deleting its origin
   expect(() => outputs.publish()).toThrow("stale maintenance output");
   expect(readFileSync(join(brain, "notes/loom.md"), "utf8")).toBe("Penelope's original.\n");
   expect(readFileSync(join(brain, "notes/peer.md"), "utf8")).toBe("Odysseus from the peer.\n");
+});
+
+
+test("maintenance publication retains a directory permission change", () => {
+  const brain = fixture();
+  mkdirSync(join(brain, "notes/private"), { recursive: true, mode: 0o755 });
+  const outputs = prepareMaintenanceOutput(brain);
+  try {
+    chmodSync(join(outputs.output.source, "notes/private"), 0o700);
+    outputs.publish();
+    expect(statSync(join(brain, "notes/private")).mode & 0o777, "OUTPUT_DIRECTORY_MODE_PUBLISHED").toBe(0o700);
+  } finally { outputs.cleanup(); }
 });

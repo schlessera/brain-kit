@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { hostOutputStagingLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -339,6 +339,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "RAM; invalid values refuse the boot.",
     default: "BRAIN_UI_TURN_TEMP_BYTES × MAX_CONCURRENT_SESSIONS",
     required: false,
+  },
+  {
+    name: "BRAIN_UI_OUTPUT_STAGING_BYTES",
+    description: "Each snapshot consumer's immutable startup inputs and writable output staging share a separate bounded tmpfs, in bytes (a positive multiple of 4096). Writes past it fail with ENOSPC; invalid values refuse boot.",
+    default: "268435456 (256 MiB)", required: false,
+  },
+  {
+    name: "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES",
+    description: "Aggregate output-staging admission in the shared worker ledger, in bytes (a positive multiple of 4096, at least one allowance). Busy admission refuses as worker_state_busy with Retry; invalid values refuse boot.",
+    default: "BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS", required: false,
   },
   {
     name: "BRAIN_UI_TURN_TIMEOUT_MS",
@@ -957,6 +967,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     budgetBytes: parseWorkerStateBytes(env.BRAIN_UI_TURN_TEMP_BUDGET_BYTES, "BRAIN_UI_TURN_TEMP_BUDGET_BYTES", DEFAULT_TURN_TEMP_BYTES),
     maxConcurrentSessions,
   });
+
+  hostOutputStagingLimits(env); // Output staging refuses invalid trusted host values at boot (#1649).
 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;

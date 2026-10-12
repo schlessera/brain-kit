@@ -1,11 +1,16 @@
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readlinkSync, readSync, rmSync, symlinkSync, writeSync, chmodSync, fchmodSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
+import { createOutputStagingStorage } from "./worker-launcher.js";
+import { WorkerStateError } from "./worker-state-budget.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
+import { mib } from "./worker-state-limits.js";
 import { join } from "node:path";
 
 export interface WorkerStartupView {
   readonly brain: string;
   readonly root: string;
+  readonly storage: ReturnType<typeof createOutputStagingStorage>;
   cleanup(): void;
 }
 
@@ -19,10 +24,13 @@ const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
  * Special nodes are refused rather than copied into a configuration view.
  * A concurrent change refuses this launch, rather than accepting torn input.
  */
-export function createWorkerStartupView(brain: string, options: { omitGit?: boolean } = {}): WorkerStartupView {
+export function createWorkerStartupView(brain: string, options: { omitGit?: boolean; storage?: WorkerStartupView["storage"] } = {}): WorkerStartupView {
   // /tmp is always masked in every worker; TMPDIR must not put an unmasked
   // alternate copy of the brain (including its secrets) on the host root.
-  const owner = mkdtempSync("/tmp/brain-startup-view-");
+  const storage = options.storage ?? createOutputStagingStorage();
+  storage.retain();
+  let owner: string;
+  try { owner = mkdtempSync(`${storage.root}/startup-`); } catch (error) { storage.release(); throw error; }
   const root = join(owner, "brain");
   let entries = 0;
   let bytes = 0;
@@ -86,9 +94,14 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
   try {
     fd = openSync(brain, DIRECTORY);
     copy(fd, root, 0);
-    return { brain, root, cleanup: () => rmSync(owner, { recursive: true, force: true }) };
+    let removed = false;
+    return { brain, root, storage, cleanup() { if (removed) return; removed = true;
+      try { rmSync(owner, { recursive: true, force: true }); } finally { storage.release(); } } };
   } catch (error) {
     rmSync(owner, { recursive: true, force: true });
+    storage.release();
+    if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
+      `Output staging exceeds its ${mib(storage.allowanceBytes)} allowance (ENOSPC). Starting inputs and publication copies must fit before launch; nothing ran.`);
     throw error;
   } finally { if (fd !== undefined) closeSync(fd); }
 }
