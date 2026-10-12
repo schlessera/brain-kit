@@ -1,21 +1,30 @@
-/** Parent-owned snapshots; the runtime never mounts the host's saved state writable. */
-import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+/**
+ * Parent-owned snapshots; the runtime never mounts the host's saved state
+ * writable. Each worker's runtime state is a private tmpfs of a fixed
+ * allowance (#1625): the server copies the snapshot in before the worker's
+ * command starts and copies validated results out after its namespace is gone.
+ */
+import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-export const MAX_STATE_BYTES = 128 * 1024 * 1024;
-/** Space for CLI state files and growth during the admitted turn. */
-export const stateReserveBytes = (transcriptSize: number): number => Math.max(16 * 1024 * 1024, Math.ceil(transcriptSize / 4));
+/** tmpfs allocates whole pages, so every byte count is rounded up to one. */
+const PAGE = 4096;
+export const pages = (bytes: number): number => Math.ceil(bytes / PAGE) * PAGE;
+/** The runtime's auto-memory folder under the project directory (#1626). */
+const MEMORY = "memory";
 
 export class SessionTooLargeError extends BackendRequestError {
   readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
-  constructor() {
-    super("This conversation exceeds the worker runtime state limit or available tmpfs space. Continue in a new conversation.");
+  constructor(needed: number, allowance: number) {
+    super(`This conversation's saved runtime state (${mib(needed)}) does not fit the worker's ${mib(allowance)} `
+      + "runtime-state allowance. Continue in a new conversation.");
     this.name = "SessionTooLargeError";
   }
 }
@@ -25,7 +34,8 @@ export function validateSessionId(id: string): void {
   if (!isSessionId(id)) throw new WorkerHostError("invalid resumed session id; expected a UUID");
 }
 
-export function regular(path: string, limit = MAX_STATE_BYTES): Buffer {
+/** Reads one regular, unaliased file of at most `limit` bytes, never following a link. */
+export function regular(path: string, limit: number): Buffer {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = fstatSync(fd);
@@ -42,14 +52,22 @@ export function directory(path: string): void {
     directory(dirname(path)); mkdirSync(path, { mode: 0o700 });
   }
 }
-export function files(root: string, prefix = ""): string[] {
+/**
+ * Every file below `root`, refusing links, aliases and special files.
+ * `resolved: false` walks a worker's private tmpfs through the server's held
+ * descriptor (`/proc/self/fd/N/...`), whose real path is not its name. Its
+ * worker is gone by then, so nothing can swap an entry between checks.
+ */
+export function files(root: string, prefix = "", options: { resolved?: boolean } = {}): string[] {
   if (!existsSync(root)) return [];
-  if (!lstatSync(root).isDirectory() || realpathSync(root) !== root) throw new WorkerHostError("runtime state directory is redirected");
+  if (!lstatSync(root).isDirectory() || (options.resolved !== false && realpathSync(root) !== root)) {
+    throw new WorkerHostError("runtime state directory is redirected");
+  }
   const result: string[] = [];
   for (const name of readdirSync(root)) {
     const path = join(root, name), rel = prefix ? `${prefix}/${name}` : name;
     const info = lstatSync(path);
-    if (info.isDirectory()) result.push(...files(path, rel));
+    if (info.isDirectory()) result.push(...files(path, rel, options));
     else {
       if (!info.isFile() || info.nlink !== 1) throw new WorkerHostError("runtime state contains an alias or special file");
       result.push(rel);
@@ -58,9 +76,46 @@ export function files(root: string, prefix = ""): string[] {
   }
   return result;
 }
+
+export interface ClaudeWorkerState {
+  /** The allowance this worker was admitted with: its tmpfs size, fixed for its lifetime. */
+  readonly bytes: number;
+  /** Copies the snapshot into the worker's empty private tmpfs, before its command starts. */
+  populate(root: string): void;
+  /**
+   * Copies validated results out of the private tmpfs, after the worker's
+   * namespace is gone; `rewrite` maps the answer text this run appended (#1655).
+   */
+  persist(root: string, rewrite?: (text: string) => string): void;
+  /** Releases the admission reservation; idempotent, called on every exit path. */
+  release(): void;
+}
+
+/**
+ * Admits a worker's runtime state, then plans it. A budget held by running
+ * workers refuses first, as `worker_state_busy`; a conversation that can never
+ * fit the allowance refuses for good as `session_too_large` and releases its
+ * reservation. Both happen before any worker exists or any byte is copied.
+ */
 export function createClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>,
-  options: { ephemeral?: boolean; resume?: string; stateRoot?: string; freeBytes?: (path: string) => number } = {}) {
+  options: { ephemeral?: boolean; resume?: string;
+    /** The resolved allowance and budget; defaults to 64 MiB and three workers. */
+    limits?: WorkerStateLimits;
+    /** Defaults to the server process's one ledger. */
+    ledger?: StateLedger;
+    /** A reservation the caller already holds for this worker; ownership passes here. */
+    reservation?: Reservation; } = {}): ClaudeWorkerState {
+  const limits = options.limits ?? resolveWorkerStateLimits({});
+  // Admission first: a busy budget refuses before anything is read.
+  const held = options.reservation ?? (options.ledger ?? processStateLedger()).reserve(limits);
+  try { return plan(brainPath, env, options, limits, held); }
+  catch (error) { held.release(); throw error; }
+}
+
+function plan(brainPath: string, env: Record<string, string | undefined>,
+  options: { ephemeral?: boolean; resume?: string }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
   if (!options.ephemeral && options.resume !== undefined) validateSessionId(options.resume);
+  const allowance = held.bytes;
   const brain = realpathSync(brainPath);
   const configured = resolve(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"));
   let ancestor = configured;
@@ -74,80 +129,125 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
     throw new WorkerHostError("Claude config and transcripts must be outside the authoritative brain and its ancestors");
   // Both fixtures and native CLI use the SDK's project-directory encoding.
   const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
-  const state = mkdtempSync(join(options.stateRoot ?? "/dev/shm", "brain-claude-state-"));
   // An autonomous turn starts from nothing saved and saves nothing: no stored
   // login, settings, account file or transcript enters or leaves it (#676).
-  if (options.ephemeral) return { path: state, persist() {}, cleanup: () => rmSync(state, { recursive: true, force: true }) };
+  // It still writes there while it runs, so it reserves its allowance too.
+  if (options.ephemeral) return { bytes: held.bytes, populate() {}, persist() {}, release: () => held.release() };
+  const projectRoot = join(saved, project);
+  if (existsSync(projectRoot)) directory(projectRoot);
+  // Capture membership, not bytes, for other sessions. A worker may create
+  // a session but must never export files into an unrelated existing one.
+  const existing = new Set(existsSync(projectRoot) ? readdirSync(projectRoot).map(name => name.replace(/\.jsonl$/, "")) : []);
+  const settings = ["settings.json", ".credentials.json", ".claude.json"].filter(name => existsSync(join(saved, name)));
+  // Every session of the brain reads the project's auto-memory, so every turn copies it (#1626).
+  settings.push(...files(join(projectRoot, MEMORY)).map(name => `${project}/${MEMORY}/${name}`));
+  const transcripts: string[] = [];
+  if (options.resume) {
+    if (existsSync(join(projectRoot, `${options.resume}.jsonl`))) transcripts.push(`${project}/${options.resume}.jsonl`);
+    transcripts.push(...files(join(projectRoot, options.resume)).map(name => `${project}/${options.resume}/${name}`));
+  }
+  // Whole tmpfs pages, as the copy will occupy them.
+  const size = (name: string) => {
+    const info = lstatSync(join(saved, name));
+    if (!info.isFile() || info.nlink !== 1) throw new WorkerHostError("runtime state contains an alias or special file");
+    return pages(info.size);
+  };
+  const settingsSize = settings.reduce((sum, name) => sum + size(name), 0);
+  const settingsTooLarge = () => new WorkerHostError(`Claude settings, credentials and agent memory do not fit the worker's `
+    + `${mib(allowance)} runtime-state allowance; raise ${WORKER_STATE_BYTES_ENV}`);
+  if (settingsSize > allowance) throw settingsTooLarge();
+  const transcriptSize = transcripts.reduce((sum, name) => sum + size(name), 0);
+  if (settingsSize + transcriptSize > allowance) throw new SessionTooLargeError(settingsSize + transcriptSize, allowance);
   const initial = new Map<string, string>(), initialLength = new Map<string, number>();
-  try {
-    const projectRoot = join(saved, project);
-    if (existsSync(projectRoot)) directory(projectRoot);
-    // Capture membership, not bytes, for other sessions. A worker may create
-    // a session but must never export files into an unrelated existing one.
-    const existing = new Set(existsSync(projectRoot) ? readdirSync(projectRoot).map(name => name.replace(/\.jsonl$/, "")) : []);
-    const settings = ["settings.json", ".credentials.json", ".claude.json"].filter(name => existsSync(join(saved, name)));
-    const transcripts: string[] = [];
-    if (options.resume) {
-      if (existsSync(join(projectRoot, `${options.resume}.jsonl`))) transcripts.push(`${project}/${options.resume}.jsonl`);
-      transcripts.push(...files(join(projectRoot, options.resume)).map(name => `${project}/${options.resume}/${name}`));
-    }
-    const size = (name: string) => {
-      const info = lstatSync(join(saved, name));
-      if (!info.isFile() || info.nlink !== 1) throw new WorkerHostError("runtime state contains an alias or special file");
-      return info.size;
-    };
-    const capacity = options.freeBytes?.(state) ?? (() => { const fs = statfsSync(state); return fs.bavail * fs.bsize; })();
-    const settingsSize = settings.reduce((sum, name) => sum + size(name), 0);
-    const limit = Math.min(capacity, MAX_STATE_BYTES);
-    if (settingsSize + stateReserveBytes(0) > limit)
-      throw new WorkerHostError("Claude settings and credentials do not fit in the runtime-state tmpfs; increase /dev/shm capacity (--shm-size in Docker)");
-    const transcriptSize = transcripts.reduce((sum, name) => sum + size(name), 0);
-    if (settingsSize + transcriptSize + stateReserveBytes(transcriptSize) > limit) throw new SessionTooLargeError();
-    let total = 0, copiedTranscripts = 0;
-    for (const name of [...settings, ...transcripts]) {
-      const bytes = regular(join(saved, name)); total += bytes.length;
-      if (transcripts.includes(name)) copiedTranscripts += bytes.length;
-      if (total + stateReserveBytes(copiedTranscripts) > limit) {
-        if (transcripts.includes(name)) throw new SessionTooLargeError();
-        throw new WorkerHostError("Claude settings changed and no longer fit in runtime state");
-      }
-      const target = join(state, name); directory(dirname(target)); writeFileSync(target, bytes, { flag: "wx", mode: 0o600 });
-      initial.set(name, hash(bytes)); initialLength.set(name, bytes.length);
-    }
-    return {
-      path: state,
-      /**
-       * `rewrite` maps the answer text of the transcript lines this run
-       * appended to a session (#1655); earlier lines are saved as they were.
-       */
-      persist(rewrite?: (text: string) => string) {
-        // Only this brain's native transcript files, never worker-supplied
-        // commands, settings, destinations or deletion requests. The PID
-        // namespace is already gone, so no runtime writer can race this copy.
-        let total = 0;
-        for (const file of files(join(state, project))) {
-          if (!file.endsWith(".jsonl")) continue;
-          const id = file.split("/")[0]!.replace(/\.jsonl$/, "");
-          if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
-          const name = `${project}/${file}`, read = regular(join(state, name)); total += read.length;
-          const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
-          // Only a session's own transcript holds the answer; subagent files stay as written.
-          const bytes = rewrite && !file.includes("/") ? rewriteAppendedAnswers(read, prefix, rewrite) : read;
-          if (total > MAX_STATE_BYTES) throw new WorkerHostError("runtime transcripts exceed their byte bound");
-          if (initial.get(name) === hash(bytes)) continue;
-          const target = join(saved, name); directory(dirname(target));
-          const present = existsSync(target) ? hash(regular(target)) : undefined;
-          if (present !== initial.get(name)) throw new WorkerHostError("saved transcript changed concurrently; refusing overwrite");
-          const temp = `${target}.${crypto.randomUUID()}.tmp`;
-          try { writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 }); directory(dirname(target)); renameSync(temp, target); }
-          finally { rmSync(temp, { force: true }); }
+  /** Write one changed file back, refusing to overwrite a saved file that changed meanwhile. */
+  const write = (name: string, bytes: Buffer, what: "transcript" | "memory"): void => {
+    const target = join(saved, name); directory(dirname(target));
+    const present = existsSync(target) ? hash(regular(target, allowance)) : undefined;
+    if (present !== initial.get(name)) throw new WorkerHostError(`saved ${what} changed concurrently; refusing overwrite`);
+    const temp = `${target}.${crypto.randomUUID()}.tmp`;
+    try { writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 }); directory(dirname(target)); renameSync(temp, target); }
+    finally { rmSync(temp, { force: true }); }
+  };
+  return {
+    bytes: held.bytes,
+    release: () => held.release(),
+    populate(root) {
+      // The files are read again here, each bounded and refusing links; one
+      // that grew since admission refuses as it would have then.
+      let total = 0;
+      try {
+        for (const name of [...settings, ...transcripts]) {
+          const tooLarge = () => transcripts.includes(name) ? new SessionTooLargeError(total, allowance) : settingsTooLarge();
+          // Sized before it is read, so a file that grew refuses by name; the
+          // read itself stays bounded.
+          if (total + size(name) > allowance) { total += size(name); throw tooLarge(); }
+          const bytes = regular(join(saved, name), allowance); total += pages(bytes.length);
+          if (total > allowance) throw tooLarge();
+          const target = join(root, name);
+          mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+          writeFileSync(target, bytes, { flag: "wx", mode: 0o600 });
+          initial.set(name, hash(bytes)); initialLength.set(name, bytes.length);
         }
-      },
-      cleanup: () => rmSync(state, { recursive: true, force: true }),
-    };
-  } catch (error) { rmSync(state, { recursive: true, force: true }); if ((error as NodeJS.ErrnoException).code === "ENOSPC") {
-    throw new WorkerHostError("runtime-state tmpfs ran out of space during snapshot; increase /dev/shm capacity (--shm-size in Docker)");
-  } throw error; }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new SessionTooLargeError(total, allowance);
+        throw error;
+      }
+    },
+    /**
+     * `rewrite` maps the answer text of the transcript lines this run
+     * appended to a session (#1655); earlier lines are saved as they were.
+     */
+    persist(root, rewrite) {
+      // Only this brain's native transcript files and its memory notes, never
+      // worker-supplied commands, settings, destinations or deletion requests.
+      // The worker's PID namespace is already gone, so no runtime writer can
+      // race this copy.
+      let total = 0;
+      const notes: [string, Buffer][] = [];
+      for (const file of files(join(root, project), "", { resolved: false })) {
+        if (file.startsWith(`${MEMORY}/`)) {
+          // Agent memory (#1626): only a `.md` note directly in the folder.
+          const note = file.slice(MEMORY.length + 1);
+          if (note.includes("/") || !note.endsWith(".md")) continue;
+          const name = `${project}/${file}`, bytes = regular(join(root, name), allowance); total += bytes.length;
+          if (total > allowance) throw new WorkerHostError("runtime transcripts and memory exceed their byte bound");
+          if (initial.get(name) !== hash(bytes)) notes.push([name, bytes]);
+          continue;
+        }
+        if (!file.endsWith(".jsonl")) continue;
+        const id = file.split("/")[0]!.replace(/\.jsonl$/, "");
+        if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
+        const name = `${project}/${file}`, read = regular(join(root, name), allowance); total += read.length;
+        if (total > allowance) throw new WorkerHostError("runtime transcripts and memory exceed their byte bound");
+        const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
+        // Only a session's own transcript holds the answer; subagent files stay as written.
+        const bytes = rewrite && !file.includes("/") ? rewriteAppendedAnswers(read, prefix, rewrite) : read;
+        if (initial.get(name) === hash(bytes)) continue;
+        write(name, bytes, "transcript");
+      }
+      // Every session of the brain shares its memory. A note another turn
+      // changed meanwhile is refused alone and named; the other notes still
+      // persist, and nothing is ever deleted.
+      const refused: string[] = [];
+      for (const [name, bytes] of notes) {
+        try { write(name, bytes, "memory"); } catch (error) {
+          if (!(error instanceof WorkerHostError && error.message.includes("changed concurrently"))) throw error;
+          refused.push(name.slice(project.length + 1));
+        }
+      }
+      if (refused.length) throw new WorkerHostError(`saved memory changed concurrently; refusing overwrite of ${refused.join(", ")}`);
+    },
+  };
+}
+
+/**
+ * The runtime-state line of the agent's note, rendered from the resolved
+ * allowance through the sandbox note's limits seam (#1625, #1654).
+ */
+export function workerStateLimit(limits: WorkerStateLimits): WorkerNoteLimit {
+  return { name: "Runtime state", value: mib(limits.allowanceBytes),
+    onHit: "`$CLAUDE_CONFIG_DIR` holds this conversation's transcript, settings and auto-memory on a private tmpfs of that size. "
+      + "It is not for files you make. When it is full, writes to it fail and the turn ends as `worker_state_exceeded`." };
 }
 
 /**

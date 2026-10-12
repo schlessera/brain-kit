@@ -3,11 +3,13 @@ import { EventEmitter } from "node:events";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { createTurnTemp, createTurnTempPromoter, launchAgentWorker, mergeLimitReports, requireWorkerHost, WORKER_SCRATCH,
-  type TurnTemp, type TurnTempPromotionRecord, type WorkerLimitReport, type WorkerLimitsPlan,
-  type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { createTurnTemp, createTurnTempPromoter, launchAgentWorker, mergeLimitReports, mib, requireWorkerHost, resolveWorkerStateLimits,
+  WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTemp, type TurnTempPromotionRecord, type WorkerLimitReport,
+  type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { wrapCommand, type ExecWrapperConfig, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
+import { processStateLedger } from "./worker-state-budget.js";
 import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
 
 /** Promotion of what an answer links in turn temp (#1655), for a turn that keeps its transcript. */
@@ -17,6 +19,34 @@ export interface WorkerPromotion {
   /** What happened to each linked file; called once per worker, after it exited. */
   report(records: TurnTempPromotionRecord[]): void;
   log(level: "warn", message: string): void;
+}
+
+/** What the runtime prints when a write to its full tmpfs fails. */
+const NO_SPACE = /ENOSPC|no space left on device/i;
+
+/**
+ * Whether a worker's runtime state filled its allowance (#1625): the private
+ * tmpfs has no whole page left, or the worker reported a failed write. The
+ * filesystem limit itself is the enforcement; this only names it.
+ */
+export function stateExhausted(state: Pick<WorkerStateHandle, "space">, diagnostics: string): boolean {
+  if (NO_SPACE.test(diagnostics)) return true;
+  try { return state.space().free < 4096; } catch { return false; }
+}
+
+export function exceededFailure(bytes: number, copyOut?: unknown): TurnFailure {
+  return { errorClass: FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
+    message: `This turn's runtime state filled the worker's ${mib(bytes)} allowance, so the runtime could not save all `
+      + "of the turn. " + (copyOut === undefined ? "What it wrote before then is kept; the rest was not saved. "
+        : `Its runtime state could not be saved in full either: ${copyOut instanceof Error ? copyOut.message : String(copyOut)} `)
+      + "If this recurs, continue in a new conversation." };
+}
+
+/** A worker-state refusal from any copy of this package, recognized by its class. */
+export function workerStateClass(error: unknown): TurnFailure["errorClass"] | undefined {
+  const errorClass = (error as { errorClass?: unknown } | null)?.errorClass;
+  return errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy || errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded
+    ? errorClass : undefined;
 }
 
 /** Validate before either archive or live storage is addressed. */
@@ -35,8 +65,12 @@ export function resumedSessionId(args: string[]): string | undefined {
 export function prepareClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>, args: string[],
   options: Parameters<typeof createClaudeWorkerState>[2] = {}) {
   const resume = options.ephemeral ? undefined : resumedSessionId(args);
-  if (resume) restoreArchivedSession(resume, { brainPath, env });
-  return createClaudeWorkerState(brainPath, env, { ...options, resume });
+  // Admitted before an archived session is restored, so a busy refusal
+  // changes nothing on disk (#1625).
+  const reservation = options.reservation ?? (options.ledger ?? processStateLedger()).reserve(options.limits ?? resolveWorkerStateLimits({}));
+  try { if (resume) restoreArchivedSession(resume, { brainPath, env }); }
+  catch (error) { reservation.release(); throw error; }
+  return createClaudeWorkerState(brainPath, env, { ...options, resume, reservation });
 }
 
 /**
@@ -45,10 +79,24 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  * runtime state, and the relay directory as the one route out.
  */
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
-  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion) {
+  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
+  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger"> = {}) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
+  const stateLimits = stateOptions.limits ?? resolveWorkerStateLimits({});
+  /**
+   * The first worker-state refusal or stop (#1625). The runtime only sees a
+   * failed spawn or a write error, so the turn reports this instead.
+   */
+  let failure: TurnFailure | undefined;
+  const record = (error: unknown) => {
+    // By class, not constructor: the process ledger may come from another copy of this module.
+    const errorClass = workerStateClass(error);
+    if (!failure && errorClass) failure = { errorClass, message: (error as Error).message };
+  };
+  /** Live workers' exhaustion checks, so asking for the failure also checks now. */
+  const checks = new Set<() => void>();
   return {
     /** The resource limits this turn's workers hit so far (#1660). */
     limits,
@@ -60,60 +108,88 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       return limits();
     },
     spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
-      requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
+      // The real launcher, with this worker's allowance, before anything is
+      // restored, admitted or copied.
+      requireWorkerHost(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes });
       immediateSignal.throwIfAborted();
-      const state = prepareClaudeWorkerState(brainPath, env, args, { ephemeral: Boolean(restricted) });
+      let state: ReturnType<typeof createClaudeWorkerState>;
+      try { state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, ephemeral: Boolean(restricted) }); }
+      catch (error) { record(error); throw error; }
       // Host-visible turn temp, so what the answer links there can be
       // promoted once the worker has exited (#1655). Never for the restricted envelope.
       let turnTemp: TurnTemp | null = null;
       if (promotion && !restricted && sandbox) {
-        try { turnTemp = createTurnTemp(brainPath); } catch (error) { state.cleanup(); throw error; }
+        try { turnTemp = createTurnTemp(brainPath); } catch (error) { state.release(); throw error; }
         if (!turnTemp) promotion.log("warn", "no private tmpfs for turn temp; files the answer links there cannot be promoted");
       }
       const emitter = new EventEmitter();
-      let worker: ReturnType<typeof launchAgentWorker>;
+      let worker: LaunchedWorker;
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
-        childEnv.CLAUDE_CONFIG_DIR = state.path;
+        childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
+        const populateState = (root: string) => state.populate(root);
         if (restricted) {
           // No host home exists in the envelope; runtime state is the fresh tmpfs.
-          childEnv.HOME = state.path;
+          childEnv.HOME = WORKER_STATE;
           // The executable and any script it is handed, and nothing else of the
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
-          worker = launchAgentWorker({ brainPath, statePath: state.path, command: [command, ...args], env: childEnv,
+          worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, populateState, command: [command, ...args], env: childEnv,
             restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         } else {
-          worker = launchAgentWorker({ brainPath, statePath: state.path,
+          worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, populateState,
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}), ...(turnTemp ? { turnTemp } : {}) });
         }
-      } catch (error) { try { state.cleanup(); } finally { turnTemp?.cleanup(); } throw error; }
+      } catch (error) { try { state.release(); } finally { turnTemp?.cleanup(); } throw error; }
       reports.push(worker.limitReport);
+      const handle = worker.state!;
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
-      let tail = "";
+      let tail = "", noSpace = false;
       worker.stderr.setEncoding("utf8");
-      worker.stderr.on("data", (data: string) => { tail = (tail + data).slice(-65536); });
+      worker.stderr.on("data", (data: string) => {
+        // Sticky: later output must not push a reported write failure out of the tail.
+        if (!noSpace && NO_SPACE.test(tail.slice(-64) + data)) noSpace = true;
+        tail = (tail + data).slice(-65536);
+      });
       worker.stderr.on("error", error => emitter.emit("error", error));
+      // The final classification reads all of stderr: a write error can still
+      // be buffered when the exit is observed. Bounded, should a pipe linger.
+      const drained = new Promise<void>(done => {
+        worker.stderr.once("end", done); worker.stderr.once("close", done); worker.stderr.once("error", () => done());
+        void worker.exited.then(() => setTimeout(done, 2_000).unref?.());
+      });
       const kill = (sig: NodeJS.Signals): boolean => { killed = true; signalCode = sig; worker.kill(sig); return true; };
       const abort = () => kill("SIGKILL");
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted || immediateSignal.aborted) abort();
-      const done = worker.exited.then(code => {
+      // Read when the turn asks and once the worker is gone; never polled.
+      const check = () => { if (!failure && stateExhausted(handle, noSpace ? "ENOSPC" : "")) failure = exceededFailure(state.bytes); };
+      checks.add(check);
+      const done = worker.exited.then(async code => {
+        await drained;
         exitCode = code;
         signal.removeEventListener("abort", abort);
-        // bwrap's PID namespace dies with its init, including detached children,
-        // so nothing writes turn temp or the transcripts while they are read.
+        check();
+        // A turn whose result already streamed stays completed, so log it too.
+        if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) console.error(`Claude worker runtime state: ${failure.message}`);
+        // bwrap's PID namespace dies with its init, including detached
+        // children, so only the server touches the private tmpfs and turn temp now.
+        // Runtime state is never turn temp, though it is mounted below /tmp.
         const promoter = turnTemp && promotion && sandbox ? createTurnTempPromoter({ brain: sandbox.brain, turnTemp,
-          turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [state.path],
+          turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           home: sandbox.home?.mode === "overlay" ? sandbox.home.path : undefined,
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
-        try { state.persist(promoter?.rewrite); }
-        finally { if (promoter?.records.length) promotion!.report(promoter.records); }
+        try { state.persist(handle.root, promoter?.rewrite); } catch (error) {
+          // The exhaustion message must not claim what the copy-out refused.
+          if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
+          throw error;
+        } finally { if (promoter?.records.length) promotion!.report(promoter.records); }
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);
         emitter.emit("exit", killed ? null : code, signalCode);
-      }).catch(error => { emitter.emit("error", error); throw error; }).finally(() => { try { state.cleanup(); } finally { turnTemp?.cleanup(); } });
+      }).catch(error => { emitter.emit("error", error); throw error; })
+        .finally(() => { checks.delete(check); try { handle.close(); state.release(); } finally { turnTemp?.cleanup(); } });
       completions.push(done);
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
@@ -122,5 +198,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         on: emitter.on.bind(emitter), once: emitter.once.bind(emitter), off: emitter.off.bind(emitter) } as SpawnedProcess;
     },
     async finish() { await Promise.all(completions); },
+    /** Why the worker's runtime state refused or stopped the turn, if it did (#1625). */
+    failure(): TurnFailure | undefined { for (const check of checks) check(); return failure; },
   };
 }

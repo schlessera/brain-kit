@@ -96,6 +96,15 @@ export interface ClaudeBackendOptions {
    * Default 30s. Zero or negative disables the bound (never advisable).
    */
   lockWaitMs?: number;
+  /**
+   * Worker runtime state (#1625). `allowanceBytes` is each worker's private
+   * tmpfs, reserved in full against `budgetBytes` before it launches: 64 MiB
+   * by default, a positive whole number of 4096-byte pages. `budgetBytes`
+   * defaults to the allowance times three, the host's default session cap; a
+   * host passes its own. Invalid values throw during construction. Only
+   * trusted host configuration sets these, never brain content.
+   */
+  workerState?: { allowanceBytes?: number; budgetBytes?: number };
   /** @internal Test seam — inject the SDK `query` function. Defaults to the real one. */
   queryFn?: typeof query;
   /** @internal Test seam — inject the SDK `listSessions` reader. */

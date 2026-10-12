@@ -35,6 +35,17 @@ export function failurePresentation(failure: TurnFailure) {
     explanation: "Your conversation is saved. Continue in a new conversation with a reviewed handoff summary.",
     operator: false, tone: "gold" as const, retry: false, report: true,
   };
+  // Temporary capacity, not the conversation's size and not a bug (#1625).
+  if (failure.errorClass === "worker_state_busy") return {
+    headline: "Other conversations are using this server's capacity right now.",
+    explanation: "Nothing was sent. Retry when one of them finishes.",
+    operator: false, tone: "gold" as const, retry: true, report: false,
+  };
+  if (failure.errorClass === "worker_state_exceeded") return {
+    headline: "This turn ran out of room to save its work.",
+    explanation: "Part of this turn wasn't saved; the details below say what was. Retry, or continue in a new conversation if this keeps happening.",
+    operator: false, tone: "gold" as const, retry: true, report: true,
+  };
   if (AUTH.has(failure.errorClass)) return {
     headline: "The backend's credential was refused.",
     explanation: "Check the credential configured for this provider. The provider's message is available below.",

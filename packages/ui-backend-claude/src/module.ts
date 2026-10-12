@@ -264,8 +264,11 @@ export const backendModule: BackendModule = defineBackendModule({
       };
 
       const claudeCodePath = configString(context, "claudeCodePath");
+      const allowanceBytes = configNumber(context, "workerStateBytes");
+      const budgetBytes = configNumber(context, "workerStateBudgetBytes");
       const backend = createClaudeBackend({
         brainPath: context.brainPath,
+        workerState: { ...(allowanceBytes !== undefined ? { allowanceBytes } : {}), ...(budgetBytes !== undefined ? { budgetBytes } : {}) },
         ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
         ...(claudeCodePath ? { claudeCodePath } : {}),
         profiles,

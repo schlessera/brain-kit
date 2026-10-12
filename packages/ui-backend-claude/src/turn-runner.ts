@@ -39,6 +39,7 @@ import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requir
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { SessionTooLargeError } from "./worker-state.js";
+import { workerStateClass } from "./worker-spawn.js";
 import { archiveIdleSessions } from "./transcript-archive.js";
 
 const BACKEND_ID = "claude";
@@ -212,6 +213,43 @@ export function createClaudeTurnRunner(options: {
     let turnInput: TurnInput | undefined;
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
+    let workerFailure: (() => TurnFailure | undefined) | undefined;
+    /**
+     * A worker whose runtime state refused or stopped the turn (#1625) ends it
+     * with that named class rather than the runtime's own error.
+     */
+    /**
+     * The runtime reports its outcome even when its transcript writes failed
+     * on a full runtime-state tmpfs, and that output is then not saved
+     * (#1625). So the state is checked when the result arrives, the terminal
+     * result waits for the worker to exit and its state to be copied out, and
+     * a state found full at either point names the turn
+     * `worker_state_exceeded`, keeping its usage. A host cancellation still
+     * outranks it.
+     */
+    const unsaved = (result: Extract<ServerMessage, { type: "result" }>): Extract<ServerMessage, { type: "result" }> => {
+      if (result.outcome === "cancelled" || abortController.signal.aborted) return result;
+      const failure = workerFailure?.();
+      if (failure?.errorClass !== FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) return result;
+      emit({ type: "error", code: "CLAUDE_ERROR", message: failure.message });
+      return { ...result, outcome: "error", isError: true, failure };
+    };
+    /** The turn's terminal result, held until the worker has exited. */
+    let terminal: Extract<ServerMessage, { type: "result" }> | undefined;
+    let terminalSent = false;
+    const releaseTerminal = async (): Promise<void> => {
+      if (!terminal || terminalSent) return;
+      terminalSent = true;
+      // The worker's exit and copy-out; a copy-out refusal is still reported
+      // where it always was, after the terminal frame.
+      await finishWorker?.().catch(() => {});
+      emit(unsaved(terminal));
+    };
+    const workerRefusal = (): boolean => {
+      const failure = refused ? undefined : workerFailure?.();
+      if (failure) refused = { code: "CLAUDE_ERROR", message: failure.message, failure };
+      return Boolean(refused);
+    };
     /**
      * The host resource limits the turn's worker hit (#1660). Each new hit is
      * reported next to the tool step that caused it; a limit that ended the
@@ -305,6 +343,7 @@ export function createClaudeTurnRunner(options: {
         log: options.log,
       });
       finishWorker = sdkTurn.finishWorker;
+      workerFailure = sdkTurn.workerFailure;
       archiveEnv = sdkTurn.options.env;
       workerLimits = sdkTurn.workerLimits;
       // Always a stream that stays open, so follow-ups can join the turn.
@@ -511,6 +550,10 @@ export function createClaudeTurnRunner(options: {
           if (serverMsg.type === "result") {
             if (sawResult) continue;
             sawResult = true;
+            terminal = serverMsg;
+            // Checked now and again at exit: the runtime may free space as it exits.
+            workerFailure?.();
+            continue;
           }
           // Release the write lock the moment a mutating tool's result frame
           // lands (the turn-end backstop covers anything still held).
@@ -527,20 +570,24 @@ export function createClaudeTurnRunner(options: {
       // end, reported below like any other.
       if (carried && !carried.continued && !sawResult && !withheld && !abortController.signal.aborted) {
         for (const serverMsg of carried.frames) {
-          if (serverMsg.type === "result") sawResult = true;
+          if (serverMsg.type === "result") { sawResult = true; terminal = serverMsg; workerFailure?.(); continue; }
           emit(serverMsg);
         }
       }
+      await releaseTerminal();
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult && !refused && !abortController.signal.aborted) refused = await limitFailure();
       else if (workerLimits) reportLimitHits(workerLimits.current());
       if (!sawResult) {
+        // A host cancellation keeps outranking a state failure found meanwhile.
         if (refused) {
           emitTerminal("error");
         } else if (abortController.signal.aborted) {
           emit({ type: "status", status: "cancelled" });
           emitTerminal("cancelled");
+        } else if (workerRefusal()) {
+          emitTerminal("error");
         } else {
           emit({
             type: "error",
@@ -561,16 +608,21 @@ export function createClaudeTurnRunner(options: {
       // A worker ended by a host limit fails the turn with that limit named (#1660).
       if (!sawResult && !refused && !abortController.signal.aborted) refused = await limitFailure().catch(() => null);
       if (sawResult) {
-        // Terminal frame already sent — swallow the late failure.
+        // Terminal frame already decided — swallow the late failure.
+        await releaseTerminal();
       } else if (refused) {
         emitTerminal("error");
       } else if (abortController.signal.aborted) {
         emit({ type: "status", status: "cancelled" });
         emitTerminal("cancelled");
+      } else if (workerRefusal()) {
+        emitTerminal("error");
       } else {
-        if (err instanceof WorkerHostError || err instanceof SessionTooLargeError) {
-          refused = { code: "CLAUDE_ERROR", message: err.message,
-            failure: { errorClass: err.errorClass, message: err.message } };
+        const stateClass = workerStateClass(err);
+        if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || stateClass) {
+          const { message } = err as Error;
+          refused = { code: "CLAUDE_ERROR", message,
+            failure: { errorClass: stateClass ?? (err as WorkerHostError | SessionTooLargeError).errorClass, message } };
         } else {
           emit({ type: "error", code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) });
         }

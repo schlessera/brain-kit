@@ -760,11 +760,13 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  DEFAULT_WORKER_STATE_BYTES
   GIT_LOCK_KEY
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
   type InferenceRelayOptions
+  type LaunchedWorker
   MAX_INFERENCE_REQUEST_BYTES
   PROMOTED_SCRATCH_DIR
   PROMOTION_FILE_MAX_BYTES
@@ -787,6 +789,10 @@ export "./internal" (./src/internal.ts)
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
   WORKER_SCRATCH
+  WORKER_STATE
+  WORKER_STATE_BUDGET_ENV
+  WORKER_STATE_BYTES_ENV
+  WORKER_STATE_PAGE
   WORKER_XDG_DIRS
   type WorkerArea
   type WorkerAreaName
@@ -805,6 +811,9 @@ export "./internal" (./src/internal.ts)
   type WorkerProfile
   WorkerResourceLimitError
   type WorkerSandbox
+  WorkerStateConfigError
+  type WorkerStateHandle
+  type WorkerStateLimits
   applyClassification
   archivesDocument
   assertScratchMask
@@ -823,7 +832,9 @@ export "./internal" (./src/internal.ts)
   limitFailureMessage
   loadedSdkIdentity
   mergeLimitReports
+  mib
   observeClassification
+  parseWorkerStateBytes
   piMaskFilename
   piReportedMaskPath
   planClassification
@@ -834,9 +845,11 @@ export "./internal" (./src/internal.ts)
   readWebSearchRouting
   requireWorkerHost
   resolveWebSearchConfigPath
+  resolveWorkerStateLimits
   restrictedReadPaths
   startInferenceRelay
   turnTempRoot
+  validWorkerStateBytes
   webSearchBrief
   webSearchProvider
   workerHostBoundary
@@ -5312,7 +5325,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "unknown";
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;

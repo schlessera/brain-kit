@@ -159,6 +159,8 @@ signatures (every public export and the types it is made of)
         piProfilesJson: string | null;
         modelDiscovery: boolean;
         modelTtlMs: number;
+        workerStateBytes: number;
+        workerStateBudgetBytes: number;
     }
   AppRenderer (packages/ui-server/src/routes/render.ts)
     export interface AppRenderer {

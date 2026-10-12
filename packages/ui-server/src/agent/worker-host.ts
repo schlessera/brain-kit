@@ -24,10 +24,16 @@ export function probeWorkerHostRecorded(
   mode: WorkerHostMode,
   runtime: Recorder,
   trigger: WorkerHostCheck["trigger"],
+  /**
+   * The Claude worker's runtime-state allowance, while the Claude backend is
+   * active: the probe then also mounts its private size-limited tmpfs (#1625),
+   * so a host whose bubblewrap lacks `--size` is reported, not only refused.
+   */
+  stateBytes?: number,
 ): WorkerHostProbe {
   let probe: WorkerHostProbe;
   try {
-    requireWorkerHost(brainPath, { restricted: mode === "restricted" });
+    requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(stateBytes !== undefined ? { stateBytes } : {}) });
     probe = { ok: true };
   } catch (error) {
     // requireWorkerHost refuses only with WorkerHostError; anything else is

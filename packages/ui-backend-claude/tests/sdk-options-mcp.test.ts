@@ -105,3 +105,18 @@ describe("the SDK options a turn is built with", () => {
   });
 
 });
+
+test("an interactive turn's appended prompt carries the runtime-state note for the backend's resolved allowance (#1625)", () => {
+  const brain = mkdtempSync(join(tmpdir(), "sdk-options-state-note-"));
+  try {
+    const { options, finishWorker } = createClaudeSdkTurn({
+      backend: { brainPath: brain, workerState: { allowanceBytes: 32 * 1024 * 1024, budgetBytes: 96 * 1024 * 1024 } } as never,
+      req: { prompt: "hello", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
+      profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
+      abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
+      turnLock: { acquire: () => undefined, release: () => undefined } as never, log: () => undefined,
+    });
+    void finishWorker();
+    expect((options.systemPrompt as { append?: string }).append).toContain("- **Runtime state: 32 MiB.**");
+  } finally { rmSync(brain, { recursive: true, force: true }); }
+});

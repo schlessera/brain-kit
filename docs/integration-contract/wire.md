@@ -529,6 +529,15 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   `worker_resource_limit` (#1660) means a host resource limit ended the turn's
   worker; the message names the limit, its value and whether an rlimit or the
   worker's cgroup enforced it.
+  Claude worker runtime state adds `session_too_large` (the conversation
+  cannot fit the worker's runtime-state allowance), `worker_state_busy` (the
+  server's runtime-state budget is held by running workers; refused before
+  launch, nothing was sent, Retry) and `worker_state_exceeded` (the running
+  turn filled its allowance; the part written after that was not saved, even
+  if the runtime finished its answer), as
+  [the hosting doc](../hosting/agent-workers.md#claude-runtime-state-and-transcript-archival)
+  describes (#1621, #1625). All three are registered in
+  `FIRST_PARTY_FAILURE_CLASSES`.
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means

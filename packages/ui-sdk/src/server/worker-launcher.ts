@@ -1,8 +1,10 @@
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, statfsSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+  realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
+import { validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_XDG_DIRS,
@@ -14,14 +16,43 @@ import { createTurnTemp, type TurnTemp } from "./worker-turn-temp.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
+/**
+ * Where a worker's private runtime-state tmpfs is mounted inside its sandbox
+ * (#1625). Only that worker's mount namespace holds it.
+ */
+export const WORKER_STATE = "/tmp/brain-worker-state";
+const TMPFS_MAGIC = 0x01021994;
+/**
+ * Runs first inside a worker with runtime state, before any agent code: it
+ * reads one line from the worker's stdin, which only the server writes, once
+ * the private tmpfs is populated, then becomes the worker's command. Closed
+ * stdin or any other line ends the worker unstarted. Only the absolute shell
+ * and its builtins run here, never a `PATH` lookup the worker's environment
+ * could steer; the shell reads a pipe a byte at a time, so nothing past the
+ * line is consumed. bubblewrap's own `--block-fd` cannot be used: Bun's
+ * `execve` in the trusted bootstrap closes every descriptor above 2.
+ */
+const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"', "brain-worker-state-gate"];
+/** What the server writes to open the gate. */
+const STATE_GATE_OPEN = "go\n";
+/** How long a launch waits for bubblewrap to report and mount, like the probe's bound. */
+const STATE_SETUP_MS = 5_000;
 export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host with bubblewrap and unprivileged user namespaces.";
 
 export interface WorkerLaunch {
   brainPath: string;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
   scratchPath?: string;
-  /** Fresh runtime state on a separate tmpfs device; never a brain inode alias. */
-  statePath?: string;
+  /**
+   * The size of the worker's private runtime-state tmpfs at `WORKER_STATE`,
+   * in bytes (#1625). A whole number of pages. Absent: no runtime state.
+   */
+  stateBytes?: number;
+  /**
+   * Fills the runtime state before the worker's command starts, given a
+   * server-side path to the private tmpfs. Only `launchAgentWorker` calls it.
+   */
+  populateState?: (root: string) => void;
   /** Absolute executable and literal arguments. No shell is inserted. */
   command: readonly string[];
   /** The complete worker environment; nothing is inherited by default. */
@@ -185,19 +216,17 @@ export function workerCommand(input: WorkerLaunch): string[] {
     || brain.startsWith(`${scratch}/`) || scratch === "/" || brain === "/" || brain === "/tmp") {
     throw new WorkerHostError("scratch must be a separate location outside the authoritative brain and its ancestors");
   }
-  let state: string | undefined;
-  if (input.statePath) {
-    state = realpathSync(input.statePath);
-    if (state !== input.statePath || lstatSync(state).isSymbolicLink() || !lstatSync(state).isDirectory()
-      || state === brain || state.startsWith(`${brain}/`) || brain.startsWith(`${state}/`)
-      || state === scratch || state.startsWith(`${scratch}/`) || scratch.startsWith(`${state}/`)
-      || statSync(state).dev === statSync(brain).dev || statfsSync(state).type !== 0x01021994) {
-      throw new WorkerHostError("runtime state must be a separate, non-aliasing tmpfs directory outside the brain and scratch");
+  if (input.stateBytes !== undefined) {
+    validWorkerStateBytes(input.stateBytes, "the worker's runtime-state allowance");
+    if (brain === WORKER_STATE || brain.startsWith(`${WORKER_STATE}/`) || scratch === WORKER_STATE
+      || scratch.startsWith(`${WORKER_STATE}/`) || WORKER_STATE.startsWith(`${scratch}/`)) {
+      throw new WorkerHostError("runtime state must be a separate location outside the brain and scratch");
     }
   }
   const temp = input.restricted ? undefined : input.turnTemp;
-  if (temp) checkTurnTemp(temp, brain, scratch, state);
-  const writable = sandboxMounts(input, brain, scratch, state, temp);
+  // Runtime state is a private mount inside the worker (#1625), never a host path turn temp could overlap.
+  if (temp) checkTurnTemp(temp, brain, scratch, undefined);
+  const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined, temp);
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
     ...(input.restricted ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
@@ -210,10 +239,13 @@ export function workerCommand(input: WorkerLaunch): string[] {
     "--ro-bind", brain, brain,
     ...(input.restricted ? maskedGit(brain) : []),
     ...(temp ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds, "--clearenv"];
-  if (state) argv.push("--bind", state, state);
+  // A private tmpfs of exactly the allowance. Nothing on the host backs it,
+  // and no other worker's namespace can see it (#1625). It lands on top of
+  // whatever backs /tmp, turn temp included.
+  if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", brain, "--", ...rlimitPrefix(launchLimits(input)), ...input.command);
+    "--chdir", brain, "--", ...rlimitPrefix(launchLimits(input)), ...(input.stateBytes !== undefined ? [...STATE_GATE] : []), ...input.command);
   return argv;
 }
 
@@ -372,7 +404,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
 export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command: string[]; env: Record<string, string> } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
-  const { limits: _limits, ...launch } = input;
+  const { limits: _limits, populateState: _populate, ...launch } = input;
   return { command: [process.execPath, entry], env: {
     BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv: workerCommand(input), ...(cgroup ? { cgroup } : {}) }),
   } };
@@ -381,12 +413,115 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
 const FATAL_OOM_WINDOW_MS = 1_000;
 
+/** A worker's private runtime state, reachable from the server through one held descriptor (#1625). */
+export interface WorkerStateHandle {
+  /**
+   * A server-side path to the tmpfs root. It stays valid after the worker and
+   * its namespace are gone, until `close()`.
+   */
+  readonly root: string;
+  /** The tmpfs's size and the bytes still free in it, read now. */
+  space(): { total: number; free: number };
+  /** Idempotent. The tmpfs is freed once the worker is gone and this is closed. */
+  close(): void;
+}
+
+export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["streams"]> & {
+  pid: number;
+  exited: Promise<number>;
+  kill(signal?: NodeJS.Signals): void;
+  /** The resource limits this launch was given (#1660). */
+  limits: WorkerLimitsPlan;
+  /** Which limits it has hit so far and, once it has exited, whether one ended it. */
+  limitReport(): WorkerLimitReport;
+  /** Present when the launch asked for runtime state. */
+  state?: WorkerStateHandle;
+};
+
+/** Whether a process has exited: gone, or a zombie its parent has not reaped yet. */
+function exited(pid: number): boolean {
+  try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").startsWith("Z"); }
+  catch { return true; }
+}
+
+/**
+ * The sandbox's first process: the only child bubblewrap forks. Read from
+ * the kernel's own record of bubblewrap's children, so nothing inside the
+ * sandbox can name it.
+ */
+function sandboxPid(bwrap: number, deadline: number): number {
+  for (;;) {
+    let children: string[] = [];
+    try { children = readFileSync(`/proc/${bwrap}/task/${bwrap}/children`, "utf8").trim().split(/\s+/).filter(Boolean); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Without CONFIG_PROC_CHILDREN, find it by parent process id.
+      for (const name of readdirSync("/proc")) {
+        if (!/^\d+$/.test(name)) continue;
+        try { if (readFileSync(`/proc/${name}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[1] === String(bwrap)) children.push(name); }
+        catch { /* gone meanwhile */ }
+      }
+    }
+    if (children.length === 1) return Number(children[0]);
+    if (children.length > 1) throw new WorkerHostError("bubblewrap started more than one sandbox process");
+    if (exited(bwrap)) throw new WorkerHostError("bubblewrap exited before it started its sandbox");
+    if (Date.now() > deadline) throw new WorkerHostError("bubblewrap did not start its sandbox in time");
+    Bun.sleepSync(1);
+  }
+}
+
+/**
+ * Opens the worker's private tmpfs from outside, through the sandbox's root.
+ * bubblewrap reports the sandbox before it mounts anything, so this waits
+ * until the path is a mount of its own (a device other than its parent's), a
+ * tmpfs of exactly the allowance, and empty. Until then it would still name
+ * the host's directory, or nothing.
+ */
+function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number): number {
+  const path = `/proc/${pid}/root${WORKER_STATE}`;
+  let last = "it never appeared";
+  for (;;) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      const root = `/proc/self/fd/${fd}`;
+      const fs = statfsSync(root);
+      if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && fstatSync(fd).dev !== statSync(`${root}/..`).dev
+        && readdirSync(root).length === 0) return fd;
+      last = "it was not yet the private tmpfs";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EACCES" || (error as NodeJS.ErrnoException).code === "EPERM") {
+        if (fd !== undefined) closeSync(fd);
+        throw new WorkerHostError("the server cannot reach its worker's private runtime state through /proc (is bubblewrap installed setuid, or /proc mounted with hidepid?)");
+      }
+      last = (error as Error).message;
+    }
+    if (fd !== undefined) closeSync(fd);
+    if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private runtime-state tmpfs (${last})`);
+    if (Date.now() > deadline) throw new WorkerHostError(`the worker's private runtime-state tmpfs was not mounted in time (${last})`);
+    Bun.sleepSync(1);
+  }
+}
+
+/** What bubblewrap wrote to the worker's stderr so far, read without waiting. */
+function launchDiagnostics(stderr: number): string {
+  let fd: number | undefined;
+  try {
+    fd = openSync(`/proc/self/fd/${stderr}`, constants.O_RDONLY | constants.O_NONBLOCK);
+    const chunk = Buffer.alloc(4096);
+    return chunk.subarray(0, readSync(fd, chunk)).toString("utf8").trim().slice(0, 400);
+  } catch { return ""; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+
 /**
  * All three protocol channels are new pipes. No stdio/extra-fd override exists.
  * `limitReport()` says which limits the worker has hit so far and, once it
- * has exited, whether one of them ended it (#1660).
+ * has exited, whether one of them ended it (#1660). A worker with runtime
+ * state (#1625) starts its command only after its private tmpfs is mounted,
+ * verified and populated.
  */
-export function launchAgentWorker(input: WorkerLaunch) {
+export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   const plan = launchLimits(input);
   let cgroup: WorkerCgroup | undefined;
   if (plan.cgroup.available) {
@@ -399,12 +534,30 @@ export function launchAgentWorker(input: WorkerLaunch) {
     }
   }
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let stateFd: number | undefined;
   try {
     pipes = createWorkerPipes();
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
-    const child = Bun.spawn(boot.command, { env: boot.env,
+    child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
+    let state: WorkerStateHandle | undefined;
+    if (input.stateBytes !== undefined) {
+      const deadline = Date.now() + STATE_SETUP_MS;
+      const fd = stateFd = openPrivateState(child.pid, sandboxPid(child.pid, deadline), input.stateBytes!, deadline);
+      const root = `/proc/self/fd/${fd}`;
+      input.populateState?.(root);
+      let open = true;
+      state = {
+        root,
+        space() { const fs = statfsSync(root); return { total: fs.blocks * fs.bsize, free: fs.bavail * fs.bsize }; },
+        close() { if (open) { open = false; closeSync(fd); } },
+      };
+      // Release the gate: the worker's command starts only now.
+      writeSync(pipes.parent[0], STATE_GATE_OPEN);
+      stateFd = undefined;
+    }
     const streams = pipes.streams();
     let killed = false;
     let final: WorkerLimitReport | undefined;
@@ -435,16 +588,28 @@ export function launchAgentWorker(input: WorkerLaunch) {
       }
       return { hits, fatal };
     };
-    const exited = child.exited.then(code => {
+    const spawned = child;
+    const exited = spawned.exited.then(code => {
       clearInterval(memoryWatch);
       final = report(code);
       if (cgroup) final.peak = cgroup.peak();
       cgroup?.remove();
       return code;
     });
-    return { ...streams, pid: child.pid, exited, limits: plan, limitReport: () => report(),
-      kill: (signal?: NodeJS.Signals) => { killed = true; return child.kill(signal); } };
-  } catch (error) { pipes?.cleanup(); cgroup?.remove(); throw error; }
+    return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+      kill: (signal?: NodeJS.Signals) => { killed = true; return spawned.kill(signal); }, ...(state ? { state } : {}) };
+  } catch (error) {
+    child?.kill("SIGKILL");
+    if (stateFd !== undefined) closeSync(stateFd);
+    const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    pipes?.cleanup(); cgroup?.remove();
+    if (detail) {
+      throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
+        ? `bubblewrap 0.7 or later, for the worker's size-limited runtime-state tmpfs (${detail})`
+        : `${(error as WorkerHostError).requirement} (${detail})`);
+    }
+    throw error;
+  }
 }
 
 export type WorkerHostProbe = { ok: true } | { ok: false; requirement: string };
@@ -462,7 +627,16 @@ const FRESH_PROC_REQUIREMENT = "the kernel refused the worker a fresh /proc beca
 export interface WorkerHostProbeOptions {
   /** Also establish the restricted envelope: a private network namespace and an explicit read envelope. */
   restricted?: boolean;
+  /**
+   * Also mount a private runtime-state tmpfs of this many bytes behind the
+   * start gate, and check its size from inside (#1625). Needs bubblewrap 0.7
+   * or later for `--size`.
+   */
+  stateBytes?: number;
 }
+
+/** bubblewrap before 0.7 does not know `--size`. */
+const NO_TMPFS_SIZE = /--size/;
 
 /** Runs the real launcher before each turn; a version/OS check is insufficient. */
 export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): WorkerHostProbe {
@@ -500,10 +674,15 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       ${options.restricted ? `const links=readFileSync("/proc/net/dev","utf8").split("\\n").slice(2).map(l=>l.split(":")[0].trim()).filter(Boolean);
       if(links.join()!=="lo") process.exit(2);
       if(!existsSync(${JSON.stringify(WORKER_INFERENCE_DIR)})) process.exit(4);` : ""}
+      ${options.stateBytes !== undefined ? `const state=require("node:fs").statfsSync(${JSON.stringify(WORKER_STATE)});
+      if(state.type!==${TMPFS_MAGIC}||state.blocks*state.bsize!==${Number(options.stateBytes)}) process.exit(6);` : ""}
       console.log("worker-boundary-pass");`;
-    const boot = workerBootstrap({ brainPath, command: [process.execPath, "-e", program], env: {}, restricted, limits });
+    const boot = workerBootstrap({ brainPath, command: [process.execPath, "-e", program], env: {}, restricted, limits,
+      ...(options.stateBytes !== undefined ? { stateBytes: options.stateBytes } : {}) });
     const pipes = createWorkerPipes();
     try {
+      // Opens the start gate up front; the probe has nothing to copy in.
+      if (options.stateBytes !== undefined) writeSync(pipes.parent[0], STATE_GATE_OPEN);
       const child = Bun.spawnSync(boot.command, { env: boot.env, stdin: pipes.child[0],
         stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
       pipes.closeChild(); pipes.closeInput();
@@ -512,9 +691,13 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden) {
         const detail = errors.trim().slice(0, 400);
         if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
+        if (options.stateBytes !== undefined && NO_TMPFS_SIZE.test(errors)) {
+          throw new Error(`bubblewrap 0.7 or later, for the worker's size-limited runtime-state tmpfs (${detail})`);
+        }
         const what = child.exitCode === 2 ? "a private network namespace with only loopback"
           : child.exitCode === 4 ? "the inference relay mount"
           : child.exitCode === 5 ? "the worker's resource limits (prlimit)"
+          : child.exitCode === 6 ? "a private, size-limited runtime-state tmpfs"
           : "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation";
         throw new Error(`${what} failed (${detail})`);
       }

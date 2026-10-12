@@ -18,6 +18,7 @@ import { useHandoffStore } from "../../src/stores/handoff-store.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
+import { failurePresentation } from "../../src/lib/turn-failure.js";
 
 afterEach(cleanup);
 afterAll(unregisterTurnFailureDom);
@@ -306,9 +307,21 @@ describe("session capacity failures", () => {
     expect(useHandoffStore.getState().sheet?.preferSourceProfile).toBe(true);
     useHandoffStore.getState().close();
   });
+  for (const [errorClass, headline] of [
+    ["worker_state_busy", "Other conversations are using this server's capacity right now."],
+    ["worker_state_exceeded", "This turn ran out of room to save its work."],
+  ] as const) {
+    test(`${errorClass} names the runtime-state capacity, offers Retry and no handoff`, () => {
+      send(); failLive({ errorClass, message: "Not enough worker runtime space" });
+      const view = renderAssistant();
+      expect(failureText(view)).toContain(headline);
+      expect(failurePresentation({ errorClass, message: "" }).retry).toBe(true);
+      expect(view.queryByRole("button", { name: "Continue in a new conversation" })).toBeNull();
+    });
+  }
   // A host problem is not a bug report (#1632), so its class travels through
   // "Copy details"; both review texts are built from the same allowlist.
-  for (const [errorClass, action] of [["session_too_large", "Report a bug"], ["worker_host_unsupported", "Copy details"]] as const) {
+  for (const [errorClass, action] of [["session_too_large", "Report a bug"], ["worker_host_unsupported", "Copy details"], ["worker_state_busy", "Copy details"], ["worker_state_exceeded", "Report a bug"]] as const) {
     test(`reports preserve class: ${errorClass}`, () => {
       send(); failLive({ errorClass, message: "Runtime state refused" });
       const view = renderAssistant();

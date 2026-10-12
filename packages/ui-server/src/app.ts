@@ -444,7 +444,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // turn: each one runs its own probe, which re-records the outcome. The
   // restricted envelope only matters while autonomous work can run.
   const workerHostModes: WorkerHostMode[] = dispatcher ? ["ordinary", "restricted"] : ["ordinary"];
-  for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot");
+  // Claude workers also need their private runtime-state tmpfs (#1625).
+  const workerStateBytes = (config.agent.backend ?? "claude") === "claude" ? config.agent.workerStateBytes : undefined;
+  for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes);
   // A root-run server still boots (#1629, #1638), but its workers keep root's
   // reads and Unix-socket reach: warned once here, and kept on the status.
   if (serverRunsAsRoot()) activity.runtime.recordRootServer(ROOT_SERVER_WARNING);
@@ -636,7 +638,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check");
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes);
         return activity.runtime.snapshot().workerHost ?? {};
       },
     })

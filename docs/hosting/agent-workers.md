@@ -22,7 +22,9 @@ create and remove that owned fixture. Checks are repeated, not cached from a
 version string or an earlier turn.
 
 The server also runs the probe at boot (#1632): the ordinary mode always, and
-the restricted mode while autonomous work is enabled. A failure is logged once
+the restricted mode while autonomous work is enabled. While the Claude backend
+is active, both also mount the Claude worker's runtime-state tmpfs at its
+configured allowance (#1625). A failure is logged once
 with its requirement and does not refuse the boot, because everything except
 agent turns still works. `/api/status` reports the latest probe per mode as
 `runtime.workerHost`, and each turn's own probe and each "Check again" update
@@ -54,6 +56,9 @@ brain, and `$HOME` gets a per-turn overlay where the host supports one; see
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
 The overlay is optional; bubblewrap 0.9 is eligible.
+A Claude worker's runtime state is a private tmpfs that bubblewrap sizes with
+`--size`, so Claude needs bubblewrap 0.7 or later; the per-turn probe mounts it
+and checks its size.
 The worker and its descendants are inside the boundary. PID-namespace ownership,
 `--die-with-parent` and the returned process handle support cancellation.
 The caller owns the returned stdin/stdout/stderr streams and closes or destroys
@@ -70,21 +75,66 @@ read-only host root. Autonomous turns use the restricted envelope below.
 
 ## Claude runtime state and transcript archival
 
-Each ordinary Claude turn copies settings, credentials and the account file
-into a private runtime-state tmpfs directory under `/dev/shm`. Transcript state
-is session-scoped: a resume copies only that session's JSONL and companion
-folder; a new conversation copies no transcripts. After teardown, only changed
-JSONL files for the resumed or newly created sessions are persisted. Other
-saved sessions are untouched.
+Each Claude worker gets its own **private, size-limited tmpfs** for its runtime
+state (#1625): the session files, settings, credentials, the account file and
+the project's auto-memory notes (`memory/`). The worker sees it as
+`CLAUDE_CONFIG_DIR`; no other worker and no host path can see it. Transcript
+state is session-scoped: a resume copies only that session's JSONL and
+companion folder; a new conversation copies no transcripts. The server copies
+the snapshot in before the runtime starts and, after the worker and its whole
+PID namespace are gone, copies back only changed JSONL files for the resumed or
+newly created sessions, plus new or changed `memory/*.md` notes directly in the
+memory folder. Other saved sessions are untouched. Copy-out refuses links,
+hardlinks, special files and anything past the allowance; a memory note another
+conversation changed during the turn is not overwritten and is named in the
+error, the other notes still persist, and nothing is deleted. An autonomous
+turn copies nothing in and writes nothing back. If the server process dies, its
+workers and their tmpfs mounts go with it; nothing is left to clean up.
 
-The host's `/dev/shm` must fit the settings plus the largest resumed session,
-with room for concurrent workers and transcript growth. Docker's default is
-64 MiB; increase it with `--shm-size` when needed. The backend checks free space
-before copying, reserving the larger of 16 MiB or 25% of the resumed transcript
-for turn growth and CLI files. Settings plus the 16 MiB minimum reserve that cannot fit refuse with `worker_host_unsupported`;
-a session that exceeds available space or the 128 MiB state bound refuses with
-`session_too_large`. Its error card offers **Continue in a new conversation**
-through the existing reviewed handoff flow.
+The allowance does not cover the worker's other writable places (`/tmp`,
+`$BRAIN_WORKER_SCRATCH`, workspaces, home caches) or its process memory. It is
+not a worker memory limit. Where the worker has a cgroup memory limit
+([resource limits](#resource-limits)), the tmpfs pages the worker writes count
+toward it like its other memory; the pages the server copies in before the
+worker starts do not.
+
+### Configuring the allowance and the budget
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BRAIN_UI_WORKER_STATE_BYTES` | `67108864` (64 MiB) | Each worker's runtime-state tmpfs, in bytes. |
+| `BRAIN_UI_WORKER_STATE_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (192 MiB at the defaults) | What all running workers' allowances may add up to. |
+
+Both are whole numbers of bytes, digits only, multiples of 4096; the budget must
+hold at least one allowance. An invalid value stops the server at boot with a
+message naming the variable. They are host configuration: nothing in the brain
+can change them, and a worker keeps the allowance it was admitted with until it
+exits, whatever the configuration says later.
+
+Before a worker launches, the server reserves its **whole allowance** against
+the budget. Effective capacity is therefore
+`floor(budget / allowance)` workers at once, and never more than
+`MAX_CONCURRENT_SESSIONS` sessions. A lower budget deliberately admits fewer
+workers than the session cap. Autonomous turns and handoff summaries run
+workers too and reserve the same allowance, so size the budget for every kind
+of turn you run at once (for example allowance × (`MAX_CONCURRENT_SESSIONS` +
+`MAX_AUTONOMOUS_RUNS`)). The budget is admission accounting, not reserved RAM:
+tmpfs pages are used only as they are written. Leave the host memory for the
+server, the agent processes, browsers, other tmpfs mounts and caches beside
+it. The budget is per server process; if you run several, split the headroom
+between them.
+
+Turns are refused or stopped with these classes, never with a raw `ENOSPC`:
+
+| Class | When |
+| --- | --- |
+| `session_too_large` | The conversation's settings, memory and resumed history do not fit the allowance. Nothing is copied. The error card offers **Continue in a new conversation** through the existing reviewed handoff flow. |
+| `worker_state_busy` | The budget cannot take another allowance while the running workers hold theirs. Refused before launch: nothing is copied or sent. The card offers **Retry**; nothing waits or retries by itself. |
+| `worker_state_exceeded` | The running turn filled its allowance. Writes past it failed in that worker only. The runtime may still finish its answer, but the turn ends as this failure, because the part written after the limit was not saved. What was written before it is persisted with the usual checks. |
+| `worker_host_unsupported` | Settings, credentials and memory alone exceed the allowance (raise `BRAIN_UI_WORKER_STATE_BYTES`), the host's bubblewrap is older than 0.7 (no `--size`), or the server cannot reach its worker's tmpfs through `/proc` (bubblewrap installed setuid, or `/proc` mounted with `hidepid`). |
+
+The agent reads a note, generated from the same allowance, saying how large its
+runtime state is and that it is not for files it makes.
 
 After a non-autonomous turn, the Claude backend checks at most once per 24 hours
 for sessions idle more than 30 days, using the newest modification time across

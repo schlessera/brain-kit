@@ -56,6 +56,10 @@ signatures (every public export and the types it is made of)
         systemPromptAppend?: string;
         writeLock?: KeyedLock;
         lockWaitMs?: number;
+        workerState?: {
+            allowanceBytes?: number;
+            budgetBytes?: number;
+        };
     }
   DEFAULT_PROFILES (packages/ui-backend-claude/src/profiles.ts)
     const DEFAULT_PROFILES: InferenceProfile[];

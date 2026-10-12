@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
+import { WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -293,6 +293,24 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "MAX_CONCURRENT_SESSIONS",
     description: "Cap on concurrently RUNNING agent sessions.",
     default: "3",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WORKER_STATE_BYTES",
+    description:
+      "Each Claude worker's private runtime-state tmpfs, in bytes (a positive multiple of 4096): its session " +
+      "files, settings and auto-memory. Reserved in full against the budget before the worker launches; " +
+      "invalid values refuse the boot.",
+    default: "67108864 (64 MiB)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_WORKER_STATE_BUDGET_BYTES",
+    description:
+      "What all running Claude workers' runtime-state allowances may add up to, in bytes (a positive multiple " +
+      "of 4096, at least one allowance). A turn that would pass it is refused as worker_state_busy. Logical " +
+      "admission, not reserved RAM; invalid values refuse the boot.",
+    default: "BRAIN_UI_WORKER_STATE_BYTES × MAX_CONCURRENT_SESSIONS",
     required: false,
   },
   {
@@ -619,6 +637,10 @@ export interface AgentConfig {
   piProfilesJson: string | null;
   modelDiscovery: boolean;
   modelTtlMs: number;
+  /** Each Claude worker's runtime-state allowance in bytes, resolved and validated (#1625). */
+  workerStateBytes: number;
+  /** The aggregate runtime-state budget in bytes: explicit, or the allowance × MAX_CONCURRENT_SESSIONS. */
+  workerStateBudgetBytes: number;
 }
 
 /**
@@ -891,6 +913,14 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   const modelDiscovery = envFlag(env.BRAIN_UI_MODEL_DISCOVERY, env.NODE_ENV !== "test");
 
+  const maxConcurrentSessions = Math.max(1, Number(env.MAX_CONCURRENT_SESSIONS) || 3);
+  // Validated here so a bad value refuses the boot with its own name (#1625).
+  const workerState = resolveWorkerStateLimits({
+    allowanceBytes: parseWorkerStateBytes(env.BRAIN_UI_WORKER_STATE_BYTES, "BRAIN_UI_WORKER_STATE_BYTES"),
+    budgetBytes: parseWorkerStateBytes(env.BRAIN_UI_WORKER_STATE_BUDGET_BYTES, "BRAIN_UI_WORKER_STATE_BUDGET_BYTES"),
+    maxConcurrentSessions,
+  });
+
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
@@ -911,7 +941,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
-    maxConcurrentSessions: Math.max(1, Number(env.MAX_CONCURRENT_SESSIONS) || 3),
+    maxConcurrentSessions,
     // Positive integer or null — 0, negatives, and garbage all mean "unset",
     // so a typo degrades to the safe default instead of an instant timeout.
     turnTimeoutMs:
@@ -948,6 +978,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
+      workerStateBytes: workerState.allowanceBytes,
+      workerStateBudgetBytes: workerState.budgetBytes,
     },
     classification: { apiKey: env.TYPESAFE_API_KEY?.trim() || null },
     logLevel: parseSeverity(env.BRAIN_UI_LOG_LEVEL),
