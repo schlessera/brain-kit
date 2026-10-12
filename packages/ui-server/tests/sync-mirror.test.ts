@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { maintenanceLaunch, probeWorkerHost, runMaintenanceWorker } from "@schlessera/brain-ui-sdk/internal";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import { createHostBoundary } from "../src/brain/host-boundary";
-import { createBrainClient } from "../src/brain/client";
+import { BrainSyncError, createBrainClient } from "../src/brain/client";
 import { assertMirrorStorage, syncMirrorPath, syncTransportCommand } from "../src/brain/sync-mirror";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createUiDb } from "../src/db/client";
@@ -28,7 +28,7 @@ function git(root: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const root = mkdtempSync(join(ROOT, "tmp/sync-mirror-")); roots.push(root);
+  const root = mkdtempSync("/var/tmp/brain-sync-fixture-"); roots.push(root);
   const brain = join(root, "brain");
   const remote = join(root, "remote.git");
   const state = join(root, "state"); mkdirSync(state);
@@ -67,11 +67,12 @@ appendFileSync(process.cwd() + "/config.sentinel", JSON.stringify({ env: process
 }
 
 /** Real loopback smart-HTTP Git; neither the CGI process nor the remote needs a credential. */
-function fixtureRemote(root: string, remote: string, received?: string[]) {
+function fixtureRemote(root: string, remote: string, received?: string[], refusePush = false) {
   git(remote, "config", "http.receivepack", "true");
   return Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     received?.push(`${request.method} ${url.pathname}`);
+    if (refusePush && request.method === "POST" && url.pathname.endsWith("/git-receive-pack")) return new Response("fixture push refused", { status: 503 });
     const body = new Uint8Array(await request.arrayBuffer());
     const child = Bun.spawn(["/usr/bin/git", "http-backend"], { stdin: body, stdout: "pipe", stderr: "pipe", env: {
       PATH: "/usr/bin:/bin", HOME: "/nonexistent", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
@@ -243,4 +244,56 @@ require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/info/alt
   expect(Bun.spawnSync(["/usr/bin/git", "--git-dir", f.remote, "cat-file", "-e", "main:notes/harbor.md"],
     { env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } }).exitCode,
     "ALTERNATES_NEVER_PUSHED").not.toBe(0);
+}, 120_000);
+
+test("a successful local mirror workflow reports failure when the external push is refused", async () => {
+  const f = fixture();
+  const requests: string[] = [];
+  const server = fixtureRemote(f.root, f.remote, requests, true);
+  git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
+  try {
+    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+    let failure: BrainSyncError | undefined;
+    await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync().catch(error => {
+      expect(error).toBeInstanceOf(BrainSyncError); failure = error;
+    });
+    expect(failure, "REFUSED_EXTERNAL_PUSH_FAILS_SYNC").toBeDefined();
+    expect(failure!.result?.run.status, "REFUSED_EXTERNAL_PUSH_HAS_FAILED_STATUS").toBe("failed");
+    expect(failure!.message).toContain("host Git transport failed");
+    expect(requests).toContain("POST /remote.git/git-receive-pack");
+  } finally { server.stop(true); }
+}, 120_000);
+
+for (const output of ["stdout", "stderr"] as const) {
+  test(`cancelling sync ${output} while the worker runs preserves exit status and releases its gate`, async () => {
+    const f = fixture();
+    const db = createUiDb(f.dbPath);
+    const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: {} });
+    try {
+      execution.attach(db);
+      const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", "sleep 0.2; printf local-work-done"],
+        env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", sync: true, purpose: "cancelled output sync" });
+      void new Response(worker[output === "stdout" ? "stderr" : "stdout"]).text().catch(() => {});
+      await worker[output].cancel();
+      let code: number | undefined; let failure: unknown;
+      await worker.exited.then(value => { code = value; }, error => { failure = error; });
+      let hold: Awaited<ReturnType<NonNullable<ReturnType<typeof execution.gate>>["acquire"]>> | undefined;
+      await expect(execution.gate()!.acquire("exclusive", "next request", { signal: AbortSignal.timeout(1_000) })
+        .then(next => { hold = next; return true; }), "GATE_REUSABLE_AFTER_OUTPUT_CANCEL").resolves.toBe(true);
+      hold!.release();
+      expect(failure, "CANCELLED_OUTPUT_DOES_NOT_REJECT_EXIT").toBeUndefined();
+      expect(code, "CANCELLED_OUTPUT_PRESERVES_EXIT_STATUS").toBe(0);
+    } finally { db.close(); }
+  });
+}
+
+test("an in-memory host uses its private temporary mirror for a real sync", async () => {
+  const f = fixture();
+  // This host has no operational state directory to mask. The configured
+  // host credential-file proof belongs to the persistent-database test.
+  rmSync(join(f.state, "credential"));
+  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: ":memory:", exec: {} });
+  const result = await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync();
+  expect(result.result?.run.status, "TEMP_MIRROR_FILE_TRANSPORT_WORKS").toBe("complete");
+  expect(git(f.brain, "rev-parse", "HEAD")).toBe(git(f.remote, "rev-parse", "main"));
 }, 120_000);

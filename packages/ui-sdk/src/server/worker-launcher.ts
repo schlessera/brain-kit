@@ -301,7 +301,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
     masks.push(path);
   }
-  const masked = (path: string) => masks.some(mask => within(mask, path));
+  const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);
   const bound = new Set<string>();
   const bindBack = (requested: string) => {

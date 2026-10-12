@@ -196,6 +196,17 @@ function absoluteArgv(brain: string, argv: readonly string[], path: string): str
 /** The server's maintenance program; `bun` resolves its source, the build its output. */
 export const MAINTENANCE_ENTRY = Bun.resolveSync("./maintenance-entry", import.meta.dir);
 
+/** Cancelling an output reader discards output; it cannot interrupt lifecycle cleanup. */
+function syncOutput() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let closed = false;
+  const stream = new ReadableStream<Uint8Array>({ start(value) { controller = value; }, cancel() { closed = true; } });
+  return { stream,
+    write(text: string) { if (!closed && text) controller.enqueue(new TextEncoder().encode(text)); },
+    close() { if (!closed) { closed = true; controller.close(); } },
+  };
+}
+
 let serverRuntime: string[] | undefined;
 /**
  * The server's own installation, read-only: this package with the
@@ -343,19 +354,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const selectedCommand = command(execution);
           const selectedMirror = mirror ??= syncMirrorPath(brain, options.dbPath);
           const abort = new AbortController();
-          let stdout!: ReadableStreamDefaultController<Uint8Array>;
-          let stderr!: ReadableStreamDefaultController<Uint8Array>;
-          const out = new ReadableStream<Uint8Array>({ start(controller) { stdout = controller; } });
-          const err = new ReadableStream<Uint8Array>({ start(controller) { stderr = controller; } });
+          const stdout = syncOutput();
+          const stderr = syncOutput();
           let signalCode: string | null = null;
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
           const exited = runMirrorSync({ command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
             ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
-            stdout.enqueue(new TextEncoder().encode(result.stdout)); stderr.enqueue(new TextEncoder().encode(result.stderr)); return result.exitCode;
-          }, error => { stderr.enqueue(new TextEncoder().encode(error instanceof Error ? error.message : String(error))); return 1; })
-            .finally(() => { stdout.close(); stderr.close(); execution.signal?.removeEventListener("abort", onAbort); hold?.release(); });
-          return { stdout: out, stderr: err, exited, get signalCode() { return signalCode; },
+            stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
+          }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
+            .finally(() => {
+              try { stdout.close(); } finally {
+                try { stderr.close(); } finally {
+                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { hold?.release(); }
+                }
+              }
+            });
+          return { stdout: stdout.stream, stderr: stderr.stream, exited, get signalCode() { return signalCode; },
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
         } catch (error) { hold?.release(); throw error; }
       }

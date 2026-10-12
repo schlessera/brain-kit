@@ -158,12 +158,28 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
     // runMaintenanceWorker settles only after the namespace's init exits:
     // every child is gone before scanning the storage and admitting a key.
     const checked = await transport(["fsck", "--full", "--strict"]);
-    if (checked.exitCode !== 0) return { stdout: last.stdout, stderr: checked.stderr, exitCode: 1 };
+    if (checked.exitCode !== 0) return transportFailure(last, checked);
     const pushed = await transport(["push", "$REMOTE", "refs/heads/main:refs/heads/main"]);
     if (pushed.exitCode === 0) return last;
-    last = { stdout: last.stdout, stderr: pushed.stderr, exitCode: 1 };
+    last = transportFailure(last, pushed);
     // Only a non-fast-forward race warrants another deterministic re-pull.
     if (!/\[rejected\].*(?:fetch first|non-fast-forward)/.test(pushed.stderr)) return last;
   }
   return last;
+}
+
+/** A local mirror push is not a successful external push; keep hosted status and exit evidence consistent. */
+function transportFailure(local: ExecutionResult, failed: ExecutionResult): ExecutionResult {
+  const reason = `host Git transport failed: ${failed.stderr.trim() || failed.stdout.trim() || `exit ${failed.exitCode}`}`;
+  let stdout = local.stdout;
+  try {
+    const result = JSON.parse(stdout);
+    if (result && typeof result === "object" && result.run && typeof result.run === "object") {
+      result.run.status = "failed";
+      result.run.reason = reason;
+      result.run.report = `${reason}\nLocal mirror workflow:\n${typeof result.run.report === "string" ? result.run.report : ""}`;
+      stdout = JSON.stringify(result);
+    }
+  } catch { /* Human-mode output retains its local report; stderr records the failed outward transport. */ }
+  return { stdout, stderr: reason, exitCode: 1 };
 }
