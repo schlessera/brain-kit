@@ -1,3 +1,4 @@
+import { POLICY_CHANGE_REVIEW_SCHEMA, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createStore } from "zustand/vanilla";
 import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
 import { rebaseBlocks, rewriteTexts } from "../lib/promoted-links.js";
@@ -138,6 +139,7 @@ export interface MessageAttachment {
 }
 
 export interface ToolCall {
+  policyChange?: PolicyChangeReview;
   id: string;
   name: string;
   input: Record<string, unknown>;
@@ -149,7 +151,7 @@ export interface ToolCall {
    * What the pending approval is for: "tool" may be remembered via "Always
    * allow"; "command" (a destructive-bash confirmation) is per-use only.
    */
-  approvalKind?: "tool" | "command";
+  approvalKind?: "tool" | "command" | "policy";
   /**
    * `false` when the host said it will not keep an "always allow" given on
    * this card (#147) — the request is outside the turn's enforced allowlist.
@@ -484,7 +486,7 @@ export interface ChatState {
     toolName: string,
     input: Record<string, unknown>,
     description?: string,
-    kind?: "tool" | "command",
+    kind?: "tool" | "command" | "policy",
     rememberable?: boolean,
     /** The host turn the request belongs to, from the frame. */
     turnId?: string
@@ -505,7 +507,7 @@ export interface ChatState {
   revokeRestoredApprovals: () => void;
   /** An envelope that counts lists these again: an `unlisted` card takes a decision again. */
   reopenRestoredApprovals: (key: ChatKey, toolUseIds: readonly string[]) => void;
-  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
+  setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean, policyChange?: PolicyChangeReview) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
   setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
@@ -1017,7 +1019,7 @@ function revokeAttachmentUrls(messages: ChatMessage[], retained: ChatMessage[] =
  * this one rule, so the button and the receipt cannot disagree.
  */
 export function offersAlwaysAllow(tool: Pick<ToolCall, "approvalKind" | "approvalRememberable">): boolean {
-  return tool.approvalKind !== "command" && tool.approvalRememberable !== false;
+  return tool.approvalKind !== "command" && tool.approvalKind !== "policy" && tool.approvalRememberable !== false;
 }
 
 /**
@@ -1456,6 +1458,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             inputJson: JSON.stringify(input, null, 2),
             status: "pending_approval",
             ...(kind ? { approvalKind: kind } : {}),
+            ...(kind === "policy" && POLICY_CHANGE_REVIEW_SCHEMA.safeParse(input.policyReview).success ? { policyChange: POLICY_CHANGE_REVIEW_SCHEMA.parse(input.policyReview) } : {}),
             ...(rememberable === false ? { approvalRememberable: false } : {}),
             ...(description ? { approvalDescription: description } : {}),
             // A card already pending keeps what it was; anything else is
@@ -1608,7 +1611,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           return { buffers, draft };
         }),
 
-      setToolResult: (key, toolUseId, output, isError) =>
+      setToolResult: (key, toolUseId, output, isError, policyChange) =>
         mutateToolHolder(key, toolUseId, (last) => ({
           ...last,
           toolCalls: last.toolCalls.map((t) =>
@@ -1617,6 +1620,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
                 ...t,
                 output,
                 isError,
+                ...(policyChange ? { policyChange } : {}),
                 status: "complete" as const,
                 endedAt: Date.now(),
               }

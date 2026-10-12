@@ -798,6 +798,7 @@ signatures (every public export and the types it is made of)
     };
   ToolCall (packages/ui-react/src/stores/chat-state.ts)
     export interface ToolCall {
+        policyChange?: PolicyChangeReview;
         id: string;
         name: string;
         input: Record<string, unknown>;
@@ -805,7 +806,7 @@ signatures (every public export and the types it is made of)
         output?: string;
         isError?: boolean;
         status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
-        approvalKind?: "tool" | "command";
+        approvalKind?: "tool" | "command" | "policy";
         approvalRememberable?: false;
         approvalDescription?: string;
         restored?: true;
@@ -919,6 +920,7 @@ signatures (every public export and the types it is made of)
             live: ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<ActivityRuntimeStats>;
+        agentPolicy: (signal?: AbortSignal) => Promise<AgentPolicyRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;
@@ -1029,6 +1031,21 @@ signatures (every public export and the types it is made of)
         }>;
         piAuthStart: (providerId: string) => Promise<{
             flow: PiLoginFlow;
+        }>;
+        policyProposal: (turnId: string, requestId: string, sessionId: null | string, signal?: AbortSignal) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
         }>;
         pricingState: () => Promise<PricingState>;
         principalMint: (label: string, ttlDays: number) => Promise<MintedAgent>;
@@ -1145,6 +1162,16 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
+        turnRevert: (sessionId: string, turnId: string, request: {
+            action?: "restore" | "revert";
+            id: string;
+            path?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
+            receipt: import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt | null;
+        }>;
+        turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
+        turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
@@ -1302,6 +1329,7 @@ signatures (every public export and the types it is made of)
             live: import("@schlessera/brain-ui-sdk").ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<import("@schlessera/brain-ui-sdk").ActivityRuntimeStats>;
+        agentPolicy: (signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").AgentPolicyRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;
@@ -1412,6 +1440,21 @@ signatures (every public export and the types it is made of)
         }>;
         piAuthStart: (providerId: string) => Promise<{
             flow: import("./lib/api-client.js").PiLoginFlow;
+        }>;
+        policyProposal: (turnId: string, requestId: string, sessionId: null | string, signal?: AbortSignal) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
         }>;
         pricingState: () => Promise<import("./lib/api-client.js").PricingState>;
         principalMint: (label: string, ttlDays: number) => Promise<import("./lib/api-client.js").MintedAgent>;
@@ -1528,6 +1571,16 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
+        turnRevert: (sessionId: string, turnId: string, request: {
+            action?: "restore" | "revert";
+            id: string;
+            path?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
+            receipt: import("@schlessera/brain-ui-sdk").TurnRevertReceipt | null;
+        }>;
+        turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
+        turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];

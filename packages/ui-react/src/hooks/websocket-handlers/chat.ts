@@ -67,6 +67,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
       output: tc.output,
       isError: tc.isError,
       status: "complete",
+      ...(tc.policyChange ? { policyChange: tc.policyChange } : {}),
     })),
     parts,
     isStreaming: false,
@@ -347,7 +348,7 @@ export const chatFrameHandlers = {
     );
   },
   tool_result: (msg, context) => {
-    context.state.setToolResult(context.key, msg.toolUseId, msg.output, msg.isError);
+    context.state.setToolResult(context.key, msg.toolUseId, msg.output, msg.isError, msg.policyChange);
     // Once the agent receives the ask_user tool result, the exchange is
     // complete — drop any leftover ask_user UI state.
     const chat = context.buffer();

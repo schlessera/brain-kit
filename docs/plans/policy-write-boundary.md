@@ -25,9 +25,9 @@ remain unchanged. Approval is not production containment evidence.
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
 <<<<<<< HEAD
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-253`).
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-255`).
 =======
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-251`).
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-253`).
 >>>>>>> 96b282dd2 (CONTRACT: fix(backends): give each Claude worker a private, size-limited runtime-state tmpfs with aggregate admission (#1625))
 The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
 the child with piped stdio (`createWrappedSpawn`,

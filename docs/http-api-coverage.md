@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:108-141`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:112-145`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -82,6 +82,10 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
 | `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | RV |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
+| `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
+| `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
@@ -338,8 +342,8 @@ the additive `query_activity` scope carries the supported agent contract.
 - `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
 - `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
 - `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
-- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:175-189`)
-- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:191-200`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:176-190`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:192-201`)
 
 **N — Speech grants.**
 
@@ -443,3 +447,11 @@ no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
 **R** — [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
+Undo, partial conflicts, operation identity, authorization, original voice and
+cross-session refusal, and observed quarantine restoration on real SQLite and
+files. `revert-gate.test.ts` proves old-turn maintenance/new-turn queue order;
+`revert-files.test.ts` proves binary/mode comparison and descriptor parent identity.
+The real Chrome `turn-journal-runtime.test.ts` exercises whole-turn review,
+reading focus/Escape, waiting and partial receipts, Undo and lost-response readback.

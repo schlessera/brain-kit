@@ -45,16 +45,18 @@ afterEach(() => {
 });
 
 /** The note for this brain and home, from the generator itself. */
-function expectedNote(extra: worker.WorkerNoteLimit[] = []): string {
+function expectedNote(extra: worker.WorkerNoteLimit[] = [], sandbox?: worker.WorkerSandbox): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
-  return worker.workerSandboxNote(worker.prepareWorkerSandbox(brain, { home }),
-    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] });
+  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { home });
+  return [worker.workerSandboxNote(resolved,
+    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] }),
+    worker.workerCommandPolicyNote(resolved.commandPolicy, []), worker.workerOutwardNote()].filter(Boolean).join("\n\n");
 }
 
-function claudeAppend(): string {
+function claudeAppend(sandbox?: worker.WorkerSandbox): string {
   const { options } = createClaudeSdkTurn({
     backend: { brainPath: brain } as never,
-    req: { prompt: "Return to Ithaca", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
+    req: { ...(sandbox ? { workerSandbox: sandbox } : {}), prompt: "Return to Ithaca", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
     profile: { requiredEnvKeys: [], buildEnv: () => ({ HOME: home }) } as never,
     abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
     turnLock: { acquire: () => undefined, release: () => undefined } as never,
@@ -66,7 +68,7 @@ function claudeAppend(): string {
 }
 
 /** The note pi's server side sends its worker, captured at the launch it would have made. */
-async function piInitNote(): Promise<string> {
+async function piInitNote(sandbox?: worker.WorkerSandbox): Promise<string> {
   let received: { sandboxNote?: string } | undefined;
   const stops: Array<() => void> = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
@@ -87,7 +89,7 @@ async function piInitNote(): Promise<string> {
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });
-    await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps });
+    await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps, ...(sandbox ? { workerSandbox: sandbox } : {}) });
     expect(launch).toHaveBeenCalledTimes(1);
   } finally {
     for (const stop of stops) stop();
@@ -136,4 +138,33 @@ test("a read-only refusal from the brain CLI repeats the note's rules", () => {
   const render = readOnlyBrainError("render", { code: "EROFS" }, brain)!.error.message;
   expect(render, "RENDER_LINK_RULE").toContain(linkRule(".brain/scratch"));
   expect(render, "RENDER_TURN_TEMP_RULE").toContain(TURN_TEMP_RULE);
+});
+
+
+test("governed notes reflect admitted host history and exactly the resolved protection, identically in Claude and pi", async () => {
+  const sandbox = { ...worker.prepareWorkerSandbox(brain, { home }), profile: "governed" as const,
+    protection: { paths: [{ rel: "context/policies", reason: "governance rules", mode: "read_only" as const }], ancestors: [] },
+    noteFacts: { history: { journal: true, userRevert: true } } };
+  const note = worker.workerSandboxNote(sandbox);
+  expect(note, "GOVERNED_ADMITTED_JOURNAL_NOTE").toContain("Host change journaling is active for this turn.");
+  expect(note).toContain("Only observed raw versions are retained");
+  expect(note).toContain("changed paths are skipped as conflicts");
+  expect(note).toContain("Only the authenticated user can trigger history restoration");
+  expect(note).toContain("- `context/policies`: governance rules (read-only).");
+  const moved = worker.workerSandboxNote({ ...sandbox, protection: { paths: [{rel:"notes/athena.md",reason:"policy-selected protection",mode:"absent"}], ancestors: [] } });
+  expect(moved,"GOVERNED_RESOLVED_PROTECTION_CHANGED").toContain("- `notes/athena.md`: policy-selected protection (quarantined if created).");
+  expect(moved).not.toContain("- `context/policies`: governance rules");
+  const allowance = worker.resolveTurnTempLimits({}).allowanceBytes;
+  const piNote = expectedNote([worker.turnTempLimit(allowance,"turn_temp")], sandbox);
+  const claudeNote = expectedNote([workerStateLimit(worker.resolveWorkerStateLimits({})),worker.turnTempLimit(allowance,TURN_TEMP_TOOL_NAME)], sandbox);
+  expect(claudeAppend(sandbox).endsWith(`\n\n${claudeNote}`),"GOVERNED_CLAUDE_INJECTS_RESOLVED_NOTE").toBe(true);
+  const sent = await piInitNote(sandbox); expect(sent,"GOVERNED_PI_INIT_RESOLVED_NOTE").toBe(piNote);
+  expect((await piSessionAppend(sent)).some(part=>part.endsWith(`\n\n${piNote}`)||part===piNote),"GOVERNED_PI_RESOURCES_RESOLVED_NOTE").toBe(true);
+  const absent = worker.workerSandboxNote({ ...sandbox, noteFacts: undefined });
+  expect(absent,"GOVERNED_STANDALONE_NO_HISTORY_PROMISE").not.toContain("Host change journaling is active");
+  expect(absent).toContain("availability was not supplied");
+  const voice = worker.workerSandboxNote({ ...sandbox, noteFacts: { history: {journal:true,userRevert:false} } });
+  expect(voice).toContain("Host change journaling is active");expect(voice).toContain("User history restoration is unavailable for this turn");expect(voice).not.toContain("User history can revert");
+  const noJournal = worker.workerSandboxNote({ ...sandbox, noteFacts: {history:{journal:false,userRevert:true}} });
+  expect(noJournal).toContain("Host change journaling is unavailable");expect(noJournal).not.toContain("User history can revert");
 });

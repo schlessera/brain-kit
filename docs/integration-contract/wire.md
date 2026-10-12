@@ -21,8 +21,13 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-14`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1005-1017`).
+`packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1006-1020`).
+`actor` additionally accepts `user` for a server-recorded history operation.
+Optional `kind` is `turn` or `revert`; a revert may name its original
+`sourceTurnId`. These facts do not create an assistant message or an inference
+usage record. The REST operation receipt uses the same synthetic journal for
+Undo; it does not revive the original turn.
 The journal does not assert effective budget/scope enforcement before those
 monitors provide receipts; the UI says limits unknown.
 
@@ -31,6 +36,24 @@ A failed initial observation refuses the worker; a mid-turn journal stop ends
 as an error with its named partial-work receipt, rather than being relabeled
 as a timeout. A user cancellation or host timeout that already won keeps its
 existing terminal precedence. No automatic retry or revert is implied.
+
+### Outward admission receipts (additive, #1664)
+
+Backend activity adds `outward_action` with the existing retained governance
+payload, plus `outward_classification` for the exact `toolUseId`, visible
+classification and admission decision (`allow`, `deny` or `refused`). An
+`opaque` classification marks unknown/config-sourced segments. These are
+observations, not network grants; no proxy enforcement or external completion
+is implied. Older observers may ignore the additions.
+
+The existing journal details response may add `outwardActions` and
+`outwardActionsTruncated`. Each row gives the retained event id/time, tool,
+action, known target or null, admission decision, remote-history-rewrite flag
+and `revertible: false`. Approved and declined/refused attempts stay distinct.
+Restoring local files cannot undo an external effect. The endpoint returns at
+most 1,000 rows, explicitly marks truncation, and leaves the complete retained
+governance event query available. No permission/card or protocol revision is
+added.
 
 <a id="revision-negotiation"></a>
 
@@ -1508,3 +1531,18 @@ session/draft and connection. Pending, failed and late receipts never replace
 another chat's confirmed choice. A new-chat send waits for fresh draft facts
 on a supporting host, including after reload/reconnect; an old host remains
 compatible. No protocol revision or permission grant is added.
+
+## Policy approval receipts (additive, #1662)
+
+`tool_approval_request.kind` also accepts `policy`: a per-use server-owned
+policy proposal that cannot be remembered or implicitly approved. Its `input`
+includes the host's `policyReview` alongside the original content/rationale.
+Only an explicit card answer may approve; the existing voice-grant refusal,
+turn echo, current principal authority and replay/idempotency checks still apply.
+
+`tool_result` and history tool entries optionally carry `policyChange`, a
+host-owned `PolicyChangeReview`. It survives later runtime tool results and
+stays in the original turn. The states, exact hashes/diffs and authenticated
+same-request read are specified in the [HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
+No client field grants authority or activates policy. Approval writes only the
+reviewed server-held bytes; changed input requires a new proposal.

@@ -167,6 +167,7 @@ export interface CreatePiBackendOptions {
 
 /** The host bridge capabilities one session's tool surface is built for. */
 export interface SessionCaps {
+  policyChange?: boolean;
   askUser: boolean;
   askUserList: boolean;
   askUserRank: boolean;
@@ -191,6 +192,7 @@ export interface SessionEnv {
 
 export function capsOf(bridge: BackendBridge): SessionCaps {
   return {
+    policyChange: Boolean(bridge.proposePolicyChange),
     askUser: Boolean(bridge.askUser),
     askUserList: Boolean(bridge.askUserList),
     askUserRank: Boolean(bridge.askUserRank),

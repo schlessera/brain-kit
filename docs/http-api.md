@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal routes mounted by `createApp`: 129 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 135 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -115,9 +115,15 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert/plan` | S | Review eligible and excluded history paths | Current human principal; exact session/turn; optional action revert/restore. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
+| POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
+| GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
+| GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -162,7 +168,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 129 declared endpoints are mounted regardless of backend, renderer or
+All 135 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -517,6 +523,14 @@ returns `TurnJournalDetails`: summary, ordered observations, overlapping turn
 IDs and missing-detail reasons. No retained turn in that session is JSON 404.
 An expired summary is still readable, with no raw detail or review actions.
 
+Journal details additionally expose outward admission receipts (#1664) through
+optional `outwardActions` and `outwardActionsTruncated`. Rows include event
+id/time, tool, action, nullable target, decision, history-rewrite status and
+`revertible: false`. They record approval/refusal, never external completion.
+The response bounds this list to 1,000 records and explicitly reports more;
+the retained governance query remains available. Ownership remains the same
+session/turn boundary.
+
 GET the same path plus `/:sequence/preview` accepts a positive safe integer
 observation sequence. Missing/expired observations are 404; invalid sequences
 are 400. Successful preview is `{ inline:true, before, after }`, decoding raw
@@ -532,6 +546,43 @@ detail 404, and temporarily unavailable storage 503. A durable read lease
 keeps the object charged and retained until completion/cancellation. Paths and
 hashes from a caller are never opened. Both preview and download require the
 same session/turn membership as the summary.
+
+**User history restoration (#1653).** The four `/revert` operations above
+require an authenticated human (`owner` or ambient human principal), never an
+agent/system principal. Original voice or unavailable/expired turns cannot be
+selected. The plan folds a path's first observed before-state and last observed
+after-state; ignored, incomplete, unsupported and Git-metadata paths are named
+as excluded. `action=restore` selects retained observed versions of quarantined
+paths, without exposing host-private quarantine paths or moving Git refs.
+
+POST accepts `{ id, path?, action? }`. `id` is an opaque 16–96 character ASCII
+letter/digit/underscore/hyphen operation identity; `path` selects one observed
+path, absent means whole turn; `action` is `revert` (default) or `restore`.
+Unknown fields or malformed input are 400. The ID is bound to current principal,
+session, source turn and selection; reuse with exactly the same request returns
+the original receipt and never repeats the effect. Mismatched identity,
+unavailable source or no eligible paths are 409. Storage failure is 503; an
+unconfirmed response must be reconciled by the original receipt before any
+further effect is considered. GET latest returns `{ receipt: TurnRevertReceipt
+| null }`; GET identity returns that receipt or 404. All are private/no-store.
+
+A 202 receipt records `waiting`, `applying`, `complete`, `partial`, `failed` or
+`unknown`, the original/source and synthetic journal turn IDs, and named per-path
+states. `undoAvailable` is false when its own retained operation journal cannot
+provide an eligible Undo, including expiry. Revert waits for running turns, holding new turns behind its queue
+intent while allowing an old turn's nested shared maintenance. It takes the
+exclusive writer gate and `BRAIN_LOCK_KEY`/`GIT_LOCK_KEY`, then compares existence,
+type, permissions and raw bytes immediately before descriptor-rooted restoration.
+Changed paths conflict while other eligible paths proceed. Regular CAS versions
+are verified and leased before streamed restoration; symlinks are restored
+literally. No text normalization, Git command or outward-effect rollback occurs.
+A failed write can leave partial work; it is observed and never reported as an
+atomic all-path restore. The user operation is journaled with `actor=user`,
+`kind=revert`, and `sourceTurnId`; Undo selects that journal through the same
+comparison. Interrupted applying operations are unknown and are never resumed
+or retried automatically. Incremental index refresh is queued after releasing
+the gate. Missing or changed parents conflict; unsupported entries are excluded; unobserved
+empty directory metadata is not invented.
 
 | Supported operation | Inputs/defaults | Success and observable behavior | Errors |
 | --- | --- | --- | --- |
@@ -1091,6 +1142,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
+| `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
 | `promotion` | 1 | `source`, `destination`, `bytes`, `originalLink`, `rewrittenLink` | A linked turn-temp file was copied into `.brain/scratch/turns/<turnId>/` and its link rewritten. `destination` is brain-relative. |
 | `promotion_refused` | 1 | `source`, `originalLink`, `reason`, `bytes`, `limitBytes` | A linked turn-temp file was not copied and its link was left unchanged. `reason` is `file_too_large`, `turn_too_large`, `not_regular_file`, `symlink`, `multiple_links`, `missing`, `io_error` or `scratch_unavailable` (`.brain/scratch/` was not usable for the turn); `bytes` and `limitBytes` may be `null`. |
@@ -1112,3 +1164,27 @@ read by any authenticated principal.
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider it could not reach without a key. `degradedTo` names the fallback used, such as `keyword_search`, or is `null`. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `capability` when nothing did, or only a workaround through turn temp did. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start or the turn's end. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |
+
+## Policy proposal receipts (additive, #1662)
+
+`GET /api/policy-proposals/:turnId/:requestId` reads the existing request for
+its authenticated principal. Optional `session` must match its bound session.
+It returns `PolicyChangeReview`: request/turn/path, state, quoted rationale,
+exact nullable `baseHash`, `proposedHash`, frontmatter/body diffs, `bodyChanged`,
+changed section names, message and validation warnings. It is never cached.
+Missing or other-account receipts return 404; absent/revoked authentication
+returns 401. Invalid identities return 400. There is no HTTP approval or write.
+
+States are pending, writing, updated, declined, stale, invalid, refused and
+unknown. Stale and failed revalidation consume the approval and write nothing;
+a new proposal is required. A lost completion receipt remains unknown.
+Check again reads this same request, never repeats the write. Receipts survive
+runtime tool output and are joined to the original tool slot in kept history.
+
+`GET /api/agent-policy` returns `AgentPolicyRead`: policy path, hash/source,
+validation errors/warnings, interactive/voice policy minimums, protected paths
+and nullable `workerLimits` (the recorded worker-host status's enforced/absent
+resource facts). It uses the same `GovernedTurns.facts` reader/cache as admission.
+It returns 503 when shared facts are unavailable or changed during the read.
+It does not treat parsed cost/scope/network policy values as already enforced,
+and it does not imply a running turn changed its frozen policy.

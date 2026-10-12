@@ -1,3 +1,4 @@
+import { createPolicyProposalTool } from "./policy-tool.js";
 import { registerInboxTools } from "./inbox-tools.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -91,6 +92,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  * `show_block` needs none, so it is always registered.
  */
 export function createBrainUiMcpServer(handlers: {
+  proposePolicyChange?: BackendBridge["proposePolicyChange"];
   inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
   askUser?: AskUserHandler;
@@ -107,6 +109,7 @@ export function createBrainUiMcpServer(handlers: {
   brainPath?: string;
 }) {
   const tools: SdkMcpToolDefinition<any>[] = [createShowBlockTool()];
+  if (handlers.proposePolicyChange) tools.push(createPolicyProposalTool(handlers.proposePolicyChange));
   if (handlers.getLocation) tools.push(createLocationTool(handlers.getLocation));
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
   if (handlers.askUserList) tools.push(createAskUserListTool(handlers.askUserList));

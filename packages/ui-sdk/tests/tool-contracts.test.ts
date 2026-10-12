@@ -7,6 +7,7 @@ import {
   ASK_USER_RANK_CONTRACT,
   ASK_USER_FORM_CONTRACT,
   BRIDGE_TOOL_CONTRACTS,
+  PROPOSE_POLICY_CHANGE_CONTRACT,
   INBOX_TOOL_CONTRACTS,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
@@ -24,9 +25,9 @@ import { BLOCK_KINDS } from "../src/tool-contracts/blocks.js";
 import { buildSystemPromptAppend } from "../src/server/system-prompt";
 
 describe("the contract list is the single source", () => {
-  test("the auto-allow posture names exactly the contracts, in order", () => {
+  test("the auto-allow posture excludes policy review and retains contract order", () => {
     expect(BRIDGE_TOOL_POSTURE.names).toEqual(
-      BRIDGE_TOOL_CONTRACTS.map((contract) => contract.name) as never
+      BRIDGE_TOOL_CONTRACTS.filter(contract => contract !== PROPOSE_POLICY_CHANGE_CONTRACT).map(contract => contract.name) as never
     );
   });
 
@@ -44,6 +45,7 @@ describe("the contract list is the single source", () => {
     // by walking this same list.
     const prompt = buildSystemPromptAppend({
       tools: {
+        policyChange: PROPOSE_POLICY_CHANGE_CONTRACT.name,
         askUser: visibleToolName(ASK_USER_CONTRACT.name, "claude"),
         askUserList: ASK_USER_LIST_CONTRACT.name,
         askUserRank: ASK_USER_RANK_CONTRACT.name,
@@ -81,6 +83,7 @@ describe("the contract list is the single source", () => {
       contract === QUERY_ACTIVITY_CONTRACT ? false : contract.name
     );
     expect(lines).toEqual([
+      PROPOSE_POLICY_CHANGE_CONTRACT.brief(PROPOSE_POLICY_CHANGE_CONTRACT.name),
       ...INBOX_TOOL_CONTRACTS.map(contract => contract.brief(contract.name)),
       ASK_USER_CONTRACT.brief(ASK_USER_CONTRACT.name),
       ASK_USER_LIST_CONTRACT.brief(ASK_USER_LIST_CONTRACT.name),

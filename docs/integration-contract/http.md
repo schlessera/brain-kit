@@ -37,7 +37,18 @@ hash directly. Missing/expired raw details never grant a download bypass.
 `createBrainApi` adds `turnJournal(sessionId, turnId, signal?)`,
 `turnJournalPreview(sessionId, turnId, sequence, signal?)`. Reader download
 links use the embedding root's configured API base.
-No mutation, retry execution or revert operation is added by these helpers.
+Those read helpers do not execute mutations.
+
+### User history restoration (additive, #1653)
+
+The four authenticated human `/revert` operations are specified in
+[the HTTP inventory](../http-api.md#retained-turn-journal). `createBrainApi`
+adds `turnRevertPlan`, `turnRevertLatest`, `turnRevert`, and `turnRevertReceipt`.
+Only `turnRevert` POSTs; receipt readback never repeats execution. The caller's
+operation ID is bound to principal/session/source/selection. Stale raw state
+conflicts, unavailable detail, unknown outcomes and partial work remain explicit;
+voice, agent and autonomous execution do not gain a history action. This is
+additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
@@ -412,3 +423,16 @@ count. At capacity the host refuses a new preference with 507 instead of
 evicting a live confirmed choice. Expired-principal rows are removed on save;
 a successful first-session binding consumes that draft preference into the
 session catalog. Another principal or draft cannot borrow it.
+
+## Policy review reads (additive, #1662)
+
+The internal authenticated `GET /api/policy-proposals/:turnId/:requestId`
+returns only the existing principal-owned `PolicyChangeReview`; an optional
+`session` must match its bound session. Reads never approve, write or revive
+execution. `GET /api/agent-policy` reads the admission policy cache and recorded
+worker-limit facts, without an editor or another policy cache. Their shapes,
+refusal states and recovery behavior are specified in the
+[HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
+The governance event API additionally accepts/returns `policy_change` with
+request id, exact base/proposed hashes, changed sections and updated outcome,
+with actor `user`.

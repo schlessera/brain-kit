@@ -1,3 +1,4 @@
+import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
 import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
@@ -1009,7 +1010,9 @@ export const turnJournalSummarySchema = z.looseObject({
   costUsd: z.number().finite().nonnegative().nullable(),
   costIsEstimate: z.boolean().nullable(),
   profile: z.enum(["strict", "governed"]).nullable(),
-  actor: z.enum(["interactive", "voice"]).nullable(),
+  actor: z.enum(["interactive", "voice", "user"]).nullable(),
+  kind: z.enum(["turn", "revert"]).optional(),
+  sourceTurnId: id.optional(),
   model: z.string().max(200).nullable(),
   policyHash: z.string().max(200).nullable(),
   sharedAttribution: z.boolean(),
@@ -1022,6 +1025,7 @@ const historyMessageSchema = z.looseObject({
   thinking: z.string().optional(),
   toolCalls: z.array(
     z.looseObject({
+      policyChange: POLICY_CHANGE_REVIEW_SCHEMA.optional(),
       id: z.string(),
       name: z.string(),
       input: z.record(z.string(), z.unknown()),
@@ -1190,6 +1194,7 @@ export const serverToolUseCompleteSchema = z.looseObject({
 }) satisfies z.ZodType<ServerToolUseComplete>;
 
 export const serverToolResultSchema = z.looseObject({
+  policyChange: POLICY_CHANGE_REVIEW_SCHEMA.optional(),
   type: z.literal("tool_result"),
   toolUseId: z.string().max(MAX_ID_CHARS),
   output: z.string(),
@@ -1203,7 +1208,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   toolName: z.string(),
   input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
-  kind: z.enum(["tool", "command"]).optional(),
+  kind: z.enum(["tool", "command", "policy"]).optional(),
   rememberable: z.boolean().optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;

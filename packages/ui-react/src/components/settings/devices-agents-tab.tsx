@@ -1,3 +1,4 @@
+import { AgentPolicyGroup } from "./agent-policy-group.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PrincipalSummary } from "../../lib/api-client.js";
 import { useBrainApi, useBrainUiRoot } from "../../root-context.js";
@@ -140,6 +141,6 @@ export function DevicesAgentsTab({ active }: { active: boolean }) {
         const principal = principals.find((row) => row.id === id);
         if (principal) void onRevoke(principal);
       }}
-    />
+    ><AgentPolicyGroup active={active} /></PrincipalList>
   );
 }

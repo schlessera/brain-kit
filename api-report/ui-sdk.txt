@@ -25,6 +25,7 @@ export "." (./src/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type AgentPolicyRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -171,6 +172,7 @@ export "." (./src/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -310,6 +312,9 @@ export "." (./src/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
@@ -379,6 +384,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type AgentPolicyRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -560,6 +566,7 @@ export "./client" (./src/client/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -585,7 +592,11 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogResponse
   type ModelUsage
   PILL_LABEL_MAX_CHARS
+  POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
+  PROPOSE_POLICY_CHANGE_CONTRACT
+  PROPOSE_POLICY_CHANGE_INPUT_SCHEMA
+  PROPOSE_POLICY_CHANGE_TOOL_NAME
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -596,6 +607,8 @@ export "./client" (./src/client/index.ts)
   type PlaceMode
   type PlacePlan
   type PlaceRow
+  type PolicyChangeInput
+  type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
   type PronunciationOverride
@@ -743,6 +756,9 @@ export "./client" (./src/client/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnTempInput
   type TurnUsage
   type UnavailableProfileInfo
@@ -789,6 +805,7 @@ export "./internal" (./src/internal.ts)
   ARCHIVING_UPDATE_REASON
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
+  BUILTIN_OUTWARD_MCP_DESCRIPTORS
   CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
@@ -816,6 +833,9 @@ export "./internal" (./src/internal.ts)
   type MaintenanceWorker
   OUTPUT_STAGING_BUDGET_ENV
   OUTPUT_STAGING_BYTES_ENV
+  OUTWARD_VOICE_REFUSAL
+  type OutwardClassification
+  type OutwardPlan
   PROMOTED_SCRATCH_DIR
   PROMOTION_FILE_MAX_BYTES
   PROMOTION_TURN_MAX_BYTES
@@ -840,6 +860,7 @@ export "./internal" (./src/internal.ts)
   type TurnTempPurgeResult
   type TurnTempSpace
   VERSION_PROBE_TIMEOUT_MS
+  type VisibleOutwardAction
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
@@ -869,6 +890,7 @@ export "./internal" (./src/internal.ts)
   type WorkerMount
   type WorkerNoteFacts
   type WorkerNoteLimit
+  type WorkerOutwardRule
   type WorkerProfile
   WorkerResourceLimitError
   type WorkerSandbox
@@ -884,6 +906,7 @@ export "./internal" (./src/internal.ts)
   bashCommand
   brainGitSync
   canonicalModelId
+  classifyOutwardCall
   claudeMaskFilename
   claudeReportedMaskPath
   compileWorkerCommandPolicy
@@ -912,11 +935,14 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   observeClassification
+  observeOutwardPlan
   outputStagingLimit
+  outwardTarget
   parseWorkerStateBytes
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareOutwardPlan
   prepareWorkerOutput
   prepareWorkerSandbox
   probeMaintenanceWorker
@@ -952,6 +978,7 @@ export "./internal" (./src/internal.ts)
   workerLimitsPlan
   workerLimitsStatus
   workerNoteLimits
+  workerOutwardNote
   workerProfile
   workerSandboxNote
   workerSandboxWarnings
@@ -1000,6 +1027,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityView
+  type AgentPolicyRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1144,6 +1172,7 @@ export "./protocol" (./src/protocol.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -1278,6 +1307,9 @@ export "./protocol" (./src/protocol.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
@@ -1495,6 +1527,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanOutcome
   type ActivityView
   type AgentBackend
+  type AgentPolicyRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1738,6 +1771,7 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type KeyedLock
   type KeyedLockAcquireOptions
@@ -1774,13 +1808,19 @@ export "./server" (./src/server/index.ts)
   type ModelUsage
   OSM_ATTRIBUTION
   PILL_LABEL_MAX_CHARS
+  POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
+  PROPOSE_POLICY_CHANGE_CONTRACT
+  PROPOSE_POLICY_CHANGE_INPUT_SCHEMA
+  PROPOSE_POLICY_CHANGE_TOOL_NAME
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PermissionDecision
   type PermissionRequest
+  type PolicyChangeInput
+  type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
   type PronunciationOverride
@@ -1934,6 +1974,9 @@ export "./server" (./src/server/index.ts)
   type TurnJournalDetails
   type TurnJournalSummary
   type TurnRetry
+  type TurnRevertPath
+  type TurnRevertPlan
+  type TurnRevertReceipt
   type TurnTempAccess
   type TurnTempInput
   type TurnTempPromotionRefusal
@@ -2147,6 +2190,12 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type InboxListInput
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
+  POLICY_CHANGE_REVIEW_SCHEMA
+  PROPOSE_POLICY_CHANGE_CONTRACT
+  PROPOSE_POLICY_CHANGE_INPUT_SCHEMA
+  PROPOSE_POLICY_CHANGE_TOOL_NAME
+  type PolicyChangeInput
+  type PolicyChangeReview
   QUERY_ACTIVITY_CONTRACT
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
@@ -2885,6 +2934,20 @@ signatures (every public export and the types it is made of)
         listSessions(): Promise<ChatSession[]>;
         getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
     }
+  AgentPolicyRead (packages/ui-sdk/src/protocol.ts)
+    export interface AgentPolicyRead {
+        path: "context/policies/governance.md";
+        hash: string | null;
+        source: "policy" | "default" | "last_valid";
+        errors: string[];
+        warnings: string[];
+        profiles: {
+            interactive: "governed" | "strict";
+            voice: "governed" | "strict";
+        };
+        protectedPaths: string[];
+        workerLimits: WorkerLimitsStatus | null;
+    }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
   AskAnswerBinding (packages/ui-sdk/src/protocol.ts)
@@ -3463,7 +3526,10 @@ signatures (every public export and the types it is made of)
   BRIDGE_MCP_PREFIX (packages/ui-sdk/src/tool-contracts/contract.ts)
     const BRIDGE_MCP_PREFIX: "mcp__brain-ui__";
   BRIDGE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/bridge.ts)
-    const BRIDGE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"inbox_list", z.ZodObject<{
+    const BRIDGE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"propose_policy_change", z.ZodObject<{
+        content: z.ZodString;
+        rationale: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"inbox_list", z.ZodObject<{
         limit: z.ZodDefault<z.ZodNumber>;
         threadId: z.ZodOptional<z.ZodString>;
         view: z.ZodEnum<{
@@ -4407,8 +4473,31 @@ signatures (every public export and the types it is made of)
     } | {
         kind: "permission_denied";
         toolUseId: string;
-        requestKind: "tool" | "command";
+        requestKind: "tool" | "command" | "policy";
         reason: string;
+    } | {
+        kind: "outward_classification";
+        toolUseId: string;
+        classification: import("./outward-actions.js").OutwardClassification;
+        decision: "allow" | "deny" | "refused";
+    } | {
+        kind: "outward_action";
+        toolUseId: string;
+        payload: {
+            tool: string;
+            input: string;
+            inputTruncated: boolean;
+            action: "git_push" | "gh_write" | "mcp_tool" | "http_write";
+            target: string | null;
+            historyRewrite: boolean;
+            tainted: boolean;
+            decision: "policy_allowed" | "approved" | "declined" | "refused";
+            rule: {
+                list: "outward.allow";
+                index: number;
+                pattern: string;
+            } | null;
+        };
     } | {
         kind: "policy_block";
         toolUseId: string;
@@ -4480,6 +4569,7 @@ signatures (every public export and the types it is made of)
     };
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
+        proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
         readBrainBase?(path: string): Promise<{
             content: string;
             expectedBaseHash: string;
@@ -5982,6 +6072,17 @@ signatures (every public export and the types it is made of)
         instruction: string;
         operation?: InboxOperation;
     }
+  JournalOutwardAction (packages/ui-sdk/src/turn-journal.ts)
+    export interface JournalOutwardAction {
+        id: number;
+        at: number;
+        tool: string;
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+        target: string | null;
+        decision: "policy_allowed" | "approved" | "declined" | "refused";
+        historyRewrite: boolean;
+        revertible: false;
+    }
   JournalVersion (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalVersion {
         kind: "file" | "symlink" | "other";
@@ -6363,10 +6464,55 @@ signatures (every public export and the types it is made of)
         commit?: string | null;
     }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  OutwardActionKind (packages/ui-sdk/src/server/outward-actions.ts)
+    export type OutwardActionKind = "git_push" | "gh_write" | "mcp_tool" | "http_write";
+  OutwardClassification (packages/ui-sdk/src/server/outward-actions.ts)
+    export interface OutwardClassification {
+        kind: "outward" | "read" | "unknown";
+        actions: VisibleOutwardAction[];
+        opaque?: true;
+    }
   PILL_LABEL_MAX_CHARS (packages/ui-sdk/src/protocol.ts)
     const PILL_LABEL_MAX_CHARS: 32;
+  POLICY_CHANGE_REVIEW_SCHEMA (packages/ui-sdk/src/tool-contracts/policy.ts)
+    const POLICY_CHANGE_REVIEW_SCHEMA: z.ZodObject<{
+        baseHash: z.ZodNullable<z.ZodString>;
+        bodyChanged: z.ZodBoolean;
+        bodyDiff: z.ZodString;
+        frontmatterDiff: z.ZodString;
+        message: z.ZodString;
+        path: z.ZodLiteral<"context/policies/governance.md">;
+        proposedHash: z.ZodString;
+        rationale: z.ZodString;
+        requestId: z.ZodString;
+        sections: z.ZodArray<z.ZodString>;
+        state: z.ZodEnum<{
+            declined: "declined";
+            invalid: "invalid";
+            pending: "pending";
+            refused: "refused";
+            stale: "stale";
+            unknown: "unknown";
+            updated: "updated";
+            writing: "writing";
+        }>;
+        turnId: z.ZodString;
+        warnings: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>;
   PROFILE_UNAVAILABLE_REASONS (packages/ui-sdk/src/protocol.ts)
     const PROFILE_UNAVAILABLE_REASONS: readonly ["needs-credentials"];
+  PROPOSE_POLICY_CHANGE_CONTRACT (packages/ui-sdk/src/tool-contracts/policy.ts)
+    const PROPOSE_POLICY_CHANGE_CONTRACT: import("./contract.js").ToolContract<"propose_policy_change", z.ZodObject<{
+        content: z.ZodString;
+        rationale: z.ZodString;
+    }, z.core.$strict>>;
+  PROPOSE_POLICY_CHANGE_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/policy.ts)
+    const PROPOSE_POLICY_CHANGE_INPUT_SCHEMA: z.ZodObject<{
+        content: z.ZodString;
+        rationale: z.ZodString;
+    }, z.core.$strict>;
+  PROPOSE_POLICY_CHANGE_TOOL_NAME (packages/ui-sdk/src/tool-contracts/policy.ts)
+    const PROPOSE_POLICY_CHANGE_TOOL_NAME: "propose_policy_change";
   PROTOCOL_REV (packages/ui-sdk/src/protocol.ts)
     const PROTOCOL_REV: 5;
   PROTOCOL_REV_ASK_RECEIPTS (packages/ui-sdk/src/protocol.ts)
@@ -6416,7 +6562,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command";
+        kind?: "tool" | "command" | "policy";
         outsideEnforcedAllowlist?: boolean;
     }
   PermissionScenario (packages/ui-sdk/src/testing/index.ts)
@@ -6466,6 +6612,10 @@ signatures (every public export and the types it is made of)
         pinned: boolean;
         unpinnedWhy?: UnpinnedReason;
     }
+  PolicyChangeInput (packages/ui-sdk/src/tool-contracts/policy.ts)
+    export type PolicyChangeInput = z.infer<typeof PROPOSE_POLICY_CHANGE_INPUT_SCHEMA>;
+  PolicyChangeReview (packages/ui-sdk/src/tool-contracts/policy.ts)
+    export type PolicyChangeReview = z.infer<typeof POLICY_CHANGE_REVIEW_SCHEMA>;
   PolicyCommandRecord (packages/ui-sdk/src/server/backend.ts)
     interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
         tool: string;
@@ -8474,7 +8624,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command";
+        kind?: "tool" | "command" | "policy";
         rememberable?: boolean;
     }
   ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
@@ -8493,6 +8643,7 @@ signatures (every public export and the types it is made of)
     }
   ServerToolResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolResult extends SessionScoped {
+        policyChange?: import("./tool-contracts/policy.js").PolicyChangeReview;
         type: "tool_result";
         toolUseId: string;
         output: string;
@@ -8545,6 +8696,7 @@ signatures (every public export and the types it is made of)
         content: string;
         thinking?: string;
         toolCalls: Array<{
+            policyChange?: import("./tool-contracts/policy.js").PolicyChangeReview;
             id: string;
             name: string;
             input: Record<string, unknown>;
@@ -8786,6 +8938,7 @@ signatures (every public export and the types it is made of)
     export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
   SurfaceTools (packages/ui-sdk/src/server/system-prompt.ts)
     export interface SurfaceTools {
+        policyChange?: string;
         askUser?: string | false;
         askUserList?: string | false;
         askUserRank?: string | false;
@@ -8995,6 +9148,8 @@ signatures (every public export and the types it is made of)
             path: string;
             reason: string;
         }[];
+        outwardActions?: JournalOutwardAction[];
+        outwardActionsTruncated?: boolean;
     }
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
@@ -9004,7 +9159,9 @@ signatures (every public export and the types it is made of)
         costUsd: number | null;
         costIsEstimate: boolean | null;
         profile: "strict" | "governed" | null;
-        actor: "interactive" | "voice" | null;
+        actor: "interactive" | "voice" | "user" | null;
+        kind?: "turn" | "revert";
+        sourceTurnId?: string;
         model: string | null;
         policyHash: string | null;
         sharedAttribution: boolean;
@@ -9017,6 +9174,30 @@ signatures (every public export and the types it is made of)
         delayMs?: number;
         errorClass?: string;
         status?: number;
+    }
+  TurnRevertPath (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertPath {
+        path: string;
+        state: "eligible" | "excluded" | "restored" | "conflict" | "failed";
+        reason: string | null;
+        quarantined: boolean;
+    }
+  TurnRevertPlan (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertPlan {
+        turnId: string;
+        action: "revert" | "restore";
+        paths: TurnRevertPath[];
+    }
+  TurnRevertReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface TurnRevertReceipt {
+        id: string;
+        sourceTurnId: string;
+        journalTurnId: string;
+        state: "waiting" | "applying" | "complete" | "partial" | "failed" | "unknown";
+        action: "revert" | "restore";
+        undoAvailable: boolean;
+        paths: TurnRevertPath[];
+        error: string | null;
     }
   TurnScript (packages/ui-sdk/src/testing/index.ts)
     export interface TurnScript {
@@ -9092,6 +9273,15 @@ signatures (every public export and the types it is made of)
         phase: string;
         action: string;
         unknownReason?: string;
+    }
+  VisibleOutwardAction (packages/ui-sdk/src/server/outward-actions.ts)
+    export interface VisibleOutwardAction {
+        action: OutwardActionKind;
+        command: string;
+        target: string | null;
+        historyRewrite: boolean;
+        remote?: string;
+        gitOptions?: readonly string[];
     }
   VoiceCapabilitiesResponse (packages/ui-sdk/src/protocol.ts)
     export interface VoiceCapabilitiesResponse {
@@ -13566,11 +13756,16 @@ signatures (every public export and the types it is made of)
         journal: z.ZodObject<{
             actor: z.ZodNullable<z.ZodEnum<{
                 interactive: "interactive";
+                user: "user";
                 voice: "voice";
             }>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                revert: "revert";
+                turn: "turn";
+            }>>;
             model: z.ZodNullable<z.ZodString>;
             observedAt: z.ZodNullable<z.ZodNumber>;
             policyHash: z.ZodNullable<z.ZodString>;
@@ -13579,6 +13774,7 @@ signatures (every public export and the types it is made of)
                 strict: "strict";
             }>>;
             sharedAttribution: z.ZodBoolean;
+            sourceTurnId: z.ZodOptional<z.ZodString>;
             state: z.ZodEnum<{
                 complete: "complete";
                 expired: "expired";
@@ -13658,6 +13854,30 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>, z.ZodObject<{
         isError: z.ZodBoolean;
         output: z.ZodString;
+        policyChange: z.ZodOptional<z.ZodObject<{
+            baseHash: z.ZodNullable<z.ZodString>;
+            bodyChanged: z.ZodBoolean;
+            bodyDiff: z.ZodString;
+            frontmatterDiff: z.ZodString;
+            message: z.ZodString;
+            path: z.ZodLiteral<"context/policies/governance.md">;
+            proposedHash: z.ZodString;
+            rationale: z.ZodString;
+            requestId: z.ZodString;
+            sections: z.ZodArray<z.ZodString>;
+            state: z.ZodEnum<{
+                declined: "declined";
+                invalid: "invalid";
+                pending: "pending";
+                refused: "refused";
+                stale: "stale";
+                unknown: "unknown";
+                updated: "updated";
+                writing: "writing";
+            }>;
+            turnId: z.ZodString;
+            warnings: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
@@ -13667,6 +13887,7 @@ signatures (every public export and the types it is made of)
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
             command: "command";
+            policy: "policy";
             tool: "tool";
         }>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
@@ -14169,11 +14390,16 @@ signatures (every public export and the types it is made of)
             journal: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 actor: z.ZodNullable<z.ZodEnum<{
                     interactive: "interactive";
+                    user: "user";
                     voice: "voice";
                 }>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    revert: "revert";
+                    turn: "turn";
+                }>>;
                 model: z.ZodNullable<z.ZodString>;
                 observedAt: z.ZodNullable<z.ZodNumber>;
                 policyHash: z.ZodNullable<z.ZodString>;
@@ -14182,6 +14408,7 @@ signatures (every public export and the types it is made of)
                     strict: "strict";
                 }>>;
                 sharedAttribution: z.ZodBoolean;
+                sourceTurnId: z.ZodOptional<z.ZodString>;
                 state: z.ZodEnum<{
                     complete: "complete";
                     expired: "expired";
@@ -14226,6 +14453,30 @@ signatures (every public export and the types it is made of)
                 isError: z.ZodOptional<z.ZodBoolean>;
                 name: z.ZodString;
                 output: z.ZodOptional<z.ZodString>;
+                policyChange: z.ZodOptional<z.ZodObject<{
+                    baseHash: z.ZodNullable<z.ZodString>;
+                    bodyChanged: z.ZodBoolean;
+                    bodyDiff: z.ZodString;
+                    frontmatterDiff: z.ZodString;
+                    message: z.ZodString;
+                    path: z.ZodLiteral<"context/policies/governance.md">;
+                    proposedHash: z.ZodString;
+                    rationale: z.ZodString;
+                    requestId: z.ZodString;
+                    sections: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        declined: "declined";
+                        invalid: "invalid";
+                        pending: "pending";
+                        refused: "refused";
+                        stale: "stale";
+                        unknown: "unknown";
+                        updated: "updated";
+                        writing: "writing";
+                    }>;
+                    turnId: z.ZodString;
+                    warnings: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>>;
             }, z.core.$loose>>;
             turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
@@ -16243,11 +16494,16 @@ signatures (every public export and the types it is made of)
             journal: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 actor: z.ZodNullable<z.ZodEnum<{
                     interactive: "interactive";
+                    user: "user";
                     voice: "voice";
                 }>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    revert: "revert";
+                    turn: "turn";
+                }>>;
                 model: z.ZodNullable<z.ZodString>;
                 observedAt: z.ZodNullable<z.ZodNumber>;
                 policyHash: z.ZodNullable<z.ZodString>;
@@ -16256,6 +16512,7 @@ signatures (every public export and the types it is made of)
                     strict: "strict";
                 }>>;
                 sharedAttribution: z.ZodBoolean;
+                sourceTurnId: z.ZodOptional<z.ZodString>;
                 state: z.ZodEnum<{
                     complete: "complete";
                     expired: "expired";
@@ -16300,6 +16557,30 @@ signatures (every public export and the types it is made of)
                 isError: z.ZodOptional<z.ZodBoolean>;
                 name: z.ZodString;
                 output: z.ZodOptional<z.ZodString>;
+                policyChange: z.ZodOptional<z.ZodObject<{
+                    baseHash: z.ZodNullable<z.ZodString>;
+                    bodyChanged: z.ZodBoolean;
+                    bodyDiff: z.ZodString;
+                    frontmatterDiff: z.ZodString;
+                    message: z.ZodString;
+                    path: z.ZodLiteral<"context/policies/governance.md">;
+                    proposedHash: z.ZodString;
+                    rationale: z.ZodString;
+                    requestId: z.ZodString;
+                    sections: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        declined: "declined";
+                        invalid: "invalid";
+                        pending: "pending";
+                        refused: "refused";
+                        stale: "stale";
+                        unknown: "unknown";
+                        updated: "updated";
+                        writing: "writing";
+                    }>;
+                    turnId: z.ZodString;
+                    warnings: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>>;
             }, z.core.$loose>>;
             turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
@@ -16437,6 +16718,7 @@ signatures (every public export and the types it is made of)
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
             command: "command";
+            policy: "policy";
             tool: "tool";
         }>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
@@ -16476,6 +16758,30 @@ signatures (every public export and the types it is made of)
     const serverToolResultSchema: z.ZodObject<{
         isError: z.ZodBoolean;
         output: z.ZodString;
+        policyChange: z.ZodOptional<z.ZodObject<{
+            baseHash: z.ZodNullable<z.ZodString>;
+            bodyChanged: z.ZodBoolean;
+            bodyDiff: z.ZodString;
+            frontmatterDiff: z.ZodString;
+            message: z.ZodString;
+            path: z.ZodLiteral<"context/policies/governance.md">;
+            proposedHash: z.ZodString;
+            rationale: z.ZodString;
+            requestId: z.ZodString;
+            sections: z.ZodArray<z.ZodString>;
+            state: z.ZodEnum<{
+                declined: "declined";
+                invalid: "invalid";
+                pending: "pending";
+                refused: "refused";
+                stale: "stale";
+                unknown: "unknown";
+                updated: "updated";
+                writing: "writing";
+            }>;
+            turnId: z.ZodString;
+            warnings: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
@@ -16505,11 +16811,16 @@ signatures (every public export and the types it is made of)
         journal: z.ZodObject<{
             actor: z.ZodNullable<z.ZodEnum<{
                 interactive: "interactive";
+                user: "user";
                 voice: "voice";
             }>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                revert: "revert";
+                turn: "turn";
+            }>>;
             model: z.ZodNullable<z.ZodString>;
             observedAt: z.ZodNullable<z.ZodNumber>;
             policyHash: z.ZodNullable<z.ZodString>;
@@ -16518,6 +16829,7 @@ signatures (every public export and the types it is made of)
                 strict: "strict";
             }>>;
             sharedAttribution: z.ZodBoolean;
+            sourceTurnId: z.ZodOptional<z.ZodString>;
             state: z.ZodEnum<{
                 complete: "complete";
                 expired: "expired";
@@ -16630,11 +16942,16 @@ signatures (every public export and the types it is made of)
     const turnJournalSummarySchema: z.ZodObject<{
         actor: z.ZodNullable<z.ZodEnum<{
             interactive: "interactive";
+            user: "user";
             voice: "voice";
         }>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
+        kind: z.ZodOptional<z.ZodEnum<{
+            revert: "revert";
+            turn: "turn";
+        }>>;
         model: z.ZodNullable<z.ZodString>;
         observedAt: z.ZodNullable<z.ZodNumber>;
         policyHash: z.ZodNullable<z.ZodString>;
@@ -16643,6 +16960,7 @@ signatures (every public export and the types it is made of)
             strict: "strict";
         }>>;
         sharedAttribution: z.ZodBoolean;
+        sourceTurnId: z.ZodOptional<z.ZodString>;
         state: z.ZodEnum<{
             complete: "complete";
             expired: "expired";

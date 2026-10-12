@@ -84,7 +84,7 @@ export interface TurnRecorder {
   onApprovalDecision(
     toolUseId: string,
     decision: "allow" | "always_allow" | "deny",
-    requestKind: "tool" | "command",
+    requestKind: "tool" | "command" | "policy",
     principalId?: string,
     channel?: ApprovalChannel
   ): void;
@@ -412,6 +412,7 @@ export function createTurnRecorder(
             onWrite?.();
             break;
           }
+          case "outward_action":
           case "policy_block":
           case "policy_confirm": {
             ensureRoot();

@@ -1,3 +1,4 @@
+import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { INBOX_TOOL_CONTRACTS, handleInboxTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
@@ -88,6 +89,7 @@ export interface PiBridgeToolOptions {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    policyChange?: boolean;
     turnTemp?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
@@ -299,6 +301,14 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   } satisfies ToolDefinition;
 
   const tools: ToolDefinition[] = [askUser, askUserList, askUserRank, askUserForm, showBlock];
+  if (capabilities?.policyChange) tools.push({ name: PROPOSE_POLICY_CHANGE_CONTRACT.name, label: "Propose policy change",
+    description: PROPOSE_POLICY_CHANGE_CONTRACT.description, parameters: toPiParameters(PROPOSE_POLICY_CHANGE_INPUT_SCHEMA),
+    async execute(id, raw) {
+      if (turn.noGrantSurface || turn.autonomous || !turn.bridge?.proposePolicyChange) throw new Error("Policy proposals are unavailable in this turn.");
+      const result = await turn.bridge.proposePolicyChange(id, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(raw));
+      return textResult(JSON.stringify(result), result);
+    },
+  });
   if (capabilities?.turnTemp) tools.push(turnTemp);
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);

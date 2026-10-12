@@ -76,6 +76,8 @@ export interface ApprovalCardProps {
   children?: ReactNode;
   /** Let full runtime tool names and targets occupy separate header lines. */
   wrapHeader?: boolean;
+  /** Long decision labels wrap onto separate rows when the available width requires it. */
+  wrapActions?: boolean;
   /** Printed keys are hints; they do not change the decision's accessible name. */
   shortcuts?: { allow: string; deny: string };
 }
@@ -116,12 +118,12 @@ export function ApprovalCard(p: ApprovalCardProps) {
     font: `400 10.5px/1.5 ${font.mono}`,
     color: accent.gold.ink,
   };
-  const actions: CSSProperties = { display: "flex", gap: 8 };
+  const actions: CSSProperties = { display: "flex", gap: 8, flexWrap: p.wrapActions ? "wrap" : undefined };
   /** Allow takes the remaining width; Deny is content-sized with the floor.
    * `width: auto` because `Button`'s block default would otherwise claim the
    * whole row. The row's default `align-items: stretch` gives Allow Deny's
    * height, so the floor levels both. */
-  const allowMount: CSSProperties = { flex: "1 1 auto", minWidth: 0, width: "auto" };
+  const allowMount: CSSProperties = { flex: p.wrapActions ? "1 1 160px" : "1 1 auto", minWidth: 0, width: "auto", minHeight: p.wrapActions ? 44 : undefined };
   const denyMount: CSSProperties = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" };
 
   const diff = p.diff ?? "- seats: 40\n+ seats: 24\n- format: talk (45 min)\n+ format: workshop (90 min)";

@@ -33,10 +33,10 @@ const stamp = (info: import("node:fs").BigIntStats) => `${info.dev}:${info.ino}:
 type Rules = { path: string; matcher: Ignore }[];
 
 /** Every instance freezes its own turn-start rules; the hash cache may be shared by host observations. */
-export function createJournalWalker(brain: string, store: JournalSnapshotObjects) {
+export function createJournalWalker(brain: string, store: JournalSnapshotObjects, coveredPaths: readonly string[] = []) {
   const cache = new Map<string, { stamp: string; hash: string }>();
   const scopeRules = new Map<string, Rules>();
-  const initiallyCovered = new Set<string>();
+  const initiallyCovered = new Set<string>(coveredPaths);
   let started = false;
 
   function ignored(rules: Rules, path: string, directory: boolean): boolean {

@@ -442,6 +442,8 @@ signatures (every public export and the types it is made of)
     }
   ENV_VARS (packages/ui-server/src/config/env.ts)
     const ENV_VARS: readonly EnvVarDescriptor[];
+  EffectiveGovernancePolicy (packages/common/src/governance-policy.ts)
+    export type EffectiveGovernancePolicy = ReturnType<typeof resolveGovernancePolicy>;
   EndSpanInput (packages/ui-server/src/activity/store.ts)
     export interface EndSpanInput {
         outcome: SpanOutcome;
@@ -461,6 +463,124 @@ signatures (every public export and the types it is made of)
     }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
     export type FlatAttributes = Record<string, string | number | boolean>;
+  GovernanceCommandRuleIndices (packages/common/src/governance-policy.ts)
+    export interface GovernanceCommandRuleIndices {
+        deny: number[];
+        confirm: number[];
+    }
+  GovernancePolicyInput (packages/common/src/governance-policy.ts)
+    export type GovernancePolicyInput = z.infer<typeof GovernancePolicySchema>;
+  GovernancePolicySchema (packages/common/src/governance-policy.ts)
+    const GovernancePolicySchema: z.ZodObject<{
+        budgets: z.ZodOptional<z.ZodObject<{
+            day: z.ZodOptional<z.ZodObject<{
+                block_tokens: z.ZodOptional<z.ZodNumber>;
+                block_usd: z.ZodOptional<z.ZodNumber>;
+                warn_tokens: z.ZodOptional<z.ZodNumber>;
+                warn_usd: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+            session: z.ZodOptional<z.ZodObject<{
+                block_tokens: z.ZodOptional<z.ZodNumber>;
+                block_usd: z.ZodOptional<z.ZodNumber>;
+                warn_tokens: z.ZodOptional<z.ZodNumber>;
+                warn_usd: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+            turn: z.ZodOptional<z.ZodObject<{
+                block_tokens: z.ZodOptional<z.ZodNumber>;
+                block_usd: z.ZodOptional<z.ZodNumber>;
+                warn_tokens: z.ZodOptional<z.ZodNumber>;
+                warn_usd: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        commands: z.ZodOptional<z.ZodObject<{
+            confirm: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodObject<{
+                pattern: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>, z.ZodTransform<{
+                pattern: string;
+                reason?: string | undefined;
+            }[], {
+                pattern: string;
+                reason?: string | undefined;
+            }[]>>>;
+            deny: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodObject<{
+                pattern: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>, z.ZodTransform<{
+                pattern: string;
+                reason?: string | undefined;
+            }[], {
+                pattern: string;
+                reason?: string | undefined;
+            }[]>>>;
+        }, z.core.$strict>>;
+        egress: z.ZodOptional<z.ZodObject<{
+            allow: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            deny: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            max_bytes_per_turn: z.ZodOptional<z.ZodNumber>;
+            mode: z.ZodOptional<z.ZodEnum<{
+                allowlist: "allowlist";
+                record: "record";
+            }>>;
+        }, z.core.$strict>>;
+        outward: z.ZodOptional<z.ZodObject<{
+            allow: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodObject<{
+                command: z.ZodString;
+                remotes: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>, z.ZodTransform<{
+                command: string;
+                remotes: string[];
+            }[], {
+                command: string;
+                remotes: string[];
+            }[]>>>;
+            hosts: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        profiles: z.ZodOptional<z.ZodObject<{
+            interactive: z.ZodOptional<z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>>;
+            voice: z.ZodOptional<z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>>;
+        }, z.core.$strict>>;
+        protect: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        providers: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            allow: z.ZodArray<z.ZodString>;
+            paths: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        release: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        schema_version: z.ZodLiteral<1>;
+        scope: z.ZodOptional<z.ZodObject<{
+            max_bytes_written: z.ZodOptional<z.ZodNumber>;
+            max_files_changed: z.ZodOptional<z.ZodNumber>;
+            max_minutes: z.ZodOptional<z.ZodNumber>;
+            max_tool_calls: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>;
+        taint: z.ZodOptional<z.ZodObject<{
+            egress: z.ZodOptional<z.ZodObject<{
+                allow: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
+  GovernedTurnHold (packages/ui-server/src/brain/governed-turn.ts)
+    export interface GovernedTurnHold {
+        readonly sandbox: WorkerSandbox;
+        readonly policy: TurnGovernancePolicy;
+        end(): Reconciliation | null;
+    }
+  GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
+    export interface GovernedTurns {
+        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict"): Promise<GovernedTurnHold>;
+        facts(origin?: "interactive" | "voice"): {
+            policyProfile: "governed" | "strict";
+            policy: TurnGovernancePolicy;
+        };
+        refresh(lock: KeyedLock): void;
+        close(): Promise<void>;
+    }
   HostVersionRequirements (packages/ui-server/src/app.ts)
     export interface HostVersionRequirements {
         brainCli?: string;
@@ -627,6 +747,12 @@ signatures (every public export and the types it is made of)
     export type PrincipalAuthMethod = "password" | "passkey" | "delegated" | "ambient";
   PrincipalKind (packages/ui-server/src/db/principals.ts)
     export type PrincipalKind = "owner" | "agent" | "ambient" | "system";
+  ProtectedWorkerPath (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export interface ProtectedWorkerPath {
+        readonly rel: string;
+        readonly reason: string;
+        readonly mode: "read_only" | "mask_file" | "mask_directory" | "absent";
+    }
   PruneOptions (packages/ui-server/src/activity/store.ts)
     export interface PruneOptions {
         digestFloorAt: number;
@@ -634,6 +760,19 @@ signatures (every public export and the types it is made of)
         hardCeilingMs: number;
         now?: number;
         batch?: number;
+    }
+  Reconciliation (packages/ui-server/src/brain/governed-manifest.ts)
+    export interface Reconciliation {
+        turnId: string;
+        quarantined: {
+            path: string;
+            to: string;
+        }[];
+        changed: string[];
+        failed: {
+            path: string;
+            error: string;
+        }[];
     }
   RecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export interface RecordingLoggerProvider extends LoggerProvider, LogReader {
@@ -805,6 +944,16 @@ signatures (every public export and the types it is made of)
         tokenSet: boolean;
         mintedAt: string | null;
     }
+  TurnGovernancePolicy (packages/ui-server/src/brain/governance-policy.ts)
+    export interface TurnGovernancePolicy {
+        readonly commandRuleIndices: Readonly<GovernanceCommandRuleIndices>;
+        readonly outwardRuleIndices: readonly number[];
+        readonly hash: string | null;
+        readonly source: "policy" | "default" | "last_valid";
+        readonly policy: EffectiveGovernancePolicy;
+        readonly errors: readonly string[];
+        readonly warnings: readonly string[];
+    }
   TurnJournal (packages/ui-server/src/brain/turn-journal.ts)
     export type TurnJournal = ReturnType<typeof createTurnJournal>;
   VoiceConfig (packages/ui-server/src/config/env.ts)
@@ -814,6 +963,11 @@ signatures (every public export and the types it is made of)
         keytermLimit: number;
         cacheDir: string;
     }
+  WORKER_AREAS (packages/ui-sdk/src/server/worker-sandbox.ts)
+    const WORKER_AREAS: {
+        readonly scratch: ".brain/scratch";
+        readonly workspaces: "workspaces";
+    };
   WSContext (packages/ui-server/src/ws/clients.ts)
     export type WSContext = {
         send: (data: string) => void;
@@ -829,6 +983,67 @@ signatures (every public export and the types it is made of)
         origins: string[];
         allowLoopbackOrigin: boolean;
     }
+  WorkerArea (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export interface WorkerArea {
+        readonly name: WorkerAreaName;
+        readonly rel: string;
+        readonly mount: WorkerMount;
+    }
+  WorkerAreaName (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export type WorkerAreaName = keyof typeof WORKER_AREAS;
+  WorkerCommandPolicy (packages/ui-sdk/src/server/command-policy.ts)
+    export interface WorkerCommandPolicy {
+        readonly outwardAllow?: readonly import("./outward-policy.js").WorkerOutwardRule[];
+        readonly hash: string | null;
+        readonly deny: readonly WorkerCommandRule[];
+        readonly confirm: readonly WorkerCommandRule[];
+    }
+  WorkerCommandRule (packages/ui-sdk/src/server/command-policy.ts)
+    export interface WorkerCommandRule {
+        readonly pattern: string;
+        readonly reason?: string;
+        readonly index: number;
+    }
+  WorkerHome (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export type WorkerHome = {
+        mode: "xdg";
+    };
+  WorkerMount (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export type WorkerMount = {
+        writable: true;
+        path: string;
+    } | {
+        writable: false;
+        reason: string;
+        missing?: true;
+    };
+  WorkerOutwardRule (packages/ui-sdk/src/server/outward-policy.ts)
+    export interface WorkerOutwardRule {
+        readonly command: string;
+        readonly remotes: readonly string[];
+        readonly index: number;
+    }
+  WorkerProfile (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export type WorkerProfile = "governed" | "strict" | "restricted";
+  WorkerProtection (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export interface WorkerProtection {
+        readonly paths: readonly ProtectedWorkerPath[];
+        readonly ancestors: readonly string[];
+    }
+  WorkerSandbox (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export interface WorkerSandbox {
+        readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
+        readonly brain: string;
+        readonly restricted: boolean;
+        readonly profile?: WorkerProfile;
+        readonly fallbackReason?: string;
+        readonly protection?: WorkerProtection;
+        readonly readPaths?: readonly string[];
+        readonly maskPaths?: readonly string[];
+        readonly areas: readonly WorkerArea[];
+        readonly scratchAliasesRemoved: readonly string[];
+        readonly home?: WorkerHome;
+    }
   WorkerStateLimits (packages/ui-sdk/src/server/worker-state-limits.ts)
     export interface WorkerStateLimits {
         allowanceBytes: number;
@@ -838,6 +1053,7 @@ signatures (every public export and the types it is made of)
     export class WsHost {
         readonly journal?: import("../brain/turn-journal.js").TurnJournal;
         readonly brainPath?: string;
+        readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
         readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         readonly askUserFormLimits: AskUserFormLimits;
         readonly registry: BackendRegistry;
@@ -852,6 +1068,7 @@ signatures (every public export and the types it is made of)
     }
   WsHostOptions (packages/ui-server/src/ws/host.ts)
     export interface WsHostOptions {
+        governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
         maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         brainPath?: string;
         askUserFormLimits?: Partial<AskUserFormLimits>;
@@ -1023,7 +1240,8 @@ signatures (every public export and the types it is made of)
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
     }): {
         begin(turnId: string, metadata: {
-            actor: "interactive" | "voice";
+            actor: "interactive" | "user" | "voice";
+            coveredPaths?: readonly string[];
             model: null | string;
             policyHash: null | string;
             profile: "governed" | "strict";
@@ -1033,8 +1251,10 @@ signatures (every public export and the types it is made of)
         close(): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): void;
+        finishReserved(turnId: string): void;
         observe(): void;
         observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+        reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
             bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
@@ -1044,6 +1264,8 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             };
         };
+        withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T;
+        writeOperation<T>(write: () => T): T;
     };
   inspect (packages/ui-server/src/inbox/resolve.ts)
     function inspect(principalId: string, msg: ClientInboxResolve): {
@@ -1118,6 +1340,74 @@ signatures (every public export and the types it is made of)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   reconcile (packages/ui-server/src/inbox/intake.ts)
     function reconcile(): Promise<void>;
+  resolveGovernancePolicy (packages/common/src/governance-policy.ts)
+    export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
+        budgets: {
+            day: {
+                block_tokens: number;
+                block_usd: number;
+                warn_tokens?: number | undefined;
+                warn_usd: number;
+            };
+            session: {
+                block_tokens: number;
+                block_usd: number;
+                warn_tokens?: number | undefined;
+                warn_usd: number;
+            };
+            turn: {
+                block_tokens: number;
+                block_usd: number;
+                warn_tokens?: number | undefined;
+                warn_usd: number;
+            };
+        };
+        commands: {
+            confirm: Array<{
+                pattern: string;
+                reason?: string;
+            }>;
+            deny: Array<{
+                pattern: string;
+                reason?: string;
+            }>;
+        };
+        egress: {
+            allow: string[];
+            deny: string[];
+            max_bytes_per_turn?: number | undefined;
+            mode: "allowlist" | "record";
+        };
+        outward: {
+            allow: Array<{
+                command: string;
+                remotes: string[];
+            }>;
+            hosts: string[];
+        };
+        profiles: {
+            interactive: "governed" | "strict";
+            voice: "governed" | "strict";
+        };
+        protect: string[];
+        providers: Array<{
+            allow: string[];
+            paths: string[];
+        }>;
+        release: string[];
+        schema_version: 1;
+        scope: {
+            max_bytes_written: number;
+            max_files_changed: number;
+            max_minutes: number;
+            max_tool_calls: number;
+        };
+        taint: {
+            egress: {
+                allow: string[];
+            };
+        };
+    };
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
   summary (packages/ui-server/src/brain/turn-journal.ts)

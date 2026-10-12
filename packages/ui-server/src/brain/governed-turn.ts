@@ -51,7 +51,7 @@ export function createGovernedTurns(options: {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
-      const hold = await gate.acquire("shared", `turn:${turnId}`, { signal });
+      const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
       try {
         const policy = policyReader.load();
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
@@ -60,6 +60,7 @@ export function createGovernedTurns(options: {
           protectedPaths: protectedPaths(policy.policy),
           maskPaths: options.maskPaths, maintenance: options.execution.boundary.maintenance });
         const commandPolicy = Object.freeze({ hash: policy.hash,
+          outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });

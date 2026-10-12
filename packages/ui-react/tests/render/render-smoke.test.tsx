@@ -2366,11 +2366,23 @@ function StoreSettingsHarness() {
 
 const dialogEscapeTarget = (page: ReturnType<typeof render>) => page.getByRole("alertdialog");
 
+function policyFactsResponse(): Response {
+  return Response.json({ path: "context/policies/governance.md", hash: null, source: "default", errors: [], warnings: [],
+    profiles: { interactive: "strict", voice: "strict" }, protectedPaths: [], workerLimits: null });
+}
+function withPolicyFacts(request: typeof fetch): typeof fetch {
+  return ((input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    return new URL(url, "https://ithaca.example").pathname === "/api/agent-policy"
+      ? Promise.resolve(policyFactsResponse()) : request(input, init);
+  }) as typeof fetch;
+}
+
 describe("DevicesAgentsTab", () => {
   test("renders active rows with every timestamp, marks this device, and has an empty state", async () => {
     const now = Date.UTC(2026, 8, 14, 12);
     Date.now = () => now;
-    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL) =>
       principalResponse([
         {
           id: "owner-principal",
@@ -2392,7 +2404,7 @@ describe("DevicesAgentsTab", () => {
           expires_at: now + 24 * 60 * 60 * 1000,
           is_own: false,
         },
-      ])) as typeof fetch;
+      ])) as typeof fetch);
 
     const page = render(
       <AppShell>
@@ -2424,8 +2436,8 @@ describe("DevicesAgentsTab", () => {
     expect(page.queryByText("No active devices or agents.")).toBeNull();
 
     cleanup();
-    globalThis.fetch = (async (_input: RequestInfo | URL) =>
-      principalResponse([])) as typeof fetch;
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL) =>
+      principalResponse([])) as typeof fetch);
     const emptyPage = render(<DevicesAgentsTab active />);
     await act(flushPromises);
     expect(emptyPage.getByText("No active devices or agents.")).toBeTruthy();
@@ -2434,7 +2446,7 @@ describe("DevicesAgentsTab", () => {
   test("shows a minted credential once and never restores it after dismissal or refetch", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     let listRequests = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = withPolicyFacts((async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, init });
       if (init?.method === "POST") {
@@ -2462,7 +2474,7 @@ describe("DevicesAgentsTab", () => {
               },
             ]
       );
-    }) as typeof fetch;
+    }) as typeof fetch);
     const copied: string[] = [];
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -2516,7 +2528,7 @@ describe("DevicesAgentsTab", () => {
   });
 
   test("mounts the one-time value at the shell, which outlives the panel's own close control", async () => {
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         return Response.json({
           id: "protected-agent",
@@ -2526,7 +2538,7 @@ describe("DevicesAgentsTab", () => {
         });
       }
       return principalResponse([]);
-    }) as typeof fetch;
+    }) as typeof fetch);
     useUIStore.setState({ settingsTab: "devices" });
 
     const page = render(<SettingsHarness />);
@@ -2556,13 +2568,13 @@ describe("DevicesAgentsTab", () => {
 
   test("keeps a delayed mint response after its tab unmounts", async () => {
     const mint = deferred<Response>();
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = withPolicyFacts((async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") return mint.promise;
       if (String(input).endsWith("/auth/passkey/list")) {
         return Response.json({ credentials: [] });
       }
       return principalResponse([]);
-    }) as typeof fetch;
+    }) as typeof fetch);
     useUIStore.setState({ settingsTab: "devices" });
 
     const page = render(<SettingsHarness />);
@@ -2604,10 +2616,10 @@ describe("DevicesAgentsTab", () => {
 
   test("keeps a delayed mint response after a real rail press leaves Settings", async () => {
     const mint = deferred<Response>();
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") return mint.promise;
       return principalResponse([]);
-    }) as typeof fetch;
+    }) as typeof fetch);
     useUIStore.setState({ settingsPanelOpen: true, settingsTab: "devices" });
 
     const page = render(<StoreSettingsHarness />);
@@ -2650,7 +2662,7 @@ describe("DevicesAgentsTab", () => {
   test("revokes the selected row and warns before revoking this device", async () => {
     const now = Date.now();
     const requests: Array<{ url: string; method: string | undefined }> = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = withPolicyFacts((async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, method: init?.method });
       if (init?.method === "DELETE") return Response.json({ ok: true });
@@ -2676,7 +2688,7 @@ describe("DevicesAgentsTab", () => {
           is_own: false,
         },
       ]);
-    }) as typeof fetch;
+    }) as typeof fetch);
     const confirmations: string[] = [];
     window.confirm = (message?: string) => {
       confirmations.push(message ?? "");
@@ -2705,7 +2717,7 @@ describe("DevicesAgentsTab", () => {
   test("renders an HTML-shaped label as bounded text, never markup", async () => {
     const malicious = '<img src=x onerror="alert(1)">' + "x".repeat(80);
     const displayed = Array.from(malicious).slice(0, 64).join("");
-    globalThis.fetch = (async (_input: RequestInfo | URL) =>
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL) =>
       principalResponse([
         {
           id: "html-label",
@@ -2717,7 +2729,7 @@ describe("DevicesAgentsTab", () => {
           last_seen_at: null,
           is_own: false,
         },
-      ])) as typeof fetch;
+      ])) as typeof fetch);
 
     const page = render(<DevicesAgentsTab active />);
     await act(flushPromises);
@@ -2727,8 +2739,8 @@ describe("DevicesAgentsTab", () => {
   });
 
   test("explains ambient auth instead of showing a broken or empty list", async () => {
-    globalThis.fetch = (async (_input: RequestInfo | URL) =>
-      Response.json({ error: "Principal management is not enabled" }, { status: 400 })) as typeof fetch;
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL) =>
+      Response.json({ error: "Principal management is not enabled" }, { status: 400 })) as typeof fetch);
 
     const page = render(<DevicesAgentsTab active />);
     await act(flushPromises);
@@ -2741,8 +2753,8 @@ describe("DevicesAgentsTab", () => {
   });
 
   test("surfaces a failed request as an error rather than an empty list", async () => {
-    globalThis.fetch = (async (_input: RequestInfo | URL) =>
-      Response.json({ error: "Database unavailable" }, { status: 500 })) as typeof fetch;
+    globalThis.fetch = withPolicyFacts((async (_input: RequestInfo | URL) =>
+      Response.json({ error: "Database unavailable" }, { status: 500 })) as typeof fetch);
 
     const page = render(<DevicesAgentsTab active />);
     await act(flushPromises);
@@ -3001,6 +3013,7 @@ describe("activity and device root ownership", () => {
     const requests: Array<{ url: string; init?: RequestInit; response: ReturnType<typeof deferred<Response>> }> = [];
     const root = createBrainUiRoot({ storage: null, config: { backendUrl: `https://${owner}.example` },
       request: (url, init) => {
+        if (new URL(url).pathname === "/api/agent-policy") return Promise.resolve(policyFactsResponse());
         const response = deferred<Response>();
         requests.push({ url, init, response });
         return response.promise;

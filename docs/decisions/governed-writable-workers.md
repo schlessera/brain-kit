@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-80`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:508-512`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:533-537`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -258,8 +258,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:81-106`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:88-120`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -271,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-80`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-81`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -674,7 +674,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:815-815`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:817-817`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -769,9 +769,26 @@ The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Revert, steering
-classification and effective budget/scope enforcement belong to their own
-programme work; this delivery does not claim them implemented.
+principal authority remain the caller's responsibility. Steering classification
+and effective budget/scope enforcement belong to their own programme work.
+
+**Delivered user revert (#1653).** The existing reader has a single-file history
+action. Whole-turn revert opens one review dialog listing eligible and excluded
+paths; its first focus reads the heading. Waiting, conflict, partial and unknown
+outcomes remain in the original turn disclosure. Escape closes the reader;
+it neither executes nor cancels an operation. Lost responses read the original
+principal/session/source/selection-bound receipt and never blindly repeat a POST.
+The exclusive gate queues new turns but permits shared maintenance an existing
+turn needs to finish. Under the gate and existing brain/Git locks, descriptor
+restoration compares existence, type, mode and raw bytes; later changes conflict.
+Verified leased CAS streams avoid uncharged temporary brain copies. Effects are
+journaled as a user revert for Undo through the same comparison, and incremental
+index refresh is queued after releasing the gate. A write failure is partial,
+not an atomic all-path guarantee. Explicit history restoration can recover
+retained observed quarantine versions; private quarantine paths remain private.
+Ignored, incomplete, Git metadata and unsupported entries are named exclusions;
+missing or changed parents conflict. No unobserved empty-directory metadata is
+invented.
 
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:
@@ -923,9 +940,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:223`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:225`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:533`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:534`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1110,7 +1127,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1200`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1203`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1359,6 +1376,32 @@ outward:
 Each outward action is recorded with its attribution. Because it cannot be
 reverted, it is listed in the journal as irreversible.
 
+**Delivered visible-command admission (#1664).** Both adapters share the
+visible Git, GitHub CLI and explicit HTTP-write classifier and use the existing
+per-use command cards. Named Git push destinations are read only by a
+credential-free isolated maintenance command in the worker's actual startup
+configuration view; the host-selected maintenance admission domain and masks
+remain in force. Unknown or multiple push destinations cannot match an allow
+rule. Force, deletion, mirror and prune writes ask even with a matching rule.
+Approval edits are rechecked against their exact visible input; retries need
+fresh per-use approval. Native Pi retains its existing refusal of voice turns;
+the Claude voice gate and Pi's shared permission gate refuse outward calls.
+Autonomous admission remains unchanged.
+
+The shipped Claude and Pi tool inventories supply local brain tools and read
+capabilities, but no built-in outward mail/calendar/booking/payment MCP
+descriptors. The fixed outward descriptor inventory is consequently empty;
+this implementation does not assign invented external effects to third-party
+names. Capabilities explicitly disclose that opaque HTTPS scripts are outside
+this visible-command coverage and that the egress proxy is not active.
+
+Every visible outward admission is retained as `outward_action`, including
+refusals. The existing expanded turn disclosure lists these as irreversible
+external actions, names their approval decision, and does not claim that an
+external action completed. Local-file restore is never offered for them.
+Classification observations include the exact call identity, decision and
+unknown-segment coverage; they confer no egress authority by themselves.
+
 **Opaque network code.** A script making an HTTPS `POST` shows nothing in its
 tool input, and a `CONNECT`-only proxy cannot see the method. Classification
 cannot catch it, so enforcement moves to the destination. The policy names
@@ -1484,6 +1527,19 @@ and the enforcement cannot drift.
 | `governed` | The brain is writable, and changes are journaled and revertible by the user. The read-only paths are listed, along with the reason each is protected. The three write areas, and that links must point into the brain or `.brain/scratch/`. The active budgets and how much remains. The blocked and confirmed command patterns. Egress mode, or that egress is unrecorded. The policy hash, and that the policy can be read but not written, with changes proposed through the approval tool. |
 | `strict` | The brain is read-only. Edits go through `write_file`, `edit_file` and the curated tools, and a direct write fails with `EROFS`. The named writable areas. Budgets, commands and egress as above. |
 | `restricted` | Unchanged: the autonomous system prompt and its roster. |
+
+The delivered host note (#1654) receives history availability through the
+existing resolved sandbox. The shared renderer is
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:468-512`).
+Journaling is stated as active only after this
+turn's real observation window is admitted; user restoration additionally
+requires the concrete mounted history service and a non-voice turn. Missing
+host facts stay unrecorded, and hosts missing a service do not promise it.
+Both adapters inject the shared generator's exact protected paths/reasons and
+history statement. Only the authenticated user can restore retained observed
+paths through history; the agent gains no revert or Undo tool. The statement
+preserves overwritten-between-observations and stale-conflict limitations,
+with no automatic revert and no new budget or egress authority.
 
 An `EROFS` or a refused write under any profile names the rule that refused it
 and the allowed alternative. It is also recorded as a governance event.

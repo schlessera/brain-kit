@@ -1,3 +1,7 @@
+import { recordGovernanceEvent } from "./governance/events.js";
+import { createPolicyProposals } from "./brain/policy-proposal.js";
+import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
+import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
@@ -9,6 +13,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
+import { createTurnReverts } from "./brain/turn-revert.js";
+import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -468,7 +474,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns);
   const journal = createTurnJournal(db, { brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
     changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: summary }); } });
+  const policyProposals = createPolicyProposals({ root: config.brainPath, db,
+    lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
+    observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
+    recordEvent: (review, turn) => recordGovernanceEvent(db, { kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
+      payload: { requestId: review.requestId, baseHash: review.baseHash, proposedHash: review.proposedHash, sections: review.sections, outcome: "updated" }, dedupeKey: `${turn.turnId}:${review.requestId}` }),
+  });
   const host = new WsHost({
+    policyProposals,
     journal,
     governedTurns,
     sessionProfiles,
@@ -755,9 +768,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
   app.route("/api", createJournalRoutes({ journal }));
+  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
+    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+    refresh() { host.governedTurns?.refresh(host.workerLock); } });
+  host.turnReverts = reverts;
+  app.route("/api", createTurnRevertRoutes(reverts));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
+  app.route("/api", createPolicyProposalRoutes(host));
+  app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
@@ -875,6 +895,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await intake.close();
       await scratchPrune.close();
       scratchPins.close();
+      await reverts.close();
       // A keyed reindex still queued finishes before the gate's database closes.
       await keyedReindex.idle();
       await host.governedTurns?.close();

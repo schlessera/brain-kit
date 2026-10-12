@@ -52,6 +52,7 @@ export function createSessionResources(options: {
       shellCwd: options.shellCwd,
       directWrites: options.directWrites,
       capabilities: {
+        policyChange: caps.policyChange,
         location: caps.location,
         activity: caps.activity,
         inbox: caps.inbox,
@@ -167,6 +168,7 @@ function buildAppend(
       // Named only when the bridge actually provides the handler — the toolkit
       // registers each tool on the same condition.
       tools: {
+        policyChange: env.caps.policyChange ? "propose_policy_change" : undefined,
         askUser: env.caps.askUser && PI_ASK_USER_TOOL_NAME,
         askUserList: env.caps.askUserList && "ask_user_list",
         askUserRank: env.caps.askUserRank && "ask_user_rank",

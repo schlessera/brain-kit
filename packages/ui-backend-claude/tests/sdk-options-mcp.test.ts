@@ -20,11 +20,12 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
  * factory's test green while every turn shipped deferred tools again.
  */
 describe("the SDK options a turn is built with", () => {
-  function turnFor(brain: string, bridge: Record<string, unknown>, noGrantSurface = false, maintenance?: worker.MaintenanceHost) {
+  function turnFor(brain: string, bridge: Record<string, unknown>, noGrantSurface = false, posture?: "voice", autonomous?: Record<string, unknown>, maintenance?: worker.MaintenanceHost) {
     return createClaudeSdkTurn({
       backend: { brainPath: brain, maintenance } as never,
       req: {
         prompt: "hello",
+        posture, autonomous,
         turnBudgetMs: 180_000,
         bridge,
         noGrantSurface,
@@ -84,6 +85,28 @@ describe("the SDK options a turn is built with", () => {
       rmSync(brain, { recursive: true, force: true });
     }
   });
+  for (const mode of ["interactive", "voice", "autonomous"] as const) test(`policy proposal registration: ${mode} has exact membership and no auto-allow`, async () => {
+    const brain = mkdtempSync(join(tmpdir(), "policy-membership-"));
+    let finish: (() => Promise<void>) | undefined;
+    try {
+      const proposal = async () => { throw new Error("not invoked while enumerating"); };
+      const turn = turnFor(brain, { proposePolicyChange: proposal }, mode === "voice", mode === "voice" ? "voice" : undefined,
+        mode === "autonomous" ? { allowedTools: [], systemPromptAppend: "Autonomous." } : undefined);
+      finish = turn.finishWorker;
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "policy-membership", version: "0.1.0" }, {});
+      await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const names = (await client.listTools()).tools.map(tool => tool.name);
+      expect(names.includes("propose_policy_change")).toBe(mode === "interactive");
+      expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__propose_policy_change");
+      expect(JSON.stringify(turn.options.systemPrompt).includes("propose_policy_change")).toBe(mode === "interactive");
+      await client.close();
+    } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
+  });
+
   test("a no-grant turn withholds the form schema, allowlist entry and prompt brief", async () => {
     const brain = mkdtempSync(join(tmpdir(), "sdk-options-form-"));
     try {

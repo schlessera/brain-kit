@@ -60,6 +60,11 @@ async function mount(ctx: TestContext, width = 390) {
       writes.push(path);
       return Response.json(credential);
     }
+    if (path.endsWith("/agent-policy")) return Response.json({
+      path: "context/policies/governance.md", hash: null, source: "default",
+      errors: [], warnings: [], profiles: { interactive: "governed", voice: "strict" },
+      protectedPaths: [], workerLimits: null,
+    });
     return Response.json({ entries: [], sessions: [], principals: [], providers: [], backends: {},
       slugs: {}, models: [], live: [], history: [], intents: [] });
   } });

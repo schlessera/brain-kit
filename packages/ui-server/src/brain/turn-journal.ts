@@ -1,13 +1,15 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { Database } from "bun:sqlite";
-import type { JournalVersion, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction } from "@schlessera/brain-ui-sdk/protocol";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import { createJournalWalker, type JournalSnapshot, type JournalSnapshotEntry } from "./journal-snapshot.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
+import { queryGovernanceEvents } from "../governance/events.js";
+
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice"; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; failure: string };
+type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; failure: string };
 type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; overlaps: string };
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
@@ -54,7 +56,7 @@ export function createTurnJournal(db: Database, options: {
     return { state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
       sharedAttribution: retained?.sharedAttribution ?? Boolean(counts.sharedAttribution), costUsd: cost?.effective_cost_usd ?? null,
       costIsEstimate: cost?.pricing_estimate == null ? null : Boolean(cost.pricing_estimate),
-      profile: row.profile, actor: row.actor, model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
+      profile: row.profile, actor: row.actor, kind: row.kind, ...(row.source_turn_id ? { sourceTurnId: row.source_turn_id } : {}), model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
   }
   function publish(turnId: string) {
     const row = db.query("SELECT session_id FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null } | null;
@@ -132,7 +134,7 @@ export function createTurnJournal(db: Database, options: {
             const sequence = ++turn.sequence;
             const approvedPolicy = userPolicy && item.path === "context/policies/governance.md";
             db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES (?,?,?,?,?,?,?,?,?)")
-              .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, approvedPolicy ? "policy" : "content", approvedPolicy ? "user" : "agent", JSON.stringify(overlaps.filter(id => id !== turnId)));
+              .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, approvedPolicy ? "policy" : "content", approvedPolicy || (db.query("SELECT kind FROM turn_journal_turns WHERE turn_id=?").get(turnId) as {kind:string})?.kind === "revert" ? "user" : "agent", JSON.stringify(overlaps.filter(id => id !== turnId)));
             pin(turnId, item.before); pin(turnId, item.after);
           }
           const failures = missing.get(turnId) ?? [];
@@ -145,13 +147,13 @@ export function createTurnJournal(db: Database, options: {
     }
   }
   return {
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice"; model: string | null; profile: "strict" | "governed"; policyHash: string | null }, stop: (error: Error) => void) {
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void) {
       for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
       observe();
       const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
       for (const row of expired) expire(row.turn_id, true);
       retain(() => accounting.write(() => {
-        db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording')")
+        db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL")
           .run(turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now());
       }));
       const captureObjects = { has: objects.has, putFile(fd: number, bytes: number) {
@@ -160,7 +162,7 @@ export function createTurnJournal(db: Database, options: {
         return hash;
       } };
       try {
-      const walker = createJournalWalker(options.brainPath, captureObjects);
+      const walker = createJournalWalker(options.brainPath, captureObjects, metadata.coveredPaths);
       let snapshot: JournalSnapshot;
       snapshot = walker.begin();
       if (snapshot.missing.length) {
@@ -213,6 +215,31 @@ export function createTurnJournal(db: Database, options: {
         collectObjects(); publish(turnId);
       }
     },
+    /** All operation metadata uses the journal's existing physical allocation owner. */
+    writeOperation<T>(write: () => T): T { return accounting.write(write); },
+    reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]) {
+      const source = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL AND state IN ('complete','partial')").get(sourceTurnId) as TurnRow | null;
+      if (!source) throw new JournalStorageUnavailable("source journal is unavailable");
+      accounting.write(() => {
+        db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state,kind,source_turn_id) VALUES (?,?,'user',NULL,?,?,?,?,?,'recording','revert',?)")
+          .run(turnId, source.session_id, source.profile, source.policy_hash, SELF.pid, SELF.start, now(), sourceTurnId);
+        for (const entry of versions) pin(turnId, entry);
+      });
+    },
+    finishReserved(turnId: string) {
+      if (active.has(turnId)) throw new Error("active revert must finish its observation");
+      accounting.write(() => {
+        db.query("UPDATE turn_journal_turns SET ended_at=?,state='partial',failure='revert_not_observed' WHERE turn_id=? AND ended_at IS NULL").run(now(), turnId);
+        db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
+      }); collectObjects();
+    },
+    withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T {
+      if (!selected || selected.kind === "symlink") return apply(() => {});
+      if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained version is unavailable");
+      const lease = accounting.openRead(selected.hash);
+      try { return objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
+      finally { try { accounting.releaseRead(lease); } catch { pendingReadReleases.add(lease); } }
+    },
     summary,
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
@@ -220,7 +247,11 @@ export function createTurnJournal(db: Database, options: {
       const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
         before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[] }));
       const failure = failures.get(turnId) ?? row.failure.trim();
-      return { turnId, sessionId, summary: summary(turnId), changes, missing: [...JSON.parse(row.missing), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+      const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
+      const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
+        tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
+        decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);

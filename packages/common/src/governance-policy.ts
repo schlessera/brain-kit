@@ -26,6 +26,12 @@ const commands = z.array(command).transform((entries, ctx) => {
   return valid;
 });
 
+const outwardRules = z.array(z.strictObject({ command: text, remotes: strings })).transform((entries, ctx) => {
+  const valid = entries.filter(entry => { try { new RegExp(entry.command, "i"); return true; } catch { return false; } });
+  if (entries.length && !valid.length) ctx.addIssue({ code: "custom", message: "Nonempty outward allow list contains no valid regular expression; repair it or explicitly use []" });
+  return valid;
+});
+
 export const GovernancePolicySchema = z.strictObject({
   schema_version: z.literal(1),
   profiles: z.strictObject({ interactive: z.enum(["governed", "strict"]).optional(), voice: z.enum(["governed", "strict"]).optional() }).optional(),
@@ -35,7 +41,7 @@ export const GovernancePolicySchema = z.strictObject({
   scope: z.strictObject({ max_files_changed: count.optional(), max_minutes: amount.optional(), max_tool_calls: count.optional(), max_bytes_written: count.optional() }).optional(),
   commands: z.strictObject({ deny: commands.optional(), confirm: commands.optional() }).optional(),
   egress: z.strictObject({ mode: z.enum(["record", "allowlist"]).optional(), allow: strings.optional(), deny: strings.optional(), max_bytes_per_turn: count.optional() }).optional(),
-  outward: z.strictObject({ allow: z.array(z.strictObject({ command: text, remotes: strings })).optional(), hosts: strings.optional() }).optional(),
+  outward: z.strictObject({ allow: outwardRules.optional(), hosts: strings.optional() }).optional(),
   taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional() }).optional(),
   providers: z.array(z.strictObject({ paths: strings, allow: strings })).optional(),
 });
@@ -73,6 +79,7 @@ export interface GovernanceCommandRuleIndices { deny: number[]; confirm: number[
 export interface GovernancePolicyCheck {
   /** Internal provenance; non-enumerable so the existing CLI envelope is unchanged. */
   readonly commandRuleIndices?: GovernanceCommandRuleIndices;
+  readonly outwardRuleIndices?: number[];
   schema_version: 1; ok: boolean; status: "valid" | "invalid" | "missing";
   content_hash: string | null; errors: string[]; warnings: string[]; effective: EffectiveGovernancePolicy;
 }
@@ -94,10 +101,17 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
         catch (error) { warnings.push(`commands.${list}[${index}]: ${error instanceof Error ? error.message : String(error)}`); }
       }
     }
+    const outwardRuleIndices: number[] = [];
+    if (Array.isArray(data?.outward?.allow)) for (const [index, entry] of data.outward.allow.entries()) {
+      if (typeof entry?.command !== "string") continue;
+      try { new RegExp(entry.command, "i"); outwardRuleIndices.push(index); }
+      catch (error) { warnings.push(`outward.allow[${index}]: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     const parsed = GovernancePolicySchema.safeParse(data);
     if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
     const result: GovernancePolicyCheck = { schema_version: 1, ok: true, status: "valid", content_hash, errors: [], warnings, effective: resolveGovernancePolicy(parsed.data) };
     Object.defineProperty(result, "commandRuleIndices", { value: commandRuleIndices, enumerable: false });
+    Object.defineProperty(result, "outwardRuleIndices", { value: outwardRuleIndices, enumerable: false });
     return result;
   } catch (error) {
     return { schema_version: 1, ok: false, status: "invalid", content_hash, errors: [error instanceof Error ? error.message : String(error)], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };

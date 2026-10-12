@@ -16,6 +16,10 @@ import type { AutonomousTurnOptions, BackendBridge } from "@schlessera/brain-ui-
 import type { TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 
 export interface TurnContext {
+  configurationRoot?: string;
+  /** Host-selected maintenance admission, kept out of worker initialization. */
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
+  posture?: "voice";
   commandPolicy?: import("@schlessera/brain-ui-sdk/internal").WorkerCommandPolicy;
   bridge: BackendBridge | null;
   signal: AbortSignal | null;

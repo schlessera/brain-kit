@@ -11,7 +11,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+import { workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -112,6 +112,7 @@ function assembleClaudeSdkTurn(
   const askUserList = req.noGrantSurface === true ? undefined : req.bridge.askUserList;
   const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
   const askUserForm = req.noGrantSurface === true ? undefined : req.bridge.askUserForm;
+  const proposePolicyChange = !req.autonomous && !req.noGrantSurface && req.posture !== "voice" ? req.bridge.proposePolicyChange : undefined;
   const queryActivity = req.bridge.queryActivity;
   // Usage and purge of the worker's own size-limited /tmp (#1703): scoped to
   // it by the server's held descriptor, so it needs no approval. Not in the
@@ -168,11 +169,12 @@ function assembleClaudeSdkTurn(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   const sandboxNote = [workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
-    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns)].filter(Boolean).join("\n\n");
+    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
     {
+      policyChange: Boolean(proposePolicyChange),
       askUser: Boolean(askUser),
       askUserList: Boolean(askUserList),
       askUserRank: Boolean(askUserRank),
@@ -230,6 +232,8 @@ function assembleClaudeSdkTurn(
       brainPath: backend.brainPath,
       turnLock,
       childEnv,
+      configurationRoot: () => worker.configurationRoot(),
+      maintenance: backend.maintenance,
       log,
     }),
   };
@@ -305,6 +309,7 @@ function assembleClaudeSdkTurn(
   // handler, so the server itself is always present.
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      proposePolicyChange,
       application: req.bridge,
       askUser,
       askUserList,
@@ -358,6 +363,7 @@ function buildAppend(
   options: ClaudeBackendOptions,
   client: ClientEnvironment | undefined,
   tools: {
+    policyChange: boolean;
     askUser: boolean;
     askUserList: boolean;
     askUserRank: boolean;
@@ -379,6 +385,7 @@ function buildAppend(
       ...(client ? { client } : {}),
       ...(turnBudgetMs ? { turnBudgetMs } : {}),
       tools: {
+        policyChange: tools.policyChange ? "mcp__brain-ui__propose_policy_change" : undefined,
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         askUserList: tools.askUserList && ASK_USER_LIST_TOOL_NAME,
         askUserRank: tools.askUserRank && ASK_USER_RANK_TOOL_NAME,

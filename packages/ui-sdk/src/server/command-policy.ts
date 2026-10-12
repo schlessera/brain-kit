@@ -10,6 +10,7 @@ export interface WorkerCommandRule {
   readonly index: number;
 }
 export interface WorkerCommandPolicy {
+  readonly outwardAllow?: readonly import("./outward-policy.js").WorkerOutwardRule[];
   readonly hash: string | null;
   readonly deny: readonly WorkerCommandRule[];
   readonly confirm: readonly WorkerCommandRule[];

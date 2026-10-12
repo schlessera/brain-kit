@@ -3011,3 +3011,21 @@ policy-locked and unavailable states show their reason read-only. The picker
 remains reachable for a fixed model without effort controls. Native keyboard
 behavior, 44px rows, Escape and return focus reuse the existing picker.
 `SessionWorkerProfile` and `sessionWorkerProfileSchema` are additive SDK exports.
+
+## Hosted policy review (additive, #1662)
+
+The SDK exports `PROPOSE_POLICY_CHANGE_CONTRACT`, its name/input schema,
+`PolicyChangeInput`, `POLICY_CHANGE_REVIEW_SCHEMA` and `PolicyChangeReview`
+through `tool-contracts` and `server`. `BackendBridge.proposePolicyChange?`
+accepts a native tool-use request id and that input, returning the server-held
+review/receipt; absent capability means no hosted policy-proposal tool.
+`PermissionRequest.kind` additionally accepts `policy`; this never receives
+remembered or automatic approval. The machine behavior is specified in the
+[MCP contract](mcp.md#hosted-policy-proposal-additive-1662).
+
+`ApprovalCardProps.wrapActions?` allows long decision labels to wrap into
+separate rows while retaining effective 44px targets. Omitted preserves the
+existing card layout. `AgentPolicyRead` carries read-only policy hash/source,
+validation notices, effective profiles, protected paths and the host's recorded
+worker-resource limits. Parsed budget/scope/egress values are not enforcement
+facts. No new extension seam or editor is introduced.

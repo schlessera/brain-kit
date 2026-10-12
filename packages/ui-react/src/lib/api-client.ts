@@ -1,3 +1,5 @@
+import type { AgentPolicyRead } from "@schlessera/brain-ui-sdk/protocol";
+import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
@@ -340,6 +342,13 @@ export function createBrainApi(
   return {
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),
     turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => fetchJson<{ inline: boolean; before?: string; after?: string; reason?: string; beforeBytes?: number; afterBytes?: number }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${sequence}/preview`, { signal }),
+    agentPolicy: (signal?: AbortSignal) => fetchJson<AgentPolicyRead>("/agent-policy", { cache: "no-store", ...(signal ? { signal } : {}) }),
+    policyProposal: async (turnId: string, requestId: string, sessionId: string | null, signal?: AbortSignal) =>
+      POLICY_CHANGE_REVIEW_SCHEMA.parse(await fetchJson(`/policy-proposals/${encodeURIComponent(turnId)}/${encodeURIComponent(requestId)}${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ""}`, { cache: "no-store", ...(signal ? { signal } : {}) })),
+    turnRevertPlan: (sessionId: string, turnId: string, action: "revert" | "restore" = "revert", signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertPlan>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert/plan?action=${action}`, { signal }),
+    turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<{ receipt: import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt | null }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert`, { signal }),
+    turnRevert: (sessionId: string, turnId: string, request: { id: string; path?: string; action?: "revert" | "restore" }) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert`, { method: "POST", body: JSON.stringify(request) }),
+    turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert/${encodeURIComponent(operationId)}`, { signal }),
     hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
     hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
     hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),

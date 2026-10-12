@@ -203,6 +203,7 @@ describe("a turn with no grant surface, kind tool", () => {
         requestKind: "tool",
         reason: expect.any(String),
       },
+      { kind: "outward_classification", toolUseId: "publish-recorded", decision: "deny", classification: { kind: "unknown", actions: [] } },
     ]);
   });
 });
@@ -237,6 +238,7 @@ describe("a turn with no grant surface, kind command", () => {
         requestKind: "command",
         reason: expect.any(String),
       },
+      { kind: "outward_classification", toolUseId: "bash-no-surface", decision: "deny", classification: { kind: "unknown", actions: [], opaque: true } },
     ]);
   });
 
@@ -285,7 +287,7 @@ describe("a turn with no grant surface, kind command", () => {
 
     expect(outcome.executed).toBe(true);
     expect(harness.requests).toHaveLength(0);
-    expect(harness.activity).toHaveLength(0);
+    expect(harness.activity).toEqual([{ kind: "outward_classification", toolUseId: "bash-harmless", decision: "allow", classification: { kind: "unknown", actions: [], opaque: true } }]);
   });
 });
 
@@ -451,7 +453,7 @@ describe("turns that did not declare it", () => {
     expect(outcome.executed).toBe(true);
     expect(harness.requests).toHaveLength(1);
     expect(approvalFrames(harness)).toHaveLength(1);
-    expect(harness.activity).toHaveLength(0);
+    expect(harness.activity).toEqual([{ kind: "outward_classification", toolUseId: "publish-enforced", decision: "allow", classification: { kind: "unknown", actions: [] } }]);
   });
 
   test("an enforced turn's destructive command still raises its command card", async () => {
@@ -480,7 +482,7 @@ describe("turns that did not declare it", () => {
     expect(outcome.executed).toBe(true);
     expect(harness.requests).toHaveLength(1);
     expect(approvalFrames(harness)).toHaveLength(1);
-    expect(harness.activity).toHaveLength(0);
+    expect(harness.activity).toEqual([{ kind: "outward_classification", toolUseId: "bash-default", decision: "allow", classification: { kind: "unknown", actions: [], opaque: true } }]);
   });
 });
 

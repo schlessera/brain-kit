@@ -117,7 +117,7 @@ export interface PermissionRequest {
    * set and may offer "always allow". "command" — a destructive-pattern
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
-  kind?: "tool" | "command";
+  kind?: "tool" | "command" | "policy";
   /**
    * This turn declared `enforceAllowedTools` and the tool is NOT on its
    * allowlist. The host must decide the request on its own merits: it may
@@ -165,6 +165,8 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
+  proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
   /** Host-owned, turn-bound application. Absent means no authoritative route. */
   readBrainBase?(path: string): Promise<{ content: string; expectedBaseHash: string }>;
   applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
@@ -295,9 +297,28 @@ export type BackendActivityEvent =
       /** The tool call the refusal belongs to. */
       toolUseId: string;
       /** The request that would have been raised, had anyone been able to answer it. */
-      requestKind: "tool" | "command";
+      requestKind: "tool" | "command" | "policy";
       /** Why, in the words the model was given. */
       reason: string;
+    }
+  | {
+      kind: "outward_classification";
+      toolUseId: string;
+      /** Observation only; an egress guard must validate live authority itself. */
+      classification: import("./outward-actions.js").OutwardClassification;
+      /** Decision for this exact input; observational, not an egress grant. */
+      decision: "allow" | "deny" | "refused";
+    }
+  | {
+      kind: "outward_action";
+      toolUseId: string;
+      payload: {
+        tool: string; input: string; inputTruncated: boolean;
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write";
+        target: string | null; historyRewrite: boolean; tainted: boolean;
+        decision: "policy_allowed" | "approved" | "declined" | "refused";
+        rule: { list: "outward.allow"; index: number; pattern: string } | null;
+      };
     }
   | {
       /** A captured command rule refused this exact input before execution. */

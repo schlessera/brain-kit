@@ -420,6 +420,7 @@ signatures (every public export and the types it is made of)
         onAlwaysAllow?: () => void;
         children?: ReactNode;
         wrapHeader?: boolean;
+        wrapActions?: boolean;
         shortcuts?: {
             allow: string;
             deny: string;

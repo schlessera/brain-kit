@@ -723,6 +723,8 @@ export interface WorkerStateHandle {
 }
 
 export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["streams"]> & {
+  /** Host-held configuration view used by this worker; valid until it exits. */
+  readonly configurationRoot?: string;
   pid: number;
   exited: Promise<number>;
   kill(signal?: NodeJS.Signals): void;
@@ -953,6 +955,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let stateFd: number | undefined, tempFd: number | undefined;
   try {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
+    const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
     if (startupView && areas.length) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
     input = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
@@ -1022,7 +1025,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       finally { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
       return code;
     });
-    return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    return { ...streams, configurationRoot, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       kill: (signal?: NodeJS.Signals) => { killed = true; return spawned.kill(signal); }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
   } catch (error) {
