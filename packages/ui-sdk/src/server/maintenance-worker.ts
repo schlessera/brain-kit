@@ -122,7 +122,9 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
           // Bun's file sink polls the FIFO as well, so a large input waits for
           // the worker to read without holding a thread.
           const sink = Bun.file(ends.stdin).writer();
-          if (data) sink.write(data);
+          // A large input's write settles later; await it here so a worker
+          // that exits unread fails this try rather than the server.
+          if (data) await sink.write(data);
           await sink.end();
         } catch { /* A command that never reads its input. */ } finally { closeInput(); }
       },
