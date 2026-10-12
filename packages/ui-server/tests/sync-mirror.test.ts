@@ -159,15 +159,15 @@ for (const name of ["config", "HEAD", "hooks/pre-receive"]) {
 }
 // The namespace init reaps this descendant when the CLI exits. It cannot
 // race the host's storage validation after runMaintenanceWorker settles.
-Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('sleep 1; printf poisoned > "$1"')}, "child", ${JSON.stringify(join(mirror, "objects/info/alternates"))}], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('while kill -0 "$2" 2>/dev/null; do sleep 0.02; done; printf poisoned > "$1"')}, "child", ${JSON.stringify(join(mirror, "objects/info/alternates"))}, String(process.pid)], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
 `);
   const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
   let syncError: unknown;
   await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync().catch(error => { syncError = error; });
   expect(readFileSync(poison, "utf8"), "MIRROR_METADATA_IMMUTABLE").not.toContain("WROTE");
-  if (syncError) throw syncError;
   await Bun.sleep(1_100);
   expect(existsSync(join(mirror, "objects/info/alternates")), "MAINTENANCE_CHILD_GONE_BEFORE_TRANSPORT").toBe(false);
+  if (syncError) throw syncError;
   expect(git(f.remote, "show", "main:notes/harbor.md")).toContain("Penelope checks the ropes.");
 }, 120_000);
 
