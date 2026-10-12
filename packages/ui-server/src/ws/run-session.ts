@@ -479,7 +479,7 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       try {
-        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal);
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, work?.posture === "voice" ? "voice" : "interactive");
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {

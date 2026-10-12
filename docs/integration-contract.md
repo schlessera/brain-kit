@@ -50,6 +50,9 @@ commands retain their original availability versions.
 
 - [Package API and extensions](integration-contract/package-api.md).
 - [CLI](integration-contract/cli.md).
+- [Governance policy check](integration-contract/cli.md#governance-policy-check-additive-1650)
+  and [governance policy schema v1](supported-inputs.md#governance-policy) are
+  additive supported inputs and output in 0.42.0 (#1650).
 - [Frontmatter, files and index reads](integration-contract/frontmatter.md).
 - [MCP tools](integration-contract/mcp.md).
 - [HTTP routes](integration-contract/http.md).

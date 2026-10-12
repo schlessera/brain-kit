@@ -431,6 +431,19 @@ brain before that. A path that cannot be moved keeps the turn's record open,
 and the server refuses to start (and cron jobs refuse to run), naming it,
 until it is removed from the brain.
 
+**Policy selection.** At each interactive/voice admission the host reads
+`context/policies/governance.md` as data, never loading the brain's config.
+Its [schema and defaults](../supported-inputs.md#governance-policy) select the
+profile and add/release eligible protection. A known invalid edit records a
+notice and retains the process's last valid effective policy/hash, or built-in
+defaults before any valid input. A missing file selects defaults. An explicit
+host `strict` override stays stronger. The exact captured policy/hash and
+selected profile are immutable for the turn and retained in host operational
+state for the journal; later edits apply to later turns. Actual voice uses the
+voice profile; dictation remains interactive. Autonomous turns do not load this
+policy. Check an edit with `brain policy check --json`; a valid check does not
+imply budget, scope, network, outward or provider enforcement is active.
+
 ## The restricted envelope for autonomous turns (#676)
 
 `runAutonomousTurn` sends every autonomous turn with

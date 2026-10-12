@@ -71,10 +71,16 @@ export "." (./src/index.ts)
 
 export "./internal" (./src/internal.ts)
   type ArchiveResult
+  BUILTIN_GOVERNANCE_POLICY
   type BrainContext
   type CollectStatsOptions
+  type EffectiveGovernancePolicy
   type FrontmatterValue
   GEMINI_FLASH_MODEL
+  GOVERNANCE_POLICY_PATH
+  type GovernancePolicyCheck
+  type GovernancePolicyInput
+  GovernancePolicySchema
   type IngestInput
   type IngestOutcome
   SCRATCH_DIR
@@ -87,6 +93,7 @@ export "./internal" (./src/internal.ts)
   assembleContext
   assertScratchWritable
   buildTaxonomy
+  checkGovernancePolicy
   collectStats
   estimateTokens
   geminiCompletions
@@ -102,6 +109,7 @@ export "./internal" (./src/internal.ts)
   isWriteRefusal
   loadVecSupport
   openDatabase
+  parseGovernancePolicy
   prepareIngest
   pruneScratch
   readDocumentPart
@@ -109,6 +117,7 @@ export "./internal" (./src/internal.ts)
   rerankSetup
   resolveCompletionProvider
   resolveEmbeddingProvider
+  resolveGovernancePolicy
   resolveWritable
   rewriteGeneratedRegion
   runRegistry

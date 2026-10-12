@@ -40,6 +40,7 @@ import { tagsCommand } from "./tags.js";
 import { queueCommand } from "./queue.js";
 import { scheduleCommand } from "./schedule.js";
 import { hygieneCommand } from "./hygiene.js";
+import { policyCommand } from "./policy.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
@@ -76,6 +77,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   hygiene: hygieneCommand,
   queue: queueCommand,
   schedule: scheduleCommand,
+  policy: policyCommand,
 };
 
 export { generateBriefing } from "./briefing.js";

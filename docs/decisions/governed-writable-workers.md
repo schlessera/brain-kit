@@ -243,6 +243,30 @@ file. Inside a turn the file cannot change: the mounts below prevent it, and
 the measurements prove it. Outside a turn, ruling 2 makes an edit legitimate.
 An activation click would add friction and no protection.
 
+**Reader and admission identity (#1650).** The schema and data-only reader live
+in core (`GovernancePolicySchema`, `packages/core/src/lib/governance-policy.ts:29-42`;
+`parseGovernancePolicy`, `packages/core/src/lib/governance-policy.ts:78-100`).
+The hash identifies the complete UTF-8 file bytes, including prose and
+line endings; the body still has no policy semantics. This preserves a simple
+version identity without a second YAML canonicalization algorithm. The strict
+input format, defaults and read-only command are in
+[supported inputs](../supported-inputs.md#governance-policy) and the
+[CLI contract](../integration-contract/cli.md#governance-policy-check-additive-1650).
+Mixed command lists retain their valid entries and report skipped sources;
+nonempty entirely invalid lists refuse under the existing confirmation ruling.
+
+Admission captures and freezes one effective policy/hash after acquiring the
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:21-72`),
+records it for strict and governed turns in host operational state,
+and passes its protection list to the existing launcher/manifest. The journal
+consumes that captured identity rather than rereading the file. Invalid edits
+retain the process's last valid file/hash, or defaults with a null hash before
+any valid file; known absence selects defaults. True voice uses the voice profile,
+dictation uses interactive, and autonomous authority remains separate. Existing
+host strict overrides and stronger fallback remain effective. This reader does
+not enforce the budget, scope, commands, egress, outward, taint or provider fields.
+Their parsed values are inputs for their owning guardrails.
+
 ## The host execution boundary
 
 The independent review of this record showed that read-only mounts cannot, on

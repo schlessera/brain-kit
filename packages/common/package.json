@@ -40,6 +40,11 @@
       "bun": "./src/worker-areas.ts",
       "types": "./dist/worker-areas.d.ts",
       "default": "./dist/worker-areas.js"
+    },
+    "./internal/protected-paths": {
+      "bun": "./src/protected-paths.ts",
+      "types": "./dist/protected-paths.d.ts",
+      "default": "./dist/protected-paths.js"
     }
   },
   "files": [

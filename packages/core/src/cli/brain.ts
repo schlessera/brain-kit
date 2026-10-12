@@ -31,7 +31,7 @@ import { computeJson, parseArgs, scanCliArgs, UsageError } from "./io.js";
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
 const TOLERATE_CONFIG_ERROR = new Set([
-  "queue", "schedule", "init", "doctor", "setup", "config", "validate", "module", "skills", "mcp", "okf",
+  "queue", "schedule", "policy", "init", "doctor", "setup", "config", "validate", "module", "skills", "mcp", "okf",
 ]);
 
 // Commands that write to the brain tree or its database. They refuse to run
@@ -125,6 +125,14 @@ async function main(): Promise<number> {
   }
   const json = computeJson(argv);
   const { command, wantsHelp } = scanCliArgs(argv);
+
+  // Policy is host-parsed data, never a reason to evaluate repository code.
+  if (command === "policy") {
+    const brain = degradedContext();
+    const { policyCommand } = await import("./commands/policy.js");
+    if (wantsHelp) { console.log(policyCommand.helpBlock); return 0; }
+    return (await policyCommand.run(argv.slice(1), { brain, json })) ?? 0;
+  }
 
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;

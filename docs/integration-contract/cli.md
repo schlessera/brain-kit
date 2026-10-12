@@ -3,6 +3,42 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+<a id="governance-policy-check-additive-1650"></a>
+
+## Governance policy check (additive, #1650)
+
+`brain policy check --json` reads `context/policies/governance.md` from the
+resolved brain root without loading brain configuration, opening the content
+database, changing files or executing repository code. It emits one object and
+a newline:
+
+```ts
+{
+  schema_version: 1,
+  ok: boolean,
+  status: "valid" | "invalid" | "missing",
+  content_hash: string | null,
+  errors: string[],
+  warnings: string[],
+  effective: EffectiveGovernancePolicy
+}
+```
+
+`effective` is the complete resolved [supported policy input](../supported-inputs.md#governance-policy).
+Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
+`ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
+Invalid input returns defaults, its validation errors, and a hash when its bytes
+were safely read; it never claims to report a running server's retained policy.
+`warnings` reports regex sources skipped from a mixed list. The content hash is
+lowercase SHA-256 of exact file bytes, including body and line endings. Usage
+errors exit 1; an entirely invalid regex list is a policy validation error.
+
+The input is strict schema v1 with no unknown keys or autonomous profile. A
+release may name only an exact built-in tier B path. Profile selection and added
+protection consume this policy; successful parsing does not imply any sibling
+budget/network/outward/provider guardrail is active. Without `--json`, the
+command prints status/hash and reports errors/warnings on stderr.
+
 <a id="operational-recovery-command-additive-686"></a>
 
 ## Operational recovery command (additive, #686)

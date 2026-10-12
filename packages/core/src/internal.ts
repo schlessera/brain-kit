@@ -40,4 +40,6 @@ export type { ValidationIssue } from "./lib/validate.js";
 export { getContext } from "./lib/context.js";
 export { resolveCompletionProvider } from "./lib/registry.js";
 export { GEMINI_FLASH_MODEL } from "./lib/llm-defaults.js";
+export { checkGovernancePolicy, parseGovernancePolicy, resolveGovernancePolicy, GovernancePolicySchema, GOVERNANCE_POLICY_PATH, BUILTIN_GOVERNANCE_POLICY } from "./lib/governance-policy.js";
+export type { GovernancePolicyInput, EffectiveGovernancePolicy, GovernancePolicyCheck } from "./lib/governance-policy.js";
 export { geminiCompletions } from "./providers/completions/gemini.js";

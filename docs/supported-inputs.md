@@ -44,6 +44,51 @@ supported files experimental merely because a module reads them. Likewise the
 published `ENV_VARS` descriptor API and the meanings of environment inputs are
 separate compatibility questions; export curation does not waive input promises.
 
+## Governance policy
+
+`context/policies/governance.md` is versioned host input, excluded from the
+content index and read-only to workers. Its UTF-8 YAML frontmatter must have
+`schema_version: 1`; its Markdown body has no policy meaning. The data-only
+reader accepts at most 1 MiB, refuses linked ancestors, symlinks, hardlinks and
+nonregular files, and does not evaluate brain configuration. The entire file's
+exact bytes, including prose and line endings, determine its lowercase SHA-256
+content hash. A prose edit changes identity without changing policy semantics.
+
+All objects reject unknown keys. Omitted fields resolve to the defaults below;
+explicit fields replace their corresponding default, while nested budget/profile
+objects merge per field. No value grants authority to autonomous turns.
+
+| Family | Accepted fields | Meaning and defaults |
+| --- | --- | --- |
+| `profiles` | `interactive`, `voice`: `governed` or `strict` | Both default to `governed`. A host's explicit `strict` override remains stronger. True voice uses `voice`; dictation uses `interactive`. |
+| `protect` | Array of canonical brain-relative paths | Adds protection. No absolute, home, drive, backslash, empty/dot/parent segment or control-character forms. Default `[]`. |
+| `release` | Array of exact built-in tier B paths | Default `[]`; tier A and `.env*` cannot be released. See [the protected tiers](decisions/governed-writable-workers.md#protected-paths). |
+| `budgets` | `turn`, `session`, `day`, each with optional `warn_usd`, `block_usd`, `warn_tokens`, `block_tokens` | USD amounts are finite/nonnegative; tokens are nonnegative safe integers. Turn warn/block $100/$200 with 512,000,000 fallback tokens; session/day $2,000/$4,000 with 8,000,000,000 fallback tokens. Day is UTC calendar day; session is retained lifetime. |
+| `scope` | `max_files_changed`, `max_minutes`, `max_tool_calls`, `max_bytes_written` | Nonnegative safe integers, except finite minutes. Defaults: 1,000 paths, 120 minutes, 500 calls, 4 GiB. Path/byte defaults are provisional approved values, not measured distributions. |
+| `commands` | `deny`, `confirm`: arrays of `{ pattern: string, reason?: string }` | Additions to existing permissions, default `[]`. Regex sources preserve their literal anchors and compile case-insensitively under [confirmation rules](decisions/confirm-patterns.md). Mixed lists retain valid entries in order and report skipped sources; nonempty entirely invalid lists refuse. |
+| `egress` | `mode`: `record`/`allowlist`; `allow`, `deny`: string arrays; `max_bytes_per_turn`: nonnegative safe integer | `record`, empty lists and no byte cap by default. This reader does not establish network enforcement. |
+| `outward` | `allow`: array of `{ command: string, remotes: string[] }`; `hosts`: string array | Default empty additions to the existing outward-action rules and built-in destination list. Parsing grants no action. |
+| `taint` | `egress: { allow: string[] }` | Default empty additions; session-derived hosts/inference relay and taint enforcement remain their owning guardrail's responsibility. |
+| `providers` | Array of `{ paths: string[], allow: string[] }` | Default `[]`; path patterns and named providers are data for the routing guardrail. Parsing does not activate filtering or a relay. |
+
+The [budget](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
+and [scope](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)
+rulings supply these defaults. The reader selects profiles and protected paths;
+budget, scope, command, egress, outward, taint and provider enforcement belongs
+to the corresponding guardrails and is not implied by a valid check.
+
+At every interactive/voice admission, the host reads the policy as data and
+captures an immutable effective policy/hash for that turn. Invalid edits record
+their validation notice and retain the process's last valid policy/hash; before
+any valid file, they use built-in defaults with a null effective hash. A missing
+optional file selects defaults without an error. A running turn retains its
+captured identity; a later load cannot mutate it. Policy edits remain outside
+turns or use the separately approved proposal route, never a worker write.
+
+`brain policy check --json` is read-only, does not execute `brain.config.ts`,
+and reports the [documented envelope](integration-contract/cli.md#governance-policy-check-additive-1650).
+It checks the current file independently of any server's last-valid cache.
+
 ## Brain configuration
 
 `brain.config.ts` default-exports its config object; `defineConfig` supplies
