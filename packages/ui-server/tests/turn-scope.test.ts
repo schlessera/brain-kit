@@ -103,7 +103,8 @@ test("one long single Bash loop is frozen by the real 15-second observation befo
     expect(await Bun.file(join(f.brain, "finished")).exists()).toBe(false);
     f.scope.decide(f.message("stop"), true); await child.exited;
   } finally { monitor?.kill("SIGKILL"); if (monitor) await monitor.exited; child?.kill("SIGKILL"); if (child) await child.exited; f.close(); }
-}, 30_000);
+// Cold retained-version capture follows the independently asserted 15s freeze.
+}, 60_000);
 
 test.each(["running", "pausedFloor"])("small tmpfs brain: %s crosses the real statfs floor and permits Stop only", async mode => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-scope-tmpfs-"));
