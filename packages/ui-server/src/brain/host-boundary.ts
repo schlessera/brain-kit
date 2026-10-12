@@ -24,8 +24,8 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
-  runMaintenanceWorkerSync, workerHostProven, type MaintenanceCommand, type WorkerHostProbe,
+  WorkerStateError, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
@@ -127,7 +127,7 @@ export const hostExecution = {
   /** The same probe a turn's gate runs, so a test double stands in for both. */
   probe: (brainPath: string): WorkerHostProbe => workerHostBoundary.probe(brainPath),
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
-  maintenanceProbe: (brainPath: string): WorkerHostProbe => probeMaintenanceWorker(brainPath),
+  maintenanceProbe: (brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceCommand["tempDomain"]): WorkerHostProbe => probeMaintenanceWorker(brainPath, tempLimits, tempDomain),
   cwd: () => process.cwd(),
 };
 
@@ -150,6 +150,8 @@ export function governedAvailability(input: OperationalStateLayout & { workerHos
 }
 
 export interface HostBoundary {
+  /** Internal trusted admission settings, shared with hosted startup and short Git helpers. */
+  readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   readonly brainPath: string;
   /** Whether brain execution runs in maintenance workers. */
   isolated(): boolean;
@@ -168,6 +170,8 @@ export interface HostBoundary {
 
 export interface HostBoundaryOptions {
   profile?: "governed" | "strict";
+  /** Resolved once at the server/cron host edge. */
+  maintenanceTemp?: WorkerStateLimits;
   brainPath: string;
   exec?: ExecWrapperConfig;
   /** The UI database file; its directory is masked from every maintenance worker. */
@@ -236,9 +240,18 @@ function serverInstallation(): string[] {
 const OUTPUT_LOCK = Symbol.for("@schlessera/brain-ui-server/maintenance-output-lock");
 const outputSlot = globalThis as { [OUTPUT_LOCK]?: KeyedLock };
 const outputLock = outputSlot[OUTPUT_LOCK] ??= createKeyedLock();
+// Reuse only a completed successful maintenance qualification for the same
+// brain, admission domain and limits. Independent clients must not probe
+// before their shared output lock while another qualified client is running.
+const MAINTENANCE_PROBES = Symbol.for("@schlessera/brain-ui-server/maintenance-probes");
+const probeSlot = globalThis as { [MAINTENANCE_PROBES]?: Map<string, Extract<WorkerHostProbe, { ok: true }>> };
+const passedMaintenanceProbes = probeSlot[MAINTENANCE_PROBES] ??= new Map();
+
 
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
+  const maintenanceTemp = options.maintenanceTemp ? resolveMaintenanceTempLimits(options.maintenanceTemp) : hostMaintenanceTempLimits();
   const brain = real(options.brainPath);
+  const tempDomain = options.dbPath && options.dbPath !== ":memory:" ? { statePath: resolve(options.dbPath) } : undefined;
   const exec = options.exec ?? {};
   let mirror: string | undefined;
   let probed: WorkerHostProbe | undefined;
@@ -248,11 +261,26 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // private network namespace and all: governed is unavailable without one.
   // A pass is kept; a failure is asked again after a minute.
   let maintenance: { probe: WorkerHostProbe; at: number } | undefined;
+  let maintenanceBusy = false;
+  const maintenanceKey = JSON.stringify([brain, tempDomain ? real(tempDomain.statePath) : null,
+    maintenanceTemp.allowanceBytes, maintenanceTemp.budgetBytes]);
   const workerHost = (): WorkerHostProbe => {
     const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
     if (!ordinary.ok) return ordinary;
     if (!maintenance || (!maintenance.probe.ok && Date.now() - maintenance.at > 60_000)) {
-      maintenance = { probe: hostExecution.maintenanceProbe(brain), at: Date.now() };
+      try {
+        const checked = passedMaintenanceProbes.get(maintenanceKey)
+          ?? hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain);
+        maintenanceBusy = false;
+        maintenance = { probe: checked, at: Date.now() };
+        if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
+      } catch (error) {
+        if (!(error instanceof WorkerStateError) || error.errorClass !== "worker_state_busy") throw error;
+        // Capacity says nothing about host capability. Do not cache this as a
+        // containment failure or select host execution; next admission retries.
+        maintenanceBusy = true;
+        return { ok: false, requirement: error.message };
+      }
     }
     return maintenance.probe;
   };
@@ -263,7 +291,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const isolated = () => {
     if (options.history?.() === true) return true;
     const availability = governed();
-    return availability.available || (availability.reason === "worker_host_unavailable" && workerHostProven(brain));
+    return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceBusy || workerHostProven(brain)));
   };
 
   const maskPaths = operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths });
@@ -283,6 +311,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     if (exec.wrapper && !existsSync(exec.wrapper)) throw new Error(`The exec wrapper ${exec.wrapper} does not exist`);
     return {
       brainPath: brain,
+      tempLimits: maintenanceTemp,
+      ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.
       command: wrapCommand(argv, exec.wrapper),
       env,
@@ -326,6 +356,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
 
   return {
     brainPath: brain,
+    maintenance: {tempLimits:maintenanceTemp,maskPaths,...(tempDomain ? {tempDomain} : {})},
     isolated,
     governed,
     status: () => {

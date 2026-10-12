@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
@@ -19,9 +20,9 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
  * factory's test green while every turn shipped deferred tools again.
  */
 describe("the SDK options a turn is built with", () => {
-  function turnFor(brain: string, bridge: Record<string, unknown>, noGrantSurface = false) {
+  function turnFor(brain: string, bridge: Record<string, unknown>, noGrantSurface = false, maintenance?: worker.MaintenanceHost) {
     return createClaudeSdkTurn({
-      backend: { brainPath: brain } as never,
+      backend: { brainPath: brain, maintenance } as never,
       req: {
         prompt: "hello",
         turnBudgetMs: 180_000,
@@ -161,4 +162,19 @@ test("an autonomous turn states its turn-temp allowance without a tool it does n
     expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__turn_temp");
     expect(turn.options.hooks?.PostToolUse ?? []).toHaveLength(0);
   } finally { rmSync(brain, { recursive: true, force: true }); }
+});
+
+
+test("Claude startup forwards host maintenance admission without adding it to worker environment",async()=>{
+ const brain=mkdtempSync(join(tmpdir(),"claude-maintenance-context-"));
+ const maintenance={tempLimits:{allowanceBytes:8388608,budgetBytes:16777216},tempDomain:{statePath:join(brain,"..","odysseus-ui.db")},maskPaths:["/tmp/odysseus-state"]};
+ const prepare=worker.prepareWorkerSandbox;let seen:unknown;
+ const capture=spyOn(worker,"prepareWorkerSandbox").mockImplementation((root,options)=>{seen=options?.maintenance;return prepare(root,options);});
+ try{
+  const turn=createClaudeSdkTurn({backend:{brainPath:brain,maintenance},req:{prompt:"Return to Ithaca",signal:new AbortController().signal,bridge:{emit:()=>{},requestPermission:async()=>({behavior:"allow"})}},
+   profile:{requiredEnvKeys:[],buildEnv:()=>({})} as never,abortController:new AbortController(),allowedTools:[],confirmPatterns:[],turnLock:{acquire:()=>undefined,release:()=>undefined} as never,log:()=>{}});
+  expect(seen,"CLAUDE_STARTUP_SHARED_ADMISSION").toEqual(maintenance);
+  expect(JSON.stringify(turn.options.env)).not.toContain(maintenance.tempDomain.statePath);
+  await turn.finishWorker();
+ }finally{capture.mockRestore();rmSync(brain,{recursive:true,force:true});}
 });

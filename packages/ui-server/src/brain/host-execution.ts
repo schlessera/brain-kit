@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import type { WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import type { WorkerHostProbe, WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { assertOperationalStateOutsideBrain, type OperationalStateLayout } from "./operational-state.js";
 import { createUiDb } from "../db/client.js";
 import { createHostBoundary, type HostBoundary } from "./host-boundary.js";
@@ -66,6 +66,7 @@ export interface HostExecution {
 }
 
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
+  maintenanceTemp?: WorkerStateLimits;
   privateStatePaths?: OperationalStateLayout["privateStatePaths"]; profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
   assertOperationalStateOutsideBrain(options);
   let gate: WriterGate | null = null;
@@ -76,6 +77,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   const open = (db: Database) => createGovernedManifests(db, { brainPath: options.brainPath,
     quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}) });
   const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
+    ...(options.maintenanceTemp ? { maintenanceTemp: options.maintenanceTemp } : {}),
     ...(options.exec ? { exec: options.exec } : {}), ...(options.home ? { home: options.home } : {}),
     ...(options.log ? { log: options.log } : {}), ...(options.requireGate ? { requireGate: true } : {}),
     ...(options.workerHost ? { workerHost: options.workerHost } : {}),

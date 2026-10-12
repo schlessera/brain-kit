@@ -326,7 +326,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
-  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, privateStatePaths,
+  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
@@ -411,6 +411,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const registry =
     options.registry ??
     createBackendRegistry({
+      maintenance: boundary.maintenance,
       versionRequirements: backendRequirements,
       brainPath: config.brainPath,
       agent: config.agent,
@@ -454,6 +455,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) }),
+    maintenance: boundary.maintenance,
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,

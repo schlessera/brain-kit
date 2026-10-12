@@ -15,7 +15,7 @@ import { Database } from "bun:sqlite";
 import {
   chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { boundaryPlanner, createBrainApplication } from "../src/brain/application";
@@ -58,8 +58,8 @@ function fixture(options: { config?: boolean | "plain" } = {}) {
   const root = mkdtempSync(join(ROOT, "tmp/host-boundary-"));
   roots.push(root);
   const brain = join(root, "brain");
-  const outside = join(root, "outside");
-  mkdirSync(outside);
+  const outside = join(root, "db", "sentinel");
+  mkdirSync(outside, { recursive: true });
   cpSync(CORPUS, brain, { recursive: true });
   const sentinel = join(outside, "host-sentinel");
   const proof = join(brain, "evaluated.log");
@@ -80,6 +80,7 @@ function helperSource(sentinel: string, proof: string, label: string): string {
 import { dirname } from "node:path";
 try { mkdirSync(dirname(${JSON.stringify(sentinel)}), { recursive: true }); writeFileSync(${JSON.stringify(sentinel)}, ${JSON.stringify(label)}); } catch {}
 // A read-only view of the brain (the worker host probe's) records nothing.
+// Maintenance masks are read-only too; executed code records its refusal below.
 try { appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/evaluated.log" : ${JSON.stringify(proof)}, ${JSON.stringify(label)} + " ran; dotenv=" + (process.env.BRAIN_DOTENV_MARK ?? "unset") + "; sentinel " + (existsSync(${JSON.stringify(sentinel)}) ? "written" : "refused") + "\\n"); } catch {}
 `;
 }
@@ -106,7 +107,7 @@ function evaluatedOnlyInWorkers(f: ReturnType<typeof fixture>, label: string) {
   expect(readdirSync(f.outside), "nothing was created outside the brain").toEqual([]);
   const lines = readFileSync(f.proof, "utf8").trim().split("\n");
   expect(lines.length, `${label} ran at least once`).toBeGreaterThan(0);
-  for (const line of lines) expect(line, "each evaluation saw its own private view of the sentinel").toMatch(/sentinel written$/);
+  for (const line of lines) expect(line, "each evaluation ran with the host sentinel masked read-only").toMatch(/sentinel refused$/);
   return lines;
 }
 
@@ -117,9 +118,11 @@ function bootApp(brain: string, dbPath: string, options: Pick<CreateAppOptions, 
     registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
 }
 
-/** Masks the sentinel's directory too, so the proof does not depend on where the checkout lives. */
+/** The empty sentinel child shares the operational-state mask; only host-owned admission writes beside it. */
 function boundaryFor(brain: string, outside: string) {
-  return createHostBoundary({ brainPath: brain, dbPath: join(outside, "brain-ui.db") });
+  const state = dirname(outside);
+  mkdirSync(state, { recursive: true });
+  return createHostBoundary({ brainPath: brain, dbPath: join(state, "brain-ui.db") });
 }
 
 describe("the host execution boundary (#1648)", () => {
@@ -220,7 +223,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
     const f = fixture({ config: "plain" });
     installCli(f.brain);
     const dbPath = join(f.root, "db/brain-ui.db");
-    mkdirSync(join(f.root, "db"));
+    mkdirSync(join(f.root, "db"), { recursive: true });
     const cron = createUiDb(dbPath);
     try {
       const sync = await createWriterGate(cron, f.brain).acquire("exclusive", "cron sync");
@@ -238,7 +241,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
     const f = fixture({ config: "plain" });
     installCli(f.brain);
     const dbPath = join(f.root, "db/brain-ui.db");
-    mkdirSync(join(f.root, "db"));
+    mkdirSync(join(f.root, "db"), { recursive: true });
     const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {} });
     const db = createUiDb(dbPath);
     try {
@@ -277,7 +280,7 @@ describe("cron jobs (#1648)", () => {
     const f = fixture({ config: "plain" });
     installCli(f.brain);
     const dbPath = join(f.root, "db/brain-ui.db");
-    mkdirSync(join(f.root, "db"));
+    mkdirSync(join(f.root, "db"), { recursive: true });
     const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, requireGate: true });
     const db = createUiDb(dbPath);
     try {

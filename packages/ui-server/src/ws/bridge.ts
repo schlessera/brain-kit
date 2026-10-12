@@ -508,7 +508,7 @@ export function makeBridge(
     };
     bridge.applyBrain = input => apply({ principalId, turnId, input });
     if (backendId === "claude" || backendId === "pi") {
-      const applyMask = createMaskApplication({ root: host.brainPath, backend: backendId, principalId, turnId, signal,
+      const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths,
         lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
         record: result => recorder?.recordApplication?.(result) });

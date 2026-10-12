@@ -94,6 +94,8 @@ export interface BackendModelSource {
 
 /** @experimental Inputs a host supplies without knowing a backend's implementation. */
 export interface BackendModuleContext {
+  /** Trusted host maintenance admission for startup helpers; never worker authority. */
+  maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   brainPath: string;
   /** Resolved host configuration. Backend modules own the keys they consume. */
   config: Readonly<Record<string, unknown>>;

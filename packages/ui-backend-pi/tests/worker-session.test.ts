@@ -197,3 +197,14 @@ test("Pi publication refusal fails the turn without unhandled lifecycle rejectio
   expect(terminal(frames), "PI_PUBLICATION_REFUSAL_HANDLED").toMatchObject({ outcome: "error" });
   await Bun.sleep(10);
 });
+test("pi startup forwards trusted host admission and keeps it out of the worker init payload",async()=>{
+ const maintenance={tempLimits:{allowanceBytes:8388608,budgetBytes:16777216},tempDomain:{statePath:join(root,"ui.db")},maskPaths:[join(root,"state")]};
+ const prepare=worker.prepareWorkerSandbox;let seen:unknown;
+ const capture=spyOn(worker,"prepareWorkerSandbox").mockImplementation((path,options)=>{seen=options?.maintenance;return prepare(path,options);});
+ try{
+  await createPiBackend({brainPath:brain,sessionDir,maintenance}).startTurn({prompt:"Return to Ithaca",signal:new AbortController().signal,
+   bridge:{emit:()=>{},requestPermission:async()=>({behavior:"allow"})}});
+  expect(seen,"PI_STARTUP_SHARED_ADMISSION").toEqual(maintenance);
+  expect(JSON.stringify(receivedInit)).not.toContain(maintenance.tempDomain.statePath);
+ }finally{capture.mockRestore();}
+});

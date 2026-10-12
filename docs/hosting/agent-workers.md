@@ -301,6 +301,66 @@ and the route: `brain render` and `brain image` say to use `--scratch`.
 
 ## Maintenance workers: the server never runs the brain's code (#1648)
 
+Maintenance commands have a separate **256 MiB** temporary-write allowance,
+reserved in full against a separate **256 MiB** aggregate budget before any
+repository code executes (#1708). `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and
+`BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES` override them with positive, safe,
+4096-byte-aligned counts; the aggregate must cover one allowance. Raise the
+aggregate explicitly for parallel maintenance. Neither value derives from
+agent-session concurrency or uses agent turn temp, runtime state or the
+separately bounded startup/publication storage.
+
+Each command's sized private `/tmp` contains scratch and fresh XDG config,
+cache, data and state directories. Credential-free HOME is also in that
+filesystem. Credentialed HOME is readable but read-only; writes requiring a
+writable HOME refuse honestly. Host masks and `/dev`, including `/dev/shm`,
+are read-only. The transport worker's empty root and device mount are also
+read-only, while its bounded `/tmp` and selected mirror mounts remain writable.
+Authoritative brain/publication outputs, the host-owned Git
+mirror and explicitly selected span sinks retain their existing ownership and
+storage boundaries; they are not temporary overflow destinations.
+
+The maintenance-only nested-usernamespace restriction was explicitly approved
+on [#1708](https://github.com/schlessera/brain-kit/issues/1708#issuecomment-6128047037).
+Both repository-evaluating maintenance and its separate host-owned Git
+transport receive `--disable-userns` and `--assert-userns-disabled`;
+an implementation unable to enforce them refuses at startup through the
+existing worker-host requirement. A maintenance command needing another user
+namespace is unsupported. Outer worker namespaces, credentials, egress,
+command membership and agent-turn profiles are unchanged.
+
+Server and cron select their admission ledger from the canonical configured
+UI database identity, beside that existing host operational state. This
+shares the budget across authorized server/cron users and different launcher
+temporary directories. Ledger creation follows the state's existing owner,
+group and access; it grants no new access and changes no UI-state permissions.
+The ledger can admit the boot probe without prematurely creating the UI
+database. Backend recreation and configuration changes retain live rows.
+
+A host check that cannot reserve its allowance reports the actual busy reason
+without claiming the uncompleted qualification passed. It retries once capacity
+is released and keeps repository execution on the worker path. Independent
+clients may reuse a completed successful qualification for the same brain,
+state identity and resolved limits, so probing does not race their serialized
+output lifecycle. Other commands still obtain their own full reservations.
+
+Standalone SDK calls without persistent UI state keep a private per-uid
+ledger under `/tmp/brain-maintenance-budget-<uid>/`. Separate private `/tmp`
+views have independent standalone domains. An in-memory UI database provides
+no shared persistent state identity and uses that standalone domain.
+
+Both domains record full allowances, boot, PID-namespace and process-start
+identities, and attach the bootstrap before exec. A live attached worker
+remains counted if its launcher dies; positively dead ownership is recovered
+on the next admission. Sharing state across different PID namespaces does
+not establish globally recoverable process ownership: unverified foreign
+ownership remains held. Actual shared-state admission, release and crash
+recovery are qualified with distinct server/cron uids in the same PID
+namespace. Reservations are released idempotently after worker exit. This is
+logical capacity accounting, not reserved RAM. Busy admission refuses with
+`worker_state_busy`; no code ran and no agent runtime state was lost. Temporary
+filesystem exhaustion is `ENOSPC`; it does not authorize a host-backed fallback.
+
 Once a turn can write the brain (the `governed` profile), every file the
 brain supplies is agent-writable input: `brain.config.ts` and whatever it
 imports, a `bunfig.toml` preload, an `.env`, git's includes, filters and
@@ -345,7 +405,7 @@ refuses rather than run git on the host.
   is free.
 - **Credentialed** work receives the credentials it was always given
   (the `brainCli` or `cron` audience), the host network, and the server's
-  `$HOME` read through an overlay whose writes vanish. That is the interim
+  `$HOME` read-only, with temporary tool writes in private bounded XDG directories. That is the interim
   exposure the [decision record](../decisions/governed-writable-workers.md#the-host-execution-boundary)
   names until the metered relays land: code the agent can
   write, such as a helper the config imports, could read those credentials.

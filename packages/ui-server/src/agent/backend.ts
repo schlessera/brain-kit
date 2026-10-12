@@ -41,6 +41,7 @@ function toBackendLog(log: Logger): BackendLogFn {
 }
 
 export interface BackendRegistryOptions {
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Explicit host minima forwarded to every active descriptor. */
   versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>;
   brainPath: string;
@@ -491,6 +492,7 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
       const { descriptor } = parsed;
 
       const baseContext: BackendModuleContext = {
+        ...(options.maintenance ? { maintenance: options.maintenance } : {}),
         brainPath,
         config: { ...agent },
         profiles: parsed.profiles,

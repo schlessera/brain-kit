@@ -81,6 +81,7 @@ export const MAX_SESSION_QUEUE = 50;
 export interface WsHostOptions {
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
@@ -227,6 +228,7 @@ export class WsHost {
   readonly applicationPlanner?: ApplicationPlanner;
   /** @internal Hosted worker admission/reconciliation. */
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -298,6 +300,7 @@ export class WsHost {
     this.brainPath = options.brainPath;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
+    this.maintenance = options.maintenance;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);

@@ -23,3 +23,9 @@ export function outputStagingEnvironment(): Record<string, string | undefined> {
   return Object.fromEntries(["BRAIN_UI_OUTPUT_STAGING_BYTES", "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES", "MAX_CONCURRENT_SESSIONS"]
     .map(name => [name, readEnvVar(name)]));
 }
+
+/** Trusted host edge; never the environment a maintenance command supplies. */
+export function maintenanceTempEnvironment(): Record<string, string | undefined> {
+  return { BRAIN_UI_MAINTENANCE_TEMP_BYTES: readEnvVar("BRAIN_UI_MAINTENANCE_TEMP_BYTES"),
+    BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES: readEnvVar("BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES") };
+}

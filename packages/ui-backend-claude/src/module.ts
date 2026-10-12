@@ -269,6 +269,7 @@ export const backendModule: BackendModule = defineBackendModule({
       const turnTempBytes = configNumber(context, "turnTempBytes");
       const turnTempBudgetBytes = configNumber(context, "turnTempBudgetBytes");
       const backend = createClaudeBackend({
+        ...(context.maintenance ? { maintenance: context.maintenance } : {}),
         brainPath: context.brainPath,
         workerState: { ...(allowanceBytes !== undefined ? { allowanceBytes } : {}), ...(budgetBytes !== undefined ? { budgetBytes } : {}) },
         turnTemp: { ...(turnTempBytes !== undefined ? { allowanceBytes: turnTempBytes } : {}),

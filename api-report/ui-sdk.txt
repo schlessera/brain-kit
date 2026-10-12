@@ -781,6 +781,8 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES
+  DEFAULT_MAINTENANCE_TEMP_BYTES
   DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
@@ -792,9 +794,12 @@ export "./internal" (./src/internal.ts)
   type InferenceRelayOptions
   type LaunchedWorker
   MAINTENANCE_HOME
+  MAINTENANCE_TEMP_BUDGET_ENV
+  MAINTENANCE_TEMP_BYTES_ENV
   MAX_INFERENCE_REQUEST_BYTES
   type MaintenanceCommand
   type MaintenanceEnvelope
+  type MaintenanceHost
   type MaintenanceResult
   type MaintenanceWorker
   OUTPUT_STAGING_BUDGET_ENV
@@ -876,6 +881,7 @@ export "./internal" (./src/internal.ts)
   execWrapperSpawnOptions
   handleTurnTemp
   hasWebSearchCredential
+  hostMaintenanceTempLimits
   hostOutputStagingLimits
   isEnvName
   launchAgentWorker
@@ -905,6 +911,7 @@ export "./internal" (./src/internal.ts)
   readWebSearchOverride
   readWebSearchRouting
   requireWorkerHost
+  resolveMaintenanceTempLimits
   resolveOutputStagingLimits
   resolveTurnTempLimits
   resolveWebSearchConfigPath
@@ -4529,6 +4536,7 @@ signatures (every public export and the types it is made of)
     }
   BackendModuleContext (packages/ui-sdk/src/server/backend-module.ts)
     export interface BackendModuleContext {
+        maintenance?: import("./maintenance-worker.js").MaintenanceHost;
         brainPath: string;
         config: Readonly<Record<string, unknown>>;
         profiles: readonly BackendProfileDeclaration[];
@@ -5378,6 +5386,16 @@ signatures (every public export and the types it is made of)
     }
   ENV_VARS (packages/ui-sdk/src/config/env-vars.ts)
     const ENV_VARS: readonly [{
+        readonly default: "268435456";
+        readonly description: "Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC.";
+        readonly name: "BRAIN_UI_MAINTENANCE_TEMP_BYTES";
+        readonly required: false;
+    }, {
+        readonly default: "268435456";
+        readonly description: "Separate aggregate maintenance temporary-write budget, shared atomically by server and cron processes. Positive page-aligned integer covering at least one command allowance. Busy admission refuses with worker_state_busy before execution. Not derived from agent session concurrency.";
+        readonly name: "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES";
+        readonly required: false;
+    }, {
         readonly description: "Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override.";
         readonly name: "BRAIN_WORKER_LAUNCH";
         readonly required: "trusted worker bootstrap only";
@@ -5774,6 +5792,7 @@ signatures (every public export and the types it is made of)
   ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export interface ImageMaskHandlerOptions {
         brainPath: string;
+        maintenance?: import("../maintenance-worker.js").MaintenanceHost;
         maskFilename(submittedImagePath: string, canonicalImagePath: string): string;
         reportMaskPath(brainPath: string, maskPath: string, absoluteMaskPath: string, canonicalMaskPath: string): string;
     }
@@ -6120,6 +6139,16 @@ signatures (every public export and the types it is made of)
     const MAX_SERVER_FRAME_BYTES: 2000000;
   MAX_TOTAL_IMAGE_BYTES (packages/ui-sdk/src/protocol.ts)
     const MAX_TOTAL_IMAGE_BYTES: 8000000;
+  MaintenanceHost (packages/ui-sdk/src/server/maintenance-worker.ts)
+    export interface MaintenanceHost {
+        tempLimits?: WorkerStateLimits;
+        tempDomain?: MaintenanceTempDomain;
+        maskPaths?: readonly string[];
+    }
+  MaintenanceTempDomain (packages/ui-sdk/src/server/maintenance-temp-budget.ts)
+    export interface MaintenanceTempDomain {
+        statePath: string;
+    }
   MapDetail (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   MapPlace (packages/ui-sdk/src/tool-contracts/blocks.ts)
     export type MapPlace = z.infer<typeof MAP_PLACE_SCHEMA>;
@@ -9024,6 +9053,11 @@ signatures (every public export and the types it is made of)
             source: WorkerLimitSource;
             reason: string;
         }>;
+    }
+  WorkerStateLimits (packages/ui-sdk/src/server/worker-state-limits.ts)
+    export interface WorkerStateLimits {
+        allowanceBytes: number;
+        budgetBytes: number;
     }
   WrappedKillOptions (packages/ui-sdk/src/server/exec-wrapper.ts)
     export interface WrappedKillOptions {

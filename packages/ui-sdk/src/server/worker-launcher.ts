@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
-import { hostOutputStagingLimits, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
+import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_DIRS,
@@ -104,7 +104,9 @@ export interface WorkerLaunch {
    */
   maintenance?: MaintenanceEnvelope;
   /** Host Git transport: an empty root, explicit system/runtime mounts, and no brain mount. */
-  transport?: { mirror: string; readPaths: readonly string[]; writePaths?: readonly string[] };
+  transport?: { mirror: string; readPaths: readonly string[]; writePaths?: readonly string[]; tempBytes?: number };
+  /** Trusted maintenance admission attached by the bootstrap before exec. */
+  maintenanceReservation?: { id: string; directory: string; statePath?: string };
 }
 
 /**
@@ -118,6 +120,7 @@ export const HOST_MASKS = ["/run", "/var/run", "/var/lib", "/home", "/root", "/m
 
 /** The private, empty `$HOME` of a credential-free maintenance worker, on its own `/tmp`. */
 export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";
+export const MAINTENANCE_XDG_DIRS = { ...WORKER_XDG_DIRS, XDG_STATE_HOME: "/tmp/brain-maintenance-state" } as const;
 
 export interface MaintenanceEnvelope {
   git?: { source: string; target: string; entry: string; binary: string };
@@ -125,6 +128,8 @@ export interface MaintenanceEnvelope {
   output?: { source: string; target: string };
   /** Agent profiles make the empty host masks read-only. */
   readOnlyMasks?: boolean;
+  /** One sized /tmp for all maintenance temporary writes; never agent turn temp. */
+  tempBytes?: number;
   /** The host network namespace. Otherwise a private one with only loopback. */
   network: boolean;
   /**
@@ -136,8 +141,7 @@ export interface MaintenanceEnvelope {
   /**
    * The server's home, made visible again below the home masks. Only a
    * credentialed worker gets it (the interim exposure the decision record
-   * names): read through an overlay whose writes vanish with the worker, or a
-   * read-only bind where the host cannot overlay.
+   * names): a read-only bind. Writable tool directories live in bounded /tmp.
    */
   home?: { path: string; overlay: boolean };
   /** Host files and directories bound back read-only after the masks: the runtime, the entry and its packages. */
@@ -238,7 +242,9 @@ function transportMounts(envelope: NonNullable<WorkerLaunch["transport"]>, brain
     if (within(source, brain) || within(brain, source)) throw new WorkerHostError("a transport mount must not expose the brain or its ancestors");
     index += 2;
   }
-  argv.push("--dir", MAINTENANCE_HOME);
+  argv.push("--dir", MAINTENANCE_HOME,
+    ...Object.values(MAINTENANCE_XDG_DIRS).flatMap(path => ["--dir", path]),
+    "--dir", "/dev/shm", "--remount-ro", "/dev", "--remount-ro", "/");
   return argv;
 }
 
@@ -321,6 +327,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
   }
   const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);
+  const readOnlyMasks = new Set(masks);
   const bound = new Set<string>();
   const bindBack = (requested: string) => {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker read paths must be absolute");
@@ -348,10 +355,11 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker sees the server's home");
     const home = realpathSync(envelope.home.path);
     if (home === "/" || within(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
-    argv.push(...(envelope.home.overlay ? ["--overlay-src", home, "--tmp-overlay", home] : ["--ro-bind", home, home]));
+    if (envelope.home.overlay) throw new WorkerHostError("maintenance HOME overlays are not bounded; use read-only HOME and bounded XDG directories");
+    argv.push("--ro-bind", home, home);
     // A mask inside the home (the UI database's directory below it) is laid
     // again over the home just bound back.
-    for (const mask of resolved) if (mask !== home && within(home, mask)) argv.push("--tmpfs", mask);
+    for (const mask of resolved) if (mask !== home && within(home, mask)) { argv.push("--tmpfs", mask); readOnlyMasks.add(mask); }
   }
   argv.push("--bind", brain, brain);
   if (!envelope.credentials) {
@@ -371,7 +379,13 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     }
     argv.push("--bind", real, real);
   }
-  if (envelope.readOnlyMasks) argv.push(...masks.flatMap(mask => ["--remount-ro", mask]));
+  if (envelope.readOnlyMasks || envelope.tempBytes !== undefined) {
+    for (const mask of readOnlyMasks) argv.push("--remount-ro", mask);
+  }
+  if (envelope.tempBytes !== undefined) {
+    argv.push(...Object.values(MAINTENANCE_XDG_DIRS).flatMap(path => ["--dir", path]),
+      "--dir", "/dev/shm", "--remount-ro", "/dev");
+  }
   return argv;
 }
 
@@ -471,9 +485,18 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (maintenance && (input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a maintenance worker has no restricted envelope, writable areas, agent runtime state or turn temp");
   }
-  const sized = input.turnTempBytes !== undefined;
+  const tempBytes = maintenance ? maintenance.tempBytes ?? DEFAULT_MAINTENANCE_TEMP_BYTES
+    : transport ? transport.tempBytes ?? DEFAULT_MAINTENANCE_TEMP_BYTES : input.turnTempBytes;
+  if (maintenance || transport) {
+    validWorkerStateBytes(tempBytes, "maintenance temporary-write allowance", DEFAULT_MAINTENANCE_TEMP_BYTES);
+    if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
+  }
+  const sized = tempBytes !== undefined;
   const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined);
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+    // Explicit maintainer approval on #1708: maintenance commands cannot
+    // create nested user namespaces; startup asserts that enforcement.
+    ...(maintenance || transport ? ["--disable-userns", "--assert-userns-disabled"] : []),
     ...(input.restricted || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
@@ -481,7 +504,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // Turn temp: a private tmpfs of exactly the allowance (#1703). Nothing on
     // the host backs it, and no other worker's namespace can see it.
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev",
-    ...(sized ? ["--size", String(input.turnTempBytes), "--tmpfs", TURN_TEMP_ROOT] : ["--tmpfs", TURN_TEMP_ROOT]),
+    ...(sized ? ["--size", String(tempBytes), "--tmpfs", TURN_TEMP_ROOT] : ["--tmpfs", TURN_TEMP_ROOT]),
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
       network: true, credentials: false, readOnlyMasks: true,
@@ -593,6 +616,7 @@ export interface PrepareWorkerSandboxOptions {
   appearedPaths?: readonly string[];
   readPaths?: readonly string[];
   maskPaths?: readonly string[];
+  maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   restricted?: boolean;
   /** The `HOME` the worker will be given; scratch is checked with it. */
   home?: string;
@@ -625,7 +649,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
     // table) leaves the area read-only for the turn rather than failing it.
     try {
       if (name === "scratch") {
-        const scratch = resolveScratchMount(brain);
+        const scratch = resolveScratchMount(brain, options.maintenance);
         removed = scratch.removed;
         areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
       } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain) });

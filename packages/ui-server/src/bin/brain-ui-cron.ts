@@ -101,8 +101,8 @@ function runOptions(args: string[]): {
  * reconciled here too, before this process evaluates anything in the brain.
  * Gated jobs refuse rather than run without the gate.
  */
-function cronHostExecution(config: { brainPath: string; dbPath: string; exec: ExecWrapperConfig }, options: { gate: boolean }) {
-  const execution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, requireGate: options.gate });
+function cronHostExecution(config: { brainPath: string; dbPath: string; exec: ExecWrapperConfig; maintenanceTemp?: import("@schlessera/brain-ui-sdk/internal").WorkerStateLimits }, options: { gate: boolean }) {
+  const execution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {
       if (!result.quarantined.length && !result.failed.length) continue;

@@ -188,6 +188,7 @@ export const backendModule: BackendModule = defineBackendModule({
       const turnTempBytes = typeof context.config.turnTempBytes === "number" ? context.config.turnTempBytes : undefined;
       const turnTempBudgetBytes = typeof context.config.turnTempBudgetBytes === "number" ? context.config.turnTempBudgetBytes : undefined;
       const backend = createPiBackend({
+        ...(context.maintenance ? { maintenance: context.maintenance } : {}),
         brainPath: context.brainPath,
         turnTemp: { ...(turnTempBytes !== undefined ? { allowanceBytes: turnTempBytes } : {}),
           ...(turnTempBudgetBytes !== undefined ? { budgetBytes: turnTempBudgetBytes } : {}) },

@@ -156,8 +156,8 @@ function assembleClaudeSdkTurn(
   const childEnv = envelope?.env ?? turnEnv(profile);
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
-  const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
-    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME });
+  const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
+    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME, maintenance: backend.maintenance });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});

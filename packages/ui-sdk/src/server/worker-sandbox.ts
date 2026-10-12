@@ -317,17 +317,17 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
  * credential-free maintenance worker (#1648), which names the brain a safe
  * directory itself; a worker that cannot run leaves scratch read-only.
  */
-function scratchIgnoredByGit(brain: string): true | { refused: string } {
+function scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): true | { refused: string } {
   const git = Bun.which("git");
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
   if (!own) {
     if (!git) return true;
-    const inRepo = brainGitSync(brain, ["rev-parse", "--git-dir"]);
+    const inRepo = brainGitSync(brain, ["rev-parse", "--git-dir"], maintenance);
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = brainGitSync(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR]);
+  const exitCode = brainGitSync(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
@@ -345,7 +345,7 @@ function shown(paths: readonly string[]): string {
  * file also has a name outside scratch is unlinked first: scratch is
  * disposable, and the other name keeps its data.
  */
-export function resolveScratchMount(brain: string): { mount: WorkerMount; removed: string[] } {
+export function resolveScratchMount(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): { mount: WorkerMount; removed: string[] } {
   const dir = realBrainDirectory(brain, BRAIN_SCRATCH_DIR, true);
   if (dir === null || typeof dir === "object") return { mount: { writable: false, reason: dir?.refused ?? "missing" }, removed: [] };
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
@@ -361,7 +361,7 @@ export function resolveScratchMount(brain: string): { mount: WorkerMount; remove
       return { mount: { writable: false, reason: `the scratch alias ${rel} could not be removed (${(error as NodeJS.ErrnoException).code ?? error})` }, removed };
     }
   }
-  const ignored = scratchIgnoredByGit(brain);
+  const ignored = scratchIgnoredByGit(brain, maintenance);
   if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed };
   return { mount: { writable: true, path: dir }, removed };
 }
