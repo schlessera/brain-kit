@@ -1,3 +1,4 @@
+import { BudgetExceeded, BudgetUnavailable, inferenceBudgetNote } from "../brain/turn-budgets.js";
 import { withTrackFiles } from "../tracks/read.js";
 import type {
   BillingMode,
@@ -307,6 +308,7 @@ async function runRetainedSession(
       if (!turn.authorization.valid) {
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
+        host.budgets?.end(turn.turnId);
         turn.revision = undefined;
         dropHandedOver(current, REVOKED_REASON);
         next = dequeue();
@@ -367,6 +369,7 @@ async function runRetainedSession(
       // enforces revocation, so the timer only has to close the socket.
       host.expireAuthorizationContexts();
       if (!turn.authorization.valid) {
+        host.budgets?.end(turn.turnId);
         turn.revision = undefined;
         await failureRecording.finish();
         clearTimeout(timeoutHandle);
@@ -455,6 +458,7 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       let journalFailure: Error | undefined;
+      let budgetFailure: Error | undefined;
       try {
         if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
           || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
@@ -463,6 +467,15 @@ async function runRetainedSession(
         const preference = origin === "interactive"
           ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
         governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference);
+        if (governedHold && host.budgets) {
+          try { host.budgets.begin(turn.turnId,resumeId,governedHold.policy.policy,billing?.pricingRoute); }
+          catch (error) { if(error instanceof BudgetExceeded) throw error; throw new BudgetUnavailable(); }
+        }
+        try { if(governedHold && host.budgets) for(const item of host.budgets.warnings(turn.turnId)) host.activity?.governance?.({
+          kind:"budget_warning",turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:null,profile:governedHold.sandbox.profile ?? "strict",
+          payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
+            limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
+            observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,source:governedHold.policy.hash ? "policy":"default"}}); } catch {throw new BudgetUnavailable();}
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         if (governedHold && host.journal) {
           host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
@@ -503,7 +516,45 @@ async function runRetainedSession(
             ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
           governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
           governedHold ? { origin, actualProfile: governedHold.sandbox.profile === "governed" ? "governed" : "strict",
-            ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined
+            ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
+          host.budgets && governedHold ? (usage,backstop=false) => {
+            if (budgetFailure || abortController.signal.aborted || turn.cancelled) return;
+            try {
+              const saved = backstop ? host.budgets!.backstop(turn.turnId) : undefined;
+              const result = saved ? {receipt:saved,warnings:[],blocked:{...saved.scopes[0]!,blocked:true}} : host.budgets!.observe(turn.turnId,usage);
+              if (!result) return;
+              const attribution = {turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:null,
+                profile:governedHold!.sandbox.profile ?? "strict"} as const;
+              for (const item of result.warnings) host.activity?.governance?.({kind:"budget_warning",...attribution,
+                payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
+                  limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
+                  observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,
+                  source:governedHold!.policy.hash ? "policy":"default"}});
+              if (!backstop) {
+                const {costUsd:reportedCost,...counts}=usage;
+                void reportedCost;
+                host.sendToClients(withTurnScope({type:"usage",turnId:turn.turnId,usage:{...counts,
+                  ...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})},
+                  observedAt:result.receipt.observedAt,budget:result.receipt},turn));
+              }
+              if (result.blocked) {
+                const item=result.blocked;
+                host.activity?.governance?.({kind:"budget_block",...attribution,payload:{scope:item.scope,
+                  unit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? "usd":"tokens",
+                  limit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? item.blockUsd:item.blockTokens,
+                  observed:backstop ? item.costUsd ?? 0 : item.costUsd !== null && item.costUsd >= item.blockUsd ? item.costUsd:item.tokens!,
+                  source:governedHold!.policy.hash ? "policy":"default",stage:backstop ? "sdk_backstop":"mid_turn"}});
+                budgetFailure=new BudgetExceeded(item,backstop ? "sdk_backstop":"mid_turn");
+                recorder?.recordBudgetStop(budgetFailure.message);
+                abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,budgetFailure.message);
+              }
+              return {...usage,...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})};
+            } catch {
+              budgetFailure = new BudgetUnavailable();
+              recorder?.recordBudgetStop(budgetFailure.message,"budget_unavailable");
+              abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
+            }
+          } : undefined
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
@@ -519,7 +570,8 @@ async function runRetainedSession(
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
               userRevert: Boolean(host.turnReverts && host.journal && host.journal.summary(turn.turnId).state === "recording" && work?.posture !== "voice") },
           } }, workerLock: host.workerLock } : {}),
-          prompt,
+          prompt: host.budgets && governedHold ? `${prompt}\n\n${inferenceBudgetNote(host.budgets.receipt(turn.turnId))}` : prompt,
+          ...(host.budgets && governedHold ? {maxBudgetUsd:host.budgets.remaining(turn.turnId)} : {}),
           attachments,
           sessionId: resumeId,
           profileId,
@@ -542,6 +594,7 @@ async function runRetainedSession(
         // Final observation is part of this host outcome, after worker writes
         // stop and before its Activity terminal, quarantine or gate release.
         host.journal?.finish(turn.turnId);
+        if (budgetFailure) throw budgetFailure;
         if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
         // never narrated, and the receipt keeps the reason.
@@ -571,15 +624,26 @@ async function runRetainedSession(
                 : "success"
         );
       } catch (err) {
-        const terminal = journalFailure ?? err;
+        const terminal = budgetFailure ?? journalFailure ?? err;
+        if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {
+          recorder?.recordBudgetStop(terminal.message);
+          const item=terminal.observation;
+          host.activity?.governance?.({kind:"budget_block",turnId:turn.turnId,sessionId:turn.sessionId,
+            actor:work?.posture === "voice" ? "voice":"interactive",model:null,profile:governedHold?.sandbox.profile ?? "strict",
+            payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.blockUsd ? "usd":"tokens",
+              limit:item.costUsd !== null && item.costUsd >= item.blockUsd ? item.blockUsd:item.blockTokens,
+              observed:item.costUsd !== null && item.costUsd >= item.blockUsd ? item.costUsd:item.tokens!,
+              source:governedHold?.policy.hash ? "policy":"default",stage:"admission"}});
+        }
+        if (terminal instanceof BudgetUnavailable) recorder?.recordBudgetStop(terminal.message,"budget_unavailable");
         emitTurnError(host, turn, terminal);
         recorder?.finish(
-          turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
+          budgetFailure ? "error" : turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
         // A host timeout is host-terminal like a cancel: its late result is
         // never narrated (the work keeps the reason).
-        workOutcome = turn.cancelled || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
-        workReason = !turn.cancelled && !journalFailure && abortController.signal.aborted
+        workOutcome = budgetFailure ? "error" : turn.cancelled || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
+        workReason = !turn.cancelled && !budgetFailure && !journalFailure && abortController.signal.aborted
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
@@ -603,6 +667,7 @@ async function runRetainedSession(
         if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
         // The recorder has written the terminal: from here on the Activity
         // record, not this slot, answers for the request (#964).
+        host.budgets?.end(turn.turnId);
         turn.revision = undefined;
         turn.startedAt = undefined;
         await failureRecording.finish(turn.sessionId);

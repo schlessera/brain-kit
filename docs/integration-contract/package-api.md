@@ -3029,3 +3029,16 @@ existing card layout. `AgentPolicyRead` carries read-only policy hash/source,
 validation notices, effective profiles, protected paths and the host's recorded
 worker-resource limits. Parsed budget/scope/egress values are not enforcement
 facts. No new extension seam or editor is introduced.
+
+### Completed inference budget facts (additive, #1669)
+
+`BackendActivityEvent.usage` reports cumulative completed-response usage for
+ordinary interactive/voice turns; the existing autonomous variants retain
+their Queue semantics. `budget_backstop` reports Claude's SDK budget stop.
+`StartTurnRequest.maxBudgetUsd` passes the host's remaining turn limit to that
+SDK. `ServerUsage`, `TurnBudgetReceipt`, `BudgetObservation` and `BudgetScope`
+are the additive public wire types. `TurnJournalSummary.budget` shares the
+existing receipt; its list-price cost never changes the effective billing cost.
+`TurnFailure.budgetScope` supports the reviewed conversation handoff and UTC
+day refusal. These are facts on existing backend and protocol surfaces, not a
+new policy parser, budget provider or grant interface.

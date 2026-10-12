@@ -1,4 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
@@ -47,7 +48,8 @@ export function makeBridge(
   applicationPolicy?: BrainApplicationPolicy,
   /** Frozen policy protection captured after this turn's gate admission. */
   protectedPaths?: readonly string[],
-  workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }
+  workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
+  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -221,7 +223,7 @@ export function makeBridge(
       const scoped = withTurnScope(msg, turn, turnId);
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
-      if (msg.type === "session_info" && turn.turnId === turnId) host.journal?.bindSession(turnId, msg.sessionId);
+      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); host.journal?.bindSession(turnId, msg.sessionId); }
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
@@ -367,9 +369,16 @@ export function makeBridge(
         catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
           actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
       }
-      else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
-        ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
-        : event);
+      else if (event.kind === "budget_backstop" && turn.turnId === turnId) onUsage?.({},true);
+      else {
+        if (event.kind === "usage" && turn.turnId === turnId) {
+          const priced=onUsage?.(event.usage);
+          recorder?.observeActivity({...event,usage:priced ?? event.usage});
+          if (!onUsage) host.sendToClients(withTurnScope({type:"usage",turnId,usage:event.usage,observedAt:Date.now()},turn,turnId));
+        } else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
+          ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
+          : event);
+      }
     },
     ...(queryActivity
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
@@ -602,7 +611,18 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof JournalCapacityError || err instanceof JournalStorageUnavailable) {
+  if (err instanceof BudgetExceeded) {
+    const budget=host.budgets?.saved(turn.turnId);
+    if (budget && turn.sessionId && host.journal) host.sendToClients(withTurnScope({type:"turn_journal",sessionId:turn.sessionId,
+      turnId:turn.turnId,journal:{...host.journal.summary(turn.turnId),budget}},turn));
+    host.reportTurnFailed("BUDGET_EXCEEDED", turn, err.message);
+    host.sendToClients(withTurnScope({ type:"error", code:"BUDGET_EXCEEDED", message:err.message,
+      failure:{errorClass:"budget_exceeded",message:err.message,budgetScope:err.observation.scope,...(err.observation.resetAt ? {resetsAt:err.observation.resetAt} : {})},...correlation },turn));
+  } else if (err instanceof BudgetUnavailable) {
+    host.reportTurnFailed("BUDGET_UNAVAILABLE",turn,err.message);
+    host.sendToClients(withTurnScope({type:"error",code:"BUDGET_UNAVAILABLE",message:err.message,
+      failure:{errorClass:"budget_unavailable",message:err.message},...correlation},turn));
+  } else if (err instanceof JournalCapacityError || err instanceof JournalStorageUnavailable) {
     const errorClass = err instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
     const message = err.message;
     host.reportTurnFailed(errorClass.toUpperCase(), turn, message);

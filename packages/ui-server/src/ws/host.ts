@@ -87,6 +87,8 @@ export interface WsHostOptions {
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
+  /** @internal Concrete list-price inference control. */
+  budgets?: import("../brain/turn-budgets.js").TurnBudgets;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
@@ -240,6 +242,8 @@ export class WsHost {
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
   readonly sessionProfiles?: import("./session-profiles.js").SessionProfiles;
+  /** @internal Host-owned inference accounting, not a replaceable budget provider. */
+  readonly budgets?: import("../brain/turn-budgets.js").TurnBudgets;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -315,6 +319,7 @@ export class WsHost {
     this.governedTurns = options.governedTurns;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
+    this.budgets = options.budgets;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
@@ -490,7 +495,7 @@ export class WsHost {
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
-      ? { ...message, journal: this.journal!.summary(message.turnId) } : message);
+      ? { ...message, journal: { ...this.journal!.summary(message.turnId), ...(this.budgets?.saved(message.turnId) ? {budget:this.budgets.saved(message.turnId)} : {}) } } : message);
     messages = this.policyProposals?.attachHistory(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];

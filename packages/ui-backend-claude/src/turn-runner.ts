@@ -445,7 +445,7 @@ export function createClaudeTurnRunner(options: {
             return true;
           })
         : input.messages;
-      const result = queryFn({ prompt, options: sdkTurn.options });
+      const result = queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
       resolveQuery(result);
       // The account the CLI selected, for the per-turn report below. The SDK
       // answers every call from the one handshake, so this and the gate agree.

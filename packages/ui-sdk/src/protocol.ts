@@ -824,7 +824,8 @@ export type ServerMessage =
   | ServerConversationWork
   | ServerConversationOutput
   | ServerConversationPermission
-  | ServerTurnJournal;
+  | ServerTurnJournal
+  | ServerUsage;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -1166,6 +1167,8 @@ export interface TurnFailure {
   attempts?: number;
   /** Observed subscription limit reset, in epoch milliseconds; absent means unknown. */
   resetsAt?: number;
+  /** Host budget scope; only a conversation block offers the reviewed handoff. */
+  budgetScope?: "turn" | "session" | "day";
   /** The failure as the runtime worded it. */
   message: string;
   /**
@@ -1182,7 +1185,7 @@ type FirstPartyFailureClass =
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1211,6 +1214,8 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   worker_state_busy: "worker_state_busy",
   worker_state_exceeded: "worker_state_exceeded",
   worker_state_save_refused: "worker_state_save_refused",
+  budget_exceeded: "budget_exceeded",
+  budget_unavailable:"budget_unavailable",
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
   unknown: "unknown",
@@ -3603,4 +3608,15 @@ export interface AgentPolicyRead {
   profiles: { interactive: "governed" | "strict"; voice: "governed" | "strict" };
   protectedPaths: string[];
   workerLimits: WorkerLimitsStatus | null;
+}
+
+export type { BudgetScope, BudgetObservation, TurnBudgetReceipt } from "./turn-budgets.js";
+
+/** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
+export interface ServerUsage extends SessionScoped {
+  type: "usage";
+  turnId: string;
+  usage: TurnUsage;
+  observedAt: number;
+  budget?: import("./turn-budgets.js").TurnBudgetReceipt;
 }

@@ -69,7 +69,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
       ...(failure.authAction ? ["", SUBSCRIPTION_AUTH_INSTRUCTIONS[failure.authAction]] : [])];
     setReview({ mode, initial: fields.join("\n") });
   }
-  const canContinue = failure.errorClass === "session_too_large" && Boolean(sessionId);
+  const canContinue = (failure.errorClass === "session_too_large" || failure.errorClass === "budget_exceeded" && failure.budgetScope === "session") && Boolean(sessionId);
   const actions = [
     ...(canContinue ? [{ label: "Continue in a new conversation", primary: true, disabled: busy,
       onClick: () => root.stores.handoff.getState().open(sessionId!, crypto.randomUUID(), { preferSourceProfile: true }) }] : []),

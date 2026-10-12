@@ -28,8 +28,8 @@ Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
 usage record. The REST operation receipt uses the same synthetic journal for
 Undo; it does not revive the original turn.
-The journal does not assert effective budget/scope enforcement before those
-monitors provide receipts; the UI says limits unknown.
+The optional budget receipt below supplies enforced inference facts. Other
+limits remain unknown until their own monitors provide receipts.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -54,6 +54,37 @@ Restoring local files cannot undo an external effect. The endpoint returns at
 most 1,000 rows, explicitly marks truncation, and leaves the complete retained
 governance event query available. No permission/card or protocol revision is
 added.
+
+### Completed inference usage and budgets (additive, #1669)
+
+`usage` carries `{ type, turnId, sessionId?, usage: TurnUsage, observedAt,
+budget?: TurnBudgetReceipt }`. The host stamps the turn and timestamp after a
+trusted adapter's completed response. Counts are cumulative for this turn,
+including input, output, cache reads and cache creation; clients replace the
+previous observation rather than adding it. The frame never opens a message,
+reopens run state or moves focus. Older clients may ignore it. The same optional
+`budget` is retained on `TurnJournalSummary` and replayed with the existing
+single below-turn disclosure. The additive types and validation are
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3601-3607`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1764-1766`).
+
+Budget list-price inference cost is separate from the journal's billing-aware
+`costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
+legacy Activity attribution and observation time are explicit. The receipt
+states enforced turn/conversation/UTC-day warn and stop limits, token fallback,
+and the server's UTC reset. Built-in inference is covered; provider/tool spend
+is unmetered until a relay actually records it. Scope and network facts remain
+unknown until their owners supply enforcement receipts.
+
+`budget_exceeded` and `budget_unavailable` are additive host failure classes.
+The former names a turn/session/day `budgetScope`; a day stop carries
+`resetsAt`. Neither automatically retries. A conversation block offers the
+existing reviewed new-conversation handoff; its destination still shares the
+day balance. Failed accounting stops truthfully rather than pretending a guard
+was available. Partial work and journal evidence remain intact. Host stops
+outrank the runtime cancellation they caused; earlier user cancellation or
+host timeout keeps its precedence. Warning arrivals stay visual in voice
+posture and confer no authority.
 
 <a id="revision-negotiation"></a>
 

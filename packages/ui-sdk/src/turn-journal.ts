@@ -13,6 +13,8 @@ export interface TurnJournalSummary {
   policyHash: string | null;
   sharedAttribution: boolean;
   observedAt: number | null;
+  /** List-price inference budget facts; effective costUsd above remains billing-aware. */
+  budget?: import("./turn-budgets.js").TurnBudgetReceipt;
 }
 
 export interface JournalVersion {

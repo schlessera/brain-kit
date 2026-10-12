@@ -1,3 +1,5 @@
+import { StreamAdapter } from "../src/stream-adapter.js";
+import type { BackendActivityEvent } from "@schlessera/brain-ui-sdk/server";
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { CompletedResponseUsage } from "../src/usage.js";
@@ -34,4 +36,31 @@ test("invalid completed token counts cannot claim a free or negative response", 
   const usage = new CompletedResponseUsage();
   usage.observe(start("invalid", -1)); usage.observe(delta(0));
   expect(usage.observe(stop)).toBeUndefined();
+});
+
+
+test("ordinary Claude streams deliver completed general usage with all token classes once", () => {
+  const events: BackendActivityEvent[] = [];
+  const adapter = new StreamAdapter(event => events.push(event));
+  const frame = (event: Event) => adapter.adapt({ type: "stream_event", event } as SDKMessage);
+  frame(start("odysseus-response")); frame(delta(2)); frame(delta(5));
+  expect(events.filter(event => String(event.kind) === "usage")).toEqual([]);
+  frame(stop);
+  expect(events.filter(event => String(event.kind) === "usage"), "BUDGET_CLAUDE_GENERAL_COMPLETED_RECEIPT").toEqual([
+    expect.objectContaining({ kind: "usage", atToolBoundary: true,
+      usage: expect.objectContaining({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 }) }),
+  ]);
+  frame(start("odysseus-response")); frame(delta(5)); frame(stop);
+  const receipts = events.filter(event => String(event.kind) === "usage");
+  expect(receipts.at(-1)).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5 } });
+  expect(events.filter(event => event.kind === "autonomous_usage")).toEqual([]);
+});
+
+test("ordinary Claude interleaves root and child completed inference without exposing child text",()=>{
+  const events:BackendActivityEvent[]=[],adapter=new StreamAdapter(event=>events.push(event));
+  const frame=(event:Event,parent:string|null=null)=>adapter.adapt({type:"stream_event",event,parent_tool_use_id:parent} as SDKMessage);
+  frame(start("root",10));frame(start("child",2),"loom");frame(delta(1),"loom");frame(stop,"loom");frame(delta(5));frame(stop);
+  const receipt=events.filter(event=>event.kind==="usage").at(-1);
+  expect(receipt).toMatchObject({usage:{inputTokens:12,outputTokens:6,cacheReadTokens:40,cacheCreationTokens:6}});
+  expect(frame({type:"content_block_delta",delta:{type:"text_delta",text:"child-private-text"},index:0} as Event,"loom")).toEqual([]);
 });

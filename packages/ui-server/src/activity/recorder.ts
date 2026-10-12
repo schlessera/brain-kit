@@ -92,6 +92,8 @@ export interface TurnRecorder {
    * Close the turn: merge the buffered result enrichment into the root's
    * single terminal write, cascade-cancel anything left open, roll up.
    */
+  /** Host budget stop outranks the runtime cancellation it caused. */
+  recordBudgetStop(reason: string, errorClass?: "budget_exceeded" | "budget_unavailable"): void;
   finish(disposition: "success" | "error" | "cancelled" | "timeout"): void;
 }
 
@@ -135,6 +137,7 @@ export function createTurnRecorder(
   let completedUsage: TurnUsage | undefined;
   let atToolBoundary = false;
   let autonomousStop = false;
+  let budgetStop: {reason:string;errorClass:"budget_exceeded" | "budget_unavailable"} | undefined;
   let principalRevocationRecorded = false;
   /** An auth failure was reported: whatever the result frame claims, the run failed. */
   let authFailed = false;
@@ -330,8 +333,9 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         switch (event.kind) {
+          case "usage":
           case "autonomous_usage": {
-            if (turn.origin !== "autonomous") break;
+            if (event.kind === "autonomous_usage" && turn.origin !== "autonomous") break;
             completedUsage = structuredClone(event.usage);
             atToolBoundary = event.atToolBoundary;
             usageSamples.push({ at: Date.now(), tokens: totalTokens(event.usage), costUsd: event.usage.costUsd ?? null });
@@ -554,6 +558,7 @@ export function createTurnRecorder(
     },
 
     recordAutonomousStop() { autonomousStop = true; },
+    recordBudgetStop(reason,errorClass="budget_exceeded") { budgetStop = {reason,errorClass}; },
 
     finish(disposition) {
       guard(() => {
@@ -568,13 +573,13 @@ export function createTurnRecorder(
         const outcome: SpanOutcome =
           disposition === "cancelled" || disposition === "timeout"
             ? disposition
-            : authFailed
+            : budgetStop || authFailed
               ? "error"
               : (resultOutcome ?? disposition);
         // A server checkpoint is an expected cancellation, not a crash. The
         // runtime's cancelled result may omit usage (Claude) or include an
         // unfinished answer (pi). Completed responses are the lower bound.
-        if (autonomousStop && disposition === "cancelled" && completedUsage) {
+        if (completedUsage && (autonomousStop && disposition === "cancelled" || disposition === "error")) {
           const reportedCost = resultUsage?.costUsd;
           resultUsage = usageFromTurnUsage(completedUsage);
           resultAttrs = { ...resultAttrs, "gen_ai.usage.per_model": completedUsage.perModel,
@@ -584,7 +589,8 @@ export function createTurnRecorder(
         store.endSpan(rootSpanId, {
           outcome,
           usage: resultUsage,
-          attrs: resultAttrs,
+          attrs: { ...resultAttrs, ...(budgetStop ? {"brain.failure.class":budgetStop.errorClass} : {}) },
+          ...(budgetStop ? {reason:budgetStop.reason} : {}),
         });
         // Anything still open died with the turn.
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
@@ -613,9 +619,9 @@ export function createTurnRecorder(
             endedAt: Date.now(),
             calls: [...calls.values()],
             usage: usageSamples,
-            finalUsage: resultUsage
-              ? { tokens: totalTokens(resultUsage), costUsd: resultUsage.costUsd ?? null }
-              : null,
+            finalUsage: turn.origin !== "autonomous" && completedUsage
+              ? {tokens:totalTokens(completedUsage),costUsd:completedUsage.costUsd ?? null}
+              : resultUsage ? { tokens: totalTokens(resultUsage), costUsd: resultUsage.costUsd ?? null } : null,
             outcomeDetail,
           });
         });

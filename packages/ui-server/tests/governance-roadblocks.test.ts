@@ -4,7 +4,7 @@
  * stored as a quiet `roadblock` governance event. Fixtures are frames as each
  * backend actually relays them, in the Odysseus world.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -377,7 +377,7 @@ describe("both backends, through the turn recorder", () => {
     expect(events[0]).toMatchObject({ actor: "interactive", profile: null, payload: {
       category: "fs_denied", family: "file_write", resolution: { toolCallId: "toolu_3" }, remedy: "guidance",
       failures: [{ toolCallId: "toolu_1", category: "fs_denied" }],
-      // Interactive turns report no live usage yet: unknown, never zero.
+      // This legacy fixture sends no completed usage: unknown, never zero.
       waste: { tokens: null, costUsd: null },
     } });
     expect((events[0]!.payload as { waste: { ms: number } }).waste.ms).toBeGreaterThanOrEqual(0);
@@ -424,4 +424,18 @@ describe("both backends, through the turn recorder", () => {
     expect(() => recorder.finish("success")).not.toThrow();
     expect(store.getSpan("turn-broken:turn")?.outcome).toBe("success");
   });
+});
+
+test("ordinary completed inference measures roadblock waste without resumed terminal history",()=>{
+ let now=T0;const clock=spyOn(Date,"now").mockImplementation(()=>now);
+ const {db,recorder,roadblocks}=recorded("athena-budget-waste");
+ try {
+  now+=100;recorder.observeFrame({type:"tool_use_start",toolUseId:"loom",toolName:"Write"});
+  recorder.observeFrame({type:"tool_use_complete",toolUseId:"loom",toolName:"Write",input:{file_path:".brain/notes.md"}});
+  now+=100;recorder.observeFrame({type:"tool_result",toolUseId:"loom",output:EROFS,isError:true});
+  now+=100;recorder.observeActivity({kind:"usage",atToolBoundary:true,usage:{inputTokens:10,costUsd:0.5}});
+  now+=100;recorder.observeFrame({type:"result",sessionId:"ithaca",outcome:"success",isError:false,durationMs:400,numTurns:1,costUsd:500,usage:{inputTokens:10000,costUsd:500}});
+  now+=100;recorder.finish("success");
+  expect(roadblocks()[0]?.payload,"BUDGET_GENERAL_ROADBLOCK_WASTE_IS_PER_TURN").toMatchObject({waste:{tokens:10,costUsd:0.5}});
+ }finally{clock.mockRestore();db.close()}
 });

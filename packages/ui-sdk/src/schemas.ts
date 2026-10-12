@@ -993,6 +993,7 @@ const turnFailureSchema = z.looseObject({
   authAction: z.enum(["relogin", "check_account", "check_config"]).optional().catch(undefined),
   attempts: z.number().int().min(1).optional().catch(undefined),
   resetsAt: z.number().int().min(0).optional().catch(undefined),
+  budgetScope: z.enum(["turn","session","day"]).optional().catch(undefined),
 }) satisfies z.ZodType<TurnFailure>;
 
 const turnRetrySchema = z.looseObject({
@@ -1002,6 +1003,15 @@ const turnRetrySchema = z.looseObject({
   errorClass: z.string().max(MAX_ID_CHARS).optional(),
   status: z.number().int().optional(),
 }) satisfies z.ZodType<TurnRetry>;
+
+export const turnBudgetReceiptSchema = z.looseObject({
+  listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
+  observedAt: z.number().int().nonnegative(), coverage: z.literal("Built-in inference only; provider and tool spend is not metered"),
+  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
+    tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
+    warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),
+    warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),
+}) satisfies z.ZodType<import("./protocol.js").TurnBudgetReceipt>;
 
 export const turnJournalSummarySchema = z.looseObject({
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
@@ -1017,6 +1027,7 @@ export const turnJournalSummarySchema = z.looseObject({
   policyHash: z.string().max(200).nullable(),
   sharedAttribution: z.boolean(),
   observedAt: z.number().int().nonnegative().nullable(),
+  budget: turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
 
 const historyMessageSchema = z.looseObject({
@@ -1755,12 +1766,17 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
+  usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
+}) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
+
 export const serverTurnJournalSchema = z.looseObject({
   type: z.literal("turn_journal"), sessionId: id, turnId: id, journal: turnJournalSummarySchema,
 });
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverTurnJournalSchema,
+  serverUsageSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

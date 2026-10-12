@@ -47,11 +47,13 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const count = summary?.changedFiles;
   const changes = count == null ? "Changes unknown" : `${count} changed ${count === 1 ? "file" : "files"}`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
-  const label = `${changes} · ${cost} · Limits unknown${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
+  const budget = summary?.budget;
+  const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : "Limits unknown";
+  const label = `${changes} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
     if (!live || !turnId || announced.current === turnId || !["complete", "partial"].includes(state)) return;
-    announced.current = turnId; setAnnouncement(`Turn journal: ${label}.`);
-  }, [live, turnId, state, label]);
+    announced.current = turnId; setAnnouncement(`Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}`);
+  }, [live, turnId, state, changes, cost]);
   const groups = details ? [
     ["Steering", details.changes.filter(change => change.class === "steering" || change.class === "policy")],
     ["Content", details.changes.filter(change => change.class === "content" && !change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
@@ -65,7 +67,13 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         <p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
         {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
         {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}
-        <p>Model: {summary?.model ?? "unknown"}. Limits: unknown.</p>
+        <p>Model: {summary?.model ?? "unknown"}.</p>
+        {budget ? <div className="grid gap-2" data-inference-budget>
+          <p>Completed-response list-price usage: {budget.listPriceCostUsd === null ? "unknown" : `${budget.listPriceIsEstimate ? "estimated " : ""}$${budget.listPriceCostUsd.toFixed(4)}`}. This is not a subscription invoice or the effective cost above.</p>
+          <p>{budget.coverage}.</p>
+          {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
+          <p>Measured {new Date(budget.observedAt).toISOString()}. Retained measurements are historical, not the current balance.</p>
+        </div> : <p>Limits: unknown.</p>}
         {state === "partial" && <p>Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.</p>}
         {readable && !details && !error && <p>Loading retained changes…</p>}
         {error && <p role="status">{error}</p>}

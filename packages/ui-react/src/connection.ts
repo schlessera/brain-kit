@@ -487,7 +487,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       // `message_links` may (#1698); neither may reopen a finished session
       // or touch a queued follow-up that may already be running, so they
       // take no part in run state.
-      if (msg.type !== "message_blocks" && msg.type !== "message_links" && msg.type !== "turn_journal" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
+      if (msg.type !== "message_blocks" && msg.type !== "message_links" && msg.type !== "turn_journal" && msg.type !== "usage" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
         state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
       }
     }

@@ -2,6 +2,7 @@ import { recordGovernanceEvent } from "./governance/events.js";
 import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
 import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
+import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
@@ -471,9 +472,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
-  const sessionProfiles = createSessionProfiles(db, governedTurns);
+  const budgets = createTurnBudgets(db, pricing);
+  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets);
   const journal = createTurnJournal(db, { brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
-    changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: summary }); } });
+    changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
@@ -486,6 +488,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     governedTurns,
     sessionProfiles,
     maintenance: boundary.maintenance,
+    budgets,
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,

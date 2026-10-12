@@ -53,6 +53,8 @@ export "." (./src/index.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  type BudgetObservation
+  type BudgetScope
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -274,6 +276,7 @@ export "." (./src/index.ts)
   type ServerToolUseComplete
   type ServerToolUseStart
   type ServerTurnJournal
+  type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -307,6 +310,7 @@ export "." (./src/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetReceipt
   type TurnFailure
   type TurnJournalChange
   type TurnJournalDetails
@@ -430,6 +434,8 @@ export "./client" (./src/client/index.ts)
   BrainUiClient
   type BrainUiClientOptions
   type BridgeToolName
+  type BudgetObservation
+  type BudgetScope
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -702,6 +708,7 @@ export "./client" (./src/client/index.ts)
   type ServerToolUseComplete
   type ServerToolUseStart
   type ServerTurnJournal
+  type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -751,6 +758,7 @@ export "./client" (./src/client/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetReceipt
   type TurnFailure
   type TurnJournalChange
   type TurnJournalDetails
@@ -1055,6 +1063,8 @@ export "./protocol" (./src/protocol.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  type BudgetObservation
+  type BudgetScope
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -1269,6 +1279,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerToolUseComplete
   type ServerToolUseStart
   type ServerTurnJournal
+  type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -1302,6 +1313,7 @@ export "./protocol" (./src/protocol.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetReceipt
   type TurnFailure
   type TurnJournalChange
   type TurnJournalDetails
@@ -1472,11 +1484,13 @@ export "./schemas" (./src/schemas.ts)
   serverToolUseCompleteSchema
   serverToolUseStartSchema
   serverTurnJournalSchema
+  serverUsageSchema
   sessionDraftLimitsSchema
   sessionRecoverySchema
   sessionWorkerProfileSchema
   sharedFileMetaSchema
   stateRoomObservationSchema
+  turnBudgetReceiptSchema
   turnJournalSummarySchema
   v1ResolutionEffectSchema
   validateResolutionEffect
@@ -1612,6 +1626,8 @@ export "./server" (./src/server/index.ts)
   type BrainSearchResult
   type BrainStats
   type BridgeToolName
+  type BudgetObservation
+  type BudgetScope
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -1915,6 +1931,7 @@ export "./server" (./src/server/index.ts)
   type ServerToolUseComplete
   type ServerToolUseStart
   type ServerTurnJournal
+  type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -1969,6 +1986,7 @@ export "./server" (./src/server/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetReceipt
   type TurnFailure
   type TurnJournalChange
   type TurnJournalDetails
@@ -4440,6 +4458,12 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "budget_backstop";
+    } | {
+        kind: "usage";
+        usage: import("../protocol.js").TurnUsage;
+        atToolBoundary: boolean;
+    } | {
         kind: "autonomous_usage";
         usage: import("../protocol.js").TurnUsage;
         atToolBoundary: boolean;
@@ -4888,6 +4912,23 @@ signatures (every public export and the types it is made of)
     }
   BridgeToolName (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export type BridgeToolName = (typeof BRIDGE_TOOL_CONTRACTS)[number]["name"];
+  BudgetObservation (packages/ui-sdk/src/turn-budgets.ts)
+    export interface BudgetObservation {
+        scope: BudgetScope;
+        legacyRuns?: number;
+        costUsd: number | null;
+        tokens: number | null;
+        unknownRuns: number;
+        warnUsd: number;
+        blockUsd: number;
+        blockTokens: number;
+        warnTokens?: number;
+        resetAt?: number;
+        warning: boolean;
+        blocked: boolean;
+    }
+  BudgetScope (packages/ui-sdk/src/turn-budgets.ts)
+    export type BudgetScope = "turn" | "session" | "day";
   CONVERSATION_CAPABILITY_KEYS (packages/ui-sdk/src/protocol.ts)
     const CONVERSATION_CAPABILITY_KEYS: readonly ["nonblockingWork", "manualEndpoint", "finalTranscript", "remoteOutputCancelAck", "exactPermissionSpeech", "echoIsolatedInput", "outputWordAlignment"];
   CONVERSATION_LIMITS (packages/ui-sdk/src/protocol.ts)
@@ -5628,7 +5669,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;
@@ -8516,7 +8557,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -8670,6 +8711,14 @@ signatures (every public export and the types it is made of)
         sessionId: string;
         turnId: string;
         journal: import("./turn-journal.js").TurnJournalSummary;
+    }
+  ServerUsage (packages/ui-sdk/src/protocol.ts)
+    export interface ServerUsage extends SessionScoped {
+        type: "usage";
+        turnId: string;
+        usage: TurnUsage;
+        observedAt: number;
+        budget?: import("./turn-budgets.js").TurnBudgetReceipt;
     }
   ServiceWorkerPolicyScope (packages/ui-sdk/src/client/sw-policy.ts)
     export interface ServiceWorkerPolicyScope {
@@ -8910,6 +8959,7 @@ signatures (every public export and the types it is made of)
         thinkingLevel?: ThinkingLevel;
         signal: AbortSignal;
         turnBudgetMs?: number;
+        maxBudgetUsd?: number;
         bridge: BackendBridge;
         client?: ClientEnvironment;
         enforceAllowedTools?: boolean;
@@ -9118,12 +9168,22 @@ signatures (every public export and the types it is made of)
     }
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
+  TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
+    export interface TurnBudgetReceipt {
+        listPriceCostUsd: number | null;
+        listPriceIsEstimate?: boolean | null;
+        tokens: number | null;
+        observedAt: number;
+        coverage: "Built-in inference only; provider and tool spend is not metered";
+        scopes: BudgetObservation[];
+    }
   TurnFailure (packages/ui-sdk/src/protocol.ts)
     export interface TurnFailure {
         errorClass: string;
         status?: number;
         attempts?: number;
         resetsAt?: number;
+        budgetScope?: "turn" | "session" | "day";
         message: string;
         authAction?: SubscriptionAuthAction;
     }
@@ -9166,6 +9226,7 @@ signatures (every public export and the types it is made of)
         policyHash: string | null;
         sharedAttribution: boolean;
         observedAt: number | null;
+        budget?: import("./turn-budgets.js").TurnBudgetReceipt;
     }
   TurnRetry (packages/ui-sdk/src/protocol.ts)
     export interface TurnRetry {
@@ -13306,6 +13367,11 @@ signatures (every public export and the types it is made of)
                 check_config: "check_config";
                 relogin: "relogin";
             }>>>;
+            budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                day: "day";
+                session: "session";
+                turn: "turn";
+            }>>>;
             errorClass: z.ZodString;
             message: z.ZodString;
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
@@ -13759,6 +13825,31 @@ signatures (every public export and the types it is made of)
                 user: "user";
                 voice: "voice";
             }>>;
+            budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+                listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+                observedAt: z.ZodNumber;
+                scopes: z.ZodArray<z.ZodObject<{
+                    blockTokens: z.ZodNumber;
+                    blockUsd: z.ZodNumber;
+                    blocked: z.ZodBoolean;
+                    costUsd: z.ZodNullable<z.ZodNumber>;
+                    legacyRuns: z.ZodOptional<z.ZodNumber>;
+                    resetAt: z.ZodOptional<z.ZodNumber>;
+                    scope: z.ZodEnum<{
+                        day: "day";
+                        session: "session";
+                        turn: "turn";
+                    }>;
+                    tokens: z.ZodNullable<z.ZodNumber>;
+                    unknownRuns: z.ZodNumber;
+                    warnTokens: z.ZodOptional<z.ZodNumber>;
+                    warnUsd: z.ZodNumber;
+                    warning: z.ZodBoolean;
+                }, z.core.$loose>>;
+                tokens: z.ZodNullable<z.ZodNumber>;
+            }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
@@ -13788,6 +13879,50 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         turnId: z.ZodString;
         type: z.ZodLiteral<"turn_journal">;
+    }, z.core.$loose>, z.ZodObject<{
+        budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+            listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            observedAt: z.ZodNumber;
+            scopes: z.ZodArray<z.ZodObject<{
+                blockTokens: z.ZodNumber;
+                blockUsd: z.ZodNumber;
+                blocked: z.ZodBoolean;
+                costUsd: z.ZodNullable<z.ZodNumber>;
+                legacyRuns: z.ZodOptional<z.ZodNumber>;
+                resetAt: z.ZodOptional<z.ZodNumber>;
+                scope: z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>;
+                tokens: z.ZodNullable<z.ZodNumber>;
+                unknownRuns: z.ZodNumber;
+                warnTokens: z.ZodOptional<z.ZodNumber>;
+                warnUsd: z.ZodNumber;
+                warning: z.ZodBoolean;
+            }, z.core.$loose>>;
+            tokens: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$loose>>>;
+        observedAt: z.ZodNumber;
+        sessionId: z.ZodOptional<z.ZodString>;
+        turnId: z.ZodString;
+        type: z.ZodLiteral<"usage">;
+        usage: z.ZodObject<{
+            cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+            cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+            costUsd: z.ZodOptional<z.ZodNumber>;
+            inputTokens: z.ZodOptional<z.ZodNumber>;
+            outputTokens: z.ZodOptional<z.ZodNumber>;
+            perModel: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+                cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+                costUsd: z.ZodOptional<z.ZodNumber>;
+                inputTokens: z.ZodOptional<z.ZodNumber>;
+                outputTokens: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>;
     }, z.core.$loose>, z.ZodObject<{
         attachmentCount: z.ZodOptional<z.ZodNumber>;
         files: z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").SharedFileMeta, unknown, z.core.$ZodTypeInternals<import("./protocol.js").SharedFileMeta, unknown>>>>;
@@ -13906,6 +14041,11 @@ signatures (every public export and the types it is made of)
                 check_config: "check_config";
                 relogin: "relogin";
             }>>>;
+            budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                day: "day";
+                session: "session";
+                turn: "turn";
+            }>>>;
             errorClass: z.ZodString;
             message: z.ZodString;
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
@@ -13949,6 +14089,11 @@ signatures (every public export and the types it is made of)
                 check_account: "check_account";
                 check_config: "check_config";
                 relogin: "relogin";
+            }>>>;
+            budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                day: "day";
+                session: "session";
+                turn: "turn";
             }>>>;
             errorClass: z.ZodString;
             message: z.ZodString;
@@ -14381,6 +14526,11 @@ signatures (every public export and the types it is made of)
                     check_config: "check_config";
                     relogin: "relogin";
                 }>>>;
+                budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>>>;
                 errorClass: z.ZodString;
                 message: z.ZodString;
                 resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
@@ -14393,6 +14543,31 @@ signatures (every public export and the types it is made of)
                     user: "user";
                     voice: "voice";
                 }>>;
+                budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                    coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                    listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+                    listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+                    observedAt: z.ZodNumber;
+                    scopes: z.ZodArray<z.ZodObject<{
+                        blockTokens: z.ZodNumber;
+                        blockUsd: z.ZodNumber;
+                        blocked: z.ZodBoolean;
+                        costUsd: z.ZodNullable<z.ZodNumber>;
+                        legacyRuns: z.ZodOptional<z.ZodNumber>;
+                        resetAt: z.ZodOptional<z.ZodNumber>;
+                        scope: z.ZodEnum<{
+                            day: "day";
+                            session: "session";
+                            turn: "turn";
+                        }>;
+                        tokens: z.ZodNullable<z.ZodNumber>;
+                        unknownRuns: z.ZodNumber;
+                        warnTokens: z.ZodOptional<z.ZodNumber>;
+                        warnUsd: z.ZodNumber;
+                        warning: z.ZodBoolean;
+                    }, z.core.$loose>>;
+                    tokens: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
@@ -16062,6 +16237,11 @@ signatures (every public export and the types it is made of)
                 check_config: "check_config";
                 relogin: "relogin";
             }>>>;
+            budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                day: "day";
+                session: "session";
+                turn: "turn";
+            }>>>;
             errorClass: z.ZodString;
             message: z.ZodString;
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
@@ -16485,6 +16665,11 @@ signatures (every public export and the types it is made of)
                     check_config: "check_config";
                     relogin: "relogin";
                 }>>>;
+                budgetScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>>>;
                 errorClass: z.ZodString;
                 message: z.ZodString;
                 resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
@@ -16497,6 +16682,31 @@ signatures (every public export and the types it is made of)
                     user: "user";
                     voice: "voice";
                 }>>;
+                budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                    coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                    listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+                    listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+                    observedAt: z.ZodNumber;
+                    scopes: z.ZodArray<z.ZodObject<{
+                        blockTokens: z.ZodNumber;
+                        blockUsd: z.ZodNumber;
+                        blocked: z.ZodBoolean;
+                        costUsd: z.ZodNullable<z.ZodNumber>;
+                        legacyRuns: z.ZodOptional<z.ZodNumber>;
+                        resetAt: z.ZodOptional<z.ZodNumber>;
+                        scope: z.ZodEnum<{
+                            day: "day";
+                            session: "session";
+                            turn: "turn";
+                        }>;
+                        tokens: z.ZodNullable<z.ZodNumber>;
+                        unknownRuns: z.ZodNumber;
+                        warnTokens: z.ZodOptional<z.ZodNumber>;
+                        warnUsd: z.ZodNumber;
+                        warning: z.ZodBoolean;
+                    }, z.core.$loose>>;
+                    tokens: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
@@ -16814,6 +17024,31 @@ signatures (every public export and the types it is made of)
                 user: "user";
                 voice: "voice";
             }>>;
+            budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+                listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+                observedAt: z.ZodNumber;
+                scopes: z.ZodArray<z.ZodObject<{
+                    blockTokens: z.ZodNumber;
+                    blockUsd: z.ZodNumber;
+                    blocked: z.ZodBoolean;
+                    costUsd: z.ZodNullable<z.ZodNumber>;
+                    legacyRuns: z.ZodOptional<z.ZodNumber>;
+                    resetAt: z.ZodOptional<z.ZodNumber>;
+                    scope: z.ZodEnum<{
+                        day: "day";
+                        session: "session";
+                        turn: "turn";
+                    }>;
+                    tokens: z.ZodNullable<z.ZodNumber>;
+                    unknownRuns: z.ZodNumber;
+                    warnTokens: z.ZodOptional<z.ZodNumber>;
+                    warnUsd: z.ZodNumber;
+                    warning: z.ZodBoolean;
+                }, z.core.$loose>>;
+                tokens: z.ZodNullable<z.ZodNumber>;
+            }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
@@ -16843,6 +17078,52 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         turnId: z.ZodString;
         type: z.ZodLiteral<"turn_journal">;
+    }, z.core.$loose>;
+  serverUsageSchema (packages/ui-sdk/src/schemas.ts)
+    const serverUsageSchema: z.ZodObject<{
+        budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+            listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            observedAt: z.ZodNumber;
+            scopes: z.ZodArray<z.ZodObject<{
+                blockTokens: z.ZodNumber;
+                blockUsd: z.ZodNumber;
+                blocked: z.ZodBoolean;
+                costUsd: z.ZodNullable<z.ZodNumber>;
+                legacyRuns: z.ZodOptional<z.ZodNumber>;
+                resetAt: z.ZodOptional<z.ZodNumber>;
+                scope: z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>;
+                tokens: z.ZodNullable<z.ZodNumber>;
+                unknownRuns: z.ZodNumber;
+                warnTokens: z.ZodOptional<z.ZodNumber>;
+                warnUsd: z.ZodNumber;
+                warning: z.ZodBoolean;
+            }, z.core.$loose>>;
+            tokens: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$loose>>>;
+        observedAt: z.ZodNumber;
+        sessionId: z.ZodOptional<z.ZodString>;
+        turnId: z.ZodString;
+        type: z.ZodLiteral<"usage">;
+        usage: z.ZodObject<{
+            cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+            cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+            costUsd: z.ZodOptional<z.ZodNumber>;
+            inputTokens: z.ZodOptional<z.ZodNumber>;
+            outputTokens: z.ZodOptional<z.ZodNumber>;
+            perModel: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+                cacheReadTokens: z.ZodOptional<z.ZodNumber>;
+                costUsd: z.ZodOptional<z.ZodNumber>;
+                inputTokens: z.ZodOptional<z.ZodNumber>;
+                outputTokens: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>;
     }, z.core.$loose>;
   sessionDraftLimitsSchema (packages/ui-sdk/src/schemas.ts)
     const sessionDraftLimitsSchema: z.ZodObject<{
@@ -16938,6 +17219,32 @@ signatures (every public export and the types it is made of)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];
   toolInputJsonSchema (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
+  turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
+    const turnBudgetReceiptSchema: z.ZodObject<{
+        coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+        listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+        listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        observedAt: z.ZodNumber;
+        scopes: z.ZodArray<z.ZodObject<{
+            blockTokens: z.ZodNumber;
+            blockUsd: z.ZodNumber;
+            blocked: z.ZodBoolean;
+            costUsd: z.ZodNullable<z.ZodNumber>;
+            legacyRuns: z.ZodOptional<z.ZodNumber>;
+            resetAt: z.ZodOptional<z.ZodNumber>;
+            scope: z.ZodEnum<{
+                day: "day";
+                session: "session";
+                turn: "turn";
+            }>;
+            tokens: z.ZodNullable<z.ZodNumber>;
+            unknownRuns: z.ZodNumber;
+            warnTokens: z.ZodOptional<z.ZodNumber>;
+            warnUsd: z.ZodNumber;
+            warning: z.ZodBoolean;
+        }, z.core.$loose>>;
+        tokens: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$loose>;
   turnJournalSummarySchema (packages/ui-sdk/src/schemas.ts)
     const turnJournalSummarySchema: z.ZodObject<{
         actor: z.ZodNullable<z.ZodEnum<{
@@ -16945,6 +17252,31 @@ signatures (every public export and the types it is made of)
             user: "user";
             voice: "voice";
         }>>;
+        budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
+            listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            observedAt: z.ZodNumber;
+            scopes: z.ZodArray<z.ZodObject<{
+                blockTokens: z.ZodNumber;
+                blockUsd: z.ZodNumber;
+                blocked: z.ZodBoolean;
+                costUsd: z.ZodNullable<z.ZodNumber>;
+                legacyRuns: z.ZodOptional<z.ZodNumber>;
+                resetAt: z.ZodOptional<z.ZodNumber>;
+                scope: z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>;
+                tokens: z.ZodNullable<z.ZodNumber>;
+                unknownRuns: z.ZodNumber;
+                warnTokens: z.ZodOptional<z.ZodNumber>;
+                warnUsd: z.ZodNumber;
+                warning: z.ZodBoolean;
+            }, z.core.$loose>>;
+            tokens: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$loose>>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;

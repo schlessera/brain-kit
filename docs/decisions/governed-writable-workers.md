@@ -966,10 +966,9 @@ The brain's git history stays the durable record of its content.
 - **Per-response usage events.** Claude reports `CompletedResponseUsage`
   (`export class CompletedResponseUsage`, `packages/ui-backend-claude/src/usage.ts:11`)
   at `message_stop`. Pi reports usage at `message_end`.
-- **Today those events are sent only for autonomous turns**
-  (`kind: "autonomous_usage"`, `packages/ui-backend-claude/src/stream-adapter.ts:73`).
-  They become a general `usage` frame for every turn. Adding a new frame kind
-  to the protocol is an additive contract change.
+- **General completed usage** is now reported for ordinary turns; autonomous
+  Queue accounting keeps its separate sidechannel. The host stamps the
+  additive `usage` wire receipt before presenting its shared below-turn facts.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
@@ -986,11 +985,11 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:423`).
-- **Unpriced models.** A USD limit cannot be evaluated when the price is
-  unknown. The turn is recorded as unpriced and a token limit is the
-  enforceable alternative. Unknown is never treated as zero, and it never
-  blocks by itself.
+  `stream-adapter.ts:432`).
+- **Unpriced models.** The unknown portion has no invented USD price. A
+  known priced lower bound may still reach a USD stop; otherwise token
+  fallback is the enforceable alternative. Unknown is never treated as zero,
+  and it never blocks by itself.
 
 **Paid calls outside the agent's own stream.** A Bash call can run the `brain`
 CLI's embedding, completion or image providers over and over. Those calls
@@ -1010,11 +1009,46 @@ covers everything.
 appears once, beside the existing cost display. It is also added to the
 agent's next turn context.
 
-**Default limits (G3).** Blocking limits are on by default. A brain without a
-`budgets` key still gets built-in turn and day limits. The budget sub-issue
-derives them from the measured distribution of recorded turn cost in Activity
-rollups, using a generous multiple of the observed high percentile, and records
-the numbers. Ordinary turns never reach a default limit; a runaway turn does.
+**Default limits (G3), approved 2026-10-12.** The
+[maintainer ruling](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
+approves turn warn $100/stop $200 and conversation/UTC-day warn $2,000/stop
+$4,000. Unpriced token fallback stops are 512,000,000 per turn and
+8,000,000,000 per conversation/day. Explicit policy values override defaults;
+independent runtime/resource limits still apply.
+
+The [public measured proposal](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128436103)
+uses four times the relevant observed p99, rounded upward: typed turn cost
+$44.48 gives $177.92 → $200; recent complete tokens 116.52 million give
+466.10 million → 512 million. Session/day known-cost lower-bound p99
+$644.89/$813.45 give $2,579.55/$3,253.81 → $4,000; token lower bounds
+1.5546/1.9834 billion give 6.2183/7.9336 billion → 8 billion. Warnings are
+half the USD stops. The retained sample has 723 completed root session turns,
+699 with known list prices. It excludes preparation, labels, cron and child
+span cost; missing values and censored timeout tails limit this one workload's
+measurement. Subscription effective zeros do not establish invoice percentiles
+or a guarantee for every workload.
+
+The host freezes the already admitted policy, uses the Activity calculator and
+retained root rollups, and stores per-turn completed-response receipts outside
+the brain. A measured new turn never takes a resumed SDK transcript's
+cumulative terminal total: that can include earlier turns. Legacy Activity
+rows remain historical inputs with explicit legacy attribution. Completed
+responses contribute once to their server-observed UTC day; legacy history
+uses its recorded start day. A terminal rollup never adds the live ledger a
+second time. The concrete ledger is (`createTurnBudgets`,
+`packages/ui-server/src/brain/turn-budgets.ts:43-193`).
+Known priced lower bounds survive an unpriced model joining;
+unknown usage alone never blocks. A token fallback remains enforceable.
+
+The same receipt drives (`inferenceBudgetNote`,
+`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
+single disclosure. Crossing keys retain once-only warning events by scope,
+identity, unit and threshold. Conversation blocks offer the existing reviewed
+handoff; a new conversation does not reset the day. Day stops display the
+server's next UTC midnight. Neither stopped inference nor unavailable
+accounting automatically retries. Warning arrivals do not steal focus and are
+visual only in genuine voice; speech cannot grant a continuation. Autonomous
+Queue budgets keep their existing admission and containment semantics.
 
 ### Scope caps (G4)
 
@@ -1055,7 +1089,7 @@ Reaching a cap is recorded as a governance event and as a roadblock.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:268`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
 
 **What changes:**
 

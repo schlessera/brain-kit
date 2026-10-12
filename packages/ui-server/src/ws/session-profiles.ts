@@ -8,7 +8,7 @@ type Profile = "governed" | "strict";
 export class SessionProfileError extends Error {
   constructor(readonly status: 400 | 401 | 404 | 409 | 507, message: string) { super(message); }
 }
-export function createSessionProfiles(db: Database, turns: GovernedTurns) {
+export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets) {
   const authorize = (principalId: string) => {
     const principal = resolvePrincipal(db, principalId);
     if (!principal || !isUsablePrincipal(principal, Date.now())) throw new SessionProfileError(401, "Authentication required.");
@@ -22,9 +22,12 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns) {
     const resolved = turns.facts(origin);
     return { preference, policyProfile: resolved.policyProfile, policyHash: resolved.policy.hash, origin,
       ...(actualProfile ? { actualProfile } : {}),
-      // Owning budget/scope/egress enforcement has not supplied display facts yet.
+      // Only the concrete mounted budget control supplies these enforced next-admission facts.
       limits: [{ name: "Latest admitted worker", value: actualProfile ?? "Unknown" },
-        { name: "Turn budgets and scope", value: "Unknown" }, { name: "Network recording", value: "Unknown" }] };
+        ...(budgets ? (["turn","session","day"] as const).map(scope=>({name:`${scope === "day" ? "UTC day" : scope === "session" ? "Conversation lifetime" : "Turn"} inference budget`,
+          value:`Warn $${resolved.policy.policy.budgets[scope].warn_usd}; stop $${resolved.policy.policy.budgets[scope].block_usd}; unpriced token stop ${resolved.policy.policy.budgets[scope].block_tokens.toLocaleString()}`,
+          onHit:scope === "session" ? "Review partial work and continue with a reviewed new-conversation handoff; day balance remains." : scope === "day" ? "Stops until the server's next UTC midnight; review partial work." : "Stops this turn; review partial work."})) : [{name:"Inference budgets",value:"Unknown"}]),
+        {name:"Scope",value:"Unknown"}, { name: "Network recording", value: "Unknown" }] };
   };
   const read = (principalId: string, kind: "session" | "draft", id: string): SessionWorkerProfile => {
     authorize(principalId);
