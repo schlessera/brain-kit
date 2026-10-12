@@ -245,7 +245,7 @@ describe("a backend built only from public /server names", () => {
       inboxAdd: async input => { asked.push(`inbox_add:${input.idempotencyKey}`); return { created: true, threadId: thread.id, itemId: item.id }; },
       proposePolicyChange: async (id, input) => {
         asked.push(`propose_policy_change:${id}`);
-        expect(input).toEqual(PUBLIC_CALLS.find(call => call.toolUseId === id)!.input);
+        expect(input).toEqual(publicServer.PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(PUBLIC_CALLS.find(call => call.toolUseId === id)!.input));
         return { requestId: id, turnId: "ithaca-turn", path: "context/policies/governance.md", state: "declined",
           rationale: input.rationale, baseHash: null, proposedHash: "reviewed-policy", frontmatterDiff: "profiles.interactive: strict",
           bodyChanged: true, bodyDiff: "Odysseus reviews the policy.", sections: ["profiles.interactive"], warnings: [], message: "Policy change declined. Nothing was written." };
