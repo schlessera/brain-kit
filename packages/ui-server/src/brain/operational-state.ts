@@ -31,20 +31,53 @@ function canonical(path: string, links = 0): string {
 const within = (root: string, path: string) => root === "/" || path === root || path.startsWith(`${root}/`);
 
 /** An outside name does not move an inode out of the brain if another name or a bind mount remains there. */
-function hasBrainAlias(brain: string, path: string): boolean {
+function hasBrainAlias(brain: string, path: string, descendants = false): boolean {
   let state = lstatSync(path, { throwIfNoEntry: false });
+  const existing = Boolean(state);
   while (!state && path !== "/") { path = dirname(path); state = lstatSync(path, { throwIfNoEntry: false }); }
   if (!state || (!state.isFile() && !state.isDirectory())) return false;
-  if ((!state.isFile() || state.nlink <= 1) && mountPointsUnder(brain).length === 0) return false;
+  const mounted = mountPointsUnder(brain).length > 0;
+  const identities = new Set<string>();
+  const identity = (info: { dev: number; ino: number }) => `${info.dev}:${info.ino}`;
+  if (mounted || (state.isFile() && state.nlink > 1)) identities.add(identity(state));
   const directory = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
   let entries = 0;
+  function collect(fd: number, depth: number): void {
+    if (depth > 256) throw new Error("Operational state alias verification exceeds the directory depth bound");
+    for (const name of readdirSync(`/proc/self/fd/${fd}`, { encoding: "buffer" })) {
+      if (++entries > 200_000) throw new Error("Operational state alias verification exceeds 200000 entries");
+      const entry = Buffer.concat([Buffer.from(`/proc/self/fd/${fd}/`), name]);
+      const info = lstatSync(entry);
+      if (mounted || (!info.isDirectory() && info.nlink > 1)) identities.add(identity(info));
+      if (info.isDirectory()) {
+        const child = openSync(entry, directory);
+        try {
+          const held = fstatSync(child);
+          if (held.dev !== info.dev || held.ino !== info.ino) throw new Error("Operational state alias directory changed before open");
+          collect(child, depth + 1);
+        } finally { closeSync(child); }
+      }
+    }
+  }
+  // Only the named private storage is recursive. Its configured parent is
+  // checked by identity without traversing unrelated host siblings.
+  if (descendants && existing && state.isDirectory()) {
+    const fd = openSync(path, directory);
+    try {
+      const held = fstatSync(fd);
+      if (held.dev !== state.dev || held.ino !== state.ino) throw new Error("Operational state alias directory changed before open");
+      collect(fd, 0);
+    } finally { closeSync(fd); }
+  }
+  if (!identities.size) return false;
+  entries = 0;
   function walk(fd: number, depth: number): boolean {
     if (depth > 256) throw new Error("Operational state alias verification exceeds the directory depth bound");
     for (const name of readdirSync(`/proc/self/fd/${fd}`, { encoding: "buffer" })) {
       if (++entries > 200_000) throw new Error("Operational state alias verification exceeds 200000 entries");
       const entry = Buffer.concat([Buffer.from(`/proc/self/fd/${fd}/`), name]);
       const info = lstatSync(entry);
-      if (info.dev === state!.dev && info.ino === state!.ino) return true;
+      if (identities.has(identity(info))) return true;
       if (info.isDirectory()) {
         const child = openSync(entry, directory);
         try {
@@ -61,7 +94,7 @@ function hasBrainAlias(brain: string, path: string): boolean {
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
   try {
     const root = fstatSync(fd);
-    return (root.dev === state.dev && root.ino === state.ino) || walk(fd, 0);
+    return identities.has(identity(root)) || walk(fd, 0);
   } finally { closeSync(fd); }
 }
 
@@ -105,7 +138,7 @@ export function operationalStateRefusal(input: OperationalStateLayout): Operatio
     // share that directory, while a file itself can be a link into the brain.
     const resolved = canonical(path);
     const location = within(brain, resolved) || within(brain, canonical(dirname(path))) ? "resolves inside"
-      : hasBrainAlias(brain, resolved) || hasBrainAlias(brain, canonical(dirname(path)))
+      : hasBrainAlias(brain, resolved, true) || hasBrainAlias(brain, canonical(dirname(path)))
         || hasBrainAlias(brain, dirname(resolved)) ? "has an inode alias inside" : undefined;
     if (location) {
       return { available: false, reason: setting === "DB_PATH" ? "database_in_brain" : "private_state_in_brain",

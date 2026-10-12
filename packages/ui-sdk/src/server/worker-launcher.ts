@@ -311,6 +311,9 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     if (path === "/" || within(brain, path)) {
       throw new WorkerHostError(`a maintenance worker cannot mask ${path}: it is the brain, inside it or the root`);
     }
+    // Host /tmp is already absent behind the worker's private tmpfs. A
+    // second operational mask would replace its capacity and writable mode.
+    if (within(TURN_TEMP_ROOT, path)) continue;
     resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
     for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
@@ -427,7 +430,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   const maintenance = input.maintenance;
   const transport = input.transport;
-  if (transport && (maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
+  if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
   }
   if (maintenance && (input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {

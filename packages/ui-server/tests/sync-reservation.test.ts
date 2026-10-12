@@ -1,8 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainRoutes } from "../src/routes/brain";
+import { createHostBoundary } from "../src/brain/host-boundary";
 import type { BrainClient } from "../src/brain/client";
 import type { KeytermSettings } from "../src/voice/keyterm-builder";
 
@@ -18,23 +19,29 @@ describe("sync reservation", () => {
   test("reserves canonical roots across routes and disconnects, and releases after exit", async () => {
     const root = mkdtempSync(join(tmpdir(), "sync-reservation-"));
     const link = root + "-link";
-    const events = join(root, "events.txt");
-    const release = join(root, "release");
+    // The fixture control channel is outside immutable configuration. Only
+    // its existing event file is bound writable; the release file is read-only.
+    const control = mkdtempSync("/var/tmp/odysseus-sync-control-");
+    const events = join(control, "events.txt");
+    const release = join(control, "release");
+    writeFileSync(events, "");
     const script = join(root, "sync.ts");
     writeFileSync(script, `import { appendFileSync, existsSync } from 'node:fs';
       appendFileSync(${JSON.stringify(events)}, 'start\\n'); console.log('working');
       while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
       appendFileSync(${JSON.stringify(events)}, 'end\\n'); process.exit(1);`);
     symlinkSync(root, link);
+    const boundary = createHostBoundary({ brainPath: root, exec: {} });
     const route = (brainPath: string) => createBrainRoutes({
       brainPath, brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath } as KeytermSettings, exec: {},
+      boundary: { ...boundary, launch: execution => boundary.launch({ ...execution, writeFiles: [events] }) },
     });
     const first = route(root);
     const second = route(link);
     try {
       const response = await first.request("/brain/sync", { method: "POST" });
-      await until(() => existsSync(events));
+      await until(() => readFileSync(events, "utf8").includes("start"));
       const busy = await second.request("/brain/sync", { method: "POST" });
       expect(busy.status).toBe(409);
       expect((await busy.json()).error).toContain("already running");
@@ -57,6 +64,7 @@ describe("sync reservation", () => {
       await Bun.sleep(50);
       rmSync(link, { force: true });
       rmSync(root, { recursive: true, force: true });
+      rmSync(control, { recursive: true, force: true });
     }
   });
 

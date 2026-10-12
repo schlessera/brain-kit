@@ -144,7 +144,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
           else unlinkSync(at(handle.fd, handle.name));
         } finally { closeSync(handle.fd); }
       }
-      const directoryModes: { fd: number; mode: number; temporaryMode: number; rel: string }[] = [];
+      const directoryModes: { fd: number; mode: number; temporaryMode: number; rel: string; parent: number; name: string; path: string; parentPath: string }[] = [];
       let publicationError: unknown;
       try {
         for (const rel of changed.filter(rel => after.has(rel)).sort((a, b) => a.split("/").length - b.split("/").length)) {
@@ -162,7 +162,11 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
               try {
                 const temporaryMode = entry.mode | 0o700;
                 fchmodSync(directory, temporaryMode);
-                directoryModes.push({ fd: directory, mode: entry.mode, temporaryMode, rel });
+                const parentFd = openSync(at(handle.fd, "."), DIRECTORY);
+                try {
+                  directoryModes.push({ fd: directory, mode: entry.mode, temporaryMode, rel, parent: parentFd, name: handle.name,
+                    path: readlinkSync(`/proc/self/fd/${directory}`), parentPath: readlinkSync(`/proc/self/fd/${parentFd}`) });
+                } catch (error) { closeSync(parentFd); throw error; }
               }
               catch (error) { closeSync(directory); throw error; }
               continue;
@@ -208,19 +212,28 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
       // finalizing a child through its already-held descriptor.
       for (const directory of directoryModes.reverse()) {
         try {
-          const handle = parent(brain, directory.rel);
-          try {
-            const visible = lstatSync(at(handle.fd, handle.name), { throwIfNoEntry: false });
-            const held = fstatSync(directory.fd);
-            // A governed peer may chmod or replace a directory while its
-            // children copy. Never overwrite that newer authoritative mode.
-            if (!visible?.isDirectory() || visible.dev !== held.dev || visible.ino !== held.ino
-              || (held.mode & 0o777) !== directory.temporaryMode) throw new Error(`stale maintenance output: ${directory.rel}`);
-            fchmodSync(directory.fd, directory.mode);
-          } finally { closeSync(handle.fd); }
+          const held = fstatSync(directory.fd);
+          // Keep the original parent handle. A peer may remove search access
+          // from an ancestor; reopening the path would prevent child cleanup.
+          let visible;
+          try { visible = lstatSync(at(directory.parent, directory.name), { throwIfNoEntry: false }); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EACCES") throw error;
+            // /proc reports the held inode's current kernel dentry path without
+            // searching inaccessible ancestors. Moves/unlinks of either held
+            // directory change these paths. The worker cannot mount over host
+            // dentries from its separate mount namespace.
+            if (readlinkSync(`/proc/self/fd/${directory.fd}`) !== directory.path
+              || readlinkSync(`/proc/self/fd/${directory.parent}`) !== directory.parentPath) throw error;
+            visible = held;
+          }
+          if (!visible?.isDirectory() || visible.dev !== held.dev || visible.ino !== held.ino
+            || (held.mode & 0o777) !== directory.temporaryMode) throw new Error(`stale maintenance output: ${directory.rel}`);
+          fchmodSync(directory.fd, directory.mode);
         } catch (error) { publicationError ??= error; }
         finally {
           try { closeSync(directory.fd); } catch (error) { publicationError ??= error; }
+          try { closeSync(directory.parent); } catch (error) { publicationError ??= error; }
         }
       }
       if (publicationError) throw publicationError;

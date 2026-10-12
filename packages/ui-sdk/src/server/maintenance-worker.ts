@@ -139,7 +139,7 @@ export interface MaintenanceWorker {
  * reaches the launcher process either.
  */
 export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceWorker {
-  const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
+  const startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
     const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
@@ -165,10 +165,10 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       stdout: fifoStream(ends.stdout),
       stderr: fifoStream(ends.stderr),
       pid: child.pid,
-      exited: child.exited.finally(() => { closeInput(); if (!input.startupView) startupView.cleanup(); }),
+      exited: child.exited.finally(() => { closeInput(); if (!input.startupView) startupView?.cleanup(); }),
       kill: (signal?: NodeJS.Signals) => killWorker(child, signal),
     };
-  } catch (error) { pipes?.cleanup(); if (!input.startupView) startupView.cleanup(); throw error; }
+  } catch (error) { pipes?.cleanup(); if (!input.startupView) startupView?.cleanup(); throw error; }
 }
 
 /**
@@ -240,7 +240,7 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
   // by looking, never by running git here. The command stays the server's
   // own, with no network and no credential beside it.
   let parent: string | undefined;
-  for (let dir = dirname(root); !parent && !existsSync(join(root, ".git")); dir = dirname(dir)) {
+  for (let dir = dirname(root); !options.emptyRepository && !parent && !existsSync(join(root, ".git")); dir = dirname(dir)) {
     if (existsSync(join(dir, ".git"))) parent = dir;
     if (dir === "/") break;
   }
@@ -275,7 +275,7 @@ export function probeMaintenanceWorker(brainPath: string): { ok: true } | { ok: 
  * `check-ignore`). No input is passed; the deadline is required.
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
-  const startupView = input.startupView ?? createWorkerStartupView(realpathSync(input.brainPath));
+  const startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
     const boot = workerBootstrap(maintenanceLaunch({ ...input, startupView }));
@@ -285,5 +285,5 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
     pipes.closeChild(); pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: child.exitCode ?? 1, killed: child.exitCode === null };
-  } finally { pipes?.cleanup(); if (!input.startupView) startupView.cleanup(); }
+  } finally { pipes?.cleanup(); if (!input.startupView) startupView?.cleanup(); }
 }

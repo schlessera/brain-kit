@@ -75,7 +75,7 @@ function fakeBrain(): { root: string; bin: string; set(s: Scenario): void; argv(
     `#!${process.execPath}
 import { appendFileSync, readFileSync } from "node:fs";
 const args = process.argv.slice(2);
-appendFileSync(${JSON.stringify(argvLog)}, JSON.stringify(args) + "\\n");
+appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.log" : ${JSON.stringify(argvLog)}, JSON.stringify(args) + "\\n");
 if (args[0] === "index") { console.log("indexed"); process.exit(0); }
 const s = JSON.parse(readFileSync(${JSON.stringify(scenario)}, "utf8"));
 if (s.stdout) process.stdout.write(s.stdout + "\\n");

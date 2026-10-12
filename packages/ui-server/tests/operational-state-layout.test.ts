@@ -1,10 +1,12 @@
+import { text as streamText } from "node:stream/consumers";
 import { afterEach, describe, expect, test } from "bun:test";
+import { launchAgentWorker, prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher";
 import { Database } from "bun:sqlite";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createApp } from "../src/app";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { operationalStateMasks } from "../src/brain/operational-state";
+import { assertOperationalStateOutsideBrain, operationalStateMasks } from "../src/brain/operational-state";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability";
@@ -176,3 +178,39 @@ describe("operational state boot refusal (#1649)", () => {
   });
 
 });
+
+for (const profile of ["governed", "strict"] as const) {
+  test(`${profile}: in-memory operational masks keep private turn temp writable and host state hidden`, async () => {
+    const root = mkdtempSync("/tmp/odysseus-memory-state-"); roots.push(root);
+    const brain = join(root, "brain"); const state = join(root, "state");
+    mkdirSync(brain); mkdirSync(state);
+    writeFileSync(join(state, "private"), "host-private");
+    const sandbox = prepareWorkerSandbox(brain, { profile, areas: [], readPaths: [process.execPath, "/bin/sh"],
+      maskPaths: operationalStateMasks({ brainPath: brain, dbPath: ":memory:", privateStatePaths: [{ setting: "fixture state", path: state }] }) });
+    const output = `/tmp/odysseus-output-${root.split("/").at(-1)}`;
+    const worker = launchAgentWorker({ brainPath: brain, sandbox, turnTempBytes: 1024 * 1024, env: {},
+      command: ["/bin/sh", "-c", 'printf private-output > "$2" && test ! -e "$1/private" && printf PRIVATE_TMP_WRITABLE_STATE_HIDDEN', "probe", state, output] });
+    try {
+      const [stdout, stderr, code] = await Promise.all([streamText(worker.stdout), streamText(worker.stderr), worker.exited]);
+      expect(code, "MEMORY_STATE_MASK_KEEPS_PRIVATE_TMP_WRITABLE: " + stderr).toBe(0);
+      expect(stdout).toBe("PRIVATE_TMP_WRITABLE_STATE_HIDDEN");
+      expect(worker.turnTemp!.space().total, "PRIVATE_TMP_CAPACITY_PRESERVED").toBe(1024 * 1024);
+      expect(existsSync(output), "WORKER_OUTPUT_NOT_ON_HOST").toBe(false);
+    } finally { worker.turnTemp?.close(); }
+    expect(readFileSync(join(state, "private"), "utf8")).toBe("host-private");
+  });
+}
+
+for (const kind of ["quarantine", "private directory"] as const) {
+  test(`boot refuses a hardlinked descendant of ${kind}`, () => {
+    const f = fixture();
+    const directory = join(f.state, kind === "quarantine" ? "brain-ui-quarantine" : "private");
+    mkdirSync(directory); mkdirSync(join(directory, "nested"));
+    const secret = join(directory, "nested/private"); writeFileSync(secret, "host-private fixture");
+    linkSync(secret, join(f.brain, "alias"));
+    expect(() => assertOperationalStateOutsideBrain({ brainPath: f.brain, dbPath: join(f.state, "ui.db"),
+      ...(kind === "private directory" ? { privateStatePaths: [{ setting: "fixture private state", path: directory }] } : {}) }),
+      "PRIVATE_STATE_DESCENDANT_ALIAS_REFUSED").toThrow("inode alias inside");
+    expect(readFileSync(secret, "utf8")).toBe("host-private fixture");
+  });
+}

@@ -352,7 +352,9 @@ refuses rather than run git on the host.
 - **Hosted Git sync** keeps a private bare mirror beside `DB_PATH` (a private
   temporary directory for an in-memory database or standalone client).
   Commit, pull, merge, judgment and indexing run without credentials or host
-  network access. They fetch and push over the local file transport; only
+  network access, using complete immutable startup inputs and a separate
+  validated output workspace. Local outputs publish before the next credentialed
+  transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
   root remain read-only. After that worker and all its descendants have
   exited, the host rejects linked storage and object alternates and runs
@@ -827,7 +829,15 @@ startup views, including imported helpers and absent names. Strict persistent
 writes use `/tmp/brain-worker-areas/scratch` and
 `/tmp/brain-worker-areas/workspaces`; link their canonical brain destinations.
 Strict persistent writes are staged privately and validated after worker exit.
-Maintenance writes use a separate server-validated output workspace. Curated
+Maintenance writes use a separate server-validated output workspace. New
+directory permissions are finalized after child publication. Finalization checks
+the held and visible directory identity and temporary mode (using kernel
+dentry paths if a peer removes ancestor search access), preserves a newer
+peer mode, and processes every pending directory even if one final chmod fails;
+the check and chmod are separate syscalls. The inaccessible-ancestor check
+relies on workers having a separate mount namespace from the host. Worker-controlled unreadable private
+copies are cleaned without following links, and cleanup failure cannot retain
+the writer gate or staging reservation. Curated
 writes retain their authoritative route. A governed turn triggers an incremental
 index refresh after its workers exit, serialized on the server lock.
 

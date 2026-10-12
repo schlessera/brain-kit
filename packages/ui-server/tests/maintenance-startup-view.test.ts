@@ -328,3 +328,30 @@ test("publication installs a newly absent file without clobbering a last-moment 
     expect(readFileSync(destination, "utf8")).toBe("Penelope wins creation");
   } finally { link.mockRestore(); rename.mockRestore(); outputs.cleanup(); }
 });
+
+for (const moved of [false, true]) test(`finalizing a child with parent search removed preserves ${moved ? "a moved inode" : "its final mode"}`, () => {
+  const brain = fixture();
+  const outputs = prepareMaintenanceOutput(brain); cleanup.push(outputs.cleanup);
+  mkdirSync(join(outputs.output.source, "voyage/harbor"), { recursive: true });
+  writeFileSync(join(outputs.output.source, "voyage/harbor/note.md"), "Odysseus departs.\n");
+  for (const rel of ["voyage/harbor", "voyage"]) chmodSync(join(outputs.output.source, rel), 0o555);
+  cleanup.push(() => { for (const rel of ["voyage", "voyage/harbor", "voyage/moved"]) if (existsSync(join(brain, rel))) chmodSync(join(brain, rel), 0o700); });
+  const original = fs.writeSync; let changed = false;
+  const intercept = spyOn(fs, "writeSync").mockImplementation(((...args: Parameters<typeof fs.writeSync>) => {
+    if (!changed && fs.readlinkSync(`/proc/self/fd/${args[0]}`).includes("/.maintenance-")) {
+      changed = true;
+      const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
+      const peer = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox, env: {},
+        command: ["/bin/sh", "-c", moved ? 'mv "$1/harbor" "$1/moved"; mkdir "$1/harbor"; chmod 000 "$1"' : 'chmod 000 "$1"', "peer", join(brain, "voyage")] }), { stdout: "pipe", stderr: "pipe", env: {} });
+      expect(peer.exitCode, peer.stderr.toString()).toBe(0);
+    }
+    return original(...args);
+  }) as typeof fs.writeSync);
+  try { expect(() => outputs.publish()).toThrow(); }
+  finally { intercept.mockRestore(); }
+  expect(changed, "PEER_REMOVED_PARENT_SEARCH").toBe(true);
+  expect(statSync(join(brain, "voyage")).mode & 0o777, "PEER_PARENT_MODE_RETAINED").toBe(0);
+  chmodSync(join(brain, "voyage"), 0o700);
+  if (moved) expect(statSync(join(brain, "voyage/moved")).mode & 0o777, "MOVED_CHILD_MODE_NOT_OVERWRITTEN").toBe(0o755);
+  else expect(statSync(join(brain, "voyage/harbor")).mode & 0o777, "UNAFFECTED_CHILD_FINAL_MODE").toBe(0o555);
+});
