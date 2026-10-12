@@ -48,7 +48,10 @@ beforeAll(async () => {
   const backend: AgentBackend = {
     id: "focus-scripted", capabilities: { resume: false, permissions: true, thinking: false, attachments: false, askUser: true, costReporting: false, concurrentSessions: false, followUp: false },
     listProfiles: () => [{ id: "focus-scripted", label: "Local fixture" }], listSessions: async () => [], getHistory: async () => [],
-    async startTurn({ prompt, bridge }) {
+    async startTurn({ prompt: contextPrompt, bridge }) {
+      // The host appends admitted budget context; fixture routing uses only
+      // the fictional first line while the backend still receives it in full.
+      const prompt = contextPrompt.split("\n", 1)[0]!;
       const sessionId = `odysseus-focus-${++sequence}`;
       bridge.emit({ type: "session_info", sessionId, isNew: true });
       if (prompt === "list") {
