@@ -60,6 +60,7 @@ export function createGovernedTurns(options: {
           protectedPaths: protectedPaths(policy.policy),
           maskPaths: options.maskPaths, maintenance: options.execution.boundary.maintenance });
         const commandPolicy = Object.freeze({ hash: policy.hash,
+          outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index }))),
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });

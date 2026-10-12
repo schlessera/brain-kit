@@ -58,3 +58,8 @@ export { DEFAULT_OUTPUT_STAGING_BYTES, OUTPUT_STAGING_BYTES_ENV, OUTPUT_STAGING_
 export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
   workerCommandPolicyNote } from "./server/command-policy.js";
 export type { WorkerCommandPolicy, WorkerCommandRule } from "./server/command-policy.js";
+
+export { classifyOutwardCall, outwardTarget, BUILTIN_OUTWARD_MCP_DESCRIPTORS } from "./server/outward-actions.js";
+export { prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
+export type { OutwardClassification, VisibleOutwardAction } from "./server/outward-actions.js";
+export type { WorkerOutwardRule, OutwardPlan } from "./server/outward-policy.js";

@@ -92,6 +92,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   const turnTempLimits: WorkerStateLimits = stateOptions.turnTempLimits ?? resolveTurnTempLimits({});
   /** The running worker's turn temp, for the `turn_temp` tool and the pressure warnings. */
   let liveTurnTemp: WorkerStateHandle | undefined;
+  let liveConfigurationRoot: string | undefined;
   let observation: StateRoomObservation | undefined;
   /**
    * The first worker-state refusal or stop (#1625). The runtime only sees a
@@ -112,6 +113,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     turnTempBytes: turnTempLimits.allowanceBytes,
     /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
     turnTempRoot: (): string | undefined => liveTurnTemp?.root,
+    configurationRoot: (): string | undefined => liveConfigurationRoot,
     stateRoom: (): StateRoomObservation | undefined => observation,
     /** The same, once the workers have exited or `waitMs` has passed. */
     async settledLimits(waitMs = 3_000): Promise<WorkerLimitReport> {
@@ -158,6 +160,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const handle = worker.state!;
       const turnTemp = worker.turnTemp;
       liveTurnTemp = turnTemp;
+      liveConfigurationRoot = worker.configurationRoot;
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
       let tail = "", noSpace = false;
       worker.stderr.setEncoding("utf8");

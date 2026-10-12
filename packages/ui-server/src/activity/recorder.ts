@@ -412,6 +412,7 @@ export function createTurnRecorder(
             onWrite?.();
             break;
           }
+          case "outward_action":
           case "policy_block":
           case "policy_confirm": {
             ensureRoot();

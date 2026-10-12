@@ -9,7 +9,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
+import { workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -110,7 +110,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const limits = launchLimits({});
     sandboxNote = [workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
-      outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns)].filter(Boolean).join("\n\n");
+    outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
@@ -120,6 +120,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
     turnTemp = child.turnTemp;
+    turnContext.configurationRoot = child.configurationRoot;
   } catch (error) { envelope?.relay.stop(); reservation.release(); throw error; }
   const held = reservation;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */

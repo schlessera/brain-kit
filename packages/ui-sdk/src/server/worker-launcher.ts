@@ -723,6 +723,8 @@ export interface WorkerStateHandle {
 }
 
 export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["streams"]> & {
+  /** Host-held configuration view used by this worker; valid until it exits. */
+  readonly configurationRoot?: string;
   pid: number;
   exited: Promise<number>;
   kill(signal?: NodeJS.Signals): void;
@@ -1022,7 +1024,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       finally { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
       return code;
     });
-    return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    return { ...streams, configurationRoot: startupView?.root ?? realpathSync(input.brainPath), pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       kill: (signal?: NodeJS.Signals) => { killed = true; return spawned.kill(signal); }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
   } catch (error) {
