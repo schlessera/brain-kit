@@ -343,13 +343,13 @@ test("save refusal card discloses partial persistence and scopes Retry to the re
   expect(failureText(withoutRetry)).toContain("some files may have been saved");
   expect(failureText(withoutRetry)).toContain("retrying won't recover the unsaved state");
   expect(failureText(withoutRetry)).not.toMatch(/too long|nothing was sent/i);
-  expect(withoutRetry.queryByRole("button", { name: "Retry", exact: true })).toBeNull();
+  expect(withoutRetry.queryByRole("button", { name: /^Retry$/ })).toBeNull();
   cleanup();
   const latest = render(<MessageBubble message={{ ...message, retryOfTurnId: "turn-ithaca" }} closing
     onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} />);
-  expect(latest.getByRole("button", { name: "Retry", exact: true })).toBeTruthy();
+  expect(latest.getByRole("button", { name: /^Retry$/ })).toBeTruthy();
   cleanup();
   const older = render(<MessageBubble message={{ ...message, retryOfTurnId: "turn-ithaca" }} closing={false}
     onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} />);
-  expect(older.queryByRole("button", { name: "Retry", exact: true })).toBeNull();
+  expect(older.queryByRole("button", { name: /^Retry$/ })).toBeNull();
 });
