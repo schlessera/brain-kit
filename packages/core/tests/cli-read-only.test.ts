@@ -1,9 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openDatabase } from "../src/internal.js";
-import { readOnlyBrainError } from "../src/cli/read-only.js";
+import { isReadOnlyBrainMount, readOnlyBrainError } from "../src/cli/read-only.js";
 let root: string | undefined;
 afterEach(() => { if (root) rmSync(root, { recursive: true, force: true }); root = undefined; });
 
@@ -11,6 +12,69 @@ test("only EROFS receives the hosted read-only error envelope", () => {
   expect(readOnlyBrainError("add", { code: "EACCES" })).toBeNull();
   expect(readOnlyBrainError("add", { code: "EROFS" })).toMatchObject({ schema_version: 1, ok: false, error: { code: "read_only_brain", tool: "brain_add" } });
   expect(readOnlyBrainError("archive", { code: "EROFS" })?.error.tool).toBe("brain_archive");
+});
+
+test("mount topology selects visible stacks and excludes hidden descendants independent of record order", () => {
+  root = mkdtempSync(join(tmpdir(), "odysseus mount-topology-"));
+  const target = fs.realpathSync(root);
+  const row = (id: number, parent: number, point: string, mode: string) =>
+    `${id} ${parent} 0:1 / ${point.replaceAll(" ", "\\040")} ${mode},relatime - tmpfs tmpfs rw`;
+  const cases = [
+    { name: "writable over readonly", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(7, 90, "/tmp", "rw")] },
+    { name: "readonly over writable", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "rw"), row(7, 90, "/tmp", "ro")] },
+    { name: "hidden readonly descendant", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(95, 90, target, "ro"), row(7, 90, "/tmp", "rw")] },
+    { name: "hidden writable descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "rw"), row(95, 90, target, "rw"), row(7, 90, "/tmp", "ro")] },
+    { name: "visible child of top mount", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(7, 90, "/tmp", "rw"), row(3, 7, target, "ro")] },
+    { name: "ancestor cover hides a separately mounted descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(95, 42, target, "rw"), row(90, 42, "/tmp", "ro")] },
+    { name: "root stack hides old descendants", ro: false, rows: [row(42, 900, "/", "ro"), row(90, 42, target, "ro"), row(7, 42, "/", "rw")] },
+  ];
+  const original = fs.readFileSync;
+  let mountinfo = "";
+  const spy = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathLike, options?: unknown) =>
+    path === "/proc/self/mountinfo" ? mountinfo : original(path, options as never)) as typeof fs.readFileSync);
+  try {
+    for (const fixture of cases) {
+      for (const rows of [fixture.rows, [...fixture.rows].reverse(), [...fixture.rows.slice(1), fixture.rows[0]!]]) {
+        mountinfo = rows.join("\n");
+        expect(isReadOnlyBrainMount(target), `VISIBLE_MOUNT_${fixture.name}`).toBe(fixture.ro);
+      }
+    }
+  } finally { spy.mockRestore(); }
+});
+
+test("a real agent worker indexes a brain in its writable tmpfs over the readonly host tmp mount", async () => {
+  mkdirSync(resolve("tmp"), { recursive: true });
+  root = mkdtempSync(join(resolve("tmp"), "odysseus-worker-mount-"));
+  const corpus = resolve("packages/core/fixtures/corpus");
+  const cli = resolve("packages/core/src/cli/brain.ts");
+  const index = resolve("packages/core/src/index.ts");
+  const program = `const fs=require("node:fs"); const brain="/tmp/odysseus-corpus";
+    fs.cpSync(${JSON.stringify(corpus)},brain,{recursive:true});
+    const config=brain+"/brain.config.ts";
+    fs.writeFileSync(config,fs.readFileSync(config,"utf8").replace('"@schlessera/brain"',${JSON.stringify(JSON.stringify(index))}));
+    fs.writeFileSync(brain+"/witness.md","Odysseus repairs the raft.\\n");
+    const result=Bun.spawnSync([process.execPath,${JSON.stringify(cli)},"index","--force","--json"],
+      {cwd:brain,env:{...process.env,BRAIN_ROOT:brain},stdout:"pipe",stderr:"pipe"});
+    console.log(JSON.stringify({witness:fs.readFileSync(brain+"/witness.md","utf8"),
+      exit:result.exitCode,stdout:result.stdout.toString(),stderr:result.stderr.toString(),database:fs.existsSync(brain+"/brain.db"),
+      mounts:fs.readFileSync("/proc/self/mountinfo","utf8").split("\\n").filter(line=>line.split(" ")[4]==="/tmp")}));`;
+  const launch = `const {launchAgentWorker}=await import(${JSON.stringify(resolve("packages/ui-sdk/src/server/worker-launcher.ts"))});
+    const worker=launchAgentWorker({brainPath:${JSON.stringify(root)},env:{},command:${JSON.stringify([process.execPath, "--config=/dev/null", "--no-env-file", "-e", program])}});
+    try {const [out,err,exit]=await Promise.all([new Response(worker.stdout).text(),new Response(worker.stderr).text(),worker.exited]);
+      process.stdout.write(out);process.stderr.write(err);process.exitCode=exit;}finally{worker.turnTemp?.close();}`;
+  // Supply a genuine host /tmp mount even on hosts where /tmp is ordinarily
+  // just a directory. The real launcher then covers its readonly copy with
+  // the worker's private writable tmpfs, reproducing the specified stack.
+  const child = Bun.spawn(["bwrap", "--unshare-user", "--unshare-net", "--bind", "/", "/", "--bind", "/tmp", "/tmp", "--proc", "/proc", "--dev", "/dev",
+    process.execPath, "--config=/dev/null", "--no-env-file", "-e", launch], { env: { PATH: "/usr/local/bin:/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(exit, stderr + stdout).toBe(0);
+  const receipt = JSON.parse(stdout);
+  expect(receipt.mounts.length, "ACTUAL_TMP_MOUNT_STACK").toBeGreaterThanOrEqual(2);
+  expect(receipt.witness, "KERNEL_TMP_WRITE_SUCCEEDED").toBe("Odysseus repairs the raft.\n");
+  expect(receipt.exit, `WRITABLE_TMP_CLI_INDEX: ${receipt.stdout} ${receipt.stderr}`).toBe(0);
+  expect(receipt.database, "WRITABLE_TMP_INDEX_DATABASE_CREATED").toBe(true);
+  expect(JSON.parse(receipt.stdout).total).toBeGreaterThan(0);
 });
 
 test("read-only bind refuses capture visibly and leaves search usable", async () => {

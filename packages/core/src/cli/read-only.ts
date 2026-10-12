@@ -53,17 +53,34 @@ export function isReadOnlyBrainMount(root: string): boolean {
   if (process.platform !== "linux") return false;
   try {
     const target = realpathSync(root);
-    let longest = -1;
-    let readOnly = false;
+    const mounts = new Map<number, { id: number; parent: number; point: string; readOnly: boolean }>();
     for (const line of readFileSync("/proc/self/mountinfo", "utf8").split("\n")) {
       const fields = line.split(" ");
-      if (fields.length < 6) continue;
-      const mount = fields[4]!.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8)));
-      if ((target === mount || target.startsWith(mount === "/" ? "/" : `${mount}/`)) && mount.length > longest) {
-        longest = mount.length;
-        readOnly = fields[5]!.split(",").includes("ro");
-      }
+      if (fields.length < 6 || !/^\d+$/.test(fields[0]!) || !/^\d+$/.test(fields[1]!)) continue;
+      const id = Number(fields[0]), parent = Number(fields[1]);
+      const point = fields[4]!.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8)));
+      mounts.set(id, { id, parent, point, readOnly: fields[5]!.split(",").includes("ro") });
     }
-    return readOnly;
+    // mountinfo parent IDs encode the stack: a same-point child covers its
+    // parent. Follow the visible tree from /, taking the nearest child mount
+    // on the target path before considering descendants. Otherwise a deeper
+    // mount left beneath an overmounted ancestor can incorrectly win.
+    // https://man.archlinux.org/man/core/man-pages/proc_pid_mountinfo.5.en
+    let current = [...mounts.values()].find(mount => mount.point === "/" &&
+      (mount.parent === mount.id || !mounts.has(mount.parent)));
+    const visited = new Set<number>();
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      const children = [...mounts.values()].filter(mount => mount.id !== current!.id && mount.parent === current!.id &&
+        (target === mount.point || target.startsWith(mount.point === "/" ? "/" : `${mount.point}/`)));
+      if (!children.length) return current.readOnly;
+      const nearest = Math.min(...children.map(mount => mount.point.length));
+      const next = children.filter(mount => mount.point.length === nearest);
+      // Kernel data supplies one visible branch. Ambiguous/incomplete input
+      // cannot establish a diagnostic refusal; the kernel still guards writes.
+      if (next.length !== 1) return false;
+      current = next[0];
+    }
+    return false;
   } catch { return false; }
 }
