@@ -1,6 +1,7 @@
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
-import type { BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
+import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
+import { createHash } from "node:crypto";
 import type {
   ActivityQuery,
   BackendBridge,
@@ -77,6 +78,19 @@ export function makeBridge(
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
+  /**
+   * A linked turn-temp file the backend promoted, or could not (#1655): kept
+   * as a governance event with the session history, never shown in the chat.
+   */
+  const recordPromotion = (event: Extract<BackendActivityEvent, { kind: "promotion" | "promotion_refused" }>): void => {
+    const { kind, ...payload } = event;
+    catalog.recordGovernanceEvent?.({
+      kind, payload, turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive",
+      model: null, profile: null,
+      // One record per linked file and turn, however often a backend reports it.
+      dedupeKey: `${turnId}:${createHash("sha256").update(event.source).digest("hex")}`,
+    });
+  };
   const bridge: BackendBridge = {
     ...inbox,
     // A bridge tool that wrote into the scratch area prunes it through the
@@ -279,8 +293,11 @@ export function makeBridge(
         }
       });
     },
-    ...(recorder
-      ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => recorder.observeActivity(event) }
+    ...(recorder || catalog.recordGovernanceEvent
+      ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
+          if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
+          else recorder?.observeActivity(event);
+        } }
       : {}),
     ...(queryActivity
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }

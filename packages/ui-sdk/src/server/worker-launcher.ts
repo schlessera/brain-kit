@@ -10,6 +10,7 @@ import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_XDG_D
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
+import { createTurnTemp, type TurnTemp } from "./worker-turn-temp.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -44,6 +45,13 @@ export interface WorkerLaunch {
    * without them.
    */
   limits?: WorkerLimitsPlan;
+  /**
+   * Host-visible turn temp (#1655): bound at `/tmp`, which holds the scratch
+   * path, and taking the `$HOME` overlay's writes, so the host can promote
+   * what the answer links once the worker has exited. Absent, or in the
+   * restricted envelope: namespace-private tmpfs mounts, as before.
+   */
+  turnTemp?: TurnTemp;
 }
 
 export interface RestrictedEnvelope {
@@ -187,7 +195,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
       throw new WorkerHostError("runtime state must be a separate, non-aliasing tmpfs directory outside the brain and scratch");
     }
   }
-  const writable = sandboxMounts(input, brain, scratch, state);
+  const temp = input.restricted ? undefined : input.turnTemp;
+  if (temp) checkTurnTemp(temp, brain, scratch, state);
+  const writable = sandboxMounts(input, brain, scratch, state, temp);
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
     ...(input.restricted ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
@@ -195,11 +205,11 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(input.restricted ? [] : ["--ro-bind", "/", "/"]),
     // Before every other mount, so the brain, area and state binds land on top of it.
     ...writable.home,
-    "--proc", "/proc", ...rootProcCover(), "--dev", "/dev", "--tmpfs", "/tmp",
+    "--proc", "/proc", ...rootProcCover(), "--dev", "/dev", ...(temp ? ["--bind", temp.tmp, "/tmp"] : ["--tmpfs", "/tmp"]),
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     "--ro-bind", brain, brain,
     ...(input.restricted ? maskedGit(brain) : []),
-    "--tmpfs", scratch, ...writable.binds, "--clearenv"];
+    ...(temp ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds, "--clearenv"];
   if (state) argv.push("--bind", state, state);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
@@ -211,13 +221,29 @@ export function workerCommand(input: WorkerLaunch): string[] {
 const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 
 /**
+ * Turn temp must be what promotion assumes (#1655): real directories on a
+ * tmpfs that is not the brain's device, aliasing neither the brain nor the
+ * runtime state, with the scratch path inside the `/tmp` it replaces.
+ */
+function checkTurnTemp(temp: TurnTemp, brain: string, scratch: string, state: string | undefined): void {
+  const refuse = () => { throw new WorkerHostError("turn temp must be private tmpfs directories outside the brain and runtime state"); };
+  const brainDev = statSync(brain).dev;
+  for (const dir of [temp.tmp, temp.homeUpper, temp.homeWork]) {
+    const info = lstatSync(dir, { throwIfNoEntry: false });
+    if (!info?.isDirectory() || realpathSync(dir) !== dir || info.dev === brainDev || statfsSync(dir).type !== 0x01021994
+      || within(brain, dir) || within(dir, brain) || (state !== undefined && (within(state, dir) || within(dir, state)))) refuse();
+  }
+  if (!within("/tmp", scratch) || scratch === "/tmp") refuse();
+}
+
+/**
  * The bubblewrap arguments for a resolved sandbox, re-checked against this
  * launch: the sandbox must be for this brain and envelope, each writable area
  * must still be a real directory at its own path in the brain, and the home it
  * was resolved for must still be the worker's `$HOME`. A mismatch refuses the
  * launch rather than binding something the agent's note does not describe.
  */
-function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, state: string | undefined) {
+function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, state: string | undefined, temp: TurnTemp | undefined) {
   const out = { home: [] as string[], binds: [] as string[], env: [] as string[] };
   const sandbox = input.sandbox;
   if (!sandbox) return out;
@@ -245,7 +271,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
     if (!given || !isAbsolute(given) || !existsSync(given) || realpathSync(given) !== home.path) {
       throw new WorkerHostError("the worker's HOME is not the home its sandbox was resolved for");
     }
-    out.home.push("--overlay-src", home.path, "--tmp-overlay", home.path);
+    out.home.push("--overlay-src", home.path, ...(temp ? ["--overlay", temp.homeUpper, temp.homeWork] : ["--tmp-overlay"]), home.path);
   } else if (home?.mode === "xdg") {
     out.binds.push(...Object.values(WORKER_XDG_DIRS).flatMap(dir => ["--dir", dir]));
     out.env.push(...Object.entries(WORKER_XDG_DIRS).flatMap(([key, dir]) => ["--setenv", key, dir]));
@@ -263,19 +289,26 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
 export function probeHomeOverlay(brain: string, home: string): true | string {
   const marker = `.brain-home-overlay-probe-${process.pid}-${Date.now()}`;
   const target = join(home, marker);
-  let argv: string[];
+  // The same overlay a turn gets: its writes land in host-visible turn temp
+  // when there is one (#1655), in a namespace-private tmpfs otherwise.
+  let temp: TurnTemp | null = null;
   try {
-    argv = workerCommand({ brainPath: brain, env: { HOME: home },
-      command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
-      sandbox: { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "overlay", path: home } } });
-  } catch (error) { return error instanceof Error ? error.message : String(error); }
-  const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
-  if (existsSync(target)) {
-    rmSync(target, { force: true });
-    return "an overlay write reached the host home";
-  }
-  if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
-  return true;
+    try { temp = createTurnTemp(brain); } catch { temp = null; }
+    let argv: string[];
+    try {
+      argv = workerCommand({ brainPath: brain, env: { HOME: home }, ...(temp ? { turnTemp: temp } : {}),
+        command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
+        sandbox: { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "overlay", path: home } } });
+    } catch (error) { return error instanceof Error ? error.message : String(error); }
+    const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
+    if (existsSync(target)) {
+      rmSync(target, { force: true });
+      return "an overlay write reached the host home";
+    }
+    if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
+    if (temp && !existsSync(join(temp.homeUpper, marker))) return "an overlay write did not reach the turn's temp directory";
+    return true;
+  } finally { temp?.cleanup(); }
 }
 
 export interface PrepareWorkerSandboxOptions {

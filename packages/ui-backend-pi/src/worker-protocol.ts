@@ -1,4 +1,5 @@
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
@@ -6,6 +7,8 @@ import type { Readable, Writable } from "node:stream";
 // Internal protocol. A worker can propose inputs, never a decision or authority.
 export const PI_PIPE_MAX_BYTES = 16 * 1024 * 1024;
 export const sessionReserveBytes = (payloadSize: number): number => Math.max(1024 * 1024, Math.ceil(payloadSize / 4));
+/** The pi runtime state inside turn temp (settings, models and login): never promoted (#1655). */
+export const PI_WORKER_STATE = `${WORKER_SCRATCH}/pi-state`;
 export class SessionTooLargeError extends BackendRequestError {
   readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
   constructor() {

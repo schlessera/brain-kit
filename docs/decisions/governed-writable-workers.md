@@ -149,7 +149,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:119`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:430-434`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:447-451`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -481,6 +481,28 @@ destination, bytes, turn id and both links. A promotion over the per-turn size
 bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
+**As built (#1655).** The server takes turn temp from the first tmpfs that
+is not the brain's device: its own temporary directory, then `/dev/shm`
+(`export function turnTempRoot`, `packages/ui-sdk/src/server/worker-turn-temp.ts:63-76`).
+A private `0700` directory there is bound at the worker's `/tmp`, which holds
+`$BRAIN_WORKER_SCRATCH` and the XDG fallback, and the `$HOME` overlay writes
+into its upper directory there. Without such a tmpfs the worker keeps the
+namespace-private mounts and nothing can be promoted, which the server logs.
+The restricted envelope is unchanged. After the worker exits, the backend
+rewrites the answer text the turn appended to its saved transcript, and only
+that text. It looks at Markdown link and image destinations and reference
+definitions outside code. A file is promoted once per turn however often it
+is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:202-213`).
+The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
+file links accept, so the rewritten link is brain-relative and is pinned like
+any other scratch link. Each result reaches the server as a `promotion` or
+`promotion_refused` activity event, which it stores as the governance event of
+the same name. `scratch_unavailable` is the refusal for a turn whose
+`.brain/scratch/` was not usable. The stored answer is rewritten before the
+turn's history boundary is read. A reader still watching the live stream
+sees the original link until the conversation is reloaded.
+
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
 files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:595`).
 A pin is released when every conversation that links the file is deleted or
@@ -698,7 +720,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:261`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:267`)
   must not feed any budget.
 
 **Enforcement:**
@@ -840,7 +862,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:72`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:80`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -852,7 +874,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:519`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:552`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -972,7 +994,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:37`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:47`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:

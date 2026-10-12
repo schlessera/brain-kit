@@ -12,7 +12,7 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
+import { PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
 
 interface Init {
@@ -63,7 +63,7 @@ function snapshot(): boolean {
   }
 }
 async function initialize(init: Init): Promise<void> {
-  const state = join(WORKER_SCRATCH, "pi-state");
+  const state = PI_WORKER_STATE;
   mkdirSync(state, { recursive: true });
   authPath = join(state, "auth.json"); originalAuth = init.agentFiles["auth.json"];
   for (const name of ["auth.json", "models.json", "settings.json"]) {

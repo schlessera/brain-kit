@@ -78,7 +78,7 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
   // An autonomous turn starts from nothing saved and saves nothing: no stored
   // login, settings, account file or transcript enters or leaves it (#676).
   if (options.ephemeral) return { path: state, persist() {}, cleanup: () => rmSync(state, { recursive: true, force: true }) };
-  const initial = new Map<string, string>();
+  const initial = new Map<string, string>(), initialLength = new Map<string, number>();
   try {
     const projectRoot = join(saved, project);
     if (existsSync(projectRoot)) directory(projectRoot);
@@ -112,11 +112,15 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
         throw new WorkerHostError("Claude settings changed and no longer fit in runtime state");
       }
       const target = join(state, name); directory(dirname(target)); writeFileSync(target, bytes, { flag: "wx", mode: 0o600 });
-      initial.set(name, hash(bytes));
+      initial.set(name, hash(bytes)); initialLength.set(name, bytes.length);
     }
     return {
       path: state,
-      persist() {
+      /**
+       * `rewrite` maps the answer text of the transcript lines this run
+       * appended to a session (#1655); earlier lines are saved as they were.
+       */
+      persist(rewrite?: (text: string) => string) {
         // Only this brain's native transcript files, never worker-supplied
         // commands, settings, destinations or deletion requests. The PID
         // namespace is already gone, so no runtime writer can race this copy.
@@ -125,7 +129,10 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
           if (!file.endsWith(".jsonl")) continue;
           const id = file.split("/")[0]!.replace(/\.jsonl$/, "");
           if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
-          const name = `${project}/${file}`, bytes = regular(join(state, name)); total += bytes.length;
+          const name = `${project}/${file}`, read = regular(join(state, name)); total += read.length;
+          const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
+          // Only a session's own transcript holds the answer; subagent files stay as written.
+          const bytes = rewrite && !file.includes("/") ? rewriteAppendedAnswers(read, prefix, rewrite) : read;
           if (total > MAX_STATE_BYTES) throw new WorkerHostError("runtime transcripts exceed their byte bound");
           if (initial.get(name) === hash(bytes)) continue;
           const target = join(saved, name); directory(dirname(target));
@@ -141,4 +148,32 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
   } catch (error) { rmSync(state, { recursive: true, force: true }); if ((error as NodeJS.ErrnoException).code === "ENOSPC") {
     throw new WorkerHostError("runtime-state tmpfs ran out of space during snapshot; increase /dev/shm capacity (--shm-size in Docker)");
   } throw error; }
+}
+
+/**
+ * The transcript with the answer text of the lines appended after `prefix`
+ * passed through `rewrite` (#1655). A transcript whose saved prefix changed is
+ * returned as it is: nothing but this run's own lines may be rewritten.
+ */
+export function rewriteAppendedAnswers(bytes: Buffer, prefix: { length: number; hash: string } | undefined,
+  rewrite: (text: string) => string): Buffer {
+  const start = prefix?.length ?? 0;
+  if (prefix && (bytes.length < start || hash(bytes.subarray(0, start)) !== prefix.hash)) return bytes;
+  let changed = false;
+  const lines = bytes.subarray(start).toString("utf8").split("\n").map(line => {
+    if (!line.includes("\"assistant\"")) return line;
+    let record: { type?: unknown; message?: { content?: unknown } };
+    try { record = JSON.parse(line); } catch { return line; }
+    if (record?.type !== "assistant" || !Array.isArray(record.message?.content)) return line;
+    let touched = false;
+    for (const part of record.message.content as Array<{ type?: unknown; text?: unknown }>) {
+      if (part?.type !== "text" || typeof part.text !== "string") continue;
+      const next = rewrite(part.text);
+      if (next !== part.text) { part.text = next; touched = true; }
+    }
+    if (!touched) return line;
+    changed = true;
+    return JSON.stringify(record);
+  });
+  return changed ? Buffer.concat([bytes.subarray(0, start), Buffer.from(lines.join("\n"))]) : bytes;
 }

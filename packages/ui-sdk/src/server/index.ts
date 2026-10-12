@@ -18,6 +18,7 @@ export type {
   LocationFix,
   SubscriptionAuthAction,
   UnavailableProfile,
+  TurnTempPromotionRefusal,
 } from "./backend.js";
 export {
   BackendBusyError,

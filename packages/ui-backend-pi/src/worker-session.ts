@@ -7,8 +7,9 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
-import { createLimitTracker, launchAgentWorker, launchLimits, prepareWorkerSandbox, requireWorkerHost, restrictedReadPaths,
-  workerNoteLimits, WorkerResourceLimitError, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { createLimitTracker, createTurnTemp, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox,
+  requireWorkerHost, restrictedReadPaths, workerNoteLimits, WorkerResourceLimitError, workerSandboxNote, workerSandboxWarnings,
+  WORKER_SCRATCH, type TurnTemp, type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -17,7 +18,7 @@ import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-t
 import { DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
 import { subprocessEnv } from "./config/env.js";
 import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./session-storage.js";
-import { checkSessionSize, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
+import { checkSessionSize, PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
 /** The path a granted brain_read_base input names; undefined unless it is a valid input. */
@@ -34,6 +35,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
   const sessionId = resumeId ?? randomUUID();
   const entries = info ? readPiSession(info.path) : undefined;
+  /** Entries saved before this turn: their answers were promoted, if at all, by their own turn. */
+  const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
   const turnContext = createTurnContext();
   const allowedTools = new Set(env.autonomous?.allowedTools ?? backend.allowedTools ?? DEFAULT_PI_ALLOWED_TOOLS);
   const confirmPatterns = compileConfirmPatterns(backend.confirmBashPatterns ?? DEFAULT_CONFIRM_BASH_PATTERNS, () => {});
@@ -79,20 +82,32 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   let child: ReturnType<typeof launchAgentWorker>;
   let sandboxNote: string;
+  let sandbox: WorkerSandbox;
+  // Host-visible turn temp, so what the answer links there can be promoted
+  // once the worker has exited (#1655). An autonomous turn saves no answer.
+  let turnTemp: TurnTemp | null = null;
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
-    const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
+    sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: workerNoteLimits(limits.status) });
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
+    if (!env.autonomous) {
+      turnTemp = createTurnTemp(backend.brainPath);
+      if (!turnTemp) backend.log?.("warn", "no private tmpfs for turn temp; files the answer links there cannot be promoted");
+    }
     child = launchAgentWorker({ brainPath: backend.brainPath,
-      command: [process.execPath, entry], env: workerEnv, sandbox, limits,
+      command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(turnTemp ? { turnTemp } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
-  } catch (error) { envelope?.relay.stop(); throw error; }
+  } catch (error) { envelope?.relay.stop(); turnTemp?.cleanup(); throw error; }
   // The relay lives exactly as long as the worker it serves.
   if (envelope) void child.exited.finally(() => envelope.relay.stop());
+  // A worker that never ran a turn has nothing to promote; one that did is
+  // cleaned up by `promote` once its answer has been read.
+  let prompted = false;
+  void child.exited.finally(() => { if (!prompted) turnTemp?.cleanup(); });
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -162,6 +177,36 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
     }
     savePiSession(sessionDir, sessionId, saved);
+  }
+  /**
+   * Once the worker has exited, copies what this turn's answers link in turn
+   * temp into scratch, saves the answers linking the copies, and reports each
+   * linked file to the host (#1655). Turn temp is removed either way.
+   */
+  function promote(): void {
+    if (!turnTemp) return;
+    try {
+      const promoter = createTurnTempPromoter({ brain: sandbox.brain, turnTemp, turnId: turnContext.turnId, scratch: WORKER_SCRATCH, exclude: [PI_WORKER_STATE],
+        home: sandbox.home?.mode === "overlay" ? sandbox.home.path : undefined,
+        scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) });
+      let changed = false;
+      for (const entry of latestEntries) {
+        if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
+        const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+        if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+        for (const part of message.content as Array<{ type?: unknown; text?: unknown }>) {
+          if (part?.type !== "text" || typeof part.text !== "string") continue;
+          const next = promoter.rewrite(part.text);
+          if (next !== part.text) { part.text = next; changed = true; }
+        }
+      }
+      if (changed) persist();
+      for (const record of promoter.records) {
+        try { turnContext.bridge?.activity?.(record); } catch { /* Observability must not fail the observed turn. */ }
+      }
+    } catch (failure) {
+      backend.log?.("warn", `promoting linked turn-temp files failed: ${failure instanceof Error ? failure.message : String(failure)}`);
+    } finally { turnTemp.cleanup(); }
   }
   async function dispatch(msg: Rpc): Promise<unknown> {
     live();
@@ -345,9 +390,11 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (error) throw error;
       if (active || ended) throw new Error("Pi worker turn already started or finished");
       active = true;
-      send({ type: "prompt", text, options });
-      try { await done.promise; }
-      finally { child.stdin.end(); child.kill("SIGKILL"); await child.exited; await received; }
+      prompted = true;
+      // The send is inside the lifecycle: an oversized prompt still ends the
+      // worker and removes its turn temp.
+      try { send({ type: "prompt", text, options }); await done.promise; }
+      finally { child.stdin.end(); child.kill("SIGKILL"); await child.exited; await received; promote(); }
       if (error) throw error;
     },
     async abort() {

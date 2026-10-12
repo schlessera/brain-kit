@@ -340,7 +340,39 @@ export type BackendActivityEvent =
         events: number | null;
       }>;
       fatal: boolean;
+    }
+  | {
+      /**
+       * A file the answer linked in turn temp (#1655), copied into persistent
+       * scratch after the worker exited; the stored answer now links the copy.
+       * Quiet: the host keeps it as a governance event and shows nothing.
+       */
+      kind: "promotion";
+      /** The linked path as the worker saw it. */
+      source: string;
+      /** Brain-relative, below `.brain/scratch/turns/<turnId>/`. */
+      destination: string;
+      bytes: number;
+      /** The link destination as the answer wrote it. */
+      originalLink: string;
+      /** The link destination the stored answer has now. */
+      rewrittenLink: string;
+    }
+  | {
+      /** A linked turn-temp file that was not copied; the answer keeps the link as written (#1655). */
+      kind: "promotion_refused";
+      source: string;
+      originalLink: string;
+      reason: TurnTempPromotionRefusal;
+      /** The size seen, or copied before a bound stopped the copy; null when unknown. */
+      bytes: number | null;
+      /** The bound that refused it; null when no byte bound applies. */
+      limitBytes: number | null;
     };
+
+/** Why a linked turn-temp file was not promoted (#1655). */
+export type TurnTempPromotionRefusal = "file_too_large" | "turn_too_large" | "not_regular_file" | "symlink"
+  | "multiple_links" | "missing" | "io_error" | "scratch_unavailable";
 
 // The subscription auth actions are part of the wire (`TurnFailure.authAction`,
 // #575), so they live beside it; the server entry keeps exporting them.
@@ -440,6 +472,13 @@ export interface StartTurnRequest {
    * @experimental
    */
   posture?: "voice";
+  /**
+   * The host's identity for this turn. Backends name per-turn artifacts with
+   * it, such as the directory files linked in turn temp are promoted into
+   * (`.brain/scratch/turns/<turnId>/`, #1655), so they match the host's
+   * records. Absent: the backend mints its own.
+   */
+  turnId?: string;
 }
 
 /** @experimental Nonpersistence and permission posture, not a containment profile. */

@@ -766,10 +766,18 @@ export "./internal" (./src/internal.ts)
   type InferenceRelayEvent
   type InferenceRelayOptions
   MAX_INFERENCE_REQUEST_BYTES
+  PROMOTED_SCRATCH_DIR
+  PROMOTION_FILE_MAX_BYTES
+  PROMOTION_TURN_MAX_BYTES
+  PROMOTION_TURN_MAX_FILES
   type PrepareWorkerSandboxOptions
   type QuestionObservation
   type RestrictedEnvelope
   SUBPROCESS_ENV
+  TURN_TEMP_PREFIX
+  type TurnTemp
+  type TurnTempPromoterOptions
+  type TurnTempPromotionRecord
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
@@ -805,6 +813,8 @@ export "./internal" (./src/internal.ts)
   claudeMaskFilename
   claudeReportedMaskPath
   createLimitTracker
+  createTurnTemp
+  createTurnTempPromoter
   describeLimitHits
   execWrapperSpawnOptions
   hasWebSearchCredential
@@ -826,6 +836,7 @@ export "./internal" (./src/internal.ts)
   resolveWebSearchConfigPath
   restrictedReadPaths
   startInferenceRelay
+  turnTempRoot
   webSearchBrief
   webSearchProvider
   workerHostBoundary
@@ -1776,6 +1787,7 @@ export "./server" (./src/server/index.ts)
   type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
+  type TurnTempPromotionRefusal
   type TurnUsage
   type UnavailableProfile
   type UnavailableProfileInfo
@@ -4256,6 +4268,20 @@ signatures (every public export and the types it is made of)
             events: number | null;
         }>;
         fatal: boolean;
+    } | {
+        kind: "promotion";
+        source: string;
+        destination: string;
+        bytes: number;
+        originalLink: string;
+        rewrittenLink: string;
+    } | {
+        kind: "promotion_refused";
+        source: string;
+        originalLink: string;
+        reason: TurnTempPromotionRefusal;
+        bytes: number | null;
+        limitBytes: number | null;
     };
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
@@ -8419,6 +8445,7 @@ signatures (every public export and the types it is made of)
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;
         posture?: "voice";
+        turnId?: string;
     }
   StoredShare (packages/ui-sdk/src/client/share-store.ts)
     export interface StoredShare {
@@ -8609,6 +8636,8 @@ signatures (every public export and the types it is made of)
         sessionId: string;
         textDeltas: string[];
     }
+  TurnTempPromotionRefusal (packages/ui-sdk/src/server/backend.ts)
+    export type TurnTempPromotionRefusal = "file_too_large" | "turn_too_large" | "not_regular_file" | "symlink" | "multiple_links" | "missing" | "io_error" | "scratch_unavailable";
   TurnUsage (packages/ui-sdk/src/protocol.ts)
     export interface TurnUsage extends ModelUsage {
         perModel?: Record<string, ModelUsage>;

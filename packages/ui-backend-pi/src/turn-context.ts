@@ -33,6 +33,8 @@ export interface TurnContext {
    * other end is empty. Per turn like the bridge, for the same reason.
    */
   noGrantSurface: boolean;
+  /** The host's id for the current turn: names the directory linked turn-temp files are promoted into (#1655). */
+  turnId?: string;
 }
 
 export function createTurnContext(): TurnContext {

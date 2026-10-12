@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough, Writable } from "node:stream";
@@ -108,6 +108,58 @@ test("snapshot overflow reaches the terminal TurnFailure", async () => {
   save(1); overflow = true;
   expect(terminal(await turn())).toMatchObject({ outcome: "error", failure: { errorClass: "session_too_large" } });
   expect(launch).toHaveBeenCalledTimes(1);
+});
+test("a turn's linked turn-temp file is promoted into scratch and the saved answer links the copy (#1655)", async () => {
+  const turnId = "0b7e3c1a-4f2d-4c6b-8a9e-1d2c3b4a5f60";
+  const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
+  launch.mockImplementation((input: worker.WorkerLaunch) => {
+    const stdout = new PassThrough(), stderr = new PassThrough();
+    const exited = Promise.withResolvers<number>();
+    const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
+    children.push(stop);
+    let sessionId = "";
+    const stdin = new Writable({ write(chunk, _encoding, callback) {
+      const message = JSON.parse(String(chunk));
+      if (message.type === "init") {
+        sessionId = message.sessionId;
+        sendPipe(stdout, { type: "ready", sessionId, levels: [], cost: 0 });
+      } else if (message.type === "prompt") {
+        // What a real worker's write to $BRAIN_WORKER_SCRATCH lands on: host turn temp.
+        mkdirSync(join(input.turnTemp!.tmp, "brain-worker-scratch"), { recursive: true });
+        writeFileSync(join(input.turnTemp!.tmp, "brain-worker-scratch/report.pdf"), "Odysseus: the voyage report.");
+        mkdirSync(join(input.turnTemp!.tmp, "brain-worker-scratch/pi-state"));
+        writeFileSync(join(input.turnTemp!.tmp, "brain-worker-scratch/pi-state/auth.json"), "{}");
+        sendPipe(stdout, { type: "snapshot", entries: [
+          { type: "session", version: 3, id: sessionId, cwd: brain, timestamp: "2026-07-12T00:00:00.000Z" },
+          { type: "message", id: "u1", parentId: null, timestamp: "2026-07-12T00:00:00.000Z", message: { role: "user", content: "Report?", timestamp: 0 } },
+          { type: "message", id: "a1", parentId: "u1", timestamp: "2026-07-12T00:00:01.000Z",
+            message: { role: "assistant", content: [{ type: "text", text: answer }], model: "odysseus-1", stopReason: "stop", timestamp: 1,
+              usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } },
+        ] });
+        sendPipe(stdout, { type: "done", cost: 0 });
+      }
+      callback();
+    } });
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+  });
+  const events: unknown[] = [], frames: ServerMessage[] = [];
+  await createPiBackend({ brainPath: brain, sessionDir }).startTurn({
+    prompt: "Write up the voyage report", signal: new AbortController().signal, turnId,
+    bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }), activity: event => events.push(event) },
+  });
+  expect(terminal(frames)).toMatchObject({ outcome: "success" });
+  const destination = `.brain/scratch/turns/${turnId}/report.pdf`;
+  expect(readFileSync(join(brain, destination), "utf8")).toBe("Odysseus: the voyage report.");
+  const saved = readFileSync(join(sessionDir, readdirSync(sessionDir).find(name => name.endsWith(".jsonl"))!), "utf8");
+  expect(saved).toContain(`The voyage report is [ready](${destination}).`);
+  expect(saved).not.toContain("[ready](/tmp/");
+  // Runtime state in turn temp (the login) is never promoted.
+  expect(saved).toContain("[this](/tmp/brain-worker-scratch/pi-state/auth.json)");
+  expect(events).toEqual([{ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
+    originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination }]);
+  // The turn temp the worker wrote is gone once the turn has ended.
+  expect(existsSync(launch.mock.calls.at(-1)![0].turnTemp!.root)).toBe(false);
 });
 test("growth reserve has a 1 MiB floor and scales to 25 percent", () => {
   expect(sessionReserveBytes(1)).toBe(MiB);

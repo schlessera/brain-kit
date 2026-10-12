@@ -3,11 +3,21 @@ import { EventEmitter } from "node:events";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { launchAgentWorker, mergeLimitReports, requireWorkerHost, type WorkerLimitReport,
-  type WorkerLimitsPlan, type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
+import { createTurnTemp, createTurnTempPromoter, launchAgentWorker, mergeLimitReports, requireWorkerHost, WORKER_SCRATCH,
+  type TurnTemp, type TurnTempPromotionRecord, type WorkerLimitReport, type WorkerLimitsPlan,
+  type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
+
+/** Promotion of what an answer links in turn temp (#1655), for a turn that keeps its transcript. */
+export interface WorkerPromotion {
+  /** The host's turn id; absent from an older host. */
+  turnId: string | undefined;
+  /** What happened to each linked file; called once per worker, after it exited. */
+  report(records: TurnTempPromotionRecord[]): void;
+  log(level: "warn", message: string): void;
+}
 
 /** Validate before either archive or live storage is addressed. */
 export function resumedSessionId(args: string[]): string | undefined {
@@ -35,7 +45,7 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  * runtime state, and the relay directory as the one route out.
  */
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
-  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan) {
+  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -53,6 +63,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
       immediateSignal.throwIfAborted();
       const state = prepareClaudeWorkerState(brainPath, env, args, { ephemeral: Boolean(restricted) });
+      // Host-visible turn temp, so what the answer links there can be
+      // promoted once the worker has exited (#1655). Never for the restricted envelope.
+      let turnTemp: TurnTemp | null = null;
+      if (promotion && !restricted && sandbox) {
+        try { turnTemp = createTurnTemp(brainPath); } catch (error) { state.cleanup(); throw error; }
+        if (!turnTemp) promotion.log("warn", "no private tmpfs for turn temp; files the answer links there cannot be promoted");
+      }
       const emitter = new EventEmitter();
       let worker: ReturnType<typeof launchAgentWorker>;
       try {
@@ -70,9 +87,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = launchAgentWorker({ brainPath, statePath: state.path,
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}),
-            ...(limitsPlan ? { limits: limitsPlan } : {}) });
+            ...(limitsPlan ? { limits: limitsPlan } : {}), ...(turnTemp ? { turnTemp } : {}) });
         }
-      } catch (error) { state.cleanup(); throw error; }
+      } catch (error) { try { state.cleanup(); } finally { turnTemp?.cleanup(); } throw error; }
       reports.push(worker.limitReport);
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
       let tail = "";
@@ -86,11 +103,17 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const done = worker.exited.then(code => {
         exitCode = code;
         signal.removeEventListener("abort", abort);
-        // bwrap's PID namespace dies with its init, including detached children.
-        state.persist();
+        // bwrap's PID namespace dies with its init, including detached children,
+        // so nothing writes turn temp or the transcripts while they are read.
+        const promoter = turnTemp && promotion && sandbox ? createTurnTempPromoter({ brain: sandbox.brain, turnTemp,
+          turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [state.path],
+          home: sandbox.home?.mode === "overlay" ? sandbox.home.path : undefined,
+          scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
+        try { state.persist(promoter?.rewrite); }
+        finally { if (promoter?.records.length) promotion!.report(promoter.records); }
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);
         emitter.emit("exit", killed ? null : code, signalCode);
-      }).catch(error => { emitter.emit("error", error); throw error; }).finally(state.cleanup);
+      }).catch(error => { emitter.emit("error", error); throw error; }).finally(() => { try { state.cleanup(); } finally { turnTemp?.cleanup(); } });
       completions.push(done);
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
