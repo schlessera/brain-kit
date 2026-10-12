@@ -926,6 +926,7 @@ export "./internal/client" (./src/internal-client.ts)
   handleShareTargetRequest
   isShareTargetRequest
   pruneStoredShares
+  rebaseMessageBlocks
   resolveAskUserFormLimits
   resolveThinkingLevel
   rewriteLinkDestinations
