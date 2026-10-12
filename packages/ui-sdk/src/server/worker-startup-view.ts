@@ -35,11 +35,13 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
   let entries = 0;
   let bytes = 0;
   const buffer = Buffer.alloc(64 * 1024);
+  const stamps: { parts: string[]; info: import("node:fs").Stats }[] = [];
   const same = (a: import("node:fs").Stats, b: import("node:fs").Stats) =>
     a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
-  function copy(fd: number, destination: string, depth: number): void {
+  function copy(fd: number, destination: string, depth: number, parts: string[] = []): void {
     if (depth > 256) throw new Error("startup view exceeds the directory depth bound");
     const before = fstatSync(fd);
+    stamps.push({ parts, info: before });
     mkdirSync(destination, { mode: 0o700 });
     for (const name of readdirSync(at(fd, "."))) {
       // Restricted consumers have no Git configuration or daemon authority.
@@ -54,6 +56,7 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
       const source = at(fd, name);
       const target = join(destination, name);
       const info = lstatSync(source);
+      stamps.push({ parts: [...parts, name], info });
       if (info.isSymbolicLink()) {
         symlinkSync(readlinkSync(source), target);
         if (!same(info, lstatSync(source))) throw new Error("startup input changed while copying a link");
@@ -61,7 +64,7 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
         const child = openSync(source, DIRECTORY);
         try {
           if (!same(info, fstatSync(child))) throw new Error("startup directory changed before open");
-          copy(child, target, depth + 1);
+          copy(child, target, depth + 1, [...parts, name]);
         } finally { closeSync(child); }
       } else if (info.isFile()) {
         const input = openSync(source, FILE);
@@ -94,6 +97,22 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
   try {
     fd = openSync(brain, DIRECTORY);
     copy(fd, root, 0);
+    // A file copied earlier can change while another file is being read without
+    // changing its parent's metadata. Verify every captured identity at commit.
+    if (!same(stamps[0]!.info, lstatSync(brain))) throw new Error("startup input changed at the brain root");
+    for (const stamp of stamps) {
+      if (!stamp.parts.length) {
+        if (!same(stamp.info, fstatSync(fd))) throw new Error("startup input changed at the brain root");
+        continue;
+      }
+      let parent = openSync(at(fd, "."), DIRECTORY);
+      try {
+        for (const part of stamp.parts.slice(0, -1)) {
+          const child = openSync(at(parent, part), DIRECTORY); closeSync(parent); parent = child;
+        }
+        if (!same(stamp.info, lstatSync(at(parent, stamp.parts.at(-1)!)))) throw new Error("startup input changed while copying");
+      } finally { closeSync(parent); }
+    }
     let removed = false;
     return { brain, root, storage, cleanup() { if (removed) return; removed = true;
       try { rmSync(owner, { recursive: true, force: true }); } finally { storage.release(); } } };

@@ -194,6 +194,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DB_PATH",
     description:
       "SQLite file for the UI's own database (sessions, passkeys, settings). " +
+      "Must resolve outside the brain; an in-brain operational-state layout refuses boot with migration guidance. " +
       "The server factory defaults to ./brain-ui.db; brain-ui-cron defaults " +
       "to the container path /data/db/brain-ui.db.",
     default: "./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron)",
@@ -209,7 +210,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_INBOX_POKE_TOKEN_FILE",
     description:
-      "Absolute runtime token-file path for the protected internal inbox poke. " +
+      "Absolute runtime token-file path for the protected internal inbox poke; must resolve outside the brain. " +
       "Provision a private directory under /run for this app instance. The server " +
       "atomically writes a new 0600 boot token; unset disables poke authorization. " +
       "Does not enable autonomous dispatch.",

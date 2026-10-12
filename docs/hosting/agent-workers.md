@@ -387,8 +387,6 @@ run under `strict`, and the brain's code stays on the host only when:
 
 - the server's working directory is inside the brain (`server_cwd_in_brain`;
   start it from a directory outside the brain), or
-- its database is inside the brain (`database_in_brain`; set `DB_PATH`
-  outside it), or
 - the host cannot run the worker boundary at all, or cannot start a
   credential-free maintenance worker with its private network namespace
   (`worker_host_unavailable`). The worker host probe starts outside the brain
@@ -396,6 +394,25 @@ run under `strict`, and the brain's code stays on the host only when:
 
 `GET /api/status` reports this as `runtime.workerHost.governed`, with
 `hostExecution` `"worker"` or `"host"`, and the boot log says it once.
+
+**Operational state must live outside the brain, in every hosted profile.**
+Before opening SQLite, provisioning the private poke token, reconciling turns or
+executing brain code, the server resolves `DB_PATH` and
+`BRAIN_UI_INBOX_POKE_TOKEN_FILE` through symlinks, including existing parents of
+new paths and the derived quarantine sibling. For an in-memory database, private quarantine storage under `TMPDIR`
+(or the system temp directory) is checked too. A database or private state file or directory inside the brain refuses
+boot as `OperationalStateInBrainError`. The same resolver reports
+`database_in_brain` or `private_state_in_brain` with migration guidance on the
+host boundary status surface. The thrown boot error carries that diagnostic as
+`status`, and the boot log records it; a refused server opens no HTTP listener.
+
+Stop the server, move its state directory outside the brain (keep the database,
+WAL/SHM siblings and `brain-ui-quarantine/` together), set `DB_PATH` to the moved
+database, and restart. Keep the poke token in a private directory outside the
+brain, such as `/run`, and update `BRAIN_UI_INBOX_POKE_TOKEN_FILE` if necessary;
+the server provisions a fresh token at boot. Choose a dedicated state directory
+beside the brain, so masking it does not cover brain inputs. There are no strict
+private-state exclusions; the worker masks retain their existing strength.
 
 **Crash recovery.** Before a governed turn's worker launches, the server
 records which protected paths exist (the decision's tier A and B, with
@@ -514,6 +531,7 @@ each was rejected are in the
 
 | Launcher step | Refusal without the option | What the container needs |
 | --- | --- | --- |
+| util-linux namespace entry is installed | `nsenter` is missing or namespace entry fails | util-linux `nsenter` in the image and `setns` allowed in the namespace seccomp profile for bounded staging. |
 | bubblewrap is installed | `bubblewrap is missing` | bubblewrap in the image. 0.9 is eligible. |
 | Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
 | Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |

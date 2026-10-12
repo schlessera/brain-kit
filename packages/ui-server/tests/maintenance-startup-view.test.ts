@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -144,4 +145,59 @@ test("maintenance publication retains a directory permission change", () => {
     outputs.publish();
     expect(statSync(join(brain, "notes/private")).mode & 0o777, "OUTPUT_DIRECTORY_MODE_PUBLISHED").toBe(0o700);
   } finally { outputs.cleanup(); }
+});
+
+for (const kind of ["existing file", "new file", "new directory"] as const) test(`publication preserves ${kind} permissions despite the server umask`, () => {
+  const brain = fixture();
+  const destination = join(brain, "shared");
+  if (kind === "existing file") { writeFileSync(destination, "before"); chmodSync(destination, 0o666); }
+  const outputs = prepareMaintenanceOutput(brain);
+  const savedUmask = process.umask(0o022);
+  try {
+    const staged = join(outputs.output.source, "shared");
+    if (kind === "new directory") mkdirSync(staged);
+    else writeFileSync(staged, "Odysseus and Penelope share the output.\n");
+    const wanted = kind === "new directory" ? 0o777 : 0o666;
+    chmodSync(staged, wanted);
+    outputs.publish();
+    expect(statSync(destination).mode & 0o777, "OUTPUT_MODE_SURVIVES_SERVER_UMASK").toBe(wanted);
+  } finally { process.umask(savedUmask); outputs.cleanup(); }
+});
+
+
+for (const existing of [true, false]) test(`publication refuses a peer write during copy (${existing ? "existing" : "new"} file)`, () => {
+  const brain = fixture();
+  const destination = join(brain, "shared.md");
+  if (existing) writeFileSync(destination, "before");
+  const outputs = prepareMaintenanceOutput(brain);
+  writeFileSync(join(outputs.output.source, "shared.md"), "Odysseus stages new content.");
+  const original = fs.writeSync;
+  let altered = false;
+  const write = spyOn(fs, "writeSync").mockImplementation((...args: any[]) => {
+    if (!altered && fs.readlinkSync(`/proc/self/fd/${args[0]}`).includes("/.maintenance-")) {
+      altered = true;
+      writeFileSync(destination, "Penelope's newer content");
+    }
+    return (original as (...input: any[]) => number)(...args);
+  });
+  try {
+    expect(() => outputs.publish(), "PUBLICATION_REVALIDATES_AT_COMMIT").toThrow("stale maintenance output");
+    expect(altered).toBe(true);
+    expect(readFileSync(destination, "utf8"), "PEER_WRITE_SURVIVES_PUBLICATION").toBe("Penelope's newer content");
+  } finally { write.mockRestore(); outputs.cleanup(); }
+});
+
+
+test("publication installs a newly absent file without clobbering a last-moment creator", () => {
+  const brain = fixture(); const destination = join(brain, "shared.md");
+  const outputs = prepareMaintenanceOutput(brain);
+  writeFileSync(join(outputs.output.source, "shared.md"), "Odysseus stages new content.");
+  const linkOriginal = fs.linkSync, renameOriginal = fs.renameSync;
+  const createPeer = () => writeFileSync(destination, "Penelope wins creation");
+  const link = spyOn(fs, "linkSync").mockImplementation((from, to) => { createPeer(); return linkOriginal(from, to); });
+  const rename = spyOn(fs, "renameSync").mockImplementation((from, to) => { createPeer(); return renameOriginal(from, to); });
+  try {
+    expect(() => outputs.publish(), "PUBLICATION_ATOMIC_NO_CLOBBER").toThrow("stale maintenance output");
+    expect(readFileSync(destination, "utf8")).toBe("Penelope wins creation");
+  } finally { link.mockRestore(); rename.mockRestore(); outputs.cleanup(); }
 });

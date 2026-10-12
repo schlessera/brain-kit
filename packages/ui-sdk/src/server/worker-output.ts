@@ -1,7 +1,8 @@
 /** Publication of maintenance results. The worker never receives the live brain as a write mount. */
-import { closeSync, constants, fstatSync, fchmodSync, lstatSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
+import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
   renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import type { KeyedLock } from "./keyed-lock.js";
 import { join, resolve } from "node:path";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
@@ -95,7 +96,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
   catch (error) { output.cleanup(); if (!options.startupView) view.cleanup(); throw error; }
-  return {
+  const publication = {
     view, output: { source: output.root, target: WORKER_OUTPUT },
     cleanup() { output.cleanup(); if (!options.startupView) view.cleanup(); },
     /**
@@ -152,10 +153,8 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
           if (entry.type === "directory") {
             if (!before.has(rel)) mkdirSync(destination, { mode: entry.mode });
             else if (before.get(rel)!.type !== "directory") throw new Error("maintenance cannot replace a non-directory with a directory");
-            else {
-              const directory = openSync(destination, DIRECTORY);
-              try { fchmodSync(directory, entry.mode); } finally { closeSync(directory); }
-            }
+            const directory = openSync(destination, DIRECTORY);
+            try { fchmodSync(directory, entry.mode); } finally { closeSync(directory); }
             continue;
           }
           if (before.get(rel)?.type === "directory") throw new Error("maintenance cannot replace a directory with a non-directory");
@@ -175,12 +174,40 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
                   let written = 0;
                   while (written < count) written += writeSync(target, buffer, written, count - written);
                 }
+                fchmodSync(target, entry.mode);
               } finally { closeSync(source.fd); if (input !== undefined) closeSync(input); if (target !== undefined) closeSync(target); }
             }
-            renameSync(temporary, destination);
+            // Copying can be slow while governed peers are running. The base
+            // check belongs after that copy, immediately before publication.
+            if (!equalOutput(before.get(rel), inspect(handle.fd, handle.name))) throw new Error(`stale maintenance output: ${rel}`);
+            if (before.has(rel)) renameSync(temporary, destination);
+            else {
+              // link(2) installs a new file/link atomically without replacing
+              // an authoritative name created after the final check.
+              try { linkSync(temporary, destination); }
+              catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`stale maintenance output: ${rel}`);
+                throw error;
+              }
+            }
           } finally { rmSync(temporary, { force: true }); }
         } finally { closeSync(handle.fd); }
       }
+    },
+  };
+  return { ...publication,
+    async publishLocked(lock: KeyedLock) {
+      const after = inventory(output.root);
+      const selected = (rel: string) => !options.areas || options.areas.some(area => rel === area || rel.startsWith(`${area}/`));
+      const paths = [...new Set([...before.keys(), ...after.keys()])]
+        .filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel))).sort();
+      const releases: (() => void)[] = [];
+      try {
+        // Match the server keys used by native writes in both adapters. Order
+        // multiple keys consistently and retain them through the final commit.
+        for (const rel of paths) releases.push(await lock.acquire(`path:${join(brain, rel)}`));
+        publication.publish();
+      } finally { for (const release of releases.reverse()) release(); }
     },
   };
 }

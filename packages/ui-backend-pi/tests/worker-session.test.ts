@@ -14,7 +14,7 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const MiB = 1024 * 1024;
 let root: string, brain: string, sessionDir: string, previousAgentDir: string | undefined;
 let launch: ReturnType<typeof spyOn>, probe: ReturnType<typeof spyOn>;
-let receivedInit: any, overflow: boolean;
+let receivedInit: any, overflow: boolean, publicationFailure: boolean;
 const children: Array<() => void> = [];
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "pi-session-bound-"));
@@ -22,12 +22,12 @@ beforeEach(() => {
   mkdirSync(brain); mkdirSync(sessionDir);
   previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
-  receivedInit = undefined; overflow = false;
+  receivedInit = undefined; overflow = false; publicationFailure = false;
   probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
   launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
-    const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
+    const stop = () => { stdout.end(); stderr.end(); if (publicationFailure) exited.reject(new Error("stale maintenance output: workspaces/shared.md")); else exited.resolve(0); };
     children.push(stop);
     const stdin = new Writable({ write(chunk, _encoding, callback) {
       const message = JSON.parse(String(chunk));
@@ -133,7 +133,7 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
   launch.mockImplementation((input: worker.WorkerLaunch) => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
-    const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
+    const stop = () => { stdout.end(); stderr.end(); if (publicationFailure) exited.reject(new Error("stale maintenance output: workspaces/shared.md")); else exited.resolve(0); };
     children.push(stop);
     expect(input.turnTempBytes).toBe(worker.DEFAULT_TURN_TEMP_BYTES);
     expect(worker.processStateLedger().turnTempHeld).toBe(worker.DEFAULT_TURN_TEMP_BYTES);
@@ -188,4 +188,12 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
 test("growth reserve has a 1 MiB floor and scales to 25 percent", () => {
   expect(sessionReserveBytes(1)).toBe(MiB);
   expect(sessionReserveBytes(12 * MiB)).toBe(3 * MiB);
+});
+
+
+test("Pi publication refusal fails the turn without unhandled lifecycle rejections", async () => {
+  publicationFailure = true;
+  const frames = await turn(null);
+  expect(terminal(frames), "PI_PUBLICATION_REFUSAL_HANDLED").toMatchObject({ outcome: "error" });
+  await Bun.sleep(10);
 });

@@ -270,7 +270,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits });
+    }, { limits: stateLimits, turnTempLimits }, req.workerLock);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) sdkOptions.hooks = {
     ...sdkOptions.hooks,

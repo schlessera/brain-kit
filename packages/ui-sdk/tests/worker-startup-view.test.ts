@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,4 +67,49 @@ test("strict persistent-area aliases cannot expose a governed peer's later confi
     expect(await worker.exited, errors).toBe(0);
     expect(output, "STRICT_OUTPUT_ALIAS_FROZEN").toBe("Odysseus before launch\n");
   } finally { worker.kill("SIGKILL"); }
+});
+
+
+test("startup refuses a previously copied input changed while copying another input", () => {
+  const brain = fixture();
+  const original = fs.readSync;
+  const originalList = fs.readdirSync;
+  const list = spyOn(fs, "readdirSync").mockImplementation((...args: any[]) =>
+    (originalList as (...input: any[]) => any)(...args).sort());
+  let altered = false;
+  const read = spyOn(fs, "readSync").mockImplementation((...args: any[]) => {
+    const name = fs.readlinkSync(`/proc/self/fd/${args[0]}`);
+    if (!altered && name.endsWith("/helper.ts")) {
+      altered = true;
+      writeFileSync(join(brain, "brain.config.ts"), 'export default "Athena changes the config";');
+    }
+    return (original as (...input: any[]) => number)(...args);
+  });
+  try {
+    expect(() => createWorkerStartupView(brain), "STARTUP_REVALIDATES_COPIED_INPUTS").toThrow("startup input changed");
+    expect(altered).toBe(true);
+  } finally { read.mockRestore(); list.mockRestore(); }
+});
+
+
+test("strict output publication holds the same path lock as a governed native writer", async () => {
+  const { createKeyedLock } = await import("../src/server/keyed-lock.js");
+  const brain = fixture(); mkdirSync(join(brain, "workspaces"));
+  const destination = join(brain, "workspaces/shared.md"); writeFileSync(destination, "before");
+  const lock = createKeyedLock(); const release = await lock.acquire(`path:${destination}`);
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"] });
+  const worker = launchAgentWorker({ brainPath: brain, sandbox, outputLock: lock, env: {},
+    command: ["/bin/sh", "-c", "printf staged > /tmp/brain-worker-areas/workspaces/shared.md"] });
+  let settled = false;
+  const done = worker.exited.finally(() => { settled = true; });
+  void done.catch(() => {});
+  try {
+    worker.stdout.resume();
+    await once(worker.stdout, "end");
+    await Bun.sleep(20);
+    expect(settled, "PUBLICATION_RETAINS_NATIVE_PATH_LOCK").toBe(false);
+    writeFileSync(destination, "Penelope's newer content"); release();
+    await expect(done).rejects.toThrow("stale maintenance output");
+    expect(readFileSync(destination, "utf8")).toBe("Penelope's newer content");
+  } finally { release(); worker.kill("SIGKILL"); await worker.exited.catch(() => {}); }
 });

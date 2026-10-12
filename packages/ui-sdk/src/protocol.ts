@@ -1652,7 +1652,7 @@ export interface WorkerLimitsStatus {
 }
 
 /** Why `governed` cannot run on a server (#1648). */
-export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "worker_host_unavailable";
+export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "worker_host_unavailable";
 
 export type GovernedStatus = {
   hostExecution: "worker" | "host";

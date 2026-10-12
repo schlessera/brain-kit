@@ -50,6 +50,8 @@ export interface WorkerLaunch {
   startupView?: WorkerStartupView;
   /** Private validated persistent outputs for snapshot consumers. */
   areaOutput?: { source: string };
+  /** Server native-write locks held throughout strict output publication. */
+  outputLock?: import("./keyed-lock.js").KeyedLock;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
   scratchPath?: string;
   /**
@@ -944,12 +946,15 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       return { hits, fatal };
     };
     const spawned = child;
-    const exited = spawned.exited.then(code => {
+    const exited = spawned.exited.then(async code => {
       clearInterval(memoryWatch);
       final = report(code);
       if (cgroup) final.peak = cgroup.peak();
       cgroup?.remove();
-      try { areaOutput?.publish(); }
+      try {
+        if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
+        else areaOutput?.publish();
+      }
       finally { areaOutput?.cleanup(); startupView?.cleanup(); }
       return code;
     });

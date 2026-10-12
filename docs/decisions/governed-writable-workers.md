@@ -279,6 +279,17 @@ one command needs. It covers:
 - cron's `brain sync` and `brain index`;
 - every git invocation.
 
+**Operational state lives outside the brain.** The fourth
+[maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
+requires the operational database and other private server state outside the
+brain for every hosted profile. Boot refuses as `OperationalStateInBrainError`
+before opening state or executing brain code when the database or private state
+resolves inside the brain, including through symlinks or a new path's existing
+parents. The refusal gives migration steps: stop the server, move the complete
+state directory outside the brain, point the configuration at it, and restart.
+The same diagnostic is reflected in host boundary status and the boot error/log.
+No strict private-state exclusions are introduced and no mask is weakened.
+
 The journal and revert run no git and import no repository code at all (see
 below). The server itself must not run with the brain as its working
 directory. Boot refuses `governed` when it does.
@@ -476,7 +487,7 @@ workspace; `BRAIN_ROOT` names that workspace and core configuration/module
 resolution still uses the immutable execution view. Index files, skills sync,
 module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
-through a link, and a stale authoritative base refuses publication. Directory
+through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
 
 Git's server-built adapter retains expanded startup config, immutable hooks
@@ -956,7 +967,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:170`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:172`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state

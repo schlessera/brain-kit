@@ -111,6 +111,8 @@ import { createObservability, type Observability } from "./observability/index.j
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
+import { assertOperationalStateOutsideBrain } from "./brain/operational-state.js";
+
 export type { AppRenderer };
 
 /** Explicit host minima for independently resolved content and backend runtimes. */
@@ -253,6 +255,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
     options.observability ?? createObservability({ minSeverity: config.logLevel });
+  const privateStatePaths = config.inbox?.pokeTokenFile
+    ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
+  try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
+  catch (error) {
+    observability.logger("brain").emit({ severityText: "ERROR", body: (error as Error).message,
+      attributes: { "boot.refusal": (error as Error).name } });
+    throw error;
+  }
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -317,7 +327,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
-  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec,
+  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {

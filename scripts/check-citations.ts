@@ -568,7 +568,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the global epoch revoke, replaced by per-principal revocation",
   "docs/decisions/session-principals.md|auth.ts:221-237":
     "isWsAuthorized returning a boolean; it now returns a principal",
-  "docs/decisions/session-principals.md|app.ts:268-282":
+  "docs/decisions/session-principals.md|app.ts:278-292":
     "the request log without an actor; it now logs the principal",
   "docs/decisions/session-principals.md|ws/connection.ts:262-264":
     "the upgrade ignoring the request context; it now reads the principal",

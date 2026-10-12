@@ -16,7 +16,7 @@
  * The boundary is in force when `governed` is available on this host (it is
  * the default profile), and from then on whenever a governed turn has ever
  * run on this brain, a fact kept in the UI database. It is not in force where
- * no governed turn can run: a server whose working directory or database is
+ * no governed turn can run: a server whose working directory is
  * inside the brain, or a host without the worker boundary. There the brain is
  * only ever written through the server's own routes, as before 0.42.
  */
@@ -33,6 +33,7 @@ import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brai
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
+import { operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
@@ -134,17 +135,15 @@ const within = (dir: string, path: string) => path === dir || path.startsWith(`$
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
-export function governedAvailability(input: { brainPath: string; dbPath?: string; workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+export function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {
     return { available: false, reason: "server_cwd_in_brain",
       detail: `the server's working directory ${cwd} is inside the brain, so Bun loaded the brain's bunfig.toml and .env into the server itself; start the server from a directory outside the brain` };
   }
-  if (input.dbPath && input.dbPath !== ":memory:" && within(brain, real(dirname(resolve(input.dbPath))))) {
-    return { available: false, reason: "database_in_brain",
-      detail: "the server's database is inside the brain, where a governed turn could write it; set DB_PATH to a path outside the brain" };
-  }
+  const refusal = operationalStateRefusal(input);
+  if (refusal) return refusal;
   const probe = input.workerHost();
   if (!probe.ok) return { available: false, reason: "worker_host_unavailable", detail: probe.requirement };
   return { available: true };
@@ -173,6 +172,7 @@ export interface HostBoundaryOptions {
   exec?: ExecWrapperConfig;
   /** The UI database file; its directory is masked from every maintenance worker. */
   dbPath?: string;
+  privateStatePaths?: OperationalStateLayout["privateStatePaths"];
   /** The writer gate, once the database is open. */
   gate?: () => WriterGate | null;
   /** Whether a governed turn has ever started on this brain: the durable record in the UI database. */
@@ -248,7 +248,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const governed = () => governedAvailability({ brainPath: brain, dbPath: options.dbPath, workerHost });
+  const governed = () => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost });
   // Sticky: a host whose worker boundary a real probe proved could have run a
   // governed turn, so a later failing probe never hands the brain's code back
   // to the host. Only a server that never could run one keeps it there.
@@ -354,7 +354,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             const git = await prepareMaintenanceGit(launch, outputs);
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
               ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-            if (!result.killed) outputs.publish();
+            if (!result.killed) {
+              if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
+              else outputs.publish();
+            }
             return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
           } finally { outputs.cleanup(); }
         };
@@ -409,7 +412,13 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       catch (error) { outputs?.cleanup(); hold?.release(); throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
-      const exited = worker.exited.then(code => { if (!signalCode) outputs!.publish(); return code; })
+      const exited = worker.exited.then(async code => {
+        if (!signalCode) {
+          if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
+          else outputs!.publish();
+        }
+        return code;
+      })
         .finally(() => { outputs!.cleanup(); hold?.release(); });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });

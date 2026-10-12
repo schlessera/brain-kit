@@ -116,7 +116,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
-      command: [process.execPath, entry], env: workerEnv, sandbox, limits,
+      command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
     turnTemp = child.turnTemp;
@@ -126,7 +126,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
-  void child.exited.finally(() => { workerLive = false; });
+  void child.exited.finally(() => { workerLive = false; }).catch(() => {});
   if (env.caps.turnTemp && turnTemp) {
     const root = turnTemp.root;
     turnContext.turnTemp = {
@@ -136,13 +136,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     };
   }
   // The relay lives exactly as long as the worker it serves.
-  if (envelope) void child.exited.finally(() => envelope.relay.stop());
+  if (envelope) void child.exited.finally(() => envelope.relay.stop()).catch(() => {});
   const releases = new Map<string, () => void>();
-  void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); });
+  void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
   // A worker that never ran a turn has nothing to promote; one that did is
   // cleaned up by `promote` once its answer has been read.
   let prompted = false;
-  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); });
+  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); }).catch(() => {});
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -161,7 +161,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let limitSettlement: Promise<WorkerResourceLimitError | undefined> | undefined;
   const limitEnded = (): Promise<WorkerResourceLimitError | undefined> => limitSettlement ??= (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const exited = await Promise.race([child.exited.then(() => true),
+    const exited = await Promise.race([child.exited.then(() => true, () => true),
       new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), 3_000); })]);
     clearTimeout(timer);
     if (!exited) return undefined;
@@ -431,7 +431,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // message: if the worker is gone, settle the limit before blaming the
     // protocol. A live worker that broke the protocol is stopped at once.
     if (ended) return fail(error);
-    const exited = await Promise.race([child.exited.then(() => true), Bun.sleep(250).then(() => false)]);
+    const exited = await Promise.race([child.exited.then(() => true, () => true), Bun.sleep(250).then(() => false)]);
     fail((exited ? await limitEnded() : undefined) ?? error);
   });
   void child.exited.then(async code => {
@@ -439,7 +439,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // the limit that ended the worker, outranks a generic exit.
     await Promise.race([received, Bun.sleep(1_000)]);
     if (!ended) fail((await limitEnded()) ?? new BackendRequestError(`Pi worker exited (${code}): ${diagnostic}`));
-  });
+  }).catch(fail);
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
   try {
@@ -462,7 +462,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       // The send is inside the lifecycle: an oversized prompt still ends the
       // worker and removes its turn temp.
       try { send({ type: "prompt", text, options }); await done.promise; }
-      finally { child.stdin.end(); child.kill("SIGKILL"); await child.exited; await received; promote(); }
+      finally {
+        child.stdin.end(); child.kill("SIGKILL");
+        try { await child.exited; } finally { await received; promote(); }
+      }
       if (error) throw error;
     },
     async abort() {
