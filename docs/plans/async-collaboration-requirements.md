@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:201-295`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:211-305`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -248,7 +248,7 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:387-475`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:393-481`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
@@ -263,7 +263,7 @@ Stated before the requirements because five of them derive from it.
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:236-294`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:246-304`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
   path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:335-341`). Aborting does **not** undo completed tool side
@@ -336,7 +336,7 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2229`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2253`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,

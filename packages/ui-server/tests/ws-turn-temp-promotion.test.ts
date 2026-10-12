@@ -8,7 +8,7 @@ const TEST_DB = `/tmp/brain-ui-turn-temp-promotion-${process.pid}.db`;
 beforeEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); useTestDb(TEST_DB); });
 afterEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); });
 
-test("a backend's promotions become governance events of the host's turn, and nothing reaches the chat (#1655)", async () => {
+test("a backend's promotions become governance events of the host's turn, and the chat gets only the rewritten links (#1655, #1698)", async () => {
   let hostTurnId = "", requestTurnId: string | undefined;
   setBackendsForTests([makeFakeBackend({
     id: "claude",
@@ -18,7 +18,8 @@ test("a backend's promotions become governance events of the host's turn, and no
       req.bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
       const destination = `.brain/scratch/turns/${req.turnId}/report.pdf`;
       req.bridge.activity?.({ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
-        originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination });
+        originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination,
+        aliases: [{ originalLink: "$BRAIN_WORKER_SCRATCH/report.pdf#page=2", rewrittenLink: `${destination}#page=2` }] });
       // Reported twice (a retried spawn): still one record.
       req.bridge.activity?.({ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
         originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination });
@@ -27,7 +28,7 @@ test("a backend's promotions become governance events of the host's turn, and no
       req.bridge.emit({ type: "result", sessionId: "sess-ithaca", numTurns: 1, durationMs: 1, isError: false, outcome: "success" });
     },
   })], "claude");
-  const frames: Array<{ type: string }> = [];
+  const frames: Array<{ type: string } & Record<string, unknown>> = [];
   const ws: WSContext = { send: (data) => frames.push(JSON.parse(data)) };
   addClient(ws);
   await handleClientMessage(ws, { type: "chat_message", text: "Write up the voyage report", attachments: [] });
@@ -44,7 +45,14 @@ test("a backend's promotions become governance events of the host's turn, and no
       payload: { source: "/tmp/brain-worker-scratch/secret.txt", originalLink: "/tmp/brain-worker-scratch/secret.txt", reason: "symlink",
         bytes: null, limitBytes: null } },
   ]);
-  expect(JSON.stringify(frames)).not.toMatch(/promot|brain-worker-scratch/);
+  // The aliases say what the live view rewrites; the record is about the file.
+  const links = frames.filter((f) => f.type === "message_links");
+  expect(links).toEqual([{ type: "message_links", sessionId: "sess-ithaca", turnId: hostTurnId, links: [
+    { from: "/tmp/brain-worker-scratch/report.pdf", to: `.brain/scratch/turns/${hostTurnId}/report.pdf` },
+    { from: "$BRAIN_WORKER_SCRATCH/report.pdf#page=2", to: `.brain/scratch/turns/${hostTurnId}/report.pdf#page=2` },
+  ] }]);
+  // Nothing else, and nothing about the refusal or the record, reaches the chat.
+  expect(JSON.stringify(frames.filter((f) => f.type !== "message_links"))).not.toMatch(/promot|brain-worker-scratch|scratch\/turns/);
 });
 
 test("an invalid promotion report is dropped without failing the turn", async () => {

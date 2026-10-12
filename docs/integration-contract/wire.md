@@ -381,6 +381,48 @@ Rules a consumer may rely on:
 - **Blocks contain only what the text carried.** The classifier chooses a
   shape and a tone; it never invents a footnote, a figure, or a source line.
 
+<a id="promoted-links-additive-1698"></a>
+
+### Promoted links (additive, #1698)
+
+A file an answer linked in turn temp is copied into scratch once the worker
+has exited, and the saved answer is rewritten to link the copy
+([package API](package-api.md#turn-temp-promotion-additive-1655)). A client
+that watched the turn holds the text as it streamed, so the host also tells
+it what changed, with one frame per promoted file:
+
+```
+{ type: "message_links", sessionId, turnId, links: MessageLink[] }
+MessageLink = { from, to }
+```
+
+`from` is a link destination exactly as the answer wrote it and `to` is what
+the saved answer has in its place. One file linked in several spellings
+(another path to it, a fragment) gives one entry per spelling.
+
+Rules a consumer may rely on:
+
+- **Apply it to that turn's assistant text.** Replace each `from` by its
+  `to` wherever the text has it as an inline link or image destination or as
+  a reference definition, outside fenced and inline code. The result is the
+  saved answer's text, so the open conversation shows what a reload would.
+  The first-party client changes the link in place, with no marker.
+- **It may come before or after the turn's `result`.** The Claude backend
+  promotes once its worker has exited, after `result`; the pi backend
+  promotes before it sends `result`. The frame says nothing about whether the
+  session is running, so it must not change run state.
+- **`message_blocks` spans stay anchored to the streamed text.** The host
+  classifies the text as it streamed, whichever frame comes first. A client
+  that applies both moves each span by the rewrites before it, and drops a
+  block a rewrite cuts across.
+- **It is sent only when a file was promoted.** A turn with no promotion,
+  or with only refused promotions, gets no frame, and its answer keeps the
+  links as written.
+- **Ignoring it is correct.** A client that drops the frame shows the
+  original link until it reloads the conversation.
+
+No wire revision or required field changes.
+
 <a id="per-message-reasoning-effort-additive-543"></a>
 
 ### Per-message reasoning effort (additive, #543)

@@ -116,6 +116,12 @@ const SAMPLES: ServerMessage[] = [
       },
     ],
   },
+  {
+    type: "message_links",
+    sessionId: "s1",
+    turnId: "turn-1",
+    links: [{ from: "$BRAIN_WORKER_SCRATCH/report.pdf", to: ".brain/scratch/turns/turn-1/report.pdf" }],
+  },
   { type: "local_exchange_result", sessionId: "s1", exchangeId: "x1", saved: false, reason: "No store." },
   { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },

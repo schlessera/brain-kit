@@ -10,3 +10,4 @@ export { canonicalModelId, describeRetry, resolveThinkingLevel } from "./protoco
 export { pruneStoredShares } from "./client/share-store.js";
 export { handleShareTargetRequest, isShareTargetRequest, type ShareTargetError } from "./client/share-target-handler.js";
 export { askUserFormPayload, askUserFormSpec, resolveAskUserFormLimits } from "./tool-contracts/form.js";
+export { rewriteLinkDestinations, rewriteLinkDestinationsWithEdits, type LinkEdit } from "./markdown-links.js";

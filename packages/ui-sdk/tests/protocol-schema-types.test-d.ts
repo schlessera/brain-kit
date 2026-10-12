@@ -67,6 +67,7 @@ import type {
   ClientToolDenial,
   ServerActivityDelta,
   ServerMessageBlocks,
+  ServerMessageLinks,
   MessageBlock,
   ServerActivitySnapshot,
   ServerAskUserRequest,
@@ -112,6 +113,7 @@ import {
   clientToolDenialSchema,
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
+  serverMessageLinksSchema,
   messageBlockSchema,
   serverActivitySnapshotSchema,
   serverAskUserRequestSchema,
@@ -249,6 +251,9 @@ type ServerActivityDeltaMatches = Assert<
 type ServerMessageBlocksMatches = Assert<
   SchemaEqualsProtocol<typeof serverMessageBlocksSchema, ServerMessageBlocks>
 >;
+type ServerMessageLinksMatches = Assert<
+  SchemaEqualsProtocol<typeof serverMessageLinksSchema, ServerMessageLinks>
+>;
 type ServerLocalExchangeResultMatches = Assert<
   SchemaEqualsProtocol<typeof serverLocalExchangeResultSchema, ServerLocalExchangeResult>
 >;
@@ -346,6 +351,7 @@ export type ProtocolSchemaAssertions = [
   ServerActivitySnapshotMatches,
   ServerActivityDeltaMatches,
   ServerMessageBlocksMatches,
+  ServerMessageLinksMatches,
   ServerLocalExchangeResultMatches,
   MessageBlockMatches,
   MissingNestedMemberMustFail,

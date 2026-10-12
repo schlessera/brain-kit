@@ -357,6 +357,12 @@ export type BackendActivityEvent =
       originalLink: string;
       /** The link destination the stored answer has now. */
       rewrittenLink: string;
+      /**
+       * Other destinations the answer wrote for the same file (another
+       * spelling, a fragment), each with what the stored answer has now.
+       * Absent when there were none (#1698).
+       */
+      aliases?: Array<{ originalLink: string; rewrittenLink: string }>;
     }
   | {
       /** A linked turn-temp file that was not copied; the answer keeps the link as written (#1655). */

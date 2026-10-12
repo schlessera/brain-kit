@@ -82,14 +82,24 @@ export function makeBridge(
    * A linked turn-temp file the backend promoted, or could not (#1655): kept
    * as a governance event with the session history, never shown in the chat.
    */
+  /** Promoted files whose links the live view has been sent. */
+  const linked = new Set<string>();
   const recordPromotion = (event: Extract<BackendActivityEvent, { kind: "promotion" | "promotion_refused" }>): void => {
-    const { kind, ...payload } = event;
+    // The aliases only say which spellings the live view rewrites (below).
+    const { kind, ...payload } = event.kind === "promotion" ? (({ aliases: _aliases, ...rest }) => rest)(event) : event;
     catalog.recordGovernanceEvent?.({
       kind, payload, turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive",
       model: null, profile: null,
       // One record per linked file and turn, however often a backend reports it.
       dedupeKey: `${turnId}:${createHash("sha256").update(event.source).digest("hex")}`,
     });
+    // A reader watching the turn holds the answer as it streamed: it gets the
+    // links the stored answer now has, so it shows what a reload would (#1698).
+    const sessionId = turn.sessionId;
+    if (event.kind !== "promotion" || !sessionId || linked.has(event.source)) return;
+    linked.add(event.source);
+    const links = [event, ...(event.aliases ?? [])].map(link => ({ from: link.originalLink, to: link.rewrittenLink }));
+    host.sendToClients(withTurnScope({ type: "message_links", sessionId, links }, turn, turnId));
   };
   const bridge: BackendBridge = {
     ...inbox,
@@ -293,12 +303,11 @@ export function makeBridge(
         }
       });
     },
-    ...(recorder || catalog.recordGovernanceEvent
-      ? { activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
-          if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
-          else recorder?.observeActivity(event);
-        } }
-      : {}),
+    // Always present: a promotion also reaches the live view (#1698).
+    activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
+      if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
+      else recorder?.observeActivity(event);
+    },
     ...(queryActivity
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
       : {}),

@@ -23,6 +23,7 @@ import { join, posix } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BackendActivityEvent, TurnTempPromotionRefusal } from "./backend.js";
 import { at, BRAIN_SCRATCH_DIR, openDirectory } from "./worker-sandbox.js";
+import { rewriteLinkDestinations } from "../markdown-links.js";
 
 /** The kernel's `statfs` type of a tmpfs. */
 const TMPFS_MAGIC = 0x01021994;
@@ -166,34 +167,6 @@ class Refused extends Error {
 const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
 
 /**
- * Ranges of `text` that are code, where a link is not a link: fenced blocks
- * and inline code spans.
- */
-function codeRanges(text: string): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
-  const fence = /^ {0,3}(`{3,}|~{3,})[^\n]*$/gm;
-  let open: { at: number; marker: string } | null = null;
-  for (let m: RegExpExecArray | null; (m = fence.exec(text));) {
-    const marker = m[1]!;
-    if (!open) open = { at: m.index, marker };
-    else if (marker[0] === open.marker[0] && marker.length >= open.marker.length && m[0].trim() === marker) {
-      ranges.push([open.at, m.index + m[0].length]);
-      open = null;
-    }
-  }
-  if (open) ranges.push([open.at, text.length]);
-  const span = /(`+)(?!`)[\s\S]*?[^`]\1(?!`)/g;
-  for (let m: RegExpExecArray | null; (m = span.exec(text));) {
-    if (!ranges.some(([start, end]) => m!.index >= start && m!.index < end)) ranges.push([m.index, m.index + m[0].length]);
-  }
-  return ranges;
-}
-
-/** Inline link and image destinations, and reference definitions. */
-const INLINE_LINK = /(\]\(\s*)(<[^<>\n]+>|(?:[^\s()<>]|\((?:[^\s()<>]|\([^\s()<>]*\))*\))+)(?=\s*\)|\s+["'(])/g;
-const REFERENCE_DEFINITION = /^( {0,3}\[[^\]\n]+\]:[ \t]*)(<[^<>\n]+>|\S+)/gm;
-
-/**
  * Promotes the files an answer links in turn temp. `rewrite` copies each
  * linked file once, whatever the number of links to it, and returns the text
  * with those links pointing at the copies; `records` is what happened to each
@@ -208,8 +181,8 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
   const turnMax = options.limits?.turnBytes ?? PROMOTION_TURN_MAX_BYTES;
   const filesMax = options.limits?.files ?? PROMOTION_TURN_MAX_FILES;
   const records: TurnTempPromotionRecord[] = [];
-  /** Worker path to its rewritten destination, or null once refused. */
-  const done = new Map<string, string | null>();
+  /** Worker path to its promotion record, or null once refused. */
+  const done = new Map<string, Extract<TurnTempPromotionRecord, { kind: "promotion" }> | null>();
   const used = new Set<string>();
   let total = 0, promoted = 0;
 
@@ -350,14 +323,22 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
     const located = locate(resolved.path);
     if (!located) return original;
     if (done.has(resolved.path)) {
-      const destination = done.get(resolved.path);
-      return destination ? `${destination}${resolved.suffix}` : original;
+      const record = done.get(resolved.path);
+      if (!record) return original;
+      const rewritten = `${record.destination}${resolved.suffix}`;
+      // Another way of writing a link to a file already copied: the live
+      // view must rewrite it too (#1698).
+      if (original !== record.originalLink && !record.aliases?.some(alias => alias.originalLink === original)) {
+        (record.aliases ??= []).push({ originalLink: original, rewrittenLink: rewritten });
+      }
+      return rewritten;
     }
     try {
       const { destination, bytes } = promote(resolved.path, located.base, located.segments);
       const rewritten = `${destination}${resolved.suffix}`;
-      done.set(resolved.path, destination);
-      records.push({ kind: "promotion", source: resolved.path, destination, bytes, originalLink: original, rewrittenLink: rewritten });
+      const record = { kind: "promotion" as const, source: resolved.path, destination, bytes, originalLink: original, rewrittenLink: rewritten };
+      done.set(resolved.path, record);
+      records.push(record);
       return rewritten;
     } catch (error) {
       done.set(resolved.path, null);
@@ -371,14 +352,7 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
   return {
     records,
     rewrite(text: string): string {
-      // Code ranges are recomputed for the second pattern, because the first
-      // may have changed the length of the text before them.
-      const pass = (current: string, pattern: RegExp) => {
-        const code = codeRanges(current);
-        return current.replace(pattern, (whole, lead: string, destination: string, offset: number) =>
-          code.some(([start, end]) => offset >= start && offset < end) ? whole : `${lead}${link(destination)}`);
-      };
-      return pass(pass(text, INLINE_LINK), REFERENCE_DEFINITION);
+      return rewriteLinkDestinations(text, link);
     },
   };
 }
