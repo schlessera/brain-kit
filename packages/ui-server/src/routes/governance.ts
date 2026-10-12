@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
+import { queryRoadblockReport, ROADBLOCK_REPORT_QUERY } from "../governance/roadblock-report.js";
 import type { AppEnv } from "../app-env.js";
 import { isGovernanceEventKind, queryGovernanceEvents, type GovernanceEventKind } from "../governance/events.js";
 
@@ -16,7 +17,23 @@ const ID_MAX = 200;
  */
 export function createGovernanceRoutes(deps: { db: Database }): Hono<AppEnv> {
   const { db } = deps;
-  return new Hono<AppEnv>().get("/governance/events", (c) => {
+  return new Hono<AppEnv>().get("/governance/roadblocks", (c) => {
+    const input: Record<string, number> = {};
+    for (const name of ["hoursBack", "limit"]) {
+      const values = c.req.queries(name);
+      if (values === undefined) continue;
+      if (values.length !== 1 || !/^\d+$/.test(values[0]!)) return c.json({ error: `${name} must be one integer` }, 400);
+      input[name] = Number(values[0]);
+    }
+    const query = ROADBLOCK_REPORT_QUERY.safeParse(input);
+    if (!query.success) return c.json({ error: "hoursBack must be 1–2160 and limit must be 1–100" }, 400);
+    try {
+      c.header("Cache-Control", "no-store");
+      return c.json(queryRoadblockReport(db, query.data));
+    } catch {
+      return c.json({ error: "Failed to read roadblock report" }, 500);
+    }
+  }).get("/governance/events", (c) => {
     const one = (name: string): string | undefined | null => {
       const values = c.req.queries(name);
       if (!values) return undefined;

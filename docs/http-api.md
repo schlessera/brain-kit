@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review and governance-event routes mounted by `createApp`: 121 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event and roadblock-report routes mounted by `createApp`: 122 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -69,6 +69,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
+| GET | `/api/governance/roadblocks` | I | Retained roadblock rankings for the paired activity bridge | #1672; authenticated and local-only. The additive `query_activity` scope is the supported agent contract. |
 | GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
 | GET | `/api/graph/clusters` | I | Read clustered presentation graph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/discovery` | I | Read root-based discovery subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
@@ -154,7 +155,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 121 declared endpoints are mounted regardless of backend, renderer or
+All 122 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -968,6 +969,27 @@ bind independent clients.
 is rechecked against the durable principal. These routes run only deterministic
 CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
 See [the wire shapes and error codes](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
+
+## Local roadblock report (internal, #1672)
+
+**GET /api/governance/roadblocks** is authenticated, read-only and `no-store`.
+Every authenticated principal has the same read access as session history.
+Its optional `hoursBack` and `limit` parameters and JSON result match the
+[`query_activity` roadblocks scope](integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__).
+The endpoint rejects duplicate, empty, fractional or out-of-range parameters
+with 400, refuses unauthenticated requests with 401, and returns a named 500
+error if storage cannot be read. Its window includes events whose recorded
+`at` is between now minus `hoursBack` and now, both endpoints inclusive;
+future events are excluded. Each ranking is limited after aggregating the
+whole window. Malformed or unsupported-version episodes are counted as
+unavailable rather than exposed or silently counted as known waste.
+
+This is a host-local aggregate over the durable governance store; neither
+workers nor the brain CLI open that store. Detail pruning does not remove
+session-retained roadblocks. Session deletion and unbound-event retention
+still apply. It returns normalized signatures, counts and example turn ids,
+without raw failure inputs or resolving-path payloads, and sends no external
+telemetry. Use `hoursBack=168` for a week of retained turns.
 
 ## Governance events (additive, #1651)
 

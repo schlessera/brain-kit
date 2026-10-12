@@ -1384,7 +1384,14 @@ JSON, and the agent reads it through the existing `query_activity` bridge
 tool. It is not a `brain` subcommand.
 
 The endpoint ranks roadblock signatures across sessions by frequency and by
-waste, each with its suggested remedy class and example turns. Everything stays
+waste, each with its suggested remedy class and example turns. #1672 implements
+four separate rankings (count, measured tokens, measured cost, time) through
+one retained-event aggregation (`export function queryRoadblockReport`,
+`packages/ui-server/src/governance/roadblock-report.ts:23-76`). Mixed remedies are
+reported as guidance/capability counts; no remedy is discarded. Unknown-cost
+and unknown-token counts accompany sums of known values, which remain null
+when no measurement exists. [The tool contract](../integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__)
+specifies limits and deterministic ties. Everything stays
 on the host, and nothing is sent anywhere.
 
 ### What reaches the user

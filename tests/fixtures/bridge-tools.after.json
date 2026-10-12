@@ -15,7 +15,7 @@
       "rootSymlinkResultSha256": "de608613847303e2a2b5fd48ede3be912ed65e7b263767bba1577930bc308513"
     },
     "query_activity": {
-      "definitionSha256": "d68770b7be42982b6f5112eb1a223f50168b8bf41e903aeb8adc9aace331c77b",
+      "definitionSha256": "b9adf30de97f533f17b2cd9cb159d93cc9567e4e3c519d8616c75868f92749af",
       "resultSha256": "1b00ed051a07f010014a7e1ae4b0aa218dc009066c708a0c29641908f74cf6b9"
     }
   },
@@ -35,7 +35,7 @@
       "rootSymlinkResultSha256": "e07c772f128b25862c280a212f62e16c87d48b0ed94244b24e480a1e2a01165c"
     },
     "query_activity": {
-      "definitionSha256": "b3bd605400db6640e28f7d714ee0694a33a0877f0b12b26e5854774711841ec3",
+      "definitionSha256": "6d7230eae7045690515836a5c5bfd4496d984157fa0eced1a5494e7b632d7b62",
       "resultSha256": "78d8e4c778d4261ed9bb09197a728f44566bd3ca99858834211ee2384f5f52bb"
     }
   }

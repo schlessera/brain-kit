@@ -214,8 +214,29 @@ key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in
 in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
 connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
-`run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
+`run` | `rollups` | `inbox` | `roadblocks` (additive in 0.42.0); results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
+The `roadblocks` scope reads retained governance episodes rather than prunable
+Activity details. Optional `hoursBack` is an integer from 1 to 2160 (default
+24), and `limit` is an integer from 1 to 100 (default 20), applied separately
+to each ranking after all episodes in the window have been aggregated. The
+result has `windowHours`, `episodes` (valid episodes), `totalGroups`,
+`unavailableEpisodes` (unsupported versions or invalid stored payloads), and
+four arrays of groups: `byCount`, `byTokens`, `byCostUsd`, `byTime`.
+
+Each group has the classifier's normalized `signature`, episode `count`,
+`remedies: { guidance, capability }` counts, `resolved` count,
+`resolutionRate` (resolved/count), `waste: { tokens, costUsd, ms,
+unknownTokens, unknownCostUsd }`, and up to five distinct `exampleTurnIds`
+in event-id order. Mixed remedy counts retain both classes. Waste totals sum
+measured values only; tokens/cost remain `null` when none were measured, and
+the unknown counts disclose incomplete coverage. A genuine measured zero is
+zero. Rankings descend by their named metric; unknown totals follow measured
+totals, ties descend by episode count then ascend by signature (code-point
+order). No combined weighted waste score or inferred price is introduced.
+All data remains on the host; no UI or external telemetry is added. Invalid
+roadblocks parameters become tool errors without changing other scopes.
+
 `show_block` (side-effect free, always registered) renders one of the kit's
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
