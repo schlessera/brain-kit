@@ -33,6 +33,7 @@ type ChatFrame =
   | "pong"
   | "message_blocks"
   | "message_links"
+  | "turn_journal"
   | "local_exchange_result"
   | "session_history"
   | "status";
@@ -81,6 +82,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     ...localAnswerFields(msg),
     // The host-proven turn this answer ended (#964); never guessed.
     ...(msg.role === "assistant" && msg.turnId ? { turnId: msg.turnId } : {}),
+    ...(msg.role === "assistant" && msg.journal ? { journal: msg.journal } : {}),
     // The failure that ended the turn (#575), drawn as it was live.
     ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure, retryOfTurnId: msg.retryOfTurnId } : {}),
   };
@@ -412,6 +414,7 @@ export const chatFrameHandlers = {
     // streamed text still links turn temp. Any time around the result.
     context.state.rewriteMessageLinks(context.key, msg.links, context.frameTurnId);
   },
+  turn_journal: (msg, context) => { context.state.setTurnJournal(context.key, msg.turnId, msg.journal); },
   local_exchange_result: (msg, context) => {
     context.state.markLocalExchange(msg.exchangeId, msg.saved ? "saved" : "unsaved", msg.reason);
   },

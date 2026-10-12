@@ -83,3 +83,17 @@ the app:
 11. **The neutral fill and the alpha derivation rule are the design's.**
 12. **Three more screens after the acceptance four:** Actions triage, File
     viewer, First run.
+
+
+### This chat in the model picker (#1663)
+
+The [maintainer approval](https://github.com/schlessera/brain-kit/issues/1663#issuecomment-6127550089)
+places profile and Limits in the existing picker, including a single fixed
+model. The native radio group changes the next interactive turn only after a
+successful host save. Pending and failed saves preserve confirmed choice and
+focus; late receipts cannot affect another chat. Escape closes the reader and
+returns to its trigger without cancelling a save. Policy lock/offline reasons
+remain readable. Genuine voice shows facts read-only with “Voice uses this
+brain's policy”; dictation retains interactive semantics. Limits use actual
+host enforcement facts or honest unknowns. There is no profile chip adornment,
+new destination, numeric default or voice grant.

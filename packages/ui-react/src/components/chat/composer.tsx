@@ -32,6 +32,7 @@ import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
 import { WorkerHostNotice } from "./worker-host-notice.js";
+import { useSessionProfile } from "../../hooks/use-session-profile.js";
 import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
 
 /** The hint when the work context could not be written to this device (#1014). */
@@ -180,6 +181,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     window.addEventListener("offline", changed);
     return () => { window.removeEventListener("online", changed); window.removeEventListener("offline", changed); };
   }, [wsStatus, trackUploads]);
+  const profilesSupported = useConnectionStore(s => s.sessionProfiles);
+  const profileEpoch = useConnectionStore(s => s.profileEpoch);
+  const sessionProfile = useSessionProfile(sessionId, draftId, wsStatus === "connected", isStreaming, profilesSupported, profileEpoch);
   const chatRequestAck = useConnectionStore((s) => s.chatRequestAck);
   const followUpQueue = useConnectionStore((s) => s.followUpQueue);
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
@@ -428,7 +432,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const text = draftText();
     const currentTracks = trackUploads.files;
     const hasAttachments = attachments.length > 0 || currentTracks.length > 0;
-    if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting) return;
+    if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting || sessionProfile.saving || sessionProfile.awaitingDraftFacts) return;
     if (restorationOf(root.stores.chat.getState())) return;
 
     if (currentTracks.some(track => track.state === "failed")) {
@@ -503,6 +507,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       text,
       sessionId: sessionId ?? undefined,
       ...(correlation ? { draftId: correlation } : {}),
+      ...(sessionProfile.profileDraftId ? { profileDraftId: sessionProfile.profileDraftId } : {}),
       ...(requestId ? { requestId } : {}),
       ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
       // Provider only applies to new conversations; resumed sessions are
@@ -685,7 +690,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
-  const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null;
+  const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts;
 
   // Provider picker: locked to the pinned combo once a session is live.
   // Lock while streaming too: the first send of a new conversation pins the
@@ -706,7 +711,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // A pinned conversation's way to another backend lives in the locked
   // picker (#61), so the chip stays even with one profile: the entry is then
   // disabled with its reason, never hidden.
-  const showProviderPicker = providers.length > 1 || Boolean(effortLevels?.length) || (providerLocked && handoffEntry.shown);
+  const showProviderPicker = true;
   // What happens if the user sends into the currently-running session.
   const displayBackendId = displayProvider?.backendId;
   const followUpLive = !chatRequestAck && (displayBackendId ? backends[displayBackendId]?.capabilities.followUp ?? false : false);
@@ -769,7 +774,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           state={
             voiceMode === "dictate"
               ? "dictating"
-              : wsStatus === "connected" && restorePhase !== null
+              : wsStatus === "connected" && (restorePhase !== null || sessionProfile.saving || sessionProfile.awaitingDraftFacts)
               // The kit's disabled send, with its own reason (#1328).
               ? "offline"
               : wsStatus === "connected"
@@ -793,7 +798,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           }
           hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
-            wsStatus === "connected" && restorePhase !== null
+            wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
+              : wsStatus === "connected" && sessionProfile.awaitingDraftFacts ? "waiting for this chat profile · reopen the model picker to retry"
+              : wsStatus === "connected" && restorePhase !== null
               ? `${restorePhase === "failed" ? "this conversation could not be restored" : "restoring this conversation"} · your draft is kept`
               : wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
@@ -812,8 +819,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           }}
           onRetryTrack={id => trackUploads.retry(id)}
           attachErrors={attachErrors}
+          chatProfile={sessionProfile.chat}
           provider={
-            showProviderPicker && voiceMode !== "dictate"
+            showProviderPicker
               ? {
                   label: displayProviderLabel,
                   locked: providerLocked,
@@ -868,7 +876,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           onEscape={() => setPaletteDismissed(true)}
           onRemoveAttachment={removeAttachment}
           onDismissErrors={() => setAttachErrors([])}
-          onProviderToggle={() => setProviderMenuOpen((v) => !v)}
+          onProviderToggle={() => { if (!providerMenuOpen) sessionProfile.refresh(); setProviderMenuOpen((v) => !v); }}
           onProviderSelect={(id) => {
             if (providerLocked) return;
             setSelectedProvider(id);

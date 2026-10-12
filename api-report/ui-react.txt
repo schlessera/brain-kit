@@ -275,6 +275,8 @@ signatures (every public export and the types it is made of)
         files?: SharedFileMeta[];
         attachmentCount?: number;
         blocks?: MessageBlock[];
+        journal?: TurnJournalSummary;
+        journalLive?: boolean;
         turnId?: string;
         turnShell?: true;
         statsAnswer?: StatsSection[];
@@ -660,6 +662,7 @@ signatures (every public export and the types it is made of)
     export type RestoredApprovalClosure = "answered" | "ended" | "revoked" | "unlisted";
   SessionChat (packages/ui-react/src/stores/chat-state.ts)
     export interface SessionChat {
+        journals?: Record<string, TurnJournalSummary>;
         messages: ChatMessage[];
         isStreaming: boolean;
         askUser: AskUserExchange | null;
@@ -1133,6 +1136,15 @@ signatures (every public export and the types it is made of)
         toolPermissions: () => Promise<{
             tools: string[];
         }>;
+        turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnJournalDetails>;
+        turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => Promise<{
+            after?: string;
+            afterBytes?: number;
+            before?: string;
+            beforeBytes?: number;
+            inline: boolean;
+            reason?: string;
+        }>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
@@ -1506,6 +1518,15 @@ signatures (every public export and the types it is made of)
         }>;
         toolPermissions: () => Promise<{
             tools: string[];
+        }>;
+        turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnJournalDetails>;
+        turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => Promise<{
+            after?: string;
+            afterBytes?: number;
+            before?: string;
+            beforeBytes?: number;
+            inline: boolean;
+            reason?: string;
         }>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{

@@ -230,7 +230,7 @@ requestId)`; actual tool requests additionally use their existing `toolUseId`.
 Only committed original input supplies `StartTurnRequest.prompt`. The host
 selects the pinned existing backend/profile, cancellation signal and
 `BackendBridge`, and enforces the voice posture on new voice turns
-(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:419-514`).
+(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:441-536`).
 Do not feed approximate fragments or native task descriptions directly into
 execution. Keep raw outputs/private memory in the host and return only reviewed
 bounded facts needed by the voice service.
@@ -239,7 +239,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:577-607`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:599-629`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 
@@ -273,12 +273,12 @@ matcher. An isolated ambiguous refusal denies all **current** pending requests;
 an exact refusal can name one. With none pending, it is ordinary input. Bind
 each denial to existing IDs, echoed turn and `channel:"voice"`; the server still
 rejects voice grants
-(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:370-393`).
+(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:371-394`).
 Never add a spoken approve or always-allow path.
 
 On the evidence date the denial handler removed/resolved a matched request but
 provided no dedicated denial receipt at that branch; #957 added one
-(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:457-480`). The
+(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:458-481`). The
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains
@@ -288,7 +288,7 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1736-1741`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1754-1759`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.

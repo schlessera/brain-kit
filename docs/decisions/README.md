@@ -167,7 +167,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:110-133`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

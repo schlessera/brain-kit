@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:260-291`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:263-294`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.
@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:622`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:623`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 

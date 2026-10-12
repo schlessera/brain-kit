@@ -140,6 +140,19 @@ What a turn can do is the intersection of the two.
 - **Autonomous.** The profile is always `restricted`, and the policy cannot
   change it.
 
+**Delivered session tightening (#1663).** The existing model picker's This chat
+section saves authenticated next-turn preferences in the operational session
+catalog. An unbound composer saves only its preference under its existing
+draft identity; validated first-send correlation binds it to the actual
+named session. There is no draft text requirement or session reservation.
+Admission still uses the same last-valid policy reader and may only tighten
+interactive work. Voice shows its policy read-only; dictation is interactive.
+The current worker never changes profile because a later save succeeded.
+Unknown enforcement facts remain unknown, and requested preference is separate
+from the actual admitted worker, including fallback
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-80`).
+
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
 (`nlink > 1`), or another mount, using #1626's guard. In that case the turn
@@ -150,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:490-494`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:508-512`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -246,7 +259,7 @@ An activation click would add friction and no protection.
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
 (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:78-100`).
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:81-106`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -258,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:23-74`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-80`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -266,8 +279,18 @@ retain the process's last valid file/hash, or defaults with a null hash before
 any valid file; known absence selects defaults. True voice uses the voice profile,
 dictation uses interactive, and autonomous authority remains separate. Existing
 host strict overrides and stronger fallback remain effective. This reader does
-not enforce the budget, scope, commands, egress, outward, taint or provider fields.
+not enforce the budget, scope, egress, outward, taint or provider fields.
 Their parsed values are inputs for their owning guardrails.
+
+**Command deny and confirm (#1661).** Admission also captures the command lists
+and their original source positions, including invalid entries skipped before a
+valid rule. Claude checks denies before its PreToolUse shortcuts and callback;
+pi checks them at the host permission RPC and its in-process tool gate. Both
+recheck approved edits before execution. Policy confirmations join the existing
+case-insensitive operator patterns and use per-use command cards; a remembered
+tool grant does not answer them. The capability note lists the captured active
+patterns. The existing governance writer retains each refusal or confirmation
+with its hash and rule provenance, independent of span-detail retention.
 
 **Authoritative agent applications (#1743).** Worker mounts and the privileged
 application route consume the same admitted protection. The application bridge
@@ -721,6 +744,34 @@ copy and the diagnostic record keep promotion honest without showing anything
 to the user.
 
 ## The change journal and reconciliation
+
+**Delivered journal behavior (#1652).** The host records raw observations at
+admission, tool completion, 15-second scope observations and turn completion
+before quarantine/gate release. The journal and private content objects are
+operational state beside `DB_PATH`, masked from workers; they do not make
+`brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
+the stat cache are implemented by (`createJournalWalker`,
+`packages/ui-server/src/brain/journal-snapshot.ts:36-40`).
+
+The approved aggregate cap is 10 GiB. Reservations include retained raw
+objects, simultaneous temporary copies, journal-owned SQLite pages and bounded
+WAL/GC headroom. Reader leases prevent collection during downloads. Completed
+detail expires oldest-first when space is needed; compact summaries normally
+remain through the 30-day retention window, and can expire when only summaries
+remain and cannot fit. Active windows and referenced/shared objects are never
+collected. An incomplete initial snapshot refuses the worker; missing mid-turn
+observations stop it while retaining observed versions and partial work. No
+automatic revert or claim of recovering writes between observations is made.
+
+Every retained turn has one initially collapsed receipt. Known no-change is
+zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
+5,000 lines), with authenticated raw downloads for retained larger/binary
+versions. The journal's policy-write seam requires a live original observation
+window and records an approved server write as user/policy; approval and
+principal authority remain the caller's responsibility. Revert, steering
+classification and effective budget/scope enforcement belong to their own
+programme work; this delivery does not claim them implemented.
 
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:

@@ -45,7 +45,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:274`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:278`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.

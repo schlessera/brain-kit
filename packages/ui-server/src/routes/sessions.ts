@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
+import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  prepareHistory?: (sessionId: string, messages: SessionHistoryMessage[]) => SessionHistoryMessage[];
   /**
    * Whether this host labels pills (#1004). Off, stored labels from an
    * earlier run are not listed: nothing would refresh them.
@@ -116,7 +118,7 @@ export function createSessionRoutes(deps: {
     try {
       const backend = await registry.getBackendForSession(getStoredBackendId(id));
       const messages = await backend.getHistory(id);
-      return c.json({ id, messages });
+      return c.json({ id, messages: deps.prepareHistory?.(id, messages) ?? messages });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to get session" },

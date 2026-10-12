@@ -24,6 +24,8 @@ import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
 import { TurnTextCollector } from "../classification/classify-turn.js";
+import { JournalCapacityError } from "../brain/journal-objects.js";
+import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
 
 /** Build the per-turn bridge the backend drives. */
 export function makeBridge(
@@ -43,7 +45,8 @@ export function makeBridge(
   promptLabel?: () => string | undefined,
   applicationPolicy?: BrainApplicationPolicy,
   /** Frozen policy protection captured after this turn's gate admission. */
-  protectedPaths?: readonly string[]
+  protectedPaths?: readonly string[],
+  workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -53,6 +56,7 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   const requestId = turn.requestId;
+  let profileBound = false;
   // The draft this bridge's message was sent from (#979), and whether that
   // message named an existing session. Captured like requestId: a late frame
   // settles only this request's draft.
@@ -130,6 +134,7 @@ export function makeBridge(
           host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
         }
       }
+      if (msg.type === "tool_result" && turn.turnId === turnId) host.journal?.observe();
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         if (turn.turnId === turnId) collectedSessionId = msg.sessionId;
@@ -148,6 +153,15 @@ export function makeBridge(
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
+        if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
+          if (!profileBound && workerProfile.draftId && workerProfile.preference) {
+            host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId);
+            profileBound = true;
+          }
+          host.sessionProfiles.record(msg.sessionId, workerProfile.origin, workerProfile.actualProfile);
+          msg = { ...msg, workerProfile: host.sessionProfiles.read(turn.principalId, "session", msg.sessionId) };
+        }
+
         // The session's pill label follows its latest request (#1004), asked
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {
@@ -204,6 +218,8 @@ export function makeBridge(
       if (turn.turnId === turnId) recorder?.observeFrame(msg);
       const scoped = withTurnScope(msg, turn, turnId);
       host.sendToClients(scoped);
+      // Identity must reach the client before its first scoped journal receipt.
+      if (msg.type === "session_info" && turn.turnId === turnId) host.journal?.bindSession(turnId, msg.sessionId);
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
@@ -340,7 +356,9 @@ export function makeBridge(
         catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
           actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
       }
-      else recorder?.observeActivity(event);
+      else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
+        ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
+        : event);
     },
     ...(queryActivity
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
@@ -559,7 +577,13 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof BackendBusyError) {
+  if (err instanceof JournalCapacityError || err instanceof JournalStorageUnavailable) {
+    const errorClass = err instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
+    const message = err.message;
+    host.reportTurnFailed(errorClass.toUpperCase(), turn, message);
+    host.sendToClients(withTurnScope({ type: "error", code: errorClass.toUpperCase(), message,
+      failure: { errorClass, message }, ...correlation }, turn));
+  } else if (err instanceof BackendBusyError) {
     host.reportTurnFailed("SESSION_BUSY", turn);
     host.sendToClients(
       withTurnScope(

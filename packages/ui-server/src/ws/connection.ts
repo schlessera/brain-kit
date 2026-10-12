@@ -98,6 +98,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           [ASK_RECEIPTS_CAPABILITY]: true,
           [LIVENESS_CAPABILITY]: true,
           chatRequestAck: true,
+          ...(host.sessionProfiles ? { sessionProfiles: true } : {}),
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.

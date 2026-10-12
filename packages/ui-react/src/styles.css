@@ -5,3 +5,6 @@
 @import "tailwindcss" source(none);
 @source "./";
 @import "./theme.css";
+
+/* The turn receipt keeps the existing disclosure treatment with a full tap target. */
+[data-turn-journal] > div > [role="button"] { min-height: 44px; }

@@ -39,6 +39,7 @@ import {
 } from "./transcript-turn.js";
 import { TurnError } from "./turn-error.js";
 import { AnswerDeliveryStatus } from "./answer-delivery-status.js";
+import { TurnJournal } from "./turn-journal.js";
 import { answerAsMessage, UNCONFIRMED_RECORD, withSubmittedAnswer } from "./answer-text.js";
 import { isRefusedAdmission } from "../../lib/answer-delivery/types.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -70,10 +71,12 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserFormSubmit,
   closing = false,
   anchor,
+  journalVisible = true,
 }: {
   message: ChatMessage;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
+  journalVisible?: boolean;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
   onAskUserSubmit: (
     requestId: string,
@@ -149,6 +152,7 @@ export const MessageBubble = memo(function MessageBubble({
           closing={closing}
         />
       )}
+      {journalVisible && !isUser && !message.localExchange && <TurnJournal turnId={message.turnId ?? message.streamTurnId} summary={message.journal} live={message.journalLive} />}
     </motion.div>
   );
 });

@@ -4,7 +4,11 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
-import { join } from "path";
+import { basename, dirname, join, resolve } from "path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { createTurnJournal } from "./brain/turn-journal.js";
+import { createJournalRoutes } from "./routes/journal.js";
 import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -13,6 +17,8 @@ import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
+import { createSessionProfiles } from "./ws/session-profiles.js";
+import { createSessionProfileRoutes } from "./routes/session-profiles.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createDraftRoutes } from "./routes/drafts.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
@@ -254,10 +260,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
     options.observability ?? createObservability({ minSeverity: config.logLevel });
+  const ephemeralJournal = config.dbPath === "" || config.dbPath === ":memory:";
+  const journalRoot = ephemeralJournal ? mkdtempSync(join(tmpdir(), "brain-ui-journal-"))
+    : join(dirname(resolve(config.dbPath)), `${basename(config.dbPath)}.journal`);
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
+  privateStatePaths.push({ setting: "turn journal", path: journalRoot });
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
+    if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
     observability.logger("brain").emit({ severityText: "ERROR", body: (error as Error).message,
       attributes: { "boot.refusal": (error as Error).name } });
     throw error;
@@ -447,14 +458,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
-  const host = new WsHost({
-    governedTurns: createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
+  const governedTurns = createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
       recordPolicy: (turnId, origin, profile, policy) => db.query(`INSERT INTO turn_governance_policy
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
-      index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) }),
+      index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+  const sessionProfiles = createSessionProfiles(db, governedTurns);
+  const journal = createTurnJournal(db, { brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
+    changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: summary }); } });
+  const host = new WsHost({
+    journal,
+    governedTurns,
+    sessionProfiles,
     maintenance: boundary.maintenance,
     applicationPlanner,
     drafts,
@@ -735,7 +752,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createBrainRoutes({ brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
-  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null }));
+  app.route("/api", createSessionProfileRoutes(sessionProfiles));
+  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
+  app.route("/api", createJournalRoutes({ journal }));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
@@ -859,6 +878,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // A keyed reindex still queued finishes before the gate's database closes.
       await keyedReindex.idle();
       await host.governedTurns?.close();
+      journal.close();
+      if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
       activity.close();
       db.close();
     },

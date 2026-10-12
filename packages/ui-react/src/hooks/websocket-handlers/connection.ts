@@ -8,6 +8,7 @@ type ConnectionFrame =
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
+    context.stores.connection.getState().setSessionProfiles(msg.capabilities?.sessionProfiles === true);
     context.stores.connection.getState().setChatRequestAck(msg.capabilities?.chatRequestAck === true);
     // A reconnect is no evidence that a pending follow-up disappeared.
     // Keep its pill until this host reports the queue; a new principal or a

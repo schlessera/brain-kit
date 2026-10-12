@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
 import { Overlay } from "./Overlay.js";
 import { BottomSheet } from "./BottomSheet.js";
+import { Disclosure } from "../blocks/Disclosure.js";
 import { accent, color, z, font, token } from "../tokens.js";
 
 export interface ModelPickerProps {
@@ -21,16 +22,29 @@ export interface ModelPickerProps {
    * announced as dimmed but focusable, never hidden.
    */
   lockedAction?: { label: string; detail?: string; why?: string; onSelect: () => void };
+  /** Host-confirmed facts for this chat. Selection changes the next turn only. */
+  chat?: {
+    profile: "governed" | "strict" | null;
+    disabledReason?: string;
+    saving?: boolean;
+    error?: string;
+    running?: boolean;
+    /** Already resolved by the enforcing host; absent facts remain unknown. */
+    limits: readonly { name: string; value: string; onHit?: string }[] | null;
+    onProfile?: (profile: "governed" | "strict") => void;
+  };
   containerRef?: RefObject<HTMLDivElement | null>;
   onModel: (id: string) => void;
   onEffort: (level: string | null) => void;
   onDismiss: () => void;
 }
 
-/** Two independent radio groups: model remains pinned on resumes, effort does not. */
+/** Model, next-message effort and confirmed next-turn profile stay independent. */
 export function ModelPicker(p: ModelPickerProps) {
   const modelName = useId();
   const effortName = useId();
+  const profileName = useId();
+  const profileDescription = useId();
   const panel = useRef<HTMLDivElement>(null);
   const selected = p.selectedEffort ?? null;
   const [preview, setPreview] = useState({ base: selected, level: selected });
@@ -39,13 +53,13 @@ export function ModelPicker(p: ModelPickerProps) {
   const currentEffort = previewEffort === null || p.effortLevels?.includes(previewEffort) ? previewEffort : selected;
   useEffect(() => {
     if (p.phone) return;
-    (panel.current?.querySelector<HTMLElement>('input[data-model]:checked:not(:disabled), input[data-effort]:checked')
-      ?? panel.current?.querySelector<HTMLElement>("button[data-locked-action]"))?.focus();
+    (panel.current?.querySelector<HTMLElement>('input[data-model]:checked:not(:disabled), input[data-effort]:checked, input[data-profile]:checked:not(:disabled)')
+      ?? panel.current?.querySelector<HTMLElement>('button[data-locked-action], [role="button"][tabindex="0"]'))?.focus();
   }, [p.phone]);
   function keys(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); p.onDismiss(); }
     if (e.key !== "Tab") return;
-    const stops = [...(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled)[tabindex="0"], button[data-locked-action]') ?? [])];
+    const stops = [...(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled)[tabindex="0"], button[data-locked-action], [role="button"][tabindex="0"]') ?? [])];
     const first = stops[0];
     const last = stops.at(-1);
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
@@ -94,6 +108,46 @@ export function ModelPicker(p: ModelPickerProps) {
       </fieldset>
       <p style={{ margin: "10px 8px 4px", font: `400 11px/1.55 ${font.body}`, color: color.inkDim }}>After sending, effort returns to the default.</p>
     </> : null}
+    {p.chat ? <section aria-label="This chat" style={{ borderTop: `1px solid ${color.edge}`, marginTop: 8 }}>
+      <fieldset style={group} aria-describedby={profileDescription} aria-busy={p.chat.saving || undefined}>
+        <legend style={heading}>This chat · from the next turn</legend>
+        {(["governed", "strict"] as const).map(profile => {
+          const disabled = Boolean(p.chat!.disabledReason || !p.chat!.onProfile || p.chat!.profile === null);
+          const description = profile === "governed" ? "Edits the brain directly within its policy." : "Read-only brain; edits go through server tools.";
+          return <label key={profile} style={{ ...row, alignItems: "flex-start", padding: "8px", cursor: disabled ? "default" : "pointer" }}>
+            <input data-profile="" type="radio" name={profileName} value={profile} checked={p.chat!.profile === profile}
+              disabled={disabled} aria-disabled={p.chat!.saving || undefined}
+              aria-describedby={`${profileName}-${profile}`}
+              tabIndex={p.chat!.profile === profile ? 0 : -1}
+              style={{ accentColor: accent.amber.fill, flex: "none", marginTop: 3 }}
+              onChange={() => { if (!p.chat!.saving && !disabled) p.chat!.onProfile?.(profile); }}
+              onKeyDown={event => {
+                if (p.chat!.saving && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+              }} />
+            <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+              <span style={{ display: "block" }}>{profile === "governed" ? "Governed" : "Strict"}</span>
+              <span id={`${profileName}-${profile}`} style={{ display: "block", color: color.inkDim }}>{description}</span>
+            </span>
+          </label>;
+        })}
+        <p id={profileDescription} style={{ margin: "4px 8px", font: `400 11px/1.55 ${font.body}`, color: color.inkDim, overflowWrap: "anywhere" }}>
+          {p.chat.disabledReason ?? (p.chat.profile === null ? "Profile facts are unknown." : p.chat.running
+            ? "This turn keeps its profile. The change applies to the next one." : "Applies from the next turn.")}
+        </p>
+        <p role="status" style={{ margin: "4px 8px", font: `400 11px/1.55 ${font.body}`, color: color.inkDim }}>{p.chat.saving ? "Saving profile…" : ""}</p>
+        {p.chat.error ? <p role="alert" style={{ margin: "4px 8px", font: `400 11px/1.55 ${font.body}`, color: color.ink, overflowWrap: "anywhere" }}>{p.chat.error}</p> : null}
+      </fieldset>
+      <div className="bk-model-chat-limits" style={{ padding: "0 8px 4px", font: `400 11px/1.55 ${font.body}`, color: color.inkDim }}>
+        <Disclosure label="Limits for this chat">
+          {p.chat.limits?.length ? <dl style={{ margin: 0 }}>
+            {p.chat.limits.map(limit => <div key={limit.name} style={{ marginBottom: 8, overflowWrap: "anywhere" }}>
+              <dt style={{ color: color.ink }}>{limit.name}</dt>
+              <dd style={{ margin: 0 }}>{limit.value}{limit.onHit ? ` · ${limit.onHit}` : ""}</dd>
+            </div>)}
+          </dl> : <p style={{ margin: 0 }}>Limits are unknown until the host reports them.</p>}
+        </Disclosure>
+      </div>
+    </section> : null}
   </div>;
   if (p.phone) return <div ref={p.containerRef}>
     <Overlay open variant="sheet" label="Model and effort" data-bk-sheet-adapter="model" onClose={p.onDismiss}>
