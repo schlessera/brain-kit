@@ -87,7 +87,9 @@ beforeAll(async () => {
     listProfiles: () => [{ id: "answers-scripted", label: "Local fixture" }],
     listSessions: async () => [],
     getHistory: async (sessionId) => histories.get(sessionId) ?? [],
-    async startTurn({ prompt, bridge }) {
+    async startTurn({ prompt: contextPrompt, bridge }) {
+      // Route the fixture command independently of appended host budget context.
+      const prompt = contextPrompt.split("\n", 1)[0]!;
       const kind = prompt as Kind;
       const n = ++sequence;
       const sessionId = `odysseus-answers-${n}`;

@@ -112,7 +112,9 @@ function scriptedBackend(): AgentBackend {
     listProfiles: () => [{ id: "parallel-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => structuredClone(transcripts.get(sessionId) ?? []),
-    async startTurn({ prompt, bridge, sessionId: resumed, signal }) {
+    async startTurn({ prompt: contextPrompt, bridge, sessionId: resumed, signal }) {
+      // Route the fixture command independently of appended host budget context.
+      const prompt = contextPrompt.split("\n", 1)[0]!;
       signal.addEventListener("abort", () => aborted.push(prompt), { once: true });
       const sessionId = resumed ?? `odysseus-parallel-${++sequence}`;
       started.push({ sessionId, prompt });

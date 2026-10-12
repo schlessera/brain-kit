@@ -57,7 +57,9 @@ beforeAll(async () => {
     listProfiles: () => [{ id: "trackers-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id) => ({ id, title: "The voyage home", createdAt: 1, lastActiveAt: 2, totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => structuredClone(transcripts.get(sessionId) ?? []),
-    async startTurn({ prompt, bridge, sessionId: resumed }) {
+    async startTurn({ prompt: contextPrompt, bridge, sessionId: resumed }) {
+      // Route the fixture command independently of appended host budget context.
+      const prompt = contextPrompt.split("\n", 1)[0]!;
       const sessionId = resumed ?? `odysseus-voyage-${++sequence}`;
       turnsStarted.push(sessionId);
       bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
