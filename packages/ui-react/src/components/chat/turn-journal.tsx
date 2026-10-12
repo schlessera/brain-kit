@@ -3,6 +3,7 @@ import type { TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "
 import { useEffect, useRef, useState } from "react";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
+import { useTurnRevert } from "./use-turn-revert.js";
 import { computeDiffRows, diffText } from "../../lib/diff.js";
 
 /** One initially collapsed receipt for a host turn, including known no-change turns. */
@@ -20,6 +21,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const wrapper = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), trigger = useRef<HTMLElement | null>(null);
   const state = summary?.state ?? "unrecorded";
   const readable = !!sessionId && !!turnId && state !== "unknown" && state !== "unrecorded" && state !== "expired";
+  const revert = useTurnRevert(sessionId, turnId, readable && state !== "recording" && summary?.actor !== "voice", open, () => trigger.current?.isConnected ? trigger.current : wrapper.current?.querySelector<HTMLElement>("summary,button") ?? null);
   useEffect(() => {
     setDetails(null); setError(null);
     if (!open || !readable) return;
@@ -62,12 +64,13 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
       <div className="grid gap-3 text-sm min-w-0">
         <p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
         {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
-        {summary?.profile && <p>Profile: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : "Interactive turn."}</p>}
+        {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}
         <p>Model: {summary?.model ?? "unknown"}. Limits: unknown.</p>
         {state === "partial" && <p>Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.</p>}
         {readable && !details && !error && <p>Loading retained changes…</p>}
         {error && <p role="status">{error}</p>}
         {details?.missing.map((missing, index) => <p key={`${missing.path}-${index}`} className="break-words">Unavailable: {missing.path} ({missing.reason})</p>)}
+        {revert.controls}
         {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <span className="break-all min-w-0">{change.path} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
           {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
@@ -82,8 +85,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {previewError && <p role="status">{previewError}</p>}
         {preview?.inline ? <div className="max-h-[60vh] overflow-auto min-w-0"><DiffBlock tinted variant="inset" text={diffText(computeDiffRows(preview.before ?? "", preview.after ?? ""))} /></div> : preview && <p>Inline diff unavailable ({preview.reason}). Raw versions remain available below.</p>}
         {!previewError && selected && sessionId && turnId && <div className="flex flex-wrap gap-3 text-sm">{(["before", "after"] as const).map(side => selected[side]?.hash && <a key={side} className="inline-flex min-h-11 items-center underline" href={`${root.apiBase()}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${selected.sequence}/${side}`} download>Download {side} ({selected[side]?.bytes} bytes)</a>)}</div>}
+        {selected && revert.action(selected.path)}
         <Button label="Close" style={{ minHeight: 44 }} onClick={() => setSelected(null)} />
       </div>
     </Overlay>
+    {revert.announcement}
+    {revert.dialog}
   </div>;
 }

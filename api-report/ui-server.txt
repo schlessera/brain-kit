@@ -1226,7 +1226,8 @@ signatures (every public export and the types it is made of)
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
     }): {
         begin(turnId: string, metadata: {
-            actor: "interactive" | "voice";
+            actor: "interactive" | "user" | "voice";
+            coveredPaths?: readonly string[];
             model: null | string;
             policyHash: null | string;
             profile: "governed" | "strict";
@@ -1236,8 +1237,10 @@ signatures (every public export and the types it is made of)
         close(): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): void;
+        finishReserved(turnId: string): void;
         observe(): void;
         observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+        reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
             bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
@@ -1247,6 +1250,8 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             };
         };
+        withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T;
+        writeOperation<T>(write: () => T): T;
     };
   inspect (packages/ui-server/src/inbox/resolve.ts)
     function inspect(principalId: string, msg: ClientInboxResolve): {

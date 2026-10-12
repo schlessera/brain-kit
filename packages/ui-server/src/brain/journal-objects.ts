@@ -26,6 +26,7 @@ export class JournalCapacityError extends Error {
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): JournalSnapshotObjects & {
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
+  withVerifiedCopy<T>(hash: string, bytes: number, apply: (copy: (destination: number) => void) => T): T;
   discardPending(id: string): void;
   stream(hash: string, released: () => void): { body: ReadableStream<Uint8Array>; bytes: number };
   remove(hash: string): void;
@@ -147,6 +148,29 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       assertOpen(); if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid journal reservation identifier.");
       try { unlinkSync(path(`pending-${id}`)); fsyncSync(directory); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    },
+    withVerifiedCopy(hash, bytes, apply) {
+      const fd = openObject(hash);
+      try {
+        if (fstatSync(fd).size !== bytes) throw new Error("Retained version size changed.");
+        const buffer = Buffer.allocUnsafe(64 * 1024), digest = createHash("sha256"); let position = 0;
+        while (position < bytes) {
+          const count = readSync(fd, buffer, 0, Math.min(buffer.length, bytes - position), position);
+          if (!count) throw new Error("Retained version is incomplete.");
+          digest.update(buffer.subarray(0, count)); position += count;
+        }
+        if (digest.digest("hex") !== hash) throw new Error("Retained version checksum changed.");
+        return apply(destination => {
+          let position = 0;
+          while (position < bytes) {
+            const count = readSync(fd, buffer, 0, Math.min(buffer.length, bytes - position), position);
+            if (!count) throw new Error("Retained version is incomplete.");
+            let written = 0;
+            while (written < count) written += writeSync(destination, buffer, written, count - written, position + written);
+            position += count;
+          }
+        });
+      } finally { closeSync(fd); }
     },
     stream(hash, released) {
       const fd = openObject(hash), bytes = fstatSync(fd).size;

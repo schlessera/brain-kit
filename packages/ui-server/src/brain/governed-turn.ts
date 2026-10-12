@@ -51,7 +51,7 @@ export function createGovernedTurns(options: {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
-      const hold = await gate.acquire("shared", `turn:${turnId}`, { signal });
+      const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
       try {
         const policy = policyReader.load();
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];

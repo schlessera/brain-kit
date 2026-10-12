@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal routes mounted by `createApp`: 131 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 135 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -115,6 +115,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert/plan` | S | Review eligible and excluded history paths | Current human principal; exact session/turn; optional action revert/restore. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
+| POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
@@ -164,7 +168,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 131 declared endpoints are mounted regardless of backend, renderer or
+All 135 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -534,6 +538,43 @@ detail 404, and temporarily unavailable storage 503. A durable read lease
 keeps the object charged and retained until completion/cancellation. Paths and
 hashes from a caller are never opened. Both preview and download require the
 same session/turn membership as the summary.
+
+**User history restoration (#1653).** The four `/revert` operations above
+require an authenticated human (`owner` or ambient human principal), never an
+agent/system principal. Original voice or unavailable/expired turns cannot be
+selected. The plan folds a path's first observed before-state and last observed
+after-state; ignored, incomplete, unsupported and Git-metadata paths are named
+as excluded. `action=restore` selects retained observed versions of quarantined
+paths, without exposing host-private quarantine paths or moving Git refs.
+
+POST accepts `{ id, path?, action? }`. `id` is an opaque 16–96 character ASCII
+letter/digit/underscore/hyphen operation identity; `path` selects one observed
+path, absent means whole turn; `action` is `revert` (default) or `restore`.
+Unknown fields or malformed input are 400. The ID is bound to current principal,
+session, source turn and selection; reuse with exactly the same request returns
+the original receipt and never repeats the effect. Mismatched identity,
+unavailable source or no eligible paths are 409. Storage failure is 503; an
+unconfirmed response must be reconciled by the original receipt before any
+further effect is considered. GET latest returns `{ receipt: TurnRevertReceipt
+| null }`; GET identity returns that receipt or 404. All are private/no-store.
+
+A 202 receipt records `waiting`, `applying`, `complete`, `partial`, `failed` or
+`unknown`, the original/source and synthetic journal turn IDs, and named per-path
+states. `undoAvailable` is false when its own retained operation journal cannot
+provide an eligible Undo, including expiry. Revert waits for running turns, holding new turns behind its queue
+intent while allowing an old turn's nested shared maintenance. It takes the
+exclusive writer gate and `BRAIN_LOCK_KEY`/`GIT_LOCK_KEY`, then compares existence,
+type, permissions and raw bytes immediately before descriptor-rooted restoration.
+Changed paths conflict while other eligible paths proceed. Regular CAS versions
+are verified and leased before streamed restoration; symlinks are restored
+literally. No text normalization, Git command or outward-effect rollback occurs.
+A failed write can leave partial work; it is observed and never reported as an
+atomic all-path restore. The user operation is journaled with `actor=user`,
+`kind=revert`, and `sourceTurnId`; Undo selects that journal through the same
+comparison. Interrupted applying operations are unknown and are never resumed
+or retried automatically. Incremental index refresh is queued after releasing
+the gate. Missing or changed parents conflict; unsupported entries are excluded; unobserved
+empty directory metadata is not invented.
 
 | Supported operation | Inputs/defaults | Success and observable behavior | Errors |
 | --- | --- | --- | --- |

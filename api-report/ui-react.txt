@@ -1162,6 +1162,16 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
+        turnRevert: (sessionId: string, turnId: string, request: {
+            action?: "restore" | "revert";
+            id: string;
+            path?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
+            receipt: import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt | null;
+        }>;
+        turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
+        turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
@@ -1561,6 +1571,16 @@ signatures (every public export and the types it is made of)
             inline: boolean;
             reason?: string;
         }>;
+        turnRevert: (sessionId: string, turnId: string, request: {
+            action?: "restore" | "revert";
+            id: string;
+            path?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        turnRevertLatest: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<{
+            receipt: import("@schlessera/brain-ui-sdk").TurnRevertReceipt | null;
+        }>;
+        turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
+        turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];

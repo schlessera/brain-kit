@@ -21,8 +21,13 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-14`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1006-1018`).
+`packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1006-1020`).
+`actor` additionally accepts `user` for a server-recorded history operation.
+Optional `kind` is `turn` or `revert`; a revert may name its original
+`sourceTurnId`. These facts do not create an assistant message or an inference
+usage record. The REST operation receipt uses the same synthetic journal for
+Undo; it does not revive the original turn.
 The journal does not assert effective budget/scope enforcement before those
 monitors provide receipts; the UI says limits unknown.
 
