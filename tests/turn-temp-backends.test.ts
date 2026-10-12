@@ -33,8 +33,10 @@ test("both turn_temp registrations report real private usage, keep linked bytes 
     const pi = createPiBridgeTools({ brainPath: brain, capabilities: { turnTemp: true },
       turn: { turnTemp: access, bridge: { activity: (event: unknown) => events.push(event) } } as never }).find(tool => tool.name === "turn_temp")!;
     const invoke = async (backend: "claude" | "pi", input: object) => {
-      const result = backend === "claude" ? await claude.handler(input as never, {}) : await pi.execute("purge-call", input as never);
-      return JSON.parse(result.content.find((c: any) => c.type === "text")!.text);
+      const result = backend === "claude" ? await claude.handler(input as never, {}) : await pi.execute("purge-call", input as never, undefined, undefined, undefined as never);
+      const text = result.content.find(c => c.type === "text");
+      if (!text || text.type !== "text") throw new Error("turn_temp returned no text result");
+      return JSON.parse(text.text);
     };
     for (const backend of ["claude", "pi"] as const) {
       const usage = await invoke(backend, { action: "usage" });

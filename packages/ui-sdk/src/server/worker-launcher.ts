@@ -497,6 +497,28 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command
   } };
 }
 
+/**
+ * Maintenance-only HOME overlay probe (#1648). Agent workers always use XDG
+ * under their bounded /tmp (#1703); credentialed maintenance commands retain
+ * their existing optional namespace-private home overlay.
+ */
+export function probeHomeOverlay(brain: string, home: string): true | string {
+  const marker = `.brain-home-overlay-probe-${process.pid}-${Date.now()}`;
+  const target = join(home, marker);
+  try {
+    const argv = workerCommand({ brainPath: brain, env: { HOME: home },
+      command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
+      maintenance: { network: false, credentials: true, home: { path: home, overlay: true }, readPaths: [] } });
+    const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
+    if (existsSync(target)) {
+      rmSync(target, { force: true });
+      return "an overlay write reached the host home";
+    }
+    if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
+    return true;
+  } catch (error) { return error instanceof Error ? error.message : String(error); }
+}
+
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
 const FATAL_OOM_WINDOW_MS = 1_000;
 
