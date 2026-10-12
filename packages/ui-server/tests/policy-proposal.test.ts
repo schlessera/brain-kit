@@ -2,7 +2,7 @@ import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createHostExecution } from "../src/brain/host-execution.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKeyedLock, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
@@ -123,4 +123,22 @@ test("a host restart/lost recorder cannot reactivate pending or uncertain policy
   const applied = uncertain.service.propose(uncertain.turn, "policy-1", input); uncertain.answer(true);
   expect((await applied).state).toBe("unknown"); expect(readFileSync(uncertain.path, "utf8")).toBe(proposed);
   expect((await uncertain.service.propose(uncertain.turn, "policy-1", input)).state).toBe("unknown"); expect(uncertain.edits).toHaveLength(2);
+});
+
+test("missing brain permits service startup but never creates a root or requests approval", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "policy-missing-root-")); cleanup.push(() => rmSync(parent, { recursive: true, force: true }));
+  const root = join(parent, "brain"), path = join(root, "context/policies/governance.md");
+  const db = createUiDb(":memory:"); cleanup.push(() => db.close());
+  let approvals = 0, observations = 0, events = 0;
+  let service!: ReturnType<typeof createPolicyProposals>;
+  expect(() => { service = createPolicyProposals({ root, db, lock: createKeyedLock(),
+    observeUserPolicy: (_id, write) => { observations++; write(); }, recordEvent: () => { events++; } }); }, "POLICY_MISSING_ROOT_STARTUP").not.toThrow();
+  const turn: PolicyProposalTurn = { principalId: "odysseus", turnId: "missing-root-turn", sessionId: () => null,
+    signal: new AbortController().signal, isAuthorized: () => true, isAvailable: () => true,
+    approve: async () => { approvals++; return true; }, emit() {} };
+  await expect(service.propose(turn, "missing-root", input)).rejects.toThrow();
+  expect(existsSync(root)).toBe(false); expect(approvals).toBe(0); expect(observations).toBe(0); expect(events).toBe(0);
+  mkdirSync(root);
+  expect((await service.propose(turn, "root-now-present", input)).state).toBe("updated");
+  expect(readFileSync(path, "utf8")).toBe(proposed); expect(approvals).toBe(1); expect(observations).toBe(1); expect(events).toBe(1);
 });

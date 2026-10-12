@@ -152,6 +152,7 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-inbox-add", name: "inbox_add", input: { text: "Odysseus checks the harbor", idempotencyKey: "harbor" } },
   { toolUseId: "call-resolve", name: "resolve_action", input: { sessionId: "harbor-session", itemId: "harbor-action", optionId: "approve", expectedVersion: 1 } },
   { toolUseId: "call-turn-temp", name: "turn_temp", input: { action: "usage" } },
+  { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -176,6 +177,11 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
       case "query_activity": return sdk.handleQueryActivity(input, bridge);
       case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action":
         return sdk.handleInboxTool(call.name, input, bridge);
+      case "propose_policy_change": {
+        const proposal = sdk.PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(call.input);
+        if (!bridge.proposePolicyChange) throw new Error("Host policy review unavailable");
+        return bridge.proposePolicyChange(call.toolUseId, proposal);
+      }
       case "show_block": return sdk.handleShowBlock(input);
       // The backend's own worker /tmp as the server holds it; here a directory.
       case "turn_temp": return sdk.handleTurnTemp(input, { root: () => join(brainPath, "assets"), allowanceBytes: 64 * 1024 * 1024,
@@ -191,8 +197,12 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
       sdk.assertTurnPosture(req);
       for (const call of calls) {
         try {
-          // Bridge tools are auto-allowed by the shared posture, never by a local list.
-          if (!sdk.BRIDGE_TOOL_POSTURE.allowedTools("pi").includes(call.name)) throw new Error(`${call.name} is not auto-allowed`);
+          // Ordinary bridge tools use the shared posture. Policy proposals reach
+          // the explicit host review callback and must never be auto-allowed.
+          const autoAllowed = sdk.BRIDGE_TOOL_POSTURE.allowedTools("pi").includes(call.name);
+          if (call.name === "propose_policy_change") {
+            if (autoAllowed) throw new Error("Policy review was incorrectly auto-allowed");
+          } else if (!autoAllowed) throw new Error(`${call.name} is not auto-allowed`);
           const result = await run(call, req.bridge);
           req.bridge.emit({ type: "tool_result", toolUseId: call.toolUseId, output: typeof result === "string" ? result : JSON.stringify(result), isError: false });
         } catch (error) {
@@ -204,7 +214,7 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
 }
 
 describe("a backend built only from public /server names", () => {
-  test("runs every bridge tool through the public handlers and shared posture", async () => {
+  test("runs every bridge tool through public host callbacks and the shared posture", async () => {
     const brainPath = mkdtempSync(join(tmpdir(), "public-only-backend-"));
     publicRoots.push(brainPath);
     mkdirSync(join(brainPath, "assets"));
@@ -233,6 +243,13 @@ describe("a backend built only from public /server names", () => {
       inboxList: async input => { asked.push(`inbox_list:${input.view}:${input.limit}`); return { items: [item], threads: [thread] }; },
       inboxGet: async input => { asked.push(`inbox_get:${input.itemId}`); return { item, thread }; },
       inboxAdd: async input => { asked.push(`inbox_add:${input.idempotencyKey}`); return { created: true, threadId: thread.id, itemId: item.id }; },
+      proposePolicyChange: async (id, input) => {
+        asked.push(`propose_policy_change:${id}`);
+        expect(input).toEqual(PUBLIC_CALLS.find(call => call.toolUseId === id)!.input);
+        return { requestId: id, turnId: "ithaca-turn", path: "context/policies/governance.md", state: "declined",
+          rationale: input.rationale, baseHash: null, proposedHash: "reviewed-policy", frontmatterDiff: "profiles.interactive: strict",
+          bodyChanged: true, bodyDiff: "Odysseus reviews the policy.", sections: ["profiles.interactive"], warnings: [], message: "Policy change declined. Nothing was written." };
+      },
       resolveAction: async input => { asked.push(`resolve_action:${input.sessionId}:${input.itemId}:${input.optionId}:${input.expectedVersion}`); return { replay: false, followUpId: "follow-up-harbor" }; },
     };
 
@@ -246,7 +263,7 @@ describe("a backend built only from public /server names", () => {
     expect(asked).toEqual([
       "ask_user:call-ask", "ask_user_list:call-list", "ask_user_rank:call-rank", "ask_user_form:call-form",
       "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
-      "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1",
+      "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "propose_policy_change:call-policy",
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });
@@ -266,6 +283,8 @@ describe("a backend built only from public /server names", () => {
     expect(inboxData("call-inbox-get")).toEqual({ item, thread });
     expect(inboxData("call-inbox-add")).toEqual({ created: true, threadId: thread.id, itemId: item.id });
     expect(inboxData("call-resolve")).toEqual({ replay: false, followUpId: "follow-up-harbor" });
+    expect(JSON.parse(output("call-policy"))).toMatchObject({ requestId: "call-policy", state: "declined", message: "Policy change declined. Nothing was written." });
+    expect(existsSync(join(brainPath, "context/policies/governance.md"))).toBe(false);
     expect(JSON.parse(output("call-block"))).toEqual(PUBLIC_CALLS.at(-1)!.input);
     expect(JSON.parse(output("call-turn-temp"))).toMatchObject({ limitBytes: 64 * 1024 * 1024,
       largest: expect.arrayContaining([{ path: "/tmp/sail.png", bytes: 3, type: "file" }]) });

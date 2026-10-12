@@ -103,7 +103,13 @@ export function createPolicyProposals(options: {
   beforeCommit?(): void;
   validate?: typeof parseGovernancePolicy;
 }) {
-  const root = realpathSync(options.root), db = options.db;
+  const db = options.db;
+  // App startup also serves hosts whose brain has not been provisioned yet.
+  // Keep existing roots canonical; a missing root is resolved at the operation,
+  // never created by policy publication.
+  let resolvedRoot: string | undefined;
+  try { resolvedRoot = realpathSync(options.root); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const active = new Map<string, Promise<PolicyChangeReview>>();
   const readReview = (principalId: string, turnId: string, requestId: string, sessionId?: string): PolicyChangeReview | null => {
     const row = db.query("SELECT review, session_id FROM policy_proposals WHERE principal_id = ? AND turn_id = ? AND request_id = ?")
@@ -149,6 +155,7 @@ export function createPolicyProposals(options: {
       const bytes = Buffer.from(input.content, "utf8"), validate = options.validate ?? parseGovernancePolicy;
       const checked = validate(bytes);
       if (!checked.ok || checked.status !== "valid") throw new Error(`Invalid policy: ${checked.errors.join("; ")}`);
+      const root = resolvedRoot ??= realpathSync(options.root);
       const before = base(root), beforeText = before?.toString("utf8") ?? "", a = split(beforeText), b = split(input.content);
       const review: PolicyChangeReview = { requestId, turnId: turn.turnId, path: GOVERNANCE_POLICY_PATH,
         state: "pending", rationale: input.rationale, baseHash: before === null ? null : hash(before), proposedHash: hash(bytes),
