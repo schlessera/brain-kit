@@ -384,6 +384,7 @@ async function runRetainedSession(
               ...(host.activity.governance ? { governance: host.activity.governance } : {}),
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
+              ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
             },
             {
               turnId: turn.turnId,

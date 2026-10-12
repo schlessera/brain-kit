@@ -391,15 +391,15 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1489-1505`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:114-115`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:125-126`).
 
 - Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2806-2829`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:142-275`).
 
-- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:594`).
+- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:595`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:687-731`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:688-732`).
 
 - Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1124-1154`).
 

@@ -38,6 +38,8 @@ export interface ActivityRuntime {
   runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
   /** The governance-event writer (#1651) the turn recorders emit through. */
   governance?: (input: GovernanceEventInput) => void;
+  /** The server database each turn's roadblocks are classified and recorded in (#1671); absent records none. */
+  governanceDb?: import("bun:sqlite").Database;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:594`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:595`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -253,10 +253,10 @@ Stated before the requirements because five of them derive from it.
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
   recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:88-158`).
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:97-167`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:907-918`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:908-919`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
@@ -343,7 +343,7 @@ Stated before the requirements because five of them derive from it.
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:528`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:573`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
