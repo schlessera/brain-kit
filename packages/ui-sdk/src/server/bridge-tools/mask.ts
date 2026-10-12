@@ -85,7 +85,7 @@ export async function handleRequestImageMask(
     // prune, the way the CLI's own writers prune after a write (#310).
     assertScratchMask(rootReal, maskRel, maskAbs);
     writeScratchMask(rootReal, maskAbs, png);
-    await bridge.pruneScratch?.();
+    await bridge.pruneScratch?.([relative(rootReal, maskAbs).split(sep).join("/")]);
   } else {
     writeMaskFile(maskAbs, png);
   }
