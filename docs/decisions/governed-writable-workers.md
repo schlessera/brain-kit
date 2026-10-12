@@ -147,9 +147,9 @@ runs under `strict` and its capabilities note says why. Falling back to
 still holds.
 
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
-membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:119`):
+membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:456-460`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:462-466`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -481,19 +481,35 @@ destination, bytes, turn id and both links. A promotion over the per-turn size
 bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
-**As built (#1655).** The server takes turn temp from the first tmpfs that
-is not the brain's device: its own temporary directory, then `/dev/shm`
-(`export function turnTempRoot`, `packages/ui-sdk/src/server/worker-turn-temp.ts:64-77`).
-A private `0700` directory there is bound at the worker's `/tmp`, which holds
-`$BRAIN_WORKER_SCRATCH` and the XDG fallback, and the `$HOME` overlay writes
-into its upper directory there. Without such a tmpfs the worker keeps the
-namespace-private mounts and nothing can be promoted, which the server logs.
-The restricted envelope is unchanged. After the worker exits, the backend
+**As built (#1655, bounded by #1703).** #1655 first bound a private `0700`
+host directory, on the first tmpfs apart from the brain, at the worker's
+`/tmp`. That directory had no size limit, so one worker could fill a tmpfs
+every worker and the host shared. The maintainer's ruling on #1703 replaced
+it: each worker's `/tmp` is now a private tmpfs of exactly its turn-temp
+allowance, mounted by bubblewrap with `--size`. It holds
+`$BRAIN_WORKER_SCRATCH` and the per-turn XDG directories, and the per-turn
+`$HOME` overlay is gone, because bubblewrap keeps an overlay's upper
+directory on the host, where no size-limited mount can hold it. Before the
+worker's command starts, the server opens that tmpfs from outside through the
+sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
+the allowance on another device than the server's own `/tmp`, and keeps the
+descriptor
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:628-654`).
+Every later read goes through that descriptor, after the worker's namespace
+is gone as well, and never enters another mount, so runtime state below
+`/tmp` is never read as turn temp. The allowance (256 MiB by default,
+`BRAIN_UI_TURN_TEMP_BYTES`) is admitted in the same ledger as runtime state,
+against its own budget, and a turn that cannot reserve it is refused as
+`worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
+reports usage and purges paths through the same descriptor
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
+The restricted envelope gets the same sized `/tmp` and promotes nothing.
+After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:175-186`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -675,10 +691,10 @@ classification:
 
 - In Claude, the parent-side mutating hook takes `GIT_LOCK_KEY` or
   `BRAIN_LOCK_KEY` (`export function lockKeyForTool`,
-  `packages/ui-backend-claude/src/tool-policy.ts:242`). The parent process is
+  `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`lock: toolLockFromKeyed(createKeyedLock())`,
-  `packages/ui-backend-pi/src/worker-entry.ts:86`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:105`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -690,9 +706,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:207`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:220`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:518`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:519`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -865,7 +881,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:156`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:157`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -877,7 +893,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:885`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:924`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -997,7 +1013,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:81`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:83`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1042,7 +1058,7 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:116`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:118`)
 and the inference relay
 (`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,

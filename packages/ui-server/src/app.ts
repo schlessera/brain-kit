@@ -306,10 +306,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   let bootOrdinary: WorkerHostProbe | undefined;
   // Claude workers also need their private runtime-state tmpfs (#1625).
   const workerStateBytes = (config.agent.backend ?? "claude") === "claude" ? config.agent.workerStateBytes : undefined;
+  // Every worker has the same admitted private turn-temp allowance (#1703).
+  const turnTempBytes = config.agent.turnTempBytes;
   const latestOrdinary = (): WorkerHostProbe => {
     const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
     if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
-    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes);
+    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
   const hostExecution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
@@ -502,7 +504,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity.runtime.recordWorkerHost(mode, bootOrdinary, "boot");
       activity.runtime.recordWorkerLimits(workerLimitsStatus());
     }
-    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes);
+    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes);
   }
   runtimeStatus = activity.runtime;
   // Whether governed can run, and where the brain's own code is evaluated
@@ -701,7 +703,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes);
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes);
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },

@@ -101,6 +101,8 @@ export function createBrainUiMcpServer(handlers: {
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
   queryActivity?: ActivityQueryHandler;
+  /** The turn_temp tool (#1703), built with the turn's own access to its worker's turn temp. */
+  turnTemp?: SdkMcpToolDefinition<any>;
   /** Required alongside requestMask: the mask is written into this repo. */
   brainPath?: string;
 }) {
@@ -116,6 +118,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.queryActivity) {
     tools.push(createActivityQueryTool(handlers.queryActivity));
   }
+  if (handlers.turnTemp) tools.push(handlers.turnTemp);
   const server = createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",

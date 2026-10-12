@@ -29,7 +29,7 @@ async function run(mode: Mode, cancel = false) {
       const script = `printf 'Ithaca\\n' >> "$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl"; `
         + (mode === "hardlink" ? `ln "$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl" "$CLAUDE_CONFIG_DIR/$PROJECT/alias"; ` : "")
         + (mode === "memory" ? `printf 'Penelope\\n' > "$CLAUDE_CONFIG_DIR/$PROJECT/memory/MEMORY.md"; ` : "")
-        + (mode === "exceeded" ? `echo ENOSPC >&2; ` : "")
+        + (mode === "exceeded" ? `head -c ${4 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/flood" 2>/dev/null; ` : "")
         + "exit 0";
       const child = params.options!.spawnClaudeCodeProcess!({ command: "/bin/sh",
         args: ["-c", script, `--resume=${SESSION}`], cwd: brain,

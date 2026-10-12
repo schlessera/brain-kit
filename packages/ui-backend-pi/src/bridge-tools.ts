@@ -29,8 +29,12 @@ import {
   type ToolContract,
   type AskUserResult,
   type ReverseGeocodeConfig,
+  TURN_TEMP_DESCRIPTION,
+  TURN_TEMP_INPUT_SCHEMA,
+  TURN_TEMP_TOOL_NAME,
 } from "@schlessera/brain-ui-sdk/server";
 import {
+  handleTurnTemp,
   piMaskFilename,
   piReportedMaskPath,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -84,6 +88,7 @@ export interface PiBridgeToolOptions {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    turnTemp?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
   reverseGeocode?: LocationHandlerOptions["reverseGeocode"];
@@ -278,7 +283,23 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
+  const turnTemp = {
+    name: TURN_TEMP_TOOL_NAME,
+    label: "Turn temp",
+    description: TURN_TEMP_DESCRIPTION,
+    parameters: toPiParameters(TURN_TEMP_INPUT_SCHEMA),
+    // Runs in the server, through the descriptor it holds to the worker's
+    // own /tmp (#1703): it reaches nothing else, so it needs no approval.
+    async execute(_id: string, input: unknown) {
+      const payload = handleTurnTemp(TURN_TEMP_INPUT_SCHEMA.parse(input), turn.turnTemp, event => {
+        try { turn.bridge?.activity?.(event); } catch { /* Observability must not fail the observed step. */ }
+      });
+      return textResult(JSON.stringify(payload, null, 2), null);
+    },
+  } satisfies ToolDefinition;
+
   const tools: ToolDefinition[] = [askUser, askUserList, askUserRank, askUserForm, showBlock];
+  if (capabilities?.turnTemp) tools.push(turnTemp);
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
@@ -317,4 +338,7 @@ export {
   SHOW_BLOCK_DESCRIPTION,
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME,
+  TURN_TEMP_DESCRIPTION,
+  TURN_TEMP_INPUT_SCHEMA,
+  TURN_TEMP_TOOL_NAME,
 };

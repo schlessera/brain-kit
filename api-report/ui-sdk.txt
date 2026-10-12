@@ -704,6 +704,11 @@ export "./client" (./src/client/index.ts)
   type SystemStatus
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
+  TURN_TEMP_CONTRACT
+  TURN_TEMP_DESCRIPTION
+  TURN_TEMP_INPUT_SCHEMA
+  TURN_TEMP_MAX_PATHS
+  TURN_TEMP_TOOL_NAME
   type ThinkingLevel
   type ToolAdapter
   type ToolCallView
@@ -722,6 +727,7 @@ export "./client" (./src/client/index.ts)
   type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
+  type TurnTempInput
   type TurnUsage
   type UnavailableProfileInfo
   type UnpinnedReason
@@ -769,6 +775,7 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
   GIT_LOCK_KEY
   HOST_MASKS
@@ -792,12 +799,20 @@ export "./internal" (./src/internal.ts)
   PROTECTED_TIER_B
   type PrepareWorkerSandboxOptions
   type QuestionObservation
+  type Reservation
   type RestrictedEnvelope
   SUBPROCESS_ENV
-  TURN_TEMP_PREFIX
-  type TurnTemp
+  type StateLedger
+  TURN_TEMP_BUDGET_ENV
+  TURN_TEMP_BYTES_ENV
+  TURN_TEMP_ROOT
+  TURN_TEMP_WARN_RATIO
+  type TurnTempAccess
   type TurnTempPromoterOptions
   type TurnTempPromotionRecord
+  type TurnTempPurgeRecord
+  type TurnTempPurgeResult
+  type TurnTempSpace
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
@@ -830,6 +845,8 @@ export "./internal" (./src/internal.ts)
   WorkerResourceLimitError
   type WorkerSandbox
   WorkerStateConfigError
+  WorkerStateError
+  type WorkerStateErrorClass
   type WorkerStateHandle
   type WorkerStateLimits
   applyClassification
@@ -841,16 +858,19 @@ export "./internal" (./src/internal.ts)
   claudeMaskFilename
   claudeReportedMaskPath
   createLimitTracker
-  createTurnTemp
+  createStateLedger
+  createTurnTempPressure
   createTurnTempPromoter
   describeLimitHits
   execWrapperSpawnOptions
+  handleTurnTemp
   hasWebSearchCredential
   isEnvName
   launchAgentWorker
   launchLimits
   launchMaintenanceWorker
   limitFailureMessage
+  linkedTurnTempPaths
   loadedSdkIdentity
   maintenanceLaunch
   mergeLimitReports
@@ -861,20 +881,26 @@ export "./internal" (./src/internal.ts)
   piReportedMaskPath
   planClassification
   prepareWorkerSandbox
-  probeHomeOverlay
   probeMaintenanceWorker
   probeWorkerHost
+  processStateLedger
   protectedPaths
+  purgeTurnTemp
   readWebSearchOverride
   readWebSearchRouting
   requireWorkerHost
+  resolveTurnTempLimits
   resolveWebSearchConfigPath
   resolveWorkerStateLimits
   restrictedReadPaths
   runMaintenanceWorker
   runMaintenanceWorkerSync
   startInferenceRelay
-  turnTempRoot
+  turnTempFullMessage
+  turnTempLimit
+  turnTempPath
+  turnTempSpace
+  turnTempUsage
   validWorkerStateBytes
   webSearchBrief
   webSearchProvider
@@ -1822,6 +1848,11 @@ export "./server" (./src/server/index.ts)
   type SystemStatus
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
+  TURN_TEMP_CONTRACT
+  TURN_TEMP_DESCRIPTION
+  TURN_TEMP_INPUT_SCHEMA
+  TURN_TEMP_MAX_PATHS
+  TURN_TEMP_TOOL_NAME
   type ThinkingLevel
   type ToolAdapter
   type ToolComponentContract
@@ -1839,7 +1870,10 @@ export "./server" (./src/server/index.ts)
   type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
+  type TurnTempAccess
+  type TurnTempInput
   type TurnTempPromotionRefusal
+  type TurnTempPurgeRecord
   type TurnUsage
   type UnavailableProfile
   type UnavailableProfileInfo
@@ -1903,6 +1937,7 @@ export "./server" (./src/server/index.ts)
   handleQueryActivity
   handleRequestImageMask
   handleShowBlock
+  handleTurnTemp
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
@@ -2066,11 +2101,17 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   SHOW_BLOCK_TOOL_NAME
   type ShowBlockInput
   type ShowBlockPayload
+  TURN_TEMP_CONTRACT
+  TURN_TEMP_DESCRIPTION
+  TURN_TEMP_INPUT_SCHEMA
+  TURN_TEMP_MAX_PATHS
+  TURN_TEMP_TOOL_NAME
   type ToolAdapter
   type ToolComponentContract
   type ToolContract
   type ToolInput
   type ToolPayload
+  type TurnTempInput
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
@@ -4247,12 +4288,20 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"suggestions">;
             label: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>], "kind">;
+    }, z.core.$strip>>, import("./contract.js").ToolContract<"turn_temp", z.ZodObject<{
+        action: z.ZodEnum<{
+            purge: "purge";
+            usage: "usage";
+        }>;
+        all: z.ZodOptional<z.ZodBoolean>;
+        force: z.ZodOptional<z.ZodBoolean>;
+        paths: z.ZodOptional<z.ZodArray<z.ZodString>>;
     }, z.core.$strip>>];
   BRIDGE_TOOL_POSTURE (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly [...("inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block"];
+        names: readonly [...("inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block", "turn_temp"];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -4338,6 +4387,18 @@ signatures (every public export and the types it is made of)
         reason: TurnTempPromotionRefusal;
         bytes: number | null;
         limitBytes: number | null;
+    } | {
+        kind: "turn_temp_purge";
+        truncated: boolean;
+        all: boolean;
+        force: boolean;
+        paths: string[];
+        removedEntries: number;
+        freedBytes: number;
+        skippedLinked: string[];
+        skippedOther: number;
+        usedBytes: number;
+        limitBytes: number;
     };
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
@@ -8553,6 +8614,7 @@ signatures (every public export and the types it is made of)
         inboxAdd?: string | false;
         resolveAction?: string | false;
         block?: string | false;
+        turnTemp?: string | false;
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
     export interface SystemStatus {
@@ -8574,6 +8636,32 @@ signatures (every public export and the types it is made of)
     const THINKING_LEVELS: readonly ThinkingLevel[];
   TRACK_MAX_FILE_BYTES (packages/ui-sdk/src/protocol.ts)
     const TRACK_MAX_FILE_BYTES: number;
+  TURN_TEMP_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const TURN_TEMP_CONTRACT: import("./contract.js").ToolContract<"turn_temp", z.ZodObject<{
+        action: z.ZodEnum<{
+            purge: "purge";
+            usage: "usage";
+        }>;
+        all: z.ZodOptional<z.ZodBoolean>;
+        force: z.ZodOptional<z.ZodBoolean>;
+        paths: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strip>>;
+  TURN_TEMP_DESCRIPTION (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const TURN_TEMP_DESCRIPTION: string;
+  TURN_TEMP_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const TURN_TEMP_INPUT_SCHEMA: z.ZodObject<{
+        action: z.ZodEnum<{
+            purge: "purge";
+            usage: "usage";
+        }>;
+        all: z.ZodOptional<z.ZodBoolean>;
+        force: z.ZodOptional<z.ZodBoolean>;
+        paths: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strip>;
+  TURN_TEMP_MAX_PATHS (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const TURN_TEMP_MAX_PATHS: 100;
+  TURN_TEMP_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const TURN_TEMP_TOOL_NAME: "turn_temp";
   ThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   ToolAdapter (packages/ui-sdk/src/tool-contracts/contract.ts)
@@ -8715,8 +8803,23 @@ signatures (every public export and the types it is made of)
         sessionId: string;
         textDeltas: string[];
     }
+  TurnTempAccess (packages/ui-sdk/src/server/worker-turn-temp.ts)
+    export interface TurnTempAccess {
+        root(): string | undefined;
+        allowanceBytes: number;
+        scratch: string;
+        exclude: readonly string[];
+        keep: readonly string[];
+        linkedText(): string;
+    }
+  TurnTempInput (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    export type TurnTempInput = z.infer<typeof TURN_TEMP_INPUT_SCHEMA>;
   TurnTempPromotionRefusal (packages/ui-sdk/src/server/backend.ts)
     export type TurnTempPromotionRefusal = "file_too_large" | "turn_too_large" | "not_regular_file" | "symlink" | "multiple_links" | "missing" | "io_error" | "scratch_unavailable";
+  TurnTempPurgeRecord (packages/ui-sdk/src/server/bridge-tools/turn-temp.ts)
+    export type TurnTempPurgeRecord = Extract<BackendActivityEvent, {
+        kind: "turn_temp_purge";
+    }>;
   TurnUsage (packages/ui-sdk/src/protocol.ts)
     export interface TurnUsage extends ModelUsage {
         perModel?: Record<string, ModelUsage>;
@@ -9932,6 +10035,8 @@ signatures (every public export and the types it is made of)
     export function handleRequestImageMask(input: RequestImageMaskInput, bridge: BackendBridge, options: ImageMaskHandlerOptions): Promise<ImageMaskPayload>;
   handleShowBlock (packages/ui-sdk/src/server/bridge-tools/show-block.ts)
     export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload;
+  handleTurnTemp (packages/ui-sdk/src/server/bridge-tools/turn-temp.ts)
+    export function handleTurnTemp(input: TurnTempInput, access: TurnTempAccess | undefined, record?: (event: TurnTempPurgeRecord) => void): object;
   handoffRequestSchema (packages/ui-sdk/src/schemas.ts)
     const handoffRequestSchema: z.ZodObject<{
         handoffId: z.ZodString;

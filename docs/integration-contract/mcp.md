@@ -220,7 +220,7 @@ connected browser. `query_activity`
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses, and a `tracker` block with any event whose address it refuses.
-The eight bridge tools are declared once as **tool contracts** in
+The nine bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -250,7 +250,44 @@ tool's result is meant to be rendered as a component rather than read as text:
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
+| `turn_temp` (0.42.0) | **none** | JSON usage or purge receipt |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
+
+#### `turn_temp` (additive in 0.42.0, #1703)
+
+Both hosted backends expose `turn_temp` (Claude spelling:
+`mcp__brain-ui__turn_temp`) for interactive and voice turns, without approval.
+Restricted autonomous turns do not register it.
+
+- **Input:** `{ action: "usage" | "purge", paths?: string[], all?: boolean,
+  force?: boolean }`. `paths` has at most 100 strings, each 1–1000 characters.
+  `usage` takes no paths, `all: true` or `force: true`. `purge` requires
+  either nonempty `paths` or `all: true`, never both. `force: true` is valid
+  only with named paths.
+- **Scope:** paths are relative to the worker's private `/tmp`; absolute
+  `/tmp/…` and `$BRAIN_WORKER_SCRATCH/…` spellings are accepted. The root,
+  traversal and outside paths are refused. Directory traversal is descriptor
+  relative with `O_NOFOLLOW`; nested mounts and runtime state are excluded.
+  A named symlink or hardlink is unlinked without touching its target.
+  Worker scratch and XDG root directories remain in place.
+- **Usage result:** `{ usedBytes, limitBytes, freeBytes, largest, truncated }`.
+  `largest` lists at most 10 entries `{ path, bytes, type: "file" | "directory" }`,
+  ordered by descending bytes. Usage measures the private tmpfs; the entry
+  walk excludes runtime state and is bounded.
+- **Purge result:** `{ truncated, removedCount, removed, skippedCount, skipped,
+  freedBytes, usedBytes, limitBytes, freeBytes, note? }`. Entry lists are
+  capped at 50; counts describe the complete operation. `truncated: true`
+  means the 100,000-entry walk stopped early; retry to visit remaining paths. Skips carry
+  `{ path, reason }`, including `linked`, `outside`, `not_turn_temp`, `missing`,
+  `symlink_in_path` and `io_error`. Files already linked in this turn's answer
+  are kept for promotion unless named paths use `force: true`; purge-all
+  cannot override that guard. Each purge emits a validated `turn_temp_purge`
+  governance event (see [HTTP kinds](../http-api.md#governance-event-kinds)).
+
+The sandbox note states the admitted allowance and names this tool. Tool
+results/context warn once at 80% measured use, and an out-of-space message
+names `turn_temp`. Admission refusal remains `worker_state_busy` with Retry;
+this tool grants no access to canonical or persistent scratch/workspaces.
 
 <a id="ask_user_form-additive-in-0400"></a>
 

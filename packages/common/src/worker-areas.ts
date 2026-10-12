@@ -19,7 +19,7 @@ export const BRAIN_SCRATCH_DIR = ".brain/scratch";
 /** Repo-relative directory for clones of other repositories; never indexed. */
 export const BRAIN_WORKSPACES_DIR = "workspaces";
 /** The places that make up a worker's turn temp. */
-export const TURN_TEMP_PLACES = "`$BRAIN_WORKER_SCRATCH`, `/tmp` and `$HOME`";
+export const TURN_TEMP_PLACES = "`$BRAIN_WORKER_SCRATCH`, `/tmp` and the per-turn XDG directories";
 
 /** Turn temp is never linked: the reader cannot open it, and it is gone at turn end. */
 export const TURN_TEMP_RULE = "It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.";

@@ -60,6 +60,10 @@ signatures (every public export and the types it is made of)
             allowanceBytes?: number;
             budgetBytes?: number;
         };
+        turnTemp?: {
+            allowanceBytes?: number;
+            budgetBytes?: number;
+        };
     }
   DEFAULT_PROFILES (packages/ui-backend-claude/src/profiles.ts)
     const DEFAULT_PROFILES: InferenceProfile[];

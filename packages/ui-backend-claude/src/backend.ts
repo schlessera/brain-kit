@@ -17,7 +17,7 @@ import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
-import { resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { listProfiles, listUnavailableProfiles } from "./profiles.js";
 import { createClaudeTurnRunner } from "./turn-runner.js";
 import { assertClaudeSdk, claudeRuntimeRequirements } from "./version-requirements.js";
@@ -58,7 +58,10 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
   options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}),
     // One resolved allowance and budget for the backend's lifetime (#1625).
     workerState: resolveWorkerStateLimits({ ...options.workerState,
-      names: { allowance: "workerState.allowanceBytes", budget: "workerState.budgetBytes" } }) };
+      names: { allowance: "workerState.allowanceBytes", budget: "workerState.budgetBytes" } }),
+    // And for its turn temp (#1703).
+    turnTemp: resolveTurnTempLimits({ ...options.turnTemp,
+      names: { allowance: "turnTemp.allowanceBytes", budget: "turnTemp.budgetBytes" } }) };
   assertClaudeSdk(options.versionRequirements, "backend construction");
   claudeRuntimeRequirements(options.versionRequirements);
   // Resolved per call, not captured: a function source may return more profiles

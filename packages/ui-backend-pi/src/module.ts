@@ -185,8 +185,12 @@ export const backendModule: BackendModule = defineBackendModule({
             : profile;
         });
       };
+      const turnTempBytes = typeof context.config.turnTempBytes === "number" ? context.config.turnTempBytes : undefined;
+      const turnTempBudgetBytes = typeof context.config.turnTempBudgetBytes === "number" ? context.config.turnTempBudgetBytes : undefined;
       const backend = createPiBackend({
         brainPath: context.brainPath,
+        turnTemp: { ...(turnTempBytes !== undefined ? { allowanceBytes: turnTempBytes } : {}),
+          ...(turnTempBudgetBytes !== undefined ? { budgetBytes: turnTempBudgetBytes } : {}) },
         ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
         ...(profiles.length > 0 ? { profiles: withOverrides } : {}),
         ...(context.confirmBashPatterns !== null

@@ -211,6 +211,7 @@ export interface BrainToolDeps {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    turnTemp?: boolean;
   };
 }
 

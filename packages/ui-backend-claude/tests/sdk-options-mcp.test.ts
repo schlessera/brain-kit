@@ -120,3 +120,45 @@ test("an interactive turn's appended prompt carries the runtime-state note for t
     expect((options.systemPrompt as { append?: string }).append).toContain("- **Runtime state: 32 MiB.**");
   } finally { rmSync(brain, { recursive: true, force: true }); }
 });
+
+test("an interactive turn states its turn-temp allowance next to the turn_temp tool, allows the tool and warns after steps (#1703)", async () => {
+  const brain = mkdtempSync(join(tmpdir(), "sdk-options-turn-temp-"));
+  try {
+    const turn = createClaudeSdkTurn({
+      backend: { brainPath: brain, turnTemp: { allowanceBytes: 128 * 1024 * 1024, budgetBytes: 384 * 1024 * 1024 } } as never,
+      req: { prompt: "hello", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
+      profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
+      abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
+      turnLock: { acquire: () => undefined, release: () => undefined } as never, log: () => undefined,
+    });
+    void turn.finishWorker();
+    const append = (turn.options.systemPrompt as { append?: string }).append!;
+    expect(append).toContain("- **Turn temp: 128 MiB.**");
+    expect(append).toContain("`mcp__brain-ui__turn_temp` shows what uses it");
+    // The prompt brief comes from the contract, with the name the model sees.
+    expect(append).toContain("call `mcp__brain-ui__turn_temp` to see what");
+    expect(turn.options.allowedTools).toContain("mcp__brain-ui__turn_temp");
+    expect(turn.options.hooks?.PostToolUse?.length).toBeGreaterThan(0);
+    expect(turn.options.hooks?.PostToolUseFailure?.length).toBeGreaterThan(0);
+    // No worker runs yet, so the hook has no turn temp to read and says nothing.
+    const hook = turn.options.hooks!.PostToolUse!.at(-1)!.hooks[0]!;
+    expect(await hook({ hook_event_name: "PostToolUse", tool_name: "Bash" } as never, undefined, { signal: new AbortController().signal }))
+      .toEqual({ continue: true });
+  } finally { rmSync(brain, { recursive: true, force: true }); }
+});
+
+test("an autonomous turn states its turn-temp allowance without a tool it does not have (#1703)", () => {
+  const brain = mkdtempSync(join(tmpdir(), "sdk-options-turn-temp-auto-"));
+  try {
+    const turn = createClaudeSdkTurn({
+      backend: { brainPath: brain } as never,
+      req: { prompt: "hello", bridge: {}, autonomous: { allowedTools: [], systemPromptAppend: "Autonomous." } } as never,
+      profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
+      abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
+      turnLock: { acquire: () => undefined, release: () => undefined } as never, log: () => undefined,
+    });
+    void turn.finishWorker();
+    expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__turn_temp");
+    expect(turn.options.hooks?.PostToolUse ?? []).toHaveLength(0);
+  } finally { rmSync(brain, { recursive: true, force: true }); }
+});

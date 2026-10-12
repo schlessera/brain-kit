@@ -235,6 +235,7 @@ the gate, so confirm patterns always see the command as the model wrote it.
 | `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
+| `turn_temp` | turn temp only | auto-allow | usage and scoped purge through the host's held worker descriptor; linked files are kept unless named paths force their removal |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
 | `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | server PNG application; writes `<image>.mask.png` |
 | `write_file` | mutate | auto-allow | server-validated Markdown application |

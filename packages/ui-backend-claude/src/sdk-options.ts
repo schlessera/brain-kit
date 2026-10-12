@@ -11,7 +11,8 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings } from "@schlessera/brain-ui-sdk/internal";
+import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+  turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
@@ -27,7 +28,8 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWorkerSpawn } from "./worker-spawn.js";
-import { launchLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { launchLimits, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
@@ -49,6 +51,8 @@ export interface ClaudeSdkTurn {
   workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
   /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
   workerFailure(): TurnFailure | undefined;
+  /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
+  observeAnswerText(text: string): void;
 }
 
 /**
@@ -108,6 +112,10 @@ function assembleClaudeSdkTurn(
   const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
   const askUserForm = req.noGrantSurface === true ? undefined : req.bridge.askUserForm;
   const queryActivity = req.bridge.queryActivity;
+  // Usage and purge of the worker's own size-limited /tmp (#1703): scoped to
+  // it by the server's held descriptor, so it needs no approval. Not in the
+  // restricted envelope, whose roster is exact server authority.
+  const turnTempTool = !req.autonomous;
   const hosted = Boolean(req.bridge.applyBrain);
   const migrations: Record<string, string> = {
     mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
@@ -135,6 +143,7 @@ function assembleClaudeSdkTurn(
     // Read-only over the host's own record — strictly narrower than the
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
+    if (turnTempTool) allowed.push(TURN_TEMP_TOOL_NAME);
     if (req.bridge.inboxList) allowed.push(visibleToolName("inbox_list", "claude"), visibleToolName("inbox_get", "claude"));
     if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"));
     // No side effect and no host handler: the block is part of the answer, and
@@ -153,7 +162,10 @@ function assembleClaudeSdkTurn(
   // The runtime-state allowance is one of the stated limits, from the same
   // resolved value the worker's tmpfs is mounted with (#1625).
   const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
-  const sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits)] });
+  // And so is turn temp's, next to the tool that frees it (#1703).
+  const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
+  const sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+    turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined)] });
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -167,6 +179,7 @@ function assembleClaudeSdkTurn(
       activity: Boolean(queryActivity),
       inbox: Boolean(req.bridge.inboxList),
       block: true,
+      turnTemp: turnTempTool,
     },
     req.turnBudgetMs
   );
@@ -254,8 +267,24 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits });
+    }, { limits: stateLimits, turnTempLimits });
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
+  /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
+  let answerText = "";
+  const turnTemp: TurnTempAccess = {
+    root: worker.turnTempRoot, allowanceBytes: worker.turnTempBytes, scratch: WORKER_SCRATCH,
+    exclude: [WORKER_STATE], keep: [WORKER_SCRATCH, ...Object.values(WORKER_XDG_DIRS)],
+    linkedText: () => answerText,
+  };
+  if (turnTempTool) {
+    // Once past 80% of the allowance and once when full, after the step that did it.
+    const pressure = createTurnTempPressureHook(turnTemp);
+    sdkOptions.hooks = {
+      ...sdkOptions.hooks,
+      PostToolUse: [...(sdkOptions.hooks?.PostToolUse ?? []), { hooks: [pressure] }],
+      PostToolUseFailure: [...(sdkOptions.hooks?.PostToolUseFailure ?? []), { hooks: [pressure] }],
+    };
+  }
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their
   // handler, each together with its allowlist entry; `show_block` needs no
@@ -272,6 +301,9 @@ function assembleClaudeSdkTurn(
       requestMask,
       queryActivity,
       ...(req.bridge.inboxList ? { inbox: req.bridge } : {}),
+      ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
+        try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
+      }) } : {}),
       brainPath: backend.brainPath,
     }),
   };
@@ -298,6 +330,8 @@ function assembleClaudeSdkTurn(
       : worker.finish,
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
     workerFailure: worker.failure,
+    /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
+    observeAnswerText: (text: string) => { answerText += text; },
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(prompt, req.attachments)
@@ -318,6 +352,7 @@ function buildAppend(
     activity: boolean;
     inbox: boolean;
     block: boolean;
+    turnTemp: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -341,6 +376,7 @@ function buildAppend(
         inboxAdd: tools.inbox && visibleToolName("inbox_add", "claude"),
         resolveAction: tools.inbox && visibleToolName("resolve_action", "claude"),
         block: tools.block && SHOW_BLOCK_TOOL_NAME,
+        turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
       },
     })
   );

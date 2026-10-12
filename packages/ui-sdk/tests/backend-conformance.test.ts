@@ -151,6 +151,7 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-inbox-get", name: "inbox_get", input: { itemId: "work-harbor" } },
   { toolUseId: "call-inbox-add", name: "inbox_add", input: { text: "Odysseus checks the harbor", idempotencyKey: "harbor" } },
   { toolUseId: "call-resolve", name: "resolve_action", input: { sessionId: "harbor-session", itemId: "harbor-action", optionId: "approve", expectedVersion: 1 } },
+  { toolUseId: "call-turn-temp", name: "turn_temp", input: { action: "usage" } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -176,6 +177,9 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
       case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action":
         return sdk.handleInboxTool(call.name, input, bridge);
       case "show_block": return sdk.handleShowBlock(input);
+      // The backend's own worker /tmp as the server holds it; here a directory.
+      case "turn_temp": return sdk.handleTurnTemp(input, { root: () => join(brainPath, "assets"), allowanceBytes: 64 * 1024 * 1024,
+        scratch: "/tmp/brain-worker-scratch", exclude: [], keep: [], linkedText: () => "" });
       default: throw new Error(`unknown tool ${call.name}`);
     }
   };
@@ -263,5 +267,7 @@ describe("a backend built only from public /server names", () => {
     expect(inboxData("call-inbox-add")).toEqual({ created: true, threadId: thread.id, itemId: item.id });
     expect(inboxData("call-resolve")).toEqual({ replay: false, followUpId: "follow-up-harbor" });
     expect(JSON.parse(output("call-block"))).toEqual(PUBLIC_CALLS.at(-1)!.input);
+    expect(JSON.parse(output("call-turn-temp"))).toMatchObject({ limitBytes: 64 * 1024 * 1024,
+      largest: expect.arrayContaining([{ path: "/tmp/sail.png", bytes: 3, type: "file" }]) });
   });
 });

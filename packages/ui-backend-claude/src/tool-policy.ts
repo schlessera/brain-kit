@@ -6,6 +6,7 @@ import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
+import { TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 
 /**
  * The brain repo registers the brain CLI's MCP server project-scoped in its
@@ -152,6 +153,9 @@ export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
   GET_LOCATION_TOOL_NAME,
   QUERY_ACTIVITY_TOOL_NAME,
   SHOW_BLOCK_TOOL_NAME,
+  // Usage and purge of the worker's own size-limited /tmp (#1703). It reaches
+  // nothing else, so it needs no decision either.
+  TURN_TEMP_TOOL_NAME,
 ]);
 
 /**

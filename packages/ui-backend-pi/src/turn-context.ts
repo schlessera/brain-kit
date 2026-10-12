@@ -13,6 +13,8 @@
 
 import type { AutonomousTurnOptions, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
+import type { TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
+
 export interface TurnContext {
   bridge: BackendBridge | null;
   signal: AbortSignal | null;
@@ -35,6 +37,8 @@ export interface TurnContext {
   noGrantSurface: boolean;
   /** The host's id for the current turn: names the directory linked turn-temp files are promoted into (#1655). */
   turnId?: string;
+  /** The worker's turn temp as the `turn_temp` tool reaches it, server side (#1703). */
+  turnTemp?: TurnTempAccess;
 }
 
 export function createTurnContext(): TurnContext {

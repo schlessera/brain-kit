@@ -433,6 +433,57 @@ export const QUERY_ACTIVITY_CONTRACT = defineToolContract({
 });
 
 // ---------------------------------------------------------------------------
+// turn_temp — a contract with no payload (#1703)
+// ---------------------------------------------------------------------------
+
+export const TURN_TEMP_TOOL_NAME = "turn_temp";
+
+/** How many paths one purge may name. */
+export const TURN_TEMP_MAX_PATHS = 100;
+
+export const TURN_TEMP_DESCRIPTION = [
+  "See and free this turn's turn temp: `/tmp`, `$BRAIN_WORKER_SCRATCH` and the per-turn XDG directories, which share one private, size-limited tmpfs that is deleted when the turn ends.",
+  "action=usage returns the bytes used, the limit, the bytes free and the largest files and directories. action=purge removes the named `paths`, or everything with `all: true`.",
+  "Paths are relative to the turn-temp root (`/tmp`); `/tmp/...` and `$BRAIN_WORKER_SCRATCH/...` spellings are accepted. Anything outside turn temp is refused, links are removed rather than followed, and runtime state is never touched.",
+  "Files your answer already links are kept, because they are copied into persistent scratch at turn end; they are listed as skipped. `force: true` removes them anyway, for the named paths only.",
+  "Use it when a step fails with ENOSPC (`No space left on device`) or you are warned that turn temp is nearly full, instead of deleting with shell commands.",
+].join("\n");
+
+export const TURN_TEMP_INPUT_SCHEMA = z.object({
+  action: z.enum(["usage", "purge"]).describe("usage: what uses turn temp. purge: remove paths, or everything."),
+  paths: z
+    .array(z.string().min(1).max(1000))
+    .max(TURN_TEMP_MAX_PATHS)
+    .optional()
+    .describe("With action=purge: the files or directories to remove, relative to /tmp, e.g. brain-worker-scratch/frames"),
+  all: z
+    .boolean()
+    .optional()
+    .describe("With action=purge: remove everything in turn temp except the files the answer links."),
+  force: z
+    .boolean()
+    .optional()
+    .describe("With action=purge and paths: also remove named files the answer links."),
+});
+
+export type TurnTempInput = z.infer<typeof TURN_TEMP_INPUT_SCHEMA>;
+
+/**
+ * No payload schema: the result is a status report for the model, not
+ * something a component draws.
+ */
+export const TURN_TEMP_CONTRACT = defineToolContract({
+  name: TURN_TEMP_TOOL_NAME,
+  description: TURN_TEMP_DESCRIPTION,
+  input: TURN_TEMP_INPUT_SCHEMA,
+  brief: (name) =>
+    `- **Turn temp has a size limit.** \`/tmp\`, \`$BRAIN_WORKER_SCRATCH\` and
+  the XDG directories share one private tmpfs. When a step fails with
+  \`ENOSPC\` or you are warned it is nearly full, call \`${name}\` to see what
+  is large and purge what you no longer need, instead of \`rm\`.`,
+});
+
+// ---------------------------------------------------------------------------
 // The set
 // ---------------------------------------------------------------------------
 
@@ -453,6 +504,7 @@ export const BRIDGE_TOOL_CONTRACTS = [
   REQUEST_IMAGE_MASK_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   SHOW_BLOCK_CONTRACT,
+  TURN_TEMP_CONTRACT,
 ] as const;
 
 export type BridgeToolAdapter = ToolAdapter;
@@ -468,6 +520,7 @@ const names = [
   REQUEST_IMAGE_MASK_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,
   SHOW_BLOCK_CONTRACT.name,
+  TURN_TEMP_CONTRACT.name,
 ] as const;
 
 /**

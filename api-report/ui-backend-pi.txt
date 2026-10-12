@@ -38,6 +38,10 @@ signatures (every public export and the types it is made of)
         sessionDir?: string;
         loadExtensions?: boolean;
         systemPromptAppend?: string;
+        turnTemp?: {
+            allowanceBytes?: number;
+            budgetBytes?: number;
+        };
         confirmBashPatterns?: readonly ConfirmPatternSource[];
         allowedTools?: readonly string[];
         writeLock?: WriteLock;

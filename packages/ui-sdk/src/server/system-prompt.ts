@@ -7,6 +7,7 @@ import {
   BRIDGE_TOOL_CONTRACTS,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
+  TURN_TEMP_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   toolBriefLines,
@@ -194,6 +195,8 @@ export interface SurfaceTools {
   resolveAction?: string | false;
   /** Name of the inline answer-block tool, or false when absent. */
   block?: string | false;
+  /** Name of the turn-temp tool (#1703), or false when the turn has no turn temp. */
+  turnTemp?: string | false;
 }
 
 /**
@@ -211,6 +214,7 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [REQUEST_IMAGE_MASK_CONTRACT.name]: "mask",
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",
   [SHOW_BLOCK_CONTRACT.name]: "block",
+  [TURN_TEMP_CONTRACT.name]: "turnTemp",
 };
 
 /**

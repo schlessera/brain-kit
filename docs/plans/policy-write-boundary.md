@@ -25,9 +25,9 @@ remain unchanged. Approval is not production containment evidence.
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
 <<<<<<< HEAD
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:79-248`).
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:83-252`).
 =======
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:79-246`).
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:83-250`).
 >>>>>>> 96b282dd2 (CONTRACT: fix(backends): give each Claude worker a private, size-limited runtime-state tmpfs with aggregate admission (#1625))
 The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
 the child with piped stdio (`createWrappedSpawn`,
@@ -53,7 +53,7 @@ distinguishes shell/descendant confinement from built-in file tools and other
 execution paths. A Bash sandbox plus path predicates therefore does not establish
 the requested all-writer boundary. The repository's Bash classifier documents
 indirection as accepted write-lock exposure (`A Bash command the classifier misses`,
-`packages/ui-backend-claude/src/tool-policy.ts:222-227`), rather than containment.
+`packages/ui-backend-claude/src/tool-policy.ts:226-231`), rather than containment.
 
 ## Executable evidence
 

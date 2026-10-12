@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:79-254`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:83-258`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:28-103`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -397,7 +397,7 @@ its policy:
   that may admit fewer workers than the session cap. Both are validated
   (positive whole multiples of 4096 bytes, a budget of at least one allowance,
   a product that is a safe integer; `export function resolveWorkerStateLimits`,
-  `packages/ui-sdk/src/server/worker-state-limits.ts:65-95`); an invalid value
+  `packages/ui-sdk/src/server/worker-state-limits.ts:107-137`); an invalid value
   refuses the boot by name. The reservation is logical admission, not
   allocated RAM.
 - When the budget cannot take another allowance, the turn is **refused
@@ -409,11 +409,21 @@ its policy:
 **Admission.** One ledger per server process, shared by every Claude backend
 instance through a process-global slot, so recreating a backend never forgets
 a running worker (`export function createStateLedger`,
-`packages/ui-backend-claude/src/worker-state-budget.ts:49-75`). Reserve and
+`packages/ui-sdk/src/server/worker-state-budget.ts:59-99`). Reserve and
 release are synchronous; every exit path releases. The supported envelope is
 one server process per budget: a second server process on the same host has
 its own ledger, so the operator splits the host's headroom between them with
 the budget override.
+
+#1703 adds a separate private turn-temp tmpfs at `/tmp`, default 256 MiB,
+including worker scratch and XDG directories. The shared ledger admits its
+whole allowance alongside runtime state, both or neither, across Claude and
+pi. Its aggregate budget defaults to allowance × maximum concurrent sessions;
+`BRAIN_UI_TURN_TEMP_BYTES` and `BRAIN_UI_TURN_TEMP_BUDGET_BYTES` override it.
+Real HOME remains read-only. The host retains a directory descriptor for
+post-exit promotion; `turn_temp` reports usage and safely purges only that
+mount, with a linked-file guard and a governance event. Nested runtime state
+is excluded from promotion and purge by descriptor device checks.
 
 **The mount.** bubblewrap mounts the tmpfs with `--size <allowance> --tmpfs`
 at a fixed path inside the worker. `--size` exists since bubblewrap 0.7.0, so
@@ -431,13 +441,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:660-701`):
+`packages/ui-sdk/src/server/worker-launcher.ts:685-726`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:616-640`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:595-619`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -452,12 +462,12 @@ host (`export function launchAgentWorker`,
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
    through the held descriptor (`populate(root) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:190-211`), then opens the
+   `packages/ui-backend-claude/src/worker-state.ts:195-216`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:216-255`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:221-260`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,

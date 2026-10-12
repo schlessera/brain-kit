@@ -1,7 +1,7 @@
 /**
  * The writable areas of an interactive agent worker (#1626): the brain's own
  * scratch area and its repository workspaces, bound read-write over the
- * read-only brain, and a writable `$HOME` for the turn. Everything here is
+ * read-only brain, and per-turn XDG directories in turn temp. Everything here is
  * resolved once per worker by `prepareWorkerSandbox`
  * (`packages/ui-sdk/src/server/worker-launcher.ts`), which both builds the
  * bubblewrap mounts from the result and renders the agent's sandbox note from
@@ -25,7 +25,10 @@ import { brainGitSync } from "./maintenance-worker.js";
  * and workspace directory (always in core's default index exclusions).
  */
 export { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR };
-/** Per-turn XDG directories on the worker's private `/tmp` when `$HOME` cannot be overlaid. */
+/**
+ * Per-turn XDG directories on the worker's private `/tmp` (#1703). `$HOME`
+ * itself stays the host's, read-only.
+ */
 export const WORKER_XDG_HOME = "/tmp/brain-worker-home";
 export const WORKER_XDG_DIRS = {
   XDG_CONFIG_HOME: `${WORKER_XDG_HOME}/config`,
@@ -35,11 +38,12 @@ export const WORKER_XDG_DIRS = {
 /** Directory entries one walk may visit before the mount counts as unverified. */
 export const WORKER_MOUNT_SCAN_LIMIT = 200_000;
 
-export type WorkerHome =
-  /** `bwrap --tmp-overlay` over this path: reads see the host home, writes vanish with the turn. */
-  | { mode: "overlay"; path: string }
-  /** `$HOME` stays read-only; the XDG variables point at per-turn directories. */
-  | { mode: "xdg"; reason: string };
+/**
+ * `$HOME` stays read-only; the XDG variables point at per-turn directories in
+ * turn temp. There is no per-turn home overlay: bubblewrap keeps an overlay's
+ * writes on the host side, outside the worker's size-limited `/tmp` (#1703).
+ */
+export type WorkerHome = { mode: "xdg" };
 
 /** One writable area: bound read-write, or named with why it is not. `missing`: the directory does not exist. */
 export type WorkerMount = { writable: true; path: string } | { writable: false; reason: string; missing?: true };
@@ -419,11 +423,9 @@ const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea) => string> = {
       : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
 };
 
-/** What this worker's turn temp covers, by how its `$HOME` was resolved. */
-function turnTempPlaces(home: WorkerHome | undefined): string {
-  return home?.mode === "overlay"
-    ? "`$BRAIN_WORKER_SCRATCH`, `/tmp` and anything written under `$HOME`"
-    : `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` itself is read-only)`;
+/** What this worker's turn temp covers. */
+function turnTempPlaces(): string {
+  return `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`)`;
 }
 
 /**
@@ -451,7 +453,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
     lines.push(
       PROFILE_LINES[profile](sandbox),
       "",
-      `1. **Turn temp:** ${turnTempPlaces(sandbox.home)}. ${TURN_TEMP_RULE}`,
+      `1. **Turn temp:** ${turnTempPlaces()}. ${TURN_TEMP_RULE}`,
       sandbox.areas.some(area => area.mount.writable)
         ? "2. **Persistent areas: kept across turns.**"
         : "2. **Persistent areas: none writable this turn.**",

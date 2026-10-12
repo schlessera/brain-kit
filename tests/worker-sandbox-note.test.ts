@@ -14,13 +14,14 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { readOnlyBrainError } from "../packages/core/src/cli/read-only.js";
 import { createClaudeSdkTurn } from "../packages/ui-backend-claude/src/sdk-options.js";
 import { workerStateLimit } from "../packages/ui-backend-claude/src/worker-state.js";
+import { TURN_TEMP_TOOL_NAME } from "../packages/ui-backend-claude/src/turn-temp-tool.js";
 import { createBrainAccess } from "../packages/ui-backend-pi/src/brain-access.js";
 import { createSessionResources } from "../packages/ui-backend-pi/src/session-resources.js";
 import { toolLockFromKeyed } from "../packages/ui-backend-pi/src/tools.js";
 import { openPiWorkerSession } from "../packages/ui-backend-pi/src/worker-session.js";
 import { sendPipe } from "../packages/ui-backend-pi/src/worker-protocol.js";
 
-const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
+const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false, turnTemp: true };
 let root: string, brain: string, home: string;
 const restore: Array<() => void> = [];
 
@@ -108,12 +109,15 @@ async function piSessionAppend(sandboxNote: string): Promise<string[]> {
 }
 
 test("Claude's system-prompt append and pi's session resources carry the same generated note", async () => {
-  const note = expectedNote();
+  const allowance = worker.resolveTurnTempLimits({}).allowanceBytes;
+  const note = expectedNote([worker.turnTempLimit(allowance, "turn_temp")]);
   expect(note).toContain("**Profile: `strict`.**");
   // Claude's note also states its runtime-state allowance (#1625), a fact only
   // that backend has; the generator and the rest of the text are the same.
-  const claudeNote = expectedNote([workerStateLimit(worker.resolveWorkerStateLimits({}))]);
+  const claudeNote = expectedNote([workerStateLimit(worker.resolveWorkerStateLimits({})),
+    worker.turnTempLimit(allowance, TURN_TEMP_TOOL_NAME)]);
   expect(claudeNote).toContain("- **Runtime state: 64 MiB.**");
+  for (const generated of [note, claudeNote]) expect(generated).toContain("- **Turn temp: 256 MiB.**");
   const claude = claudeAppend();
   expect(claude.endsWith(`\n\n${claudeNote}`), "CLAUDE_NOTE").toBe(true);
   const sent = await piInitNote();

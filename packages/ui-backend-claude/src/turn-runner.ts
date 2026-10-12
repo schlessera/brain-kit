@@ -257,6 +257,8 @@ export function createClaudeTurnRunner(options: {
      * worker becomes the turn's failure, with the limit named.
      */
     let workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> } | undefined;
+    /** The answer as it streams, for the turn-temp purge's linked-file guard (#1703). */
+    let observeAnswerText: ((text: string) => void) | undefined;
     const freshLimitHits = createLimitTracker();
     const reportLimitHits = (report: WorkerLimitReport): void => {
       const fresh = freshLimitHits(report);
@@ -347,6 +349,7 @@ export function createClaudeTurnRunner(options: {
       workerFailure = sdkTurn.workerFailure;
       archiveEnv = sdkTurn.options.env;
       workerLimits = sdkTurn.workerLimits;
+      observeAnswerText = sdkTurn.observeAnswerText;
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = (turnInput = createTurnInput(sdkTurn.prompt));
       if (!req.autonomous) turn.input = input;
@@ -562,6 +565,7 @@ export function createClaudeTurnRunner(options: {
             turnLock.releaseForTool(serverMsg.toolUseId);
             if (workerLimits) reportLimitHits(workerLimits.current());
           }
+          if (serverMsg.type === "text_delta") observeAnswerText?.(serverMsg.text);
           emit(serverMsg);
         }
       }

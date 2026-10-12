@@ -7,9 +7,6 @@ import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxW
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
 const ROOT = resolve(import.meta.dir, "../../..");
-const BWRAP = Bun.spawnSync([Bun.which("bwrap") ?? "bwrap", "--version"]).stdout.toString().match(/(\d+)\.(\d+)/);
-/** Whether this host's bubblewrap has `--tmp-overlay` (0.11.0 or later). */
-const OVERLAY = Boolean(BWRAP && (Number(BWRAP[1]) > 0 || Number(BWRAP[2]) >= 11));
 
 function fixture({ workspaces = true }: { workspaces?: boolean } = {}) {
   mkdirSync(join(ROOT, "tmp"), { recursive: true });
@@ -76,10 +73,9 @@ describe("worker sandbox writable areas (#1626)", () => {
       const escaped = { rename: "EXDEV", linkOut: "EROFS", linkIn: "EXDEV", symlinkWrite: "EROFS", dirSymlinkWrite: "EROFS" };
       expect(out, "AREA_ESCAPES").toEqual({ scratch: escaped, workspaces: escaped, brainWrite: "EROFS", brainCreate: "EROFS",
         brainMkdir: "EROFS", areaReplace: "EROFS", homeRead: true, home: out.home, xdg: out.xdg });
-      // The real probe chose the home mode; an overlay that leaked to the host would have failed it.
-      expect(sandbox.home?.mode, "HOME_MODE").toBe(OVERLAY ? "overlay" : "xdg");
-      expect({ home: out.home, xdg: out.xdg }, "HOME_MODE").toEqual(OVERLAY ? { home: "ok", xdg: null }
-        : { home: "EROFS", xdg: WORKER_XDG_DIRS.XDG_CONFIG_HOME });
+      // No per-turn home overlay (#1703): $HOME is read-only, the XDG directories are in turn temp.
+      expect(sandbox.home?.mode, "HOME_MODE").toBe("xdg");
+      expect({ home: out.home, xdg: out.xdg }, "HOME_MODE").toEqual({ home: "EROFS", xdg: WORKER_XDG_DIRS.XDG_CONFIG_HOME });
       // Observed from outside the namespace.
       expect(readFileSync(f.policy, "utf8")).toBe(GOLDEN);
       expect(readdirSync(join(f.brain, "notes"))).toEqual([]);
@@ -90,24 +86,11 @@ describe("worker sandbox writable areas (#1626)", () => {
     } finally { f.cleanup(); }
   });
 
-  test.skipIf(!OVERLAY)("the home overlay discards every write from the host's view", async () => {
+  test("the home stays read-only and per-turn XDG directories are writable (#1703)", async () => {
     const f = fixture();
     try {
-      // The probe is bypassed so this observes the mount itself, not the probe's verdict on it.
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, probeOverlay: () => true });
-      const program = `import * as fs from "node:fs"; fs.writeFileSync(process.env.HOME+"/.cache-note","turn");
-        fs.writeFileSync(process.env.HOME+"/.gitconfig","changed"); console.log(JSON.stringify(fs.readFileSync(process.env.HOME+"/.cache-note","utf8")));`;
-      expect(await run(f.brain, sandbox, program, f.home)).toBe("turn");
-      expect(readdirSync(f.home), "HOME_DISCARDED").toEqual([".gitconfig"]);
-      expect(readFileSync(join(f.home, ".gitconfig"), "utf8"), "HOME_DISCARDED").toContain("Penelope");
-    } finally { f.cleanup(); }
-  });
-
-  test("without an overlay the home stays read-only and per-turn XDG directories are writable", async () => {
-    const f = fixture();
-    try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, probeOverlay: () => "overlay unavailable on this host" });
-      expect(sandbox.home).toEqual({ mode: "xdg", reason: "overlay unavailable on this host" });
+      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      expect(sandbox.home).toEqual({ mode: "xdg" });
       const program = `import * as fs from "node:fs";
         const attempt=(fn)=>{try{fn();return "ok"}catch(e){return e.code}};
         console.log(JSON.stringify({home: attempt(()=>fs.writeFileSync(process.env.HOME+"/x","x")),
@@ -119,13 +102,10 @@ describe("worker sandbox writable areas (#1626)", () => {
     } finally { f.cleanup(); }
   });
 
-  test("the real overlay probe matches this host's bubblewrap and leaves the home untouched", () => {
+  test("every interactive home is the XDG fallback, without probing the home", () => {
     const f = fixture();
     try {
-      const home = prepareWorkerSandbox(f.brain, { home: f.home }).home;
-      // bubblewrap 0.11.0 added --overlay-src/--tmp-overlay; CI's Ubuntu 24.04 ships 0.9.0.
-      if (OVERLAY) expect(home).toEqual({ mode: "overlay", path: f.home });
-      else expect(home).toMatchObject({ mode: "xdg", reason: expect.stringContaining("could not overlay the home") });
+      expect(prepareWorkerSandbox(f.brain, { home: f.home }).home).toEqual({ mode: "xdg" });
       expect(readdirSync(f.home)).toEqual([".gitconfig"]);
       expect(prepareWorkerSandbox(f.brain, { home: join(f.brain, "notes") }).home?.mode).toBe("xdg");
       expect(prepareWorkerSandbox(f.brain, {}).home?.mode).toBe("xdg");
@@ -321,7 +301,6 @@ describe("worker sandbox writable areas (#1626)", () => {
     try {
       const variants: WorkerSandbox[] = [
         prepareWorkerSandbox(f.brain, { home: f.home }),
-        prepareWorkerSandbox(f.brain, { home: f.home, probeOverlay: () => "no overlay" }),
         prepareWorkerSandbox(f.brain, { home: f.home, areas: [] }),
       ];
       mkdirSync(join(f.brain, "workspaces"));
@@ -335,7 +314,8 @@ describe("worker sandbox writable areas (#1626)", () => {
         const note = workerSandboxNote(sandbox);
         expect(note.includes("`.brain/scratch/` is writable"), "NOTE_SCRATCH").toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
         expect(note.includes("`workspaces/` is writable"), "NOTE_WORKSPACES").toBe(mounts.binds.includes(join(f.brain, "workspaces")));
-        expect(note.includes("anything written under `$HOME`"), "NOTE_HOME").toBe(mounts.overlay);
+        expect(mounts.overlay, "NOTE_HOME").toBe(false);
+        expect(note).toContain("`$HOME` itself is read-only");
         expect(note.includes("XDG_CONFIG_HOME"), "NOTE_XDG").toBe(mounts.xdg);
         expect(note.includes("There is no `workspaces/` directory")).toBe(sandbox.areas.some(a => a.name === "workspaces" && !a.mount.writable && a.mount.missing));
         // The three places a file can be, with the link rule the reader depends on.
@@ -361,10 +341,6 @@ describe("worker sandbox writable areas (#1626)", () => {
     try {
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
       expect(() => workerCommand({ brainPath: g.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).toThrow("another brain");
-      // The overlay is what a HOME mismatch would misdirect; fake the probe so this holds on every bubblewrap.
-      const overlaid = prepareWorkerSandbox(f.brain, { home: f.home, probeOverlay: () => true });
-      expect(overlaid.home?.mode).toBe("overlay");
-      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: g.home }, sandbox: overlaid })).toThrow("HOME is not the home");
       rmSync(join(f.brain, "workspaces"), { recursive: true }); symlinkSync(g.brain, join(f.brain, "workspaces"));
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }), "RELAUNCH_RECHECK")
         .toThrow("real directory at its own path");
@@ -375,7 +351,7 @@ describe("worker sandbox writable areas (#1626)", () => {
 describe("the sandbox note's wording (#1654)", () => {
   const brain = "/srv/ithaca/brain";
   const strict: WorkerSandbox = {
-    brain, restricted: false, scratchAliasesRemoved: [], home: { mode: "overlay", path: "/home/penelope" },
+    brain, restricted: false, scratchAliasesRemoved: [], home: { mode: "xdg" },
     areas: [
       { name: "scratch", rel: ".brain/scratch", mount: { writable: true, path: `${brain}/.brain/scratch` } },
       { name: "workspaces", rel: "workspaces", mount: { writable: true, path: `${brain}/workspaces` } },
@@ -388,7 +364,7 @@ describe("the sandbox note's wording (#1654)", () => {
 
       **Profile: \`strict\`.** The brain is read-only here: change it through \`write_file\`, \`edit_file\` and the curated brain tools. Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.
 
-      1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and anything written under \`$HOME\`. It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
+      1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
       2. **Persistent areas: kept across turns.**
          - \`.brain/scratch/\` is writable. Write the file there (\`brain render --scratch\` and \`brain image --scratch\` do), then link its repo-relative path, such as \`.brain/scratch/<name>.pdf\`.
          - \`workspaces/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.

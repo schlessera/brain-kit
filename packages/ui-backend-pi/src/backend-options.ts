@@ -123,6 +123,15 @@ export interface CreatePiBackendOptions {
    */
   systemPromptAppend?: string;
   /**
+   * Worker turn temp (#1703): each worker's `/tmp`, which holds
+   * `$BRAIN_WORKER_SCRATCH`, the per-turn XDG directories and the worker's
+   * session state, is a private tmpfs of `allowanceBytes`, reserved in full
+   * against `budgetBytes` before it launches. 256 MiB by default, a positive
+   * whole number of 4096-byte pages; `budgetBytes` defaults to the allowance
+   * times three. Only trusted host configuration sets these.
+   */
+  turnTemp?: { allowanceBytes?: number; budgetBytes?: number };
+  /**
    * Regex sources; a bash command matching any of them raises a confirmation
    * card before it runs even though bash is auto-allowed. Defaults to the
    * shared DEFAULT_CONFIRM_BASH_PATTERNS. An EMPTY array disables the
@@ -162,6 +171,8 @@ export interface SessionCaps {
   activity: boolean;
   inbox?: boolean;
   mask: boolean;
+  /** The worker's turn temp is reachable through the `turn_temp` tool (#1703); not in an autonomous turn. */
+  turnTemp?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */

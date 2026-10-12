@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createUiDb } from "../src/db/client.js";
@@ -20,6 +20,7 @@ import {
   type GovernanceEventPayload,
 } from "../src/governance/events.js";
 import { httpSpecification } from "./helpers/http-spec";
+import { handleTurnTemp } from "@schlessera/brain-ui-sdk/server";
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -29,6 +30,7 @@ const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> }
   scratch_overage: { bytes: 1_200_000_000, pinnedFiles: 3, pinnedBytes: 1_200_000_000, overageBytes: 126_258_176 },
   promotion: { source: "/tmp/brain-worker/ithaca-route.pdf", destination: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf", bytes: 48_213, originalLink: "/tmp/brain-worker/ithaca-route.pdf", rewrittenLink: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf" },
   promotion_refused: { source: "/tmp/brain-worker/cyclops-cave", originalLink: "/tmp/brain-worker/cyclops-cave", reason: "not_regular_file", bytes: null, limitBytes: null },
+  turn_temp_purge: { truncated: false, all: false, force: false, paths: ["brain-worker-scratch/frames"], removedEntries: 41, freedBytes: 96_468_992, skippedLinked: ["/tmp/brain-worker-scratch/ithaca-route.pdf"], skippedOther: 0, usedBytes: 12_288_000, limitBytes: 268_435_456 },
   policy_block: { tool: "Bash", input: "git push --force origin main", inputTruncated: false, rule: { list: "commands.deny", index: 0, pattern: "^git push (-f|--force)", reason: "No force pushes." }, policyHash: "sha256:0f1e" },
   policy_confirm: { tool: "Bash", input: "git push origin main", inputTruncated: false, rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "declined", policyHash: null },
   read_only_refusal: { path: "context/policies/governance.md", protection: "tier_a", code: "EROFS", tool: "Write", alternative: "Propose the change through the policy approval tool." },
@@ -69,6 +71,29 @@ function count(d: Database): number {
 }
 
 describe("governance event writer", () => {
+  test("a real turn-temp purge persists its matching validated governance receipt", () => {
+    const parent = join(import.meta.dir, "../../../tmp");
+    mkdirSync(parent, { recursive: true });
+    const root = mkdtempSync(join(parent, "purge-governance-"));
+    const d = db();
+    try {
+      session(d, "sess-ithaca");
+      writeFileSync(join(root, "report.md"), "Odysseus returns.");
+      writeFileSync(join(root, "draft.md"), "The voyage draft.");
+      handleTurnTemp({ action: "purge", all: true }, { root: () => root, allowanceBytes: 256 * 1024 * 1024,
+        scratch: "/tmp/brain-worker-scratch", exclude: [], keep: [], linkedText: () => "[Report](/tmp/report.md)" }, e => {
+          const { kind, ...payload } = e;
+          recordGovernanceEvent(d, event(kind, { payload }));
+        });
+      expect(readFileSync(join(root, "report.md"), "utf8")).toBe("Odysseus returns.");
+      expect(existsSync(join(root, "draft.md"))).toBe(false);
+      const records = queryGovernanceEvents(d, { limit: 10 });
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ kind: "turn_temp_purge", schemaVersion: 1,
+        payload: { truncated: false, all: true, removedEntries: 1, skippedLinked: ["/tmp/report.md"], skippedOther: 0 } });
+    } finally { d.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("every kind accepts its documented sample and stores kind, version and attribution", () => {
     const d = db();
     session(d, "sess-ithaca");

@@ -121,9 +121,9 @@ row's real mounting check. They do not establish mounting by themselves.
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:292-312`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:39-56`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:116-132`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:134-143`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:170-187`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:120-136`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:138-147`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:174-191`)
 
 **A — Password access and revocation.**
 
@@ -314,8 +314,8 @@ checks both nonempty priced and mixed-knownness fixtures
 - `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
 - `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
 - `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
-- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:149-163`)
-- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:165-174`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:174-188`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:190-199`)
 
 **N — Speech grants.**
 

@@ -306,6 +306,12 @@ export function makeBridge(
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
       if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
+      else if (event.kind === "turn_temp_purge") {
+        // Each purge of turn temp (#1703), kept with the session history and never shown.
+        const { kind, ...payload } = event;
+        catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
+          actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
+      }
       else recorder?.observeActivity(event);
     },
     ...(queryActivity

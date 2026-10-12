@@ -67,7 +67,9 @@ test("exhaustion is read from the private tmpfs, or from the runtime's own write
   expect(stateExhausted(space(0), "")).toBe(true);
   expect(stateExhausted(space(4095), "")).toBe(true);
   expect(stateExhausted(space(4096), "")).toBe(false);
-  expect(stateExhausted(space(32 * MiB), "Error: ENOSPC: no space left on device, write")).toBe(true);
+  expect(stateExhausted(space(32 * MiB), "Error: ENOSPC: no space left on device, write")).toBe(false);
+  expect(stateExhausted(space(32 * MiB), "ENOSPC: write /tmp/flood")).toBe(false);
+  expect(stateExhausted(space(32 * MiB), "ENOSPC: write /tmp/brain-worker-state/projects/ithaca.jsonl")).toBe(true);
   expect(stateExhausted({ space: () => { throw new Error("closed"); } }, "")).toBe(false);
 });
 
@@ -83,4 +85,25 @@ test("a worker-state refusal is recognized by class, from any copy of the module
   expect(workerStateClass(Object.assign(new Error("busy elsewhere"), { errorClass: "worker_state_busy" }))).toBe("worker_state_busy");
   expect(workerStateClass(Object.assign(new Error("x"), { errorClass: "session_too_large" }))).toBeUndefined();
   expect(workerStateClass(null)).toBeUndefined();
+});
+
+test("turn temp is admitted with runtime state, both or neither, against its own budget (#1703)", () => {
+  const ledger = createStateLedger();
+  const state = { allowanceBytes: 64 * MiB, budgetBytes: 128 * MiB };
+  const turnTemp = { allowanceBytes: 256 * MiB, budgetBytes: 256 * MiB };
+  const first = ledger.reserve(state, turnTemp);
+  expect(first).toMatchObject({ bytes: 64 * MiB, turnTempBytes: 256 * MiB });
+  expect([ledger.held, ledger.turnTempHeld]).toEqual([64 * MiB, 256 * MiB]);
+  // Runtime state still fits; turn temp does not: nothing is held for the refused worker.
+  const busy = refusal(() => ledger.reserve(state, turnTemp));
+  expect(busy.errorClass).toBe("worker_state_busy");
+  expect(busy.message).toContain("Not enough worker turn-temp capacity for this turn right now: it needs its 256 MiB allowance");
+  expect([ledger.held, ledger.turnTempHeld, ledger.live]).toEqual([64 * MiB, 256 * MiB, 1]);
+  // A worker with only turn temp (the pi backend) reserves no runtime state.
+  first.release();
+  const pi = ledger.reserve(undefined, turnTemp);
+  expect(pi).toMatchObject({ bytes: 0, turnTempBytes: 256 * MiB });
+  expect([ledger.held, ledger.turnTempHeld]).toEqual([0, 256 * MiB]);
+  pi.release(); pi.release();
+  expect([ledger.held, ledger.turnTempHeld, ledger.live]).toEqual([0, 0, 0]);
 });

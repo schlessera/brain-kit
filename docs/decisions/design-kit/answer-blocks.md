@@ -426,7 +426,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:268` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:273` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -434,7 +434,7 @@ turns the complete roster the model reached for was `bash`, `show_block`,
 `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
 no search-then-load round trip, ever. The brief is in the prompt on every turn
 unconditionally (`block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:177`, not behind a capability
+`packages/ui-backend-pi/src/session-resources.ts:179`, not behind a capability
 check like the four bridge tools beside it). So pi is the structural twin of
 D43's `--always-load` arm and has never run any other configuration.
 

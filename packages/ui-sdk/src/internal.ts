@@ -18,21 +18,27 @@ export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER,
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
-export { prepareWorkerSandbox, probeHomeOverlay } from "./server/worker-launcher.js";
+export { prepareWorkerSandbox } from "./server/worker-launcher.js";
 export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
 export { workerProfile, workerSandboxNote, workerSandboxWarnings, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
 export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile } from "./server/worker-sandbox.js";
 export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
   workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
 export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
-export { createTurnTemp, createTurnTempPromoter, turnTempRoot, PROMOTED_SCRATCH_DIR, PROMOTION_FILE_MAX_BYTES, PROMOTION_TURN_MAX_BYTES,
-  PROMOTION_TURN_MAX_FILES, TURN_TEMP_PREFIX } from "./server/worker-turn-temp.js";
-export type { TurnTemp, TurnTempPromoterOptions, TurnTempPromotionRecord } from "./server/worker-turn-temp.js";
-export { DEFAULT_WORKER_STATE_BYTES, WORKER_STATE_BUDGET_ENV, WORKER_STATE_BYTES_ENV, WORKER_STATE_PAGE, WorkerStateConfigError, mib,
-  parseWorkerStateBytes, resolveWorkerStateLimits, validWorkerStateBytes } from "./server/worker-state-limits.js";
+export { createTurnTempPressure, createTurnTempPromoter, linkedTurnTempPaths, purgeTurnTemp, turnTempFullMessage, turnTempLimit, turnTempPath,
+  turnTempSpace, turnTempUsage, PROMOTED_SCRATCH_DIR, PROMOTION_FILE_MAX_BYTES, PROMOTION_TURN_MAX_BYTES, PROMOTION_TURN_MAX_FILES,
+  TURN_TEMP_ROOT, TURN_TEMP_WARN_RATIO } from "./server/worker-turn-temp.js";
+export type { TurnTempAccess, TurnTempPromoterOptions, TurnTempPromotionRecord, TurnTempPurgeResult, TurnTempSpace } from "./server/worker-turn-temp.js";
+export { handleTurnTemp } from "./server/bridge-tools/turn-temp.js";
+export type { TurnTempPurgeRecord } from "./server/bridge-tools/turn-temp.js";
+export { DEFAULT_TURN_TEMP_BYTES, DEFAULT_WORKER_STATE_BYTES, TURN_TEMP_BUDGET_ENV, TURN_TEMP_BYTES_ENV, WORKER_STATE_BUDGET_ENV,
+  WORKER_STATE_BYTES_ENV, WORKER_STATE_PAGE, WorkerStateConfigError, mib, parseWorkerStateBytes, resolveTurnTempLimits,
+  resolveWorkerStateLimits, validWorkerStateBytes } from "./server/worker-state-limits.js";
 export type { WorkerStateLimits } from "./server/worker-state-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
 export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
+export { createStateLedger, processStateLedger, WorkerStateError } from "./server/worker-state-budget.js";
+export type { Reservation, StateLedger, WorkerStateErrorClass } from "./server/worker-state-budget.js";

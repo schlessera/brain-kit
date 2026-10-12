@@ -12,6 +12,7 @@ import {
   QUERY_ACTIVITY_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
+  TURN_TEMP_CONTRACT,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
@@ -52,6 +53,7 @@ describe("the contract list is the single source", () => {
         activity: QUERY_ACTIVITY_CONTRACT.name,
         inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action",
         block: SHOW_BLOCK_CONTRACT.name,
+        turnTemp: TURN_TEMP_CONTRACT.name,
       },
     });
     for (const contract of BRIDGE_TOOL_CONTRACTS) {
@@ -87,6 +89,7 @@ describe("the contract list is the single source", () => {
       GET_CURRENT_LOCATION_CONTRACT.brief(GET_CURRENT_LOCATION_CONTRACT.name),
       REQUEST_IMAGE_MASK_CONTRACT.brief(REQUEST_IMAGE_MASK_CONTRACT.name),
       SHOW_BLOCK_CONTRACT.brief(SHOW_BLOCK_CONTRACT.name),
+      TURN_TEMP_CONTRACT.brief(TURN_TEMP_CONTRACT.name),
     ]);
   });
 });

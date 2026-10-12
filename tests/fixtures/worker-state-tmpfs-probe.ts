@@ -34,8 +34,9 @@ const DEFAULT: WorkerStateLimits = { allowanceBytes: 64 * MiB, budgetBytes: 192 
 const failureOf = (worker: { failure(): { errorClass: string } | undefined }) => worker.failure();
 
 /** One worker turn: a shell standing in for the runtime, with the runtime's own `--resume` argv. */
-function turn(script: string, resume?: string, limits = DEFAULT) {
-  const worker = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, undefined, undefined, undefined, { limits });
+function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?: WorkerStateLimits) {
+  const worker = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, undefined, undefined, undefined,
+    { limits, ...(turnTempLimits ? { turnTempLimits } : {}) });
   let child: SpawnedProcess | undefined, refused: string | undefined;
   try {
     child = worker.spawn({ command: "/bin/sh", args: ["-c", script, "sh", ...(resume ? [`--resume=${resume}`] : [])],
@@ -131,6 +132,26 @@ if (scenario === "contend") {
     error: await both.worker.finish().then(() => null, e => e instanceof Error ? e.message : String(e)) };
   receipt.outcomes = outcomes;
   receipt.victim = readFileSync(victim, "utf8");
+} else if (scenario === "turn-temp") {
+  // Turn temp (#1703): each worker's /tmp is a private tmpfs of its own
+  // allowance, admitted in the same ledger as runtime state.
+  const one: WorkerStateLimits = { allowanceBytes: 8 * MiB, budgetBytes: 8 * MiB };
+  session(TROY, 1); session(ITHACA, 1);
+  const flood = 'stat -f -c "%T %b %S" /tmp; dd if=/dev/zero of=/tmp/flood bs=1M count=32; echo "dd=$?"; '
+    + 'stat -f -c "free=%a" /tmp; sleep 1; ' + append(TROY, "{\"text\":\"Scylla\"}");
+  const first = turn(flood, TROY, DEFAULT, one);
+  await Bun.sleep(200);
+  receipt.turnTempHeldDuringFirst = processStateLedger().turnTempHeld;
+  receipt.stateHeldDuringFirst = processStateLedger().held;
+  const second = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
+  receipt.secondRefused = second.refused ?? null; receipt.secondClass = failureOf(second.worker)?.errorClass ?? null;
+  // A refusal holds nothing, runtime state included.
+  receipt.heldAfterRefusal = { state: processStateLedger().held, turnTemp: processStateLedger().turnTempHeld };
+  receipt.first = await first.settle();
+  const again = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
+  receipt.againRefused = again.refused ?? null;
+  receipt.again = await again.settle();
+  receipt.tails = [tail(TROY), tail(ITHACA)];
 } else if (scenario === "crash") {
   // The test kills this server process mid-turn; the worker must not outlive it.
   session(TROY, 4);
@@ -139,7 +160,7 @@ if (scenario === "contend") {
   console.log(JSON.stringify({ scenario, ready: true }));
   await Bun.sleep(60_000);
 }
-receipt.heldAfter = processStateLedger().held;
+receipt.heldAfter = processStateLedger().held + processStateLedger().turnTempHeld;
 receipt.shmUnchanged = shm().free === shmBefore;
 receipt.shmLeftover = readdirSync("/dev/shm").filter(name => name.startsWith("brain-claude-state-")).length;
 console.log(JSON.stringify(receipt));
