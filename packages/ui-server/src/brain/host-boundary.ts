@@ -30,6 +30,7 @@ import {
 import { killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
+import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 
 /** Why `governed` cannot run on this server. */
 export type { GovernedUnavailableReason };
@@ -59,6 +60,8 @@ export interface BrainExecution {
   timeoutMs?: number;
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
+  /** A complete hosted sync: its only credentialed part is the host mirror transport. */
+  sync?: boolean;
 }
 
 export interface ExecutionResult {
@@ -212,6 +215,7 @@ function serverInstallation(): string[] {
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const brain = real(options.brainPath);
   const exec = options.exec ?? {};
+  let mirror: string | undefined;
   let probed: WorkerHostProbe | undefined;
   // The latest ordinary probe: the server's own record when it keeps one,
   // otherwise one probe of this boundary's.
@@ -244,6 +248,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
     env.PATH = path;
+    // Git credentials belong only to the mirror transport, including while
+    // provider-credentialed maintenance remains an interim exposure.
+    delete env.GITHUB_TOKEN;
+    delete env.BRAIN_UI_SYNC_GITHUB_TOKEN;
     if (execution.credentials && options.home) env.HOME = options.home;
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
@@ -312,6 +320,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
       }
       return gated(execution, async () => {
+        if (execution.sync) return runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
         const result = await runMaintenanceWorker({ ...command(execution), stdin: execution.stdin,
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
         return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
@@ -324,6 +334,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") };
       }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
+      if (execution.sync) {
+        const abort = new AbortController();
+        let stdout!: ReadableStreamDefaultController<Uint8Array>;
+        let stderr!: ReadableStreamDefaultController<Uint8Array>;
+        const out = new ReadableStream<Uint8Array>({ start(controller) { stdout = controller; } });
+        const err = new ReadableStream<Uint8Array>({ start(controller) { stderr = controller; } });
+        let signalCode: string | null = null;
+        const onAbort = () => abort.abort(execution.signal?.reason);
+        execution.signal?.addEventListener("abort", onAbort, { once: true });
+        const exited = runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath), signal: abort.signal,
+          ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+          stdout.enqueue(new TextEncoder().encode(result.stdout)); stderr.enqueue(new TextEncoder().encode(result.stderr)); return result.exitCode;
+        }, error => { stderr.enqueue(new TextEncoder().encode(error instanceof Error ? error.message : String(error))); return 1; })
+          .finally(() => { stdout.close(); stderr.close(); execution.signal?.removeEventListener("abort", onAbort); hold?.release(); });
+        return { stdout: out, stderr: err, exited, get signalCode() { return signalCode; },
+          kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
+      }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
       try { worker = launchMaintenanceWorker(command(execution)); }
       catch (error) { hold?.release(); throw error; }

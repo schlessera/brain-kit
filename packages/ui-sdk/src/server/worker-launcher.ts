@@ -93,6 +93,8 @@ export interface WorkerLaunch {
    * with `restricted` and `sandbox`.
    */
   maintenance?: MaintenanceEnvelope;
+  /** Host Git transport: an empty root, explicit system/runtime mounts, and no brain mount. */
+  transport?: { mirror: string; readPaths: readonly string[]; writePaths?: readonly string[] };
 }
 
 /**
@@ -129,6 +131,8 @@ export interface MaintenanceEnvelope {
   maskPaths?: readonly string[];
   /** Existing host files bound read-write at their own path, such as a cron job's span sink. */
   writeFiles?: readonly string[];
+  /** Host-selected writable storage within an otherwise read-only mirror. */
+  writeDirectories?: readonly string[];
 }
 
 export interface RestrictedEnvelope {
@@ -163,7 +167,7 @@ function maskedGit(brain: string): string[] {
   throw new WorkerHostError("the brain's .git must be a directory or a gitlink file to be masked");
 }
 
-function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[] {
+function systemMounts(): string[] {
   const argv: string[] = [];
   for (const path of SYSTEM_DIRECTORIES) {
     if (!existsSync(path)) continue;
@@ -175,6 +179,11 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     const path = `/etc/${name}`;
     if (existsSync(path)) argv.push("--ro-bind", realpathSync(path), path);
   }
+  return argv;
+}
+
+function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[] {
+  const argv = systemMounts();
   const seen = new Set<string>();
   for (const requested of envelope.readPaths) {
     if (!isAbsolute(requested)) throw new WorkerHostError("restricted read paths must be absolute");
@@ -194,6 +203,27 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     throw new WorkerHostError("the inference relay directory must be a private directory");
   }
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
+  return argv;
+}
+
+/** No bind, including a system bind, may expose the brain or an ancestor of it. */
+function transportMounts(envelope: NonNullable<WorkerLaunch["transport"]>, brain: string): string[] {
+  const argv = systemMounts();
+  for (const requested of ["/etc/resolv.conf", "/etc/ssl/certs", ...envelope.readPaths]) {
+    if (existsSync(requested)) argv.push("--ro-bind", realpathSync(requested), requested);
+  }
+  for (const requested of [envelope.mirror, ...(envelope.writePaths ?? [])]) {
+    const real = realpathSync(requested);
+    if (!lstatSync(requested).isDirectory() || real !== normalize(requested)) throw new WorkerHostError("transport storage must be an unlinked directory");
+    argv.push("--bind", real, requested);
+  }
+  for (let index = 0; index < argv.length; index++) {
+    if (argv[index] !== "--bind" && argv[index] !== "--ro-bind") continue;
+    const source = realpathSync(argv[index + 1]!);
+    if (within(source, brain) || within(brain, source)) throw new WorkerHostError("a transport mount must not expose the brain or its ancestors");
+    index += 2;
+  }
+  argv.push("--dir", MAINTENANCE_HOME);
   return argv;
 }
 
@@ -332,6 +362,14 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     if (!lstatSync(real).isFile() || within(brain, real)) throw new WorkerHostError("a maintenance worker's writable file must be a regular file outside the brain");
     argv.push("--bind", real, real);
   }
+  for (const requested of envelope.writeDirectories ?? []) {
+    const info = lstatSync(requested);
+    const real = realpathSync(requested);
+    if (!info.isDirectory() || info.isSymbolicLink() || real === "/" || within(brain, real) || within(real, brain)) {
+      throw new WorkerHostError("a maintenance worker's writable storage must be an unlinked directory outside the brain");
+    }
+    argv.push("--bind", real, real);
+  }
   return argv;
 }
 
@@ -364,6 +402,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
     }
   }
   const maintenance = input.maintenance;
+  const transport = input.transport;
+  if (transport && (maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
+    throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
+  }
   if (maintenance && (input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a maintenance worker has no restricted envelope, writable areas, agent runtime state or turn temp");
   }
@@ -373,13 +415,13 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(input.restricted || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
-    ...(input.restricted ? [] : ["--ro-bind", "/", "/"]),
+    ...(input.restricted || transport ? [] : ["--ro-bind", "/", "/"]),
     // Turn temp: a private tmpfs of exactly the allowance (#1703). Nothing on
     // the host backs it, and no other worker's namespace can see it.
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev",
     ...(sized ? ["--size", String(input.turnTempBytes), "--tmpfs", TURN_TEMP_ROOT] : ["--tmpfs", TURN_TEMP_ROOT]),
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
-    ...(maintenance ? maintenanceMounts(maintenance, brain) : ["--ro-bind", brain, brain]),
+    ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : ["--ro-bind", brain, brain]),
     ...(input.restricted ? maskedGit(brain) : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds, "--clearenv"];
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
@@ -388,7 +430,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
+    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
   return argv;
 }
 

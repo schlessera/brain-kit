@@ -281,7 +281,7 @@ export async function runJob(
       // The sink is the one host file the job may append to.
       closeSync(openSync(sinkPath, "a", 0o600));
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
-        purpose: `cron ${options.jobName}`, writeFiles: [sinkPath] });
+        purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}) });
     } else {
       proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
         stdin: "inherit",

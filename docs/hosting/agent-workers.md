@@ -301,7 +301,8 @@ What runs there, and how it meets the brain's **writer gate**:
 | `brain hygiene`, `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
 | `brain briefing`, `stats`, `list`, `read`, `validate`, `module list`, `--version` | None | Shared |
 | `brain search` | Yes (the query embedding) | Shared |
-| `brain sync`, `index`, `add`, module actions, `maintain`, module and hand-written cron jobs | Yes | Exclusive |
+| Hosted `brain sync` (client, streamed route and generated sync cron job) | None in the brain; Git credentials only in the host mirror transport | Exclusive |
+| `brain index`, `add`, module actions, `maintain`, module and hand-written cron jobs | Yes | Exclusive |
 | `git check-ignore` and `rev-parse` against the brain | None | None |
 
 Every maintenance worker binds the brain read-write and runs code the brain
@@ -325,8 +326,25 @@ refuses rather than run git on the host.
   (the `brainCli` or `cron` audience), the host network, and the server's
   `$HOME` read through an overlay whose writes vanish. That is the interim
   exposure the [decision record](../decisions/governed-writable-workers.md#the-host-execution-boundary)
-  names until the git mirror and the metered relays land: code the agent can
+  names until the metered relays land: code the agent can
   write, such as a helper the config imports, could read those credentials.
+- **Hosted Git sync** keeps a private bare mirror beside `DB_PATH` (a private
+  temporary directory for an in-memory database or standalone client).
+  Commit, pull, merge, judgment and indexing run without credentials or host
+  network access. They fetch and push over the local file transport; only
+  mirror objects and refs are writable, while its configuration, hooks and
+  root remain read-only. After that worker and all its descendants have
+  exited, the host rejects linked storage and object alternates and runs
+  `git fsck --full --strict` before pushing. The transport has an explicit
+  system/mirror mount list and never mounts the brain or its `.git`.
+  It uses the literal protected `remote.origin.url`, without loading includes;
+  writable Git includes cannot choose the credential's destination.
+  GitHub HTTPS uses `BRAIN_UI_SYNC_GITHUB_TOKEN`, falling back to
+  `GITHUB_TOKEN`; these tokens never enter brain maintenance workers. SSH
+  transport sees only the host's `.ssh` directory and optional admitted
+  `SSH_AUTH_SOCK`, with no complete home mount. The mirror stores no token or
+  credential helper. A remote push race retries the existing deterministic
+  re-pull flow up to three times. Terminal `brain sync --json` is unchanged.
 - **The writer gate** lives in the UI database, because the cron runner is a
   separate process. Turns and credential-free maintenance hold it shared;
   credentialed work waits until no shared holder remains and then holds it

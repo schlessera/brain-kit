@@ -159,11 +159,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
           env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
           ...brainCommandClass(["sync"]),
           purpose: "brain sync",
+          sync: true,
         });
 
         // Keep draining even when the SSE reader disconnects. The repository
         // stays reserved until the actual sync process has exited.
-        const stderrDone = new Response(proc.stderr).text().catch(() => "");
+        const stderrDone = new Response(proc.stderr).text().then(async text => {
+          if (text.trim()) await send({ type: "progress", text: text.trim() });
+          return text;
+        }).catch(() => "");
         const reader = proc.stdout.getReader();
         const decoder = new TextDecoder();
         let buffer = "";

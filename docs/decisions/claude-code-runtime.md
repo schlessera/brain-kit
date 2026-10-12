@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:448-453`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1002`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:456-461`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1010`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:495`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)

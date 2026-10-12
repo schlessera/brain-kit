@@ -172,12 +172,20 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_SYNC_GITHUB_TOKEN",
+    description:
+      "GitHub HTTPS credential for the host-owned sync mirror transport. " +
+      "Never passed to a maintenance worker that evaluates the brain. Falls back to GITHUB_TOKEN.",
+    default: "$GITHUB_TOKEN",
+    required: false,
+  },
+  {
     name: "GITHUB_TOKEN",
     description:
       "Generic GitHub token fallback. Used for skill installs when " +
-      "BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also " +
-      "falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo " +
-      "git pushes and gh-based jobs.",
+      "BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the host sync mirror " +
+      "transport falls back to it when BRAIN_UI_SYNC_GITHUB_TOKEN is unset. " +
+      "Git credentials never reach brain maintenance workers.",
     default: null,
     required: false,
   },
