@@ -328,6 +328,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
+      execution.signal?.throwIfAborted();
       if (!isolated()) {
         const proc = hostSpawn(execution);
         return { stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
@@ -335,24 +336,31 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       if (execution.sync) {
-        const abort = new AbortController();
-        let stdout!: ReadableStreamDefaultController<Uint8Array>;
-        let stderr!: ReadableStreamDefaultController<Uint8Array>;
-        const out = new ReadableStream<Uint8Array>({ start(controller) { stdout = controller; } });
-        const err = new ReadableStream<Uint8Array>({ start(controller) { stderr = controller; } });
-        let signalCode: string | null = null;
-        const onAbort = () => abort.abort(execution.signal?.reason);
-        execution.signal?.addEventListener("abort", onAbort, { once: true });
-        const exited = runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath), signal: abort.signal,
-          ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
-          stdout.enqueue(new TextEncoder().encode(result.stdout)); stderr.enqueue(new TextEncoder().encode(result.stderr)); return result.exitCode;
-        }, error => { stderr.enqueue(new TextEncoder().encode(error instanceof Error ? error.message : String(error))); return 1; })
-          .finally(() => { stdout.close(); stderr.close(); execution.signal?.removeEventListener("abort", onAbort); hold?.release(); });
-        return { stdout: out, stderr: err, exited, get signalCode() { return signalCode; },
-          kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
+        try {
+          // An abort can arrive while the gate is resolving. Check it before
+          // preparation; attaching a listener alone would miss that event.
+          execution.signal?.throwIfAborted();
+          const selectedCommand = command(execution);
+          const selectedMirror = mirror ??= syncMirrorPath(brain, options.dbPath);
+          const abort = new AbortController();
+          let stdout!: ReadableStreamDefaultController<Uint8Array>;
+          let stderr!: ReadableStreamDefaultController<Uint8Array>;
+          const out = new ReadableStream<Uint8Array>({ start(controller) { stdout = controller; } });
+          const err = new ReadableStream<Uint8Array>({ start(controller) { stderr = controller; } });
+          let signalCode: string | null = null;
+          const onAbort = () => abort.abort(execution.signal?.reason);
+          execution.signal?.addEventListener("abort", onAbort, { once: true });
+          const exited = runMirrorSync({ command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
+            ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+            stdout.enqueue(new TextEncoder().encode(result.stdout)); stderr.enqueue(new TextEncoder().encode(result.stderr)); return result.exitCode;
+          }, error => { stderr.enqueue(new TextEncoder().encode(error instanceof Error ? error.message : String(error))); return 1; })
+            .finally(() => { stdout.close(); stderr.close(); execution.signal?.removeEventListener("abort", onAbort); hold?.release(); });
+          return { stdout: out, stderr: err, exited, get signalCode() { return signalCode; },
+            kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
+        } catch (error) { hold?.release(); throw error; }
       }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
-      try { worker = launchMaintenanceWorker(command(execution)); }
+      try { execution.signal?.throwIfAborted(); worker = launchMaintenanceWorker(command(execution)); }
       catch (error) { hold?.release(); throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;

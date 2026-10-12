@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { maintenanceLaunch, probeWorkerHost, runMaintenanceWorker } from "@schlessera/brain-ui-sdk/internal";
@@ -6,6 +6,8 @@ import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { createBrainClient } from "../src/brain/client";
 import { assertMirrorStorage, syncMirrorPath, syncTransportCommand } from "../src/brain/sync-mirror";
+import { createHostExecution } from "../src/brain/host-execution";
+import { createUiDb } from "../src/db/client";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-sync-token-never-for-the-brain";
@@ -183,4 +185,62 @@ require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/aa", "0"
     await expect(createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync(), "CORRUPT_OBJECT_FSCK_REFUSED").rejects.toThrow(/inflate|corrupt|unable to unpack|bad object/);
     expect(received, "NO_PUSH_AFTER_FAILED_FSCK").not.toContain("POST /remote.git/git-receive-pack");
   } finally { server.stop(true); }
+}, 120_000);
+
+test("a sync launch that fails during preparation releases the writer gate for another request", async () => {
+  const f = fixture();
+  const db = createUiDb(f.dbPath);
+  const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: { wrapper: join(f.root, "missing-wrapper") } });
+  try {
+    execution.attach(db);
+    await expect(execution.boundary.launch({ argv: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      gate: "exclusive", sync: true, purpose: "failed-start sync" })).rejects.toThrow("does not exist");
+    let hold: Awaited<ReturnType<NonNullable<ReturnType<typeof execution.gate>>["acquire"]>> | undefined;
+    await expect(execution.gate()!.acquire("exclusive", "next request", { signal: AbortSignal.timeout(1_000) })
+      .then(next => { hold = next; return true; }), "GATE_REUSABLE_AFTER_FAILED_SYNC_START").resolves.toBe(true);
+    hold!.release();
+  } finally { db.close(); }
+});
+
+test("an abort immediately after gate acquisition starts no sync worker and releases the gate", async () => {
+  const f = fixture();
+  const db = createUiDb(f.dbPath);
+  const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: {} });
+  const controller = new AbortController();
+  try {
+    execution.attach(db);
+    const gate = execution.gate()!;
+    const acquire = gate.acquire.bind(gate);
+    const intercepted = spyOn(gate, "acquire").mockImplementation(async (...args) => {
+      const hold = await acquire(...args);
+      controller.abort(new Error("aborted at gate handoff"));
+      return hold;
+    });
+    try {
+      await expect(execution.boundary.launch({ argv: ["/bin/sh", "-c", 'printf started > "$1"', "probe", join(f.brain, "started.sentinel")],
+        env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", sync: true,
+        purpose: "aborted sync", signal: controller.signal }).then(async worker => {
+          worker.kill("SIGKILL");
+          await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text(), worker.exited]);
+          return worker;
+        }), "ABORT_AT_GATE_PREVENTS_SYNC_START").rejects.toThrow("aborted at gate handoff");
+    } finally { intercepted.mockRestore(); }
+    expect(existsSync(join(f.brain, "started.sentinel")), "ABORTED_SYNC_NEVER_EXECUTED").toBe(false);
+    const next = await gate.acquire("exclusive", "next request", { signal: AbortSignal.timeout(1_000) }); next.release();
+  } finally { db.close(); }
+});
+
+test("worker-created object alternates are refused before any credentialed transport evaluates them", async () => {
+  const f = fixture();
+  const mirror = syncMirrorPath(f.brain, f.dbPath);
+  writeFileSync(join(f.brain, "helper.ts"), readFileSync(join(f.brain, "helper.ts"), "utf8") + `
+require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/info/alternates"))}, ${JSON.stringify(join(f.brain, ".git/objects") + "\n")});
+`);
+  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+  await expect(createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync(), "ALTERNATES_REFUSED_BEFORE_TRANSPORT")
+    .rejects.toThrow("sync mirror object alternates are forbidden");
+  expect(git(f.remote, "show", "main:notes/sea.md")).toContain("Telemachus watches the tide.");
+  expect(Bun.spawnSync(["/usr/bin/git", "--git-dir", f.remote, "cat-file", "-e", "main:notes/harbor.md"],
+    { env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } }).exitCode,
+    "ALTERNATES_NEVER_PUSHED").not.toBe(0);
 }, 120_000);
