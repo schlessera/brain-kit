@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect } from "react";
 import { ImageOff } from "lucide-react";
 
 import type { BrainUiRoot } from "../../root.js";
+import { useBrainUiRoot } from "../../root-context.js";
+import { rememberFileEntry } from "../../lib/file-entry-focus.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
 import {
   isInternalRepoDir,
@@ -122,6 +124,7 @@ export function MarkdownImage({ src, alt, imgProps, root }: {
 
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
 export function FileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
+  const root = useBrainUiRoot();
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
   const expired = useScratchExpired(path);
@@ -131,6 +134,7 @@ export function FileLink({ path, children, style }: { path: string; children?: R
       href={`#/files/${path}`}
       onClick={(e) => {
         e.preventDefault();
+        rememberFileEntry(root, e.currentTarget, e.detail === 0);
         setFilePanelOpen(true);
         void openFile(path);
       }}
@@ -171,6 +175,7 @@ export function WikiLink({
   target: string;
   label?: string;
 }) {
+  const root = useBrainUiRoot();
   const slugMap = useFileStore((s) => s.wikilinkMap);
   const loaded = useFileStore((s) => s.wikilinkLoaded);
   const openFile = useFileStore((s) => s.openFile);
@@ -195,6 +200,7 @@ export function WikiLink({
       href={`#/files/${resolved}`}
       onClick={(e) => {
         e.preventDefault();
+        rememberFileEntry(root, e.currentTarget, e.detail === 0);
         setFilePanelOpen(true);
         void openFile(resolved);
       }}

@@ -36,7 +36,7 @@ export function BinaryMeta({
         download={filename}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 rounded text-muted-foreground transition-colors hover:text-foreground"
+        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded text-muted-foreground transition-colors hover:text-foreground"
       >
         <Download className="h-3 w-3" />
         Download

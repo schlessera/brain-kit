@@ -56,6 +56,10 @@ remain the authority for what each relationship means.
 | [D48](design-kit/links.md#2026-09-28--d48-a-model-authored-link-shows-its-destination-and-brain-never-opens-it-43) and [D49](design-kit/links.md#2026-09-28--d49-a-prose-link-goes-through-d48s-classifier-on-every-markdown-surface-and-mailto-stays-live-551) | [D41](design-kit/answer-blocks.md#2026-09-21--d41-the-answer-blocks-reach-the-model-through-one-tool-show_block) and [D46](design-kit/components-and-interactions.md#2026-09-24--d46-a-shared-answer-draws-its-blocks-in-a-print-theme-46) |
 | [D55](design-kit/components-and-interactions.md#2026-10-09--d55-native-icon-and-text-actions-1379) | [D34](design-kit/tokens-and-styles.md#2026-09-18--d34-hit-targets-are-specified-as-reach-past-the-paint-and-the-paint-carries-no-border) and [D52](design-kit/sessions-and-drafts.md#2026-10-06--d52-sessions-is-a-destination-work-left-running-is-tracked-until-seen-and-every-session-keeps-its-own-draft-943) |
 
+The [retained artifact recovery ruling](design-kit/links.md#2026-10-12--retained-artifact-recovery-1734) extends
+[D56’s confirmed-expiry behavior](design-kit/links.md#2026-10-12--d56-a-link-to-a-cleared-scratch-file-reads-as-expired-1657)
+within the existing Files placement and overlay focus rules.
+
 ## Original section map
 
 Presentation-only split from `1a8ba321e7f578baebb55f13532e773c543cf793`.

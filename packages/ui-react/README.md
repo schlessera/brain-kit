@@ -333,6 +333,13 @@ while it loads.
 Because configuration arrives at boot rather than at import, the API base is a
 function: use `apiBase()`, not a constant.
 
+Retained file references use the existing Files viewer. Temporary loading
+failures offer manual **Try again**; reconnecting does not retry automatically.
+Only confirmed missing scratch files become expired references. Access errors
+do not reveal backend details, and signing in requires manually reopening a
+file. PDF, image and HTML preview failures are checked before a missing file
+is described as expired or an unsupported preview offers a download.
+
 ## Styles
 
 Two ways to get the CSS, pick one:

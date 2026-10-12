@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, type RefObject } from "react";
+import { Suspense, useCallback, useEffect, useRef, type RefObject } from "react";
 import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -14,6 +14,8 @@ import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart, openModal } from "../../lib/destination-start.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
 import { lazyChunk } from "../../lib/lazy-chunk.js";
+import { useBrainUiRoot } from "../../root-context.js";
+import { forgetFileEntry, hasFileEntry, takeFileEntryTarget } from "../../lib/file-entry-focus.js";
 
 /**
  * The `laptop:` breakpoint from `theme.css`. From here up the rail is
@@ -32,22 +34,54 @@ const FileTree = lazyChunk(() => import("./file-tree.js").then((m) => ({ default
 const FileViewer = lazyChunk(() => import("./file-viewer.js").then((m) => ({ default: m.FileViewer })));
 
 export function FilePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const root = useBrainUiRoot();
   const currentPath = useFileStore((s) => s.currentPath);
   const treeExpanded = useFileStore((s) => s.treeExpanded);
   const setTreeExpanded = useFileStore((s) => s.setTreeExpanded);
   const closeFile = useFileStore((s) => s.closeFile);
   const panes = useMediaQuery(PANES_QUERY);
+  const wasOpen = useRef(false);
+  const latestOpen = useRef(open);
+  latestOpen.current = open;
+  const returnToEntry = useRef(false);
+  const dismiss = useCallback(() => { returnToEntry.current = true; closeFile(); onClose(); }, [closeFile, onClose]);
+  const returnTarget = () => {
+    if (!returnToEntry.current) { forgetFileEntry(root); return null; }
+    returnToEntry.current = false;
+    return takeFileEntryTarget(root);
+  };
+  const lifetime = useRef(0);
+  const latestRoot = useRef(root);
+  latestRoot.current = root;
+  useEffect(() => {
+    const generation = ++lifetime.current;
+    return () => queueMicrotask(() => {
+      // Effect replay is not navigation away from the file. A real unmount
+      // or root replacement drops only that root's pending work and entry.
+      if (generation === lifetime.current || root !== latestRoot.current) {
+        forgetFileEntry(root);
+        root.stores.file.getState().closeFile();
+      }
+    });
+  }, [root]);
+  useEffect(() => {
+    if (wasOpen.current && !open) {
+      closeFile();
+      if (panes) queueMicrotask(() => { if (!latestOpen.current) returnTarget()?.focus({ preventScroll: true }); });
+    }
+    wasOpen.current = open;
+  }, [open, panes, root, closeFile]);
 
   useEffect(() => {
     if (!open || !panes) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || openModal()) return;
       event.preventDefault();
-      onClose();
+      dismiss();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, panes, onClose]);
+  }, [open, panes, dismiss]);
 
   // Sync hash route to current file. When the panel closes, strip the
   // `#/files*` segment entirely so a reload doesn't reopen it.
@@ -99,18 +133,21 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   });
 
   if (panes) {
-    return open ? <FilePanes onClose={onClose} panelRef={panelRef} /> : null;
+    return open ? <FilePanes onClose={dismiss} panelRef={panelRef} /> : null;
   }
 
   return (
     <Overlay open={open} variant="panel" modal={false} size="lg" title="Files" data-panel="Files"
-      onClose={onClose} surfaceRef={panelRef}>
+      onClose={dismiss} surfaceRef={panelRef} returnFocus={hasFileEntry(root) ? returnTarget : undefined}>
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Tree toggle strip — visible when a file is open */}
           {showContent && currentPath && (
             <div className="flex items-center gap-1 border-b border-border bg-surface-raised/40 px-3 py-1.5">
               <TextButton tone="meta" label={treeExpanded ? "Hide tree" : "Show tree"} expanded={treeExpanded} glyph={treeExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />} onClick={() => setTreeExpanded(!treeExpanded)} />
-              <TextButton tone="meta" label="Close file" onClick={closeFile} style={{ marginLeft: "auto" }} />
+              <TextButton tone="meta" label="Close file" onClick={() => {
+                closeFile();
+                queueMicrotask(() => { if (root.authLock.state.getState().phase === "active") panelRef.current?.querySelector<HTMLElement>("[data-destination-heading]")?.focus({ preventScroll: true }); });
+              }} style={{ marginLeft: "auto" }} />
             </div>
           )}
 
@@ -242,7 +279,7 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             />
           </div>
           <div className="shrink-0 pt-2">
-            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} onClick={onClose} />
+            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} onClick={onClose} />
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">

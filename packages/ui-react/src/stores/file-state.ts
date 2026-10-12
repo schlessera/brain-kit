@@ -5,7 +5,6 @@ import type {
   FileResolveResponse,
   WikilinkMapResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
 import { isMermaidPath } from "../lib/mermaid.js";
 
@@ -21,6 +20,8 @@ export interface FileState {
   currentContent: FileContentResponse | null;
   contentLoading: boolean;
   contentError: string | null;
+  /** A typed observation, never an inference from server error copy. */
+  contentFailure: FileLoadFailure | null;
   /**
    * The open file is a scratch file that is gone (#1657). The viewer shows it
    * as expired rather than as an error.
@@ -58,6 +59,10 @@ export interface FileState {
   toggleDir: (path: string) => Promise<void>;
   setExpanded: (path: string, expanded: boolean) => void;
   openFile: (path: string) => Promise<void>;
+  /** Repeat only a temporary failed load; never start concurrent attempts. */
+  retryFile: () => Promise<void>;
+  /** Confirm a secondary preview failure through the existing authenticated HEAD route. */
+  checkPreview: (content: FileContentResponse, html?: boolean) => Promise<boolean>;
   openDir: (path: string) => Promise<void>;
   closeFile: () => void;
   setViewMode: (mode: ViewMode) => void;
@@ -71,6 +76,30 @@ export interface FileState {
 }
 
 export type ViewMode = "preview" | "raw";
+
+export interface FileLoadFailure {
+  kind: "unreachable" | "unauthenticated" | "forbidden" | "not-found" | "too-large" | "unknown";
+  size?: number;
+}
+
+function observedFailure(error: unknown): FileLoadFailure {
+  const e = error as { status?: number; size?: number; name?: string } | null;
+  if (e?.status === 401) return { kind: "unauthenticated" };
+  if (e?.status === 403) return { kind: "forbidden" };
+  if (e?.status === 404) return { kind: "not-found" };
+  if (e?.status === 413) return { kind: "too-large", ...(typeof e.size === "number" && Number.isFinite(e.size) && e.size >= 0 ? { size: e.size } : {}) };
+  if (e?.status === undefined && (error instanceof TypeError || e?.name === "TimeoutError")) return { kind: "unreachable" };
+  return { kind: "unknown" };
+}
+
+const FAILURE_COPY: Record<FileLoadFailure["kind"], string> = {
+  unreachable: "Can't reach your brain right now.",
+  unauthenticated: "Sign in to open this file.",
+  forbidden: "This file isn't available with your current access.",
+  "not-found": "File not found.",
+  "too-large": "Too large to preview here.",
+  unknown: "Couldn't open this file.",
+};
 
 /** Kinds/paths the viewer can render as a preview (vs raw text only). */
 function hasPreview(content: FileContentResponse): boolean {
@@ -110,7 +139,7 @@ export function createFileStore(env: StoreEnvironment) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
       const err = new Error(body.error || `HTTP ${res.status}`);
       (err as Error & { status: number; size?: number }).status = res.status;
-      if (body.size) (err as Error & { status: number; size?: number }).size = body.size;
+      if (typeof body.size === "number" && Number.isFinite(body.size) && body.size >= 0) (err as Error & { status: number; size?: number }).size = body.size;
       throw err;
     }
     return res.json();
@@ -154,6 +183,18 @@ export function createFileStore(env: StoreEnvironment) {
   let fileRequest: AbortController | null = null;
   let directoryRequest: AbortController | null = null;
   let cacheEpoch = 0;
+  let previewChecks = new WeakMap<FileContentResponse, Promise<boolean>>();
+
+  function failureUpdate(path: string, error: unknown, state: FileState): Partial<FileState> {
+    const failure = observedFailure(error);
+    const scratch = failure.kind === "not-found" ? scratchPath(path) : null;
+    if (scratch) {
+      nextScratchTurn(scratch);
+      return { currentContent: null, contentError: null, contentFailure: null, contentExpired: true, contentLoading: false,
+        scratchFiles: { ...state.scratchFiles, [scratch]: "expired" } };
+    }
+    return { currentContent: null, contentFailure: failure, contentError: FAILURE_COPY[failure.kind], contentExpired: false, contentLoading: false };
+  }
 
   return createStore<FileState>((set, get) => ({
     dirCache: {},
@@ -165,6 +206,7 @@ export function createFileStore(env: StoreEnvironment) {
     currentContent: null,
     contentLoading: false,
     contentError: null,
+    contentFailure: null,
     contentExpired: false,
     viewMode: "preview",
     treeExpanded: true,
@@ -239,7 +281,7 @@ export function createFileStore(env: StoreEnvironment) {
       fileRequest = request;
       const ownsRequest = () => fileRequest === request && !request.signal.aborted;
       const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
-      set({ currentPath: normalized, contentLoading: true, contentError: null, contentExpired: false, currentContent: null, treeExpanded: false });
+      set({ currentPath: normalized, contentLoading: true, contentError: null, contentFailure: null, contentExpired: false, currentContent: null, treeExpanded: false });
 
       // Fire-and-await: load ancestor chain then content in parallel
       const ancestorsPromise = (async () => {
@@ -276,30 +318,47 @@ export function createFileStore(env: StoreEnvironment) {
           set({ viewMode: "preview" });
         }
       } catch (err) {
-        const e = err as Error & { status?: number; size?: number };
-        let msg = e.message || "load_failed";
-        if (e.status === 413 && e.size) msg = `File too large (${(e.size / 1024 / 1024).toFixed(2)} MB; cap ${(FILE_SIZE_CAP_BYTES / 1024 / 1024).toFixed(0)} MB).`;
-        else if (e.status === 404) msg = "File not found.";
-        else if (e.message === "invalid_path") msg = "Invalid path.";
         // Same guard: a failure for a file the user already left must not
         // replace the file they are now looking at with an error.
         if (!ownsRequest()) return;
-        const scratch = e.status === 404 ? scratchPath(normalized) : null;
-        if (scratch) {
-          nextScratchTurn(scratch);
-          set((s) => ({ contentExpired: true, contentLoading: false, scratchFiles: { ...s.scratchFiles, [scratch]: "expired" } }));
-          return;
-        }
-        set({ contentError: msg, contentLoading: false });
+        set(failureUpdate(normalized, err, get()));
       } finally {
         await ancestorsPromise;
       }
     },
 
+    retryFile: async () => {
+      const state = get();
+      if (!state.currentPath || state.contentLoading || !["unreachable", "unknown"].includes(state.contentFailure?.kind ?? "")) return;
+      await state.openFile(state.currentPath);
+    },
+
+    checkPreview: (content, html = false) => {
+      const owner = fileRequest;
+      const ownsPreview = () => owner !== null && fileRequest === owner && !owner.signal.aborted && get().currentContent === content;
+      if (!ownsPreview()) return Promise.resolve(false);
+      const pending = previewChecks.get(content);
+      if (pending) return pending;
+      const check = (async () => {
+        try {
+          const url = html ? `${apiBase()}/files/html?path=${encodeURIComponent(content.path)}` : `${apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
+          const response = await fetch(url, { method: "HEAD", signal: owner!.signal });
+          if (!ownsPreview()) return false;
+          if (response.ok) return true;
+          set(failureUpdate(content.path, { status: response.status, size: content.size }, get()));
+        } catch (error) {
+          if (ownsPreview()) set(failureUpdate(content.path, error, get()));
+        }
+        return false;
+      })().finally(() => { previewChecks.delete(content); });
+      previewChecks.set(content, check);
+      return check;
+    },
+
     closeFile: () => {
       fileRequest?.abort();
       fileRequest = null;
-      set({ currentPath: null, currentContent: null, contentError: null, contentExpired: false, contentLoading: false, treeExpanded: true });
+      set({ currentPath: null, currentContent: null, contentError: null, contentFailure: null, contentExpired: false, contentLoading: false, treeExpanded: true });
     },
 
     openDir: async (path) => {
@@ -406,6 +465,7 @@ export function createFileStore(env: StoreEnvironment) {
       cacheEpoch++;
       scratchChecks.clear();
       scratchTurns.clear();
+      previewChecks = new WeakMap();
       set({
         dirCache: {}, loadingDirs: new Set(), dirErrors: {}, expandedDirs: new Set([""]),
         highlightedDir: null, wikilinkMap: {}, wikilinkLoaded: false, wikilinkLoading: false,
@@ -413,6 +473,7 @@ export function createFileStore(env: StoreEnvironment) {
         currentContent: null,
         contentLoading: false,
         contentError: null,
+        contentFailure: null,
         contentExpired: false,
         scratchFiles: {},
         viewMode: "preview",

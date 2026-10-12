@@ -286,13 +286,13 @@ while and then pruned, so a link in an older answer can outlive its file.
 - **Only scratch.** A reference under `.brain/scratch/` is checked; anything
   else keeps its not-found behaviour, because a missing canonical note is a
   real problem the user should see as one (`scratchPath`,
-  `packages/ui-react/src/stores/file-state.ts:477-483`).
+  `packages/ui-react/src/stores/file-state.ts:538-544`).
 - **The client asks, once.** No new route: the store sends one `HEAD` on the
   existing raw files route per scratch file, deduplicated per store. Only a
   404 counts. A 2xx or a 413 (over the size cap, but there) is present;
   anything else, including offline or signed out, is not evidence and leaves
   the ordinary link for a later render to ask again (`checkScratchFile`,
-  `packages/ui-react/src/stores/file-state.ts:362-389`). Images are checked
+  `packages/ui-react/src/stores/file-state.ts:421-448`). Images are checked
   only after they fail to load, since loading is already the check, and a
   failed load asks again even about a file seen earlier. Expired is final,
   and an older answer never overwrites a newer one, such as the 404 from
@@ -318,3 +318,33 @@ Proof: `tests/expired-scratch-links.test.tsx` (store and component),
 `tests/scratch-links-runtime.test.ts` (a real server deleting a real render)
 and `tests/browser/expired-scratch-links.layout.tsx` (baselines at 320px and
 1280px in both themes) in `packages/ui-react`.
+
+## 2026-10-12 — retained artifact recovery (#1734)
+
+The maintainer accepted the retained artifact proposal on #1712 for #1644.
+References continue to open in the existing Files destination. A temporary
+connection failure says the file may still be there and offers a manual
+Try again; reconnecting alone never retries. Access failures use generic
+copy, and the existing sign-in gate handles authentication. Signing in
+does not reopen the previous file. A confirmed missing scratch file retains
+D56’s inert expired reference; ordinary missing files remain not-found.
+
+Secondary PDF, image and HTML failures are checked through the existing
+authorized files route before declaring expiry or offering the ordinary
+unsupported-preview download. An uncertain check stays uncertain. The
+current request owns every completion, including secondary checks
+(`checkPreview`, `packages/ui-react/src/stores/file-state.ts:336-362`).
+
+Keyboard entry focuses the file heading. Closing Files returns to its
+surviving opener or its containing paragraph after the surface closes;
+choosing another destination keeps that destination’s focus. Authentication
+drops the ephemeral opener reference. The panel keeps its existing phone
+and desktop placement and announces status once without reading the file.
+Promotion updates retained references through the existing answer rewrite;
+it never retargets an already-open viewer.
+
+Proof: `packages/ui-react/tests/artifact-recovery.test.ts` checks typed
+outcomes, retry ownership and stale secondary results.
+`packages/ui-react/tests/artifact-recovery-runtime.test.ts` exercises the
+real password server, real browser, secondary previews, account isolation,
+phone/desktop layouts in both themes and keyboard return.
