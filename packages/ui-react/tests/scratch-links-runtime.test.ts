@@ -210,7 +210,7 @@ describe.skipIf(!executablePath)("real scratch output through a chat link and vi
     try {
       await page.evaluate(() => (window as unknown as { __scratchFixture: { open: (path: string) => Promise<void> } }).__scratchFixture.open("notes/raft-reference-gone.md"));
       expect(await page.evaluate("window.__scratchFixture.state()")).toMatchObject({ expired: false, error: "File not found." });
-      expect(await page.getByText("File not found.", { exact: true }).count()).toBe(1);
+      expect(await page.getByRole("heading", { name: "File not found", exact: true }).isVisible()).toBe(true);
     } finally { await context.close(); }
   }, 60_000);
 });

@@ -1,6 +1,7 @@
-import { IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
 import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
+import type { FileLoadFailure } from "../../stores/file-state.js";
 
 /**
  * The viewer's chrome, rendered from props (S7): the toolbar over the file,
@@ -38,20 +39,20 @@ export interface ViewerToolbarProps {
 
 export function ViewerToolbar(p: ViewerToolbarProps) {
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
-      <IconButton size="sm" name="Reveal in tree" glyph={<FolderOpen className="h-3.5 w-3.5" />} onClick={p.onReveal} />
-      <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border bg-surface px-4 py-3">
+      <IconButton size="md" name="Reveal in tree" glyph={<FolderOpen className="h-3.5 w-3.5" />} onClick={p.onReveal} />
+      <div className="min-w-0 flex-1 basis-[140px]">
         {/* The reading pane's title: where a press of Files puts focus while
             the drawer's tree is hidden (D52 N3). A script-only stop. */}
-        <div className="truncate text-sm font-medium text-foreground" title={p.fullPath} tabIndex={-1} data-destination-heading="" data-file-title="">
+        <h3 className="truncate text-sm font-medium text-foreground" title={p.fullPath} tabIndex={-1} data-destination-heading="" data-file-title="">
           {p.fileName}
-        </div>
+        </h3>
         <div className="truncate text-[10px] text-muted-foreground" title={p.fullPath}>
           {p.fullPath}
           {p.size !== undefined && <span className="ml-2">· {formatSize(p.size)}</span>}
         </div>
       </div>
-      <IconButton size="sm" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
+      <IconButton size="md" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
       {p.openInTab && (
         <a
           href={p.openInTab}
@@ -59,14 +60,14 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
           rel="noopener"
           title="Open in new tab"
           aria-label="Open in new tab"
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
         >
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
       )}
-      {p.share}
+      {p.share && <div className="[&_button]:min-h-[44px] [&_button]:min-w-[44px]">{p.share}</div>}
       {p.previewAvailable && (
-        <div className="w-auto shrink-0">
+        <div className="w-auto shrink-0 [&_[role=tab]]:inline-flex [&_[role=tab]]:min-h-[44px] [&_[role=tab]]:min-w-[44px] [&_[role=tab]]:items-center [&_[role=tab]]:justify-center">
           <FilterRow
             items={[
               { label: "Preview", onClick: () => p.onMode("preview") },
@@ -87,6 +88,25 @@ export function ViewerLoading() {
       <Placeholder variant="loading" lines={5} bordered={false} pad={0} />
     </div>
   );
+}
+
+/** Neutral recovery copy from the accepted artifact matrix (#1734). */
+export function ViewerFailure({ failure, onRetry }: { failure: FileLoadFailure; onRetry: () => void }) {
+  const title = failure.kind === "unreachable" ? "Can't reach your brain right now."
+    : failure.kind === "forbidden" ? "This file isn't available with your current access."
+    : failure.kind === "unauthenticated" ? "Sign in to open this file."
+    : failure.kind === "not-found" ? "File not found"
+    : failure.kind === "too-large" ? "Too large to preview here."
+    : "Couldn't open this file.";
+  const body = failure.kind === "unreachable" ? "The file may still be there."
+    : failure.kind === "unknown" ? "Try again in a moment."
+    : failure.kind === "too-large" && failure.size !== undefined ? formatSize(failure.size) : "";
+  const retry = failure.kind === "unreachable" || failure.kind === "unknown";
+  return <div className="px-6 py-6">
+    <h3 className="text-base font-medium text-foreground [overflow-wrap:anywhere]">{title}</h3>
+    {body && <p className="mt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">{body}</p>}
+    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={onRetry} /></div>}
+  </div>;
 }
 
 export function ViewerError({ message }: { message: string }) {

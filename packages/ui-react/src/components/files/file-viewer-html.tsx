@@ -15,7 +15,7 @@
  */
 export const HTML_PREVIEW_SANDBOX = "allow-scripts";
 
-export function FileViewerHtml({ src }: { src: string }) {
+export function FileViewerHtml({ src, onCheck }: { src: string; onCheck?: () => void }) {
   return (
     <iframe
       sandbox={HTML_PREVIEW_SANDBOX}
@@ -24,6 +24,8 @@ export function FileViewerHtml({ src }: { src: string }) {
       referrerPolicy="no-referrer"
       className="h-full w-full border-0 bg-white"
       title="HTML preview"
+      onLoad={onCheck}
+      onError={onCheck}
     />
   );
 }

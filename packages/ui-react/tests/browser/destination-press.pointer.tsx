@@ -94,7 +94,7 @@ const MAP = `<!doctype html><body>${Array.from({ length: 120 }, (_, i) => `<p>Le
 
 /** Every request the shell makes, answered offline. */
 function fixtureRequest() {
-  return async (url: string): Promise<Response> => {
+  return async (url: string, init?: RequestInit): Promise<Response> => {
     const parsed = new URL(url, "http://fixture.invalid");
     const path = parsed.pathname;
     if (path.endsWith("/sessions")) return Response.json({ sessions: SESSIONS });
@@ -105,6 +105,9 @@ function fixtureRequest() {
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
     if (path.endsWith("/files/tree")) return Response.json({ path: "", entries: FILES });
     if (path.endsWith("/files/resolve")) return Response.json({ path: parsed.searchParams.get("path"), ancestors: [], exists: true, type: "file" });
+    // The native HTML fixture serves this same authorized route. The viewer
+    // confirms its response with HEAD; an omitted route must not invent a 404.
+    if (path.endsWith("/files/html") && parsed.searchParams.get("path") === HTML_FILE && init?.method === "HEAD") return new Response(null, { status: 200 });
     if (path.endsWith("/files/content") && parsed.searchParams.get("path") === HTML_FILE) {
       return Response.json({ path: HTML_FILE, kind: "html", size: MAP.length, mtime: T0, content: MAP });
     }

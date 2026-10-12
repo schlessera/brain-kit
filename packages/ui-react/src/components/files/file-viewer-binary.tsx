@@ -29,7 +29,7 @@ export function binaryPreviewerFor(mime: string | undefined): ComponentType<Bina
   return BINARY_PREVIEWERS[type] ?? BINARY_PREVIEWERS[`${type.split("/")[0]}/*`] ?? null;
 }
 
-export function FileViewerBinary({ content }: { content: FileContentResponse }) {
+export function FileViewerBinary({ content, onCheckFailure }: { content: FileContentResponse; onCheckFailure?: () => Promise<boolean> }) {
   const root = useBrainUiRoot();
   const rawUrl = `${root.apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
   const filename = content.path.split("/").pop() ?? content.path;
@@ -49,12 +49,15 @@ export function FileViewerBinary({ content }: { content: FileContentResponse }) 
       content={content}
       rawUrl={rawUrl}
       filename={filename}
-      onUnsupported={() => setUnsupported(revision)}
+      onUnsupported={() => {
+        if (!onCheckFailure) setUnsupported(revision);
+        else void onCheckFailure().then(available => { if (available) setUnsupported(revision); });
+      }}
     />
   );
 }
 
-function ImagePreview({ content, rawUrl, filename }: BinaryPreviewProps) {
+function ImagePreview({ content, rawUrl, filename, onUnsupported }: BinaryPreviewProps) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
       <div className="flex max-h-full max-w-full overflow-auto rounded-lg border border-border bg-surface p-2">
@@ -66,6 +69,7 @@ function ImagePreview({ content, rawUrl, filename }: BinaryPreviewProps) {
           className="max-h-[70vh] max-w-full cursor-zoom-in object-contain"
           mime={content.mime}
           bytes={content.size}
+          imgProps={{ onError: onUnsupported }}
         />
       </div>
       <BinaryMeta content={content} rawUrl={rawUrl} filename={filename} />
@@ -122,7 +126,7 @@ function PreviewUnavailable({ content, rawUrl, filename }: { content: FileConten
         download={filename}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-raised"
+        className="mt-1 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-raised"
       >
         <Download className="h-3.5 w-3.5" />
         Download

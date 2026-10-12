@@ -1,6 +1,7 @@
 import type { BrainUiRoot } from "../../root.js";
 import type { FileState } from "../../stores/file-state.js";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { focusFileEntryHeading } from "../../lib/file-entry-focus.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { FileViewerMarkdown } from "./file-viewer-markdown.js";
 import { FileViewerHtml } from "./file-viewer-html.js";
@@ -16,7 +17,7 @@ import { MermaidBlock } from "../chat/mermaid-block.js";
 import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
-import { ViewerEmpty, ViewerError, ViewerExpired, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
+import { ViewerEmpty, ViewerFailure, ViewerExpired, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
 
 /**
  * The container (S7): reads the file store, builds the share options (they
@@ -24,14 +25,19 @@ import { ViewerEmpty, ViewerError, ViewerExpired, ViewerLoading, ViewerToolbar }
  * `file-viewer-frame.tsx`, rendered from props.
  */
 export function FileViewer() {
+  const root = useBrainUiRoot();
+  const viewer = useRef<HTMLDivElement>(null);
   const currentPath = useFileStore((s) => s.currentPath);
   const content = useFileStore((s) => s.currentContent);
   const loading = useFileStore((s) => s.contentLoading);
   const error = useFileStore((s) => s.contentError);
+  const failure = useFileStore((s) => s.contentFailure);
+  const retry = useFileStore((s) => s.retryFile);
   const expired = useFileStore((s) => s.contentExpired);
   const viewMode = useFileStore((s) => s.viewMode);
   const setViewMode = useFileStore((s) => s.setViewMode);
   const setTreeExpanded = useFileStore((s) => s.setTreeExpanded);
+  useLayoutEffect(() => { focusFileEntryHeading(root, viewer.current?.querySelector<HTMLElement>("[data-file-title]") ?? null); });
 
   if (!currentPath) return <ViewerEmpty />;
 
@@ -42,7 +48,7 @@ export function FileViewer() {
     (content?.kind === "text" && isMermaidPath(content.path));
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={viewer} className="flex h-full min-w-0 flex-col">
       <Toolbar
         fileName={fileName}
         fullPath={currentPath}
@@ -54,9 +60,13 @@ export function FileViewer() {
         onRevealInTree={() => setTreeExpanded(true)}
       />
 
-      <div className="flex-1 overflow-auto">
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">File status: {loading ? "Loading file" : expired ? "This file has expired" : error ?? (content ? "File loaded" : "")}</span>
+      <div className="min-h-0 flex-1 overflow-auto">
         {loading && <ViewerLoading />}
-        {error && <ViewerError message={error} />}
+        {error && <ViewerFailure failure={failure ?? { kind: "unknown" }} onRetry={() => {
+          viewer.current?.querySelector<HTMLElement>("[data-file-title]")?.focus({ preventScroll: true });
+          void retry();
+        }} />}
         {expired && <ViewerExpired />}
         {!loading && !error && !expired && content && <ViewerBody content={content} viewMode={viewMode} />}
       </div>
@@ -67,7 +77,7 @@ export function FileViewer() {
 function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["currentContent"]>; viewMode: "preview" | "raw" }) {
   const root = useBrainUiRoot();
   if (content.kind === "binary") {
-    return <FileViewerBinary content={content} />;
+    return <FileViewerBinary content={content} onCheckFailure={() => root.stores.file.getState().checkPreview(content)} />;
   }
   // Standalone mermaid source files (.mmd / .mermaid) preview as a diagram.
   if (viewMode === "preview" && content.kind === "text" && isMermaidPath(content.path)) {
@@ -83,7 +93,7 @@ function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["cur
   if (content.kind === "markdown") {
     return <FileViewerMarkdown content={content.content ?? ""} />;
   }
-  return <FileViewerHtml key={`${content.path}@${content.mtime}`} src={htmlPreviewUrl(root, content.path)} />;
+  return <FileViewerHtml key={`${content.path}@${content.mtime}`} src={htmlPreviewUrl(root, content.path)} onCheck={() => { void root.stores.file.getState().checkPreview(content, true); }} />;
 }
 
 /** The sandboxed, script-running HTML route (#1084), for the iframe and a new tab. */
