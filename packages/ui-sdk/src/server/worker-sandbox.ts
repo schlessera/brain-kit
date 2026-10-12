@@ -69,6 +69,8 @@ export interface WorkerArea {
 }
 
 export interface WorkerSandbox {
+  /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
+  readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
   /** Canonical brain path the layout was resolved for. */
   readonly brain: string;
   readonly restricted: boolean;

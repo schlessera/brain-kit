@@ -3,6 +3,35 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+<a id="retained-turn-journal-additive-1652"></a>
+
+### Retained turn journal (additive, #1652)
+
+`turn_journal` carries `{ type, sessionId, turnId, journal: TurnJournalSummary }`.
+The session and host-minted turn are required. It updates that turn's single
+collapsed receipt without opening an assistant message, changing run state or
+stealing focus. Receipts may arrive after `result`; unknown frames remain
+ignorable by older clients. Replayed assistant history may carry the same
+optional `journal` field; missing legacy observations mean unrecorded, never
+zero changes or zero cost.
+
+Summary states are `recording`, `complete`, `partial`, `expired`, `unknown` and
+`unrecorded`. Counts, effective Activity cost, estimate status, actual profile,
+actor, model and policy hash are nullable observed facts. `sharedAttribution`
+states that overlapping writable windows share observations. `observedAt`
+names the retained window observation, not a guessed receipt time.
+The type is defined by (`TurnJournalSummary`,
+`packages/ui-sdk/src/turn-journal.ts:2-14`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1005-1017`).
+The journal does not assert effective budget/scope enforcement before those
+monitors provide receipts; the UI says limits unknown.
+
+`journal_capacity` and `journal_unavailable` are additive host failure classes.
+A failed initial observation refuses the worker; a mid-turn journal stop ends
+as an error with its named partial-work receipt, rather than being relabeled
+as a timeout. A user cancellation or host timeout that already won keeps its
+existing terminal precedence. No automatic retry or revert is implied.
+
 <a id="revision-negotiation"></a>
 
 ### Revision negotiation
@@ -1451,3 +1480,31 @@ prompt).
   these runs itself; a `WsHost` embedder that builds its own labeller passes
   `createLabeller({ options, activity: { store, onWrite? } })`, and without
   `activity` it records none.
+
+
+<a id="session-worker-profile-additive-1663"></a>
+
+## Session worker profile (additive, #1663)
+
+`server_hello.capabilities.sessionProfiles: true` advertises authenticated
+profile GET/PUT routes. `session_info.workerProfile?: SessionWorkerProfile`
+carries host-stamped confirmed preference, policy and actual admitted-worker
+facts, as described in the [HTTP contract](http.md#session-worker-profile-additive-1663).
+Backends do not choose or stamp these host facts. Turn accounting records the
+actual admitted profile independently of the next-turn preference.
+
+A first `chat_message` may carry `profileDraftId`, the existing composer
+identity whose preference was successfully saved. It must also carry the
+existing `draftId` correlation and `requestId`; a supplied `draftRef` must
+name the same composer identity. The host refuses missing, foreign-principal
+or mismatched preference identities before starting the worker. The eventual
+`session_info` binds the preference to the actual named session and echoes
+existing correlation fields. Repeated announcements do not bind twice.
+Resumed sessions use only their own stored preference. Genuine voice ignores
+interactive preference and uses its policy; dictation remains interactive.
+
+Clients apply only validated save acknowledgements to the same selected
+session/draft and connection. Pending, failed and late receipts never replace
+another chat's confirmed choice. A new-chat send waits for fresh draft facts
+on a supporting host, including after reload/reconnect; an old host remains
+compatible. No protocol revision or permission grant is added.

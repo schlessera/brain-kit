@@ -1,4 +1,5 @@
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -45,7 +46,10 @@ export function createPermissionWiring(options: {
   /** Where a withheld re-admission is recorded. */
   log: BackendLogFn;
 }): Pick<Options, "canUseTool" | "hooks"> {
-  const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv, log } = options;
+  const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
+  const commandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
+  const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
+  const denyCommand = (toolName: string, input: unknown, toolUseId: string) => denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
   const allowed = new Set(allowedTools);
   const updateName = (name: string) => name === "mcp__brain__brain_update" ? name : BRAIN_UPDATE_TOOL;
   const routed = (name: string) => Boolean(req.bridge.applyBrain) && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].some(tool => name === `mcp__brain-ui__${tool}`);
@@ -147,8 +151,11 @@ export function createPermissionWiring(options: {
   const recheckEdit = (
     toolName: string,
     originalInput: unknown,
-    editedInput: unknown
+    editedInput: unknown,
+    toolUseId: string
   ): string | null => {
+    const denied = denyCommand(toolName, editedInput, toolUseId);
+    if (denied) return denied;
     const refusal = checkEditedApproval({
       toolName,
       shellToolName: "Bash",
@@ -172,6 +179,8 @@ export function createPermissionWiring(options: {
   ) => {
     if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
+    const denied = denyCommand(toolName, input, opts.toolUseID);
+    if (denied) return { behavior: "deny", message: denied };
     if (routed(toolName)) return { behavior: "allow" };
     // The PreToolUse hook below may already hold the write lock for this tool
     // use (it fires before permission evaluation). Don't keep the lock across
@@ -201,13 +210,13 @@ export function createPermissionWiring(options: {
       // remembered on a wider posture is not an answer to it.
       outsideEnforcedAllowlist: outsideEnforcedAllowlist(toolName),
     });
-    const decision = await requestToolPermission(req.bridge, request, permissionOptions);
+    const decision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
     // An edit is re-checked before it is applied: the card was a grant for
     // the input it showed, and an edit into a call that needs a per-use
     // confirmation — one the PreToolUse hook raised for nothing, because it
     // saw the original — must not ride in on that grant.
     if (decision.behavior === "allow" && decision.updatedInput !== undefined) {
-      const refusal = recheckEdit(toolName, input, decision.updatedInput);
+      const refusal = recheckEdit(toolName, input, decision.updatedInput, opts.toolUseID);
       if (refusal) return { behavior: "deny", message: refusal };
     }
     // A mutating tool runs inside this subprocess the moment we return
@@ -236,6 +245,9 @@ export function createPermissionWiring(options: {
     if (hookInput.hook_event_name !== "PreToolUse") {
       return { continue: true };
     }
+    if (req.signal.aborted) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled before tool admission." } };
+    const denied = denyCommand(hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id);
+    if (denied) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denied } };
     if (routed(hookInput.tool_name)) return { continue: true };
     // The registered matcher includes every brain MCP name. The classifier
     // decides the actual key, including null for named read-only tools.
@@ -248,7 +260,7 @@ export function createPermissionWiring(options: {
     // one; this is just its runtime binding.
     //
     // Allowlisting is not the only reason it belongs here. This backend loads
-    // the brain repo's project settings (`settingSources`, sdk-options.ts:179),
+    // the brain repo's project settings (`settingSources`, sdk-options.ts:207),
     // and a hook
     // declared in those can answer a call before canUseTool is reached at all
     // — #124 has the measurements. This hook fires either way. None of that
@@ -285,7 +297,7 @@ export function createPermissionWiring(options: {
         description: approval.reason,
         approval,
       });
-      const decision = await requestToolPermission(req.bridge, request, permissionOptions);
+      const decision = await requestPolicyPermission(commandPolicy, { bridge: req.bridge, request, permission: permissionOptions, shellToolName: "Bash", signal: req.signal });
       if (decision.behavior !== "allow") {
         return {
           continue: true,
@@ -304,7 +316,8 @@ export function createPermissionWiring(options: {
         const refusal = recheckEdit(
           hookInput.tool_name,
           hookInput.tool_input,
-          decision.updatedInput
+          decision.updatedInput,
+          hookInput.tool_use_id
         );
         if (refusal) {
           return {
@@ -365,6 +378,11 @@ export function createPermissionWiring(options: {
       return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
         permissionDecisionReason: "The rewritten call already completed before yielding; no replay." } };
     }
+    if ("hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" &&
+      output.hookSpecificOutput.updatedInput !== undefined && args[0].hook_event_name === "PreToolUse") {
+      const refusal = recheckEdit(toolName, args[0].tool_input, output.hookSpecificOutput.updatedInput, args[0].tool_use_id);
+      if (refusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
+    }
     return output;
   };
   const agentHook = restrictRewrite(createAgentHook({
@@ -377,6 +395,8 @@ export function createPermissionWiring(options: {
     // A confirmed command belongs to mutatingHook, which may apply an edit
     // of it; rtk proxying is opportunistic and gives way.
     leaveAlone: (input) =>
+      // Match without observing: mutatingHook owns the denial receipt.
+      (typeof (input as { command?: unknown })?.command === "string" && commandPolicy.deny.some(pattern => pattern.test((input as { command: string }).command))) ||
       decideToolPermission({
         toolName: "Bash",
         shellToolName: "Bash",

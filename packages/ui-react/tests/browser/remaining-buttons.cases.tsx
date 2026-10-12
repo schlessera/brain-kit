@@ -169,6 +169,50 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       expect(targets, "search and viewer controls retain pointer targets").toEqual(Array(5).fill(true));
       expect(rings, "search and viewer controls have visible rings").toEqual(Array(5).fill(true));
     });
+    test(`${prefix} search opening focus preserves native navigation`, async ctx => {
+      const mode = pointer(); const s = await mount(ctx, width, theme);
+      // The shared tsconfig also loads Node timer overloads; this is a browser.
+      const browser = window as { setTimeout: (callback: TimerHandler, delay?: number, ...args: unknown[]) => number };
+      const originalTimeout = browser.setTimeout.bind(window);
+      const trace: Array<Record<string, unknown>> = [];
+      let releaseOpeningFocus: (() => Promise<void>) | undefined;
+      const timer = vi.spyOn(browser, "setTimeout").mockImplementation((callback, delay, ...args) => {
+        if (delay !== 120 || typeof callback !== "function") return originalTimeout(callback, delay, ...args);
+        expect(releaseOpeningFocus, "one opening-focus timer").toBeUndefined();
+        const parked = originalTimeout(() => {}, 2_147_483_647);
+        releaseOpeningFocus = () => new Promise<void>(resolve => originalTimeout(() => {
+          clearTimeout(parked);
+          trace.push({ event: "opening-focus-timer", at: performance.now() });
+          callback(...args);
+          resolve();
+        }, 0));
+        ctx.onTestFinished(() => clearTimeout(parked));
+        return parked;
+      });
+      const record = (event: Event) => trace.push({ event: event.type, key: (event as KeyboardEvent).key,
+        target: (event.target as HTMLElement)?.getAttribute("aria-label") ?? (event.target as HTMLElement)?.tagName,
+        at: performance.now() });
+      document.addEventListener("focusin", record);
+      document.addEventListener("keydown", record);
+      ctx.onTestFinished(() => { timer.mockRestore(); document.removeEventListener("focusin", record); document.removeEventListener("keydown", record); });
+      s.draw(<SearchPanel open onClose={s.actions.close} />);
+      const input = page.getByRole("textbox").element();
+      expect(document.activeElement, "overlay initially focuses the search input").toBe(input);
+      await page.getByRole("textbox").fill("Ithaca");
+      await s.find("Clear search").click();
+      expect(document.activeElement, "clear returns to the input").toBe(input);
+      await userEvent.tab();
+      const close = s.find("Close").element() as HTMLElement;
+      expect(document.activeElement, "native Tab reaches Search Close").toBe(close);
+      expect(releaseOpeningFocus, "controlled opening timer was captured").toBeTypeOf("function");
+      await releaseOpeningFocus!();
+      await userEvent.keyboard("{ArrowRight}");
+      const css = getComputedStyle(close);
+      const observation = { pointer: mode, width, theme, active: document.activeElement?.tagName,
+        activeIsClose: document.activeElement === close, style: css.outlineStyle, widthPx: css.outlineWidth, color: css.outlineColor, trace };
+      expect([observation.activeIsClose, css.outlineStyle === "solid", css.outlineWidth === "2px", css.outlineColor !== "rgba(0, 0, 0, 0)"],
+        `SEARCH_CLOSE_KEEPS_NATIVE_FOCUS ${JSON.stringify(observation)}`).toEqual([true, true, true, true]);
+    });
   }
   for (const theme of ["dark", "light"]) test(`batch5 320 ${theme} file strip and picker`, async ctx => {
     const mode = pointer(); const s = await mount(ctx, 320, theme);

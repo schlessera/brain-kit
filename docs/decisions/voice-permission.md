@@ -311,7 +311,7 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:193-203`) and is not
+`permission-hooks.ts:202-212`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:53-63`)
 lets a deployment supply its own patterns, which have no phrase when given as
@@ -368,7 +368,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:344` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:345` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -381,7 +381,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:339`; `drainPendingForTurn`, `:344`),
+(`abortController.abort()`, `run-session.ts:340`; `drainPendingForTurn`, `:345`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -396,7 +396,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:410-416`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:411-417`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -405,8 +405,8 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:410-416`, and the lookup computing
-`remembered`, `ws/bridge.ts:253-273`), and 192 of 192 measured
+(the block computing `remembers`, `dispatch.ts:411-417`, and the lookup computing
+`remembered`, `ws/bridge.ts:269-289`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -460,10 +460,10 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:511-526`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:526-541`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:282-297`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:298-313`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -475,7 +475,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:457-480`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:458-481`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:472`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:494`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -582,7 +582,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:18-32`;
   `!mayGrant`, `:71-79`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:370-386`).
+  `const agentHook`, `permission-hooks.ts:388-406`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -592,14 +592,14 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:253-273`,
+  `packages/ui-server/src/ws/bridge.ts:269-289`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:410-416`).
+  `packages/ui-server/src/ws/dispatch.ts:411-417`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:106-129`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:110-133`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -619,7 +619,7 @@ with a `BackendRequestError` (`assertTurnPosture`,
 codebase's own shortcuts was never sufficient: the runtime has permission
 opinions of its own that also land before `canUseTool`
 (the block above `enforcementHook`, `DO NOT WEAKEN THIS INTO A FALLTHROUGH`,
-`permission-hooks.ts:73-104`, with the measurements in #154) — a safe-command
+`permission-hooks.ts:77-108`, with the measurements in #154) — a safe-command
 classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
 never consulted), a built-in tool's own check (`ToolSearch` executed twice under
 the same conditions), and a `PreToolUse` hook in the project settings this
@@ -672,8 +672,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:141-143`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:268-275`). So a
+`permission-hooks.ts:145-147`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:280-287`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about

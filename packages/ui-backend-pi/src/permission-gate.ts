@@ -38,10 +38,11 @@ import {
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
-  requestToolPermission,
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission } from "@schlessera/brain-ui-sdk/internal";
+import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
 
@@ -74,7 +75,7 @@ export function approvalReason(
 }
 
 export function createPermissionGate(options: PermissionGateOptions): InlineExtension {
-  const { turn, allowedTools, confirmPatterns } = options;
+  const { turn } = options;
   return {
     name: "brain-permission-gate",
     factory: (pi) => {
@@ -85,52 +86,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // The server route rechecks the exact operation, live principal,
         // membership and approval. Avoid a second runtime approval card.
         if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) return undefined;
-        const approval = decideToolPermission({
-          toolName: event.toolName,
-          shellToolName: "bash",
-          updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
-          input: event.input,
-          allowedTools,
-          confirmPatterns,
-        });
-        if (!approval) return undefined;
-
-        const request = createToolPermissionRequest({
-          toolUseId: event.toolCallId,
-          toolName: event.toolName,
-          input: (event.input ?? {}) as Record<string, unknown>,
-          description: approval.reason,
-          approval,
-          // Kind "tool" here means exactly "not on `allowedTools`" — the
-          // decision above was taken against the turn's real allowlist. Under
-          // an enforced posture the host must not answer it from a grant
-          // remembered on a wider one.
-          outsideEnforcedAllowlist:
-            turn.enforceAllowedTools && approval.kind === "tool",
-        });
-        const decision = await requestToolPermission(turn.bridge, request, {
-          noGrantSurface: turn.noGrantSurface,
-        });
-        if (decision.behavior === "deny") {
-          return {
-            block: true,
-            reason: decision.message || `Permission denied for ${event.toolName}.`,
-          };
-        }
+        const decision = await decidePiToolPermission(options, event.toolName, (event.input ?? {}) as Record<string, unknown>, event.toolCallId);
+        if (decision.behavior === "deny") return { block: true, reason: decision.message || `Permission denied for ${event.toolName}.` };
         if (decision.updatedInput && event.input && typeof event.input === "object") {
-          // The card showed the original input. An edit that needs a
-          // confirmation it did not show — another confirm pattern, another
-          // archived document — is refused whole rather than applied, so an
-          // approval cannot redirect the call it confirmed.
-          const refusal = checkEditedApproval({
-            toolName: event.toolName,
-            shellToolName: "bash",
-            updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
-            confirmPatterns,
-            originalInput: event.input,
-            editedInput: decision.updatedInput,
-          });
-          if (refusal) return { block: true, reason: refusal };
           // In-place mutation is pi's runtime contract for patching tool
           // arguments. Claude must instead return a structural updatedInput;
           // this runtime-specific difference deliberately stays in the binding.
@@ -146,4 +104,41 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
       });
     },
   };
+}
+
+/** Host admission shared by the native worker RPC and the in-process binding. */
+export async function decidePiToolPermission(options: PermissionGateOptions, toolName: string,
+  input: Record<string, unknown>, toolUseId: string): Promise<PermissionDecision> {
+  const { turn, allowedTools } = options;
+  const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
+  const confirmPatterns = [...options.confirmPatterns, ...policy.confirm];
+  const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
+  if (denied) return { behavior: "deny", message: denied };
+  if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
+  let effective = input;
+  // Per-use confirmation precedes any rememberable tool grant, including bash
+  // omitted from an operator's allowlist. Neither card can answer the other.
+  const commandAllowed = new Set(allowedTools); commandAllowed.add("bash");
+  const perUse = decideToolPermission({ toolName, shellToolName: "bash", updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
+    input, allowedTools: commandAllowed, confirmPatterns });
+  const approvals = [perUse?.kind === "command" ? perUse : null,
+    !allowedTools.has(toolName) ? decideToolPermission({ toolName, shellToolName: "bash", updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
+      input, allowedTools, confirmPatterns }) : null];
+  for (const approval of approvals) {
+    if (!approval) continue;
+    const original = effective;
+    const request = createToolPermissionRequest({ toolUseId, toolName, input: original, description: approval.reason,
+      approval, outsideEnforcedAllowlist: turn.enforceAllowedTools && approval.kind === "tool" });
+    const decision = await requestPolicyPermission(policy, { bridge: turn.bridge, request, shellToolName: "bash",
+      permission: { noGrantSurface: turn.noGrantSurface }, signal: turn.signal });
+    if (decision.behavior === "deny") return decision;
+    if (decision.updatedInput !== undefined) {
+      const refusal = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input: decision.updatedInput, toolUseId }) ||
+        checkEditedApproval({ toolName, shellToolName: "bash", updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
+          confirmPatterns, originalInput: original, editedInput: decision.updatedInput });
+      if (refusal) return { behavior: "deny", message: refusal };
+      effective = decision.updatedInput;
+    }
+  }
+  return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

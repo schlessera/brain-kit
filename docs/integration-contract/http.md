@@ -26,6 +26,19 @@ The detailed stats promises below remain binding. The specification records rema
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
 
+<a id="retained-turn-journal-reads-additive-1652"></a>
+
+### Retained turn journal reads (additive, #1652)
+
+The three authenticated session/turn journal GET routes are specified in
+[the HTTP inventory](../http-api.md#retained-turn-journal). They resolve retained
+observations owned by that exact session and turn; callers cannot name a CAS
+hash directly. Missing/expired raw details never grant a download bypass.
+`createBrainApi` adds `turnJournal(sessionId, turnId, signal?)`,
+`turnJournalPreview(sessionId, turnId, sequence, signal?)`. Reader download
+links use the embedding root's configured API base.
+No mutation, retry execution or revert operation is added by these helpers.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
@@ -365,3 +378,37 @@ Every hosted profile refuses boot as `OperationalStateInBrainError` when
 `DB_PATH` or private poke-token state resolves inside the brain. The error
 carries the unavailable diagnostic as `status`; no HTTP listener is created.
 The hosting guide documents migration and the retained directory masks.
+
+
+<a id="session-worker-profile-additive-1663"></a>
+
+## Session worker profile (additive, #1663)
+
+Authenticated hosts advertising `capabilities.sessionProfiles` support
+`GET` and `PUT /api/sessions/:id/profile` for a catalogued chat, and
+`GET` and `PUT /api/drafts/:id/profile` for the existing unbound composer
+identity. The draft route keeps only a preference; it creates no session,
+reservation or dummy text. A PUT body is `{ preference: "governed" | "strict" }`.
+Requests and responses are not cached. JSON bodies are bounded to 4 KiB.
+
+Successful responses carry `SessionWorkerProfile`: confirmed `preference`,
+current lower-bound `policyProfile`, nullable `policyHash`, `origin`
+(`interactive` or `voice`), optional `actualProfile` of the latest admitted
+worker, and `limits` (`{ name, value, onHit? }[]`). Draft responses additionally
+carry `draftPreferenceStored`, true only after a successful durable save.
+Unknown enforcement facts are explicitly `Unknown`; parsed future budgets
+and scope caps are not represented as active enforcement. The actual worker
+may be stricter than the preference because of policy or launcher fallback.
+
+Unknown catalog sessions return 404; invalid values/identities return 400;
+revoked/expired principals return 401. The store revalidates durable authority
+inside each save transaction after reading the body. A governed save below a
+strict policy, or any voice save, returns 409. Failed saves preserve the
+confirmed preference. A change affects subsequent interactive admission,
+never the authority already frozen for a running turn.
+
+Draft preferences are principal-bound and capped by the existing host draft
+count. At capacity the host refuses a new preference with 507 instead of
+evicting a live confirmed choice. Expired-principal rows are removed on save;
+a successful first-session binding consumes that draft preference into the
+session catalog. Another principal or draft cannot borrow it.

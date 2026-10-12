@@ -99,6 +99,7 @@ type RunSessionInput = {
   draftId?: string;
   /** The saved draft revision this message was sent from (#979). */
   draftRef?: DraftRef;
+  profileDraftId?: string;
   /** Accepted-work revision of this request (#964), for a known session. */
   revision?: number;
   /**
@@ -453,9 +454,28 @@ async function runRetainedSession(
       let workOutcome: HostWorkOutcome = "error";
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
+      let journalFailure: Error | undefined;
       try {
-        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, work?.posture === "voice" ? "voice" : "interactive");
+        if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
+          || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
+          throw new Error("A draft profile requires the matching first-send identity and correlation.");
+        const origin = work?.posture === "voice" ? "voice" : "interactive";
+        const preference = origin === "interactive"
+          ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference);
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
+        if (governedHold && host.journal) {
+          host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
+            profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
+          error => {
+            // A real timeout/cancel already won; never relabel that terminal.
+            if (abortController.signal.aborted || turn.cancelled) return;
+            journalFailure = error;
+            abortController.abort(error);
+            coordinator.drainPendingForTurn(turn, error.message);
+          });
+        }
         const bridge = makeBridge(
           host,
           turn,
@@ -481,7 +501,9 @@ async function runRetainedSession(
           () => current.label,
           backend.brainApplicationPolicy?.({ profileId,
             ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-          governedHold ? protectedPaths(governedHold.policy.policy) : undefined
+          governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+          governedHold ? { origin, actualProfile: governedHold.sandbox.profile === "governed" ? "governed" : "strict",
+            ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
@@ -513,6 +535,10 @@ async function runRetainedSession(
           // turn never gets here, so that turn keeps its posture.
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
+        // Final observation is part of this host outcome, after worker writes
+        // stop and before its Activity terminal, quarantine or gate release.
+        host.journal?.finish(turn.turnId);
+        if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
         // never narrated, and the receipt keeps the reason.
         workOutcome = turn.cancelled || abortController.signal.aborted || turn.lastResult === "cancelled"
@@ -541,17 +567,22 @@ async function runRetainedSession(
                 : "success"
         );
       } catch (err) {
-        emitTurnError(host, turn, err);
+        const terminal = journalFailure ?? err;
+        emitTurnError(host, turn, terminal);
         recorder?.finish(
-          turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : "error"
+          turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
         // A host timeout is host-terminal like a cancel: its late result is
         // never narrated (the work keeps the reason).
-        workOutcome = turn.cancelled || abortController.signal.aborted ? "cancelled" : "error";
-        workReason = !turn.cancelled && abortController.signal.aborted
+        workOutcome = turn.cancelled || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
+        workReason = !turn.cancelled && !journalFailure && abortController.signal.aborted
           ? "Turn timed out"
-          : err instanceof Error ? err.message : String(err);
+          : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
+        try {
+          // Observe after backend writers stop, before quarantine and gate release.
+          host.journal?.finish(turn.turnId);
+        } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
         try {
           const reconciled = governedHold?.end();
           for (const item of reconciled?.quarantined ?? []) {
@@ -778,6 +809,7 @@ export async function handleChatMessage(
     thinkingLevel?: ThinkingLevel;
     requestId?: string;
     draftId?: string;
+    profileDraftId?: string;
     /** Only present when the host stores drafts (#979). */
     draftRef?: DraftRef;
     localExchanges?: LocalExchange[];
@@ -972,6 +1004,7 @@ export async function handleChatMessage(
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
+    ...(msg.profileDraftId ? { profileDraftId: msg.profileDraftId } : {}),
     ...(draftRef ? { draftRef } : {}),
     ...(revision !== undefined ? { revision } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),

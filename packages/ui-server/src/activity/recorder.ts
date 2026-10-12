@@ -412,6 +412,21 @@ export function createTurnRecorder(
             onWrite?.();
             break;
           }
+          case "policy_block":
+          case "policy_confirm": {
+            ensureRoot();
+            store.appendEvent(rootSpanId, event.kind, event.payload);
+            try {
+              deps.governance?.({ kind: event.kind, payload: event.payload,
+                sessionId: sessionId ?? null, turnId: runId,
+                actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
+                model: resultUsage?.model ?? null, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
+            } catch (error) {
+              log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
+            }
+            onWrite?.();
+            break;
+          }
           case "resource_limit": {
             // A host resource limit stopped a step or the whole worker
             // (#1660): on the run's root span, and as a governance event

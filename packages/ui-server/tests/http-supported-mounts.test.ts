@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createActivityStore } from "../src/activity/store";
 import { createPrincipal } from "../src/db/principals";
+import { createSessionCatalog } from "../src/ws/session-catalog";
 import { CLI_LOG, httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 
@@ -52,6 +53,10 @@ const checks: Record<string, Check> = {
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
   "POST /api/models/refresh": { init: { method: "POST" }, status: 409, verify: async (r) => { expect((await r.json()).error).toBeString(); } },
   "GET /api/providers": { body: { providers: [{ id: "fixture" }], backends: { fixture: { id: "fixture" } } } },
+  "GET /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", body: { preference: "governed", origin: "interactive" } },
+  "PUT /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict" } },
+  "GET /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", body: { preference: "governed", draftPreferenceStored: false } },
+  "PUT /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict", draftPreferenceStored: true } },
   "GET /api/sessions": { body: { sessions: [{ id: "fixture-session", backendId: "fixture", title: "Arrival" }] } },
   "GET /api/drafts": { body: { drafts: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/drafts/:draftId": { path: "/api/drafts/draft-missing", status: 404, body: { error: "DRAFT_NOT_FOUND" } },
@@ -60,6 +65,9 @@ const checks: Record<string, Check> = {
   "DELETE /api/drafts/:draftId": { path: "/api/drafts/draft-missing", init: { method: "DELETE", headers: { "if-match": "1" } }, status: 404, body: { error: "DRAFT_NOT_FOUND" } },
   "POST /api/drafts/:draftId/bind": { path: "/api/drafts/draft-missing/bind", init: json("POST", { sessionId: "fixture-session", requestId: "fixture-request" }), status: 409, body: { error: "DRAFT_NOT_ACCEPTED" } },
   "GET /api/sessions/:id": { path: "/api/sessions/fixture-session", body: { id: "fixture-session", messages: [{ role: "assistant", content: "Odysseus reaches the harbor." }] } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
+  "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
@@ -106,6 +114,9 @@ for (const [operation, check] of Object.entries(checks)) {
       if (operation === "POST /api/auth/login") t.app.db.exec("DELETE FROM passkey_credentials");
       if (operation === "DELETE /api/auth/principals/:id") {
         t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
+      }
+      if (operation.endsWith("/api/sessions/:id/profile")) {
+        createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
       }
       const store = createActivityStore(t.app.db, { writer: "http-contract" });
       store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });

@@ -152,6 +152,7 @@ const SAMPLES: ServerMessage[] = [
   },
   { type: "conversation_permission", conversationId: "c1", epoch: 1, sessionId: "s1", turnId: "turn-1", toolUseId: "t1", toolName: "Write", announce: false },
   { type: "ask_answer_receipt", sessionId: "s1", turnId: "t1", requestId: "toolu_1", submissionId: "sub-1", state: "closed", reason: "ended" },
+  { type: "turn_journal", sessionId: "s1", turnId: "turn-1", journal: { state: "complete", changedFiles: 1, steeringFiles: 0, costUsd: 0.5, costIsEstimate: false, profile: "governed", actor: "interactive", model: "fixture", policyHash: "f".repeat(64), sharedAttribution: false, observedAt: 1 } },
   { type: "pong", probeId: "probe-1" },
 ];
 

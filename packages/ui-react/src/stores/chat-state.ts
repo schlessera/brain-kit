@@ -18,6 +18,7 @@ import type {
   TurnRetry,
   ThinkingLevel,
   StateRoomObservation,
+  TurnJournalSummary,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -64,6 +65,8 @@ export interface ChatMessage {
    * result, or with the replayed history; absent means plain markdown.
    */
   blocks?: MessageBlock[];
+  journal?: TurnJournalSummary;
+  journalLive?: boolean;
   /** The host-minted turn that produced this assistant message, when known. */
   turnId?: string;
   /**
@@ -297,6 +300,8 @@ function addExchange(
  * the multi-session contract the old single-active-buffer store violated.
  */
 export interface SessionChat {
+  /** Turn-scoped receipts may precede the first assistant frame. Never persisted in browser storage. */
+  journals?: Record<string, TurnJournalSummary>;
   messages: ChatMessage[];
   isStreaming: boolean;
   /**
@@ -560,6 +565,7 @@ export interface ChatState {
    * finished — never to a newer message still streaming.
    */
   setMessageBlocks: (key: ChatKey, blocks: MessageBlock[], turnId?: string) => void;
+  setTurnJournal: (key: ChatKey, turnId: string, journal: TurnJournalSummary) => void;
   /**
    * Rewrite the link destinations the host rewrote in the saved answer
    * (#1698) in the assistant messages of `turnId`, or, when no message
@@ -1134,17 +1140,29 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       fn: (chat: SessionChat) => Partial<SessionChat>,
       createIfMissing = false
     ): void {
+      function updated(chat: SessionChat): SessionChat {
+        const next = { ...chat, ...fn(chat), lastTouched: Date.now() };
+        if (!next.journals) return next;
+        const last = new Map<string, number>();
+        next.messages.forEach((message, index) => { const id = message.turnId ?? message.streamTurnId; if (message.role === "assistant" && id) last.set(id, index); });
+        next.messages = next.messages.map((message, index) => {
+          const id = message.turnId ?? message.streamTurnId, receipt = id && next.journals?.[id];
+          if (!receipt || last.get(id!) !== index || message.journal === receipt) return message;
+          return { ...message, journal: receipt, journalLive: true };
+        });
+        return next;
+      }
       set((state) => {
         if (key === null) {
           const draft = state.draft ?? emptyChat();
-          return { draft: { ...draft, ...fn(draft), lastTouched: Date.now() } };
+          return { draft: updated(draft) };
         }
         const existing = state.buffers[key] ?? (createIfMissing ? emptyChat() : undefined);
         if (!existing) return state;
         return {
           buffers: {
             ...state.buffers,
-            [key]: { ...existing, ...fn(existing), lastTouched: Date.now() },
+            [key]: updated(existing),
           },
         };
       });
@@ -1826,6 +1844,8 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             : { ...msgs[index], blocks };
           return { messages: msgs };
         }),
+
+      setTurnJournal: (key, turnId, journal) => mutateBuffer(key, chat => ({ journals: { ...chat.journals, [turnId]: journal } }), true),
 
       rewriteMessageLinks: (key, links, turnId) =>
         mutateBuffer(key, (chat) => {

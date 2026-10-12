@@ -165,6 +165,19 @@ export interface ClientHello {
   capabilities?: Record<string, boolean>;
 }
 
+/** Host-confirmed next-turn preference and currently resolved policy facts (#1663). */
+export interface SessionWorkerProfile {
+  preference: "governed" | "strict";
+  policyProfile: "governed" | "strict";
+  policyHash: string | null;
+  /** A successful save exists for this existing unbound draft identity. */
+  draftPreferenceStored?: boolean;
+  /** The admitted worker, never inferred from the requested preference. */
+  actualProfile?: "governed" | "strict";
+  origin: "interactive" | "voice";
+  limits: { name: string; value: string; onHit?: string }[];
+}
+
 export interface ClientChatMessage {
   type: "chat_message";
   text: string;
@@ -234,6 +247,9 @@ export interface ClientChatMessage {
    * whose text is a reviewed summary rather than a composer draft.
    */
   draftRef?: DraftRef;
+  /** Existing unbound composer draft whose confirmed preference starts this chat. */
+  profileDraftId?: string;
+
 }
 
 /** Most characters a reviewed handoff summary may carry (#61). */
@@ -807,7 +823,8 @@ export type ServerMessage =
   | ServerConversationEvent
   | ServerConversationWork
   | ServerConversationOutput
-  | ServerConversationPermission;
+  | ServerConversationPermission
+  | ServerTurnJournal;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -928,6 +945,8 @@ export interface SessionHistoryMessage {
    * unchanged since; never inferred from timestamps or content.
    */
   turnId?: string;
+  /** Host-retained facts for this proven turn, never inferred from backend text. */
+  journal?: import("./turn-journal.js").TurnJournalSummary;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -1160,7 +1179,7 @@ type FirstPartyFailureClass =
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1189,6 +1208,8 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   worker_state_busy: "worker_state_busy",
   worker_state_exceeded: "worker_state_exceeded",
   worker_state_save_refused: "worker_state_save_refused",
+  journal_capacity: "journal_capacity",
+  journal_unavailable: "journal_unavailable",
   unknown: "unknown",
 });
 
@@ -1351,6 +1372,8 @@ export interface ServerSessionInfo {
   requestId?: string;
   thinkingLevel?: ThinkingLevel;
   effectiveThinkingLevel?: ThinkingLevel;
+  workerProfile?: SessionWorkerProfile;
+
 }
 
 /** Safe profile metadata exposed to the client (never keys/env). */
@@ -3555,4 +3578,14 @@ export interface QueueAddResult {
 /** Server-owned CLI staging metadata; the share manifest's source stays unchanged. */
 export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
+}
+
+export type { JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails } from "./turn-journal.js";
+
+/** Durable journal progress can arrive after the terminal result without reopening the turn. */
+export interface ServerTurnJournal extends SessionScoped {
+  type: "turn_journal";
+  sessionId: string;
+  turnId: string;
+  journal: import("./turn-journal.js").TurnJournalSummary;
 }

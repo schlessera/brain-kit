@@ -341,7 +341,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1530-1560`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1553-1583`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -825,7 +825,7 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:734-742`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:735-743`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three

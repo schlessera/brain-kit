@@ -62,7 +62,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:344`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:355`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -210,7 +210,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:289-294`).
+  `packages/ui-server/src/app.ts:300-305`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -273,7 +273,7 @@ a permission boundary:
 - **A refusal would not buy what it appears to.** The measured version is not
   known-safe either: the list of mechanisms that skip `canUseTool` is what has
   been measured, not a closed set (`AT LEAST three`,
-  `permission-hooks.ts:74-77`). A version gate would separate "probed" from "not
+  `permission-hooks.ts:78-81`). A version gate would separate "probed" from "not
   probed", not "safe" from "unsafe", and it would say the second thing to
   whoever reads it.
 - **It would block the path a CLI fix takes.** The built-in binary moves only
@@ -353,7 +353,7 @@ so it holds itself to these rules:
   about another.
 - **Composition, not only parts.** The enforcement hook's `ask` must leave
   another hook's `updatedInput` intact (`An explicit "ask" beats all three`,
-  `permission-hooks.ts:101-103`; `(e) a hook's`,
+  `permission-hooks.ts:105-107`; `(e) a hook's`,
   `allowlist-enforcement.test.ts:18-21`). That is its own case: a rewrite, an
   `ask` and a `canUseTool` decision in one call, asserting the input the
   callback saw and the input that executed.
@@ -380,7 +380,7 @@ until re-measured.
 
 | Site | What it asserts | Re-checked by |
 | --- | --- | --- |
-| `DO NOT WEAKEN THIS INTO A FALLTHROUGH`, `packages/ui-backend-claude/src/permission-hooks.ts:73-104` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
+| `DO NOT WEAKEN THIS INTO A FALLTHROUGH`, `packages/ui-backend-claude/src/permission-hooks.ts:77-108` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
 | `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:8-15` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:11-20` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:13-18` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
@@ -405,7 +405,7 @@ brain-hosting-template.
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
 the absence of a *fourth* mechanism — `AT LEAST three`,
-`permission-hooks.ts:74-77` already says three is what has been measured, not a
+`permission-hooks.ts:78-81` already says three is what has been measured, not a
 closed set — and no probe can close that.
 
 ## Where the work goes

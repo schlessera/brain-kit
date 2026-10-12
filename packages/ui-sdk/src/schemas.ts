@@ -391,6 +391,7 @@ export const draftRefSchema = z.looseObject({
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
+  profileDraftId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
     providerId: id.optional(),
@@ -1001,6 +1002,20 @@ const turnRetrySchema = z.looseObject({
   status: z.number().int().optional(),
 }) satisfies z.ZodType<TurnRetry>;
 
+export const turnJournalSummarySchema = z.looseObject({
+  state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
+  changedFiles: z.number().int().nonnegative().nullable(),
+  steeringFiles: z.number().int().nonnegative().nullable(),
+  costUsd: z.number().finite().nonnegative().nullable(),
+  costIsEstimate: z.boolean().nullable(),
+  profile: z.enum(["strict", "governed"]).nullable(),
+  actor: z.enum(["interactive", "voice"]).nullable(),
+  model: z.string().max(200).nullable(),
+  policyHash: z.string().max(200).nullable(),
+  sharedAttribution: z.boolean(),
+  observedAt: z.number().int().nonnegative().nullable(),
+}) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1026,6 +1041,7 @@ const historyMessageSchema = z.looseObject({
   failure: turnFailureSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
+  journal: turnJournalSummarySchema.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -1248,8 +1264,19 @@ export const serverStatusSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerStatus>;
 
+export const sessionWorkerProfileSchema = z.object({
+  preference: z.enum(["governed", "strict"]),
+  policyProfile: z.enum(["governed", "strict"]),
+  policyHash: z.string().nullable(),
+  draftPreferenceStored: z.boolean().optional(),
+  actualProfile: z.enum(["governed", "strict"]).optional(),
+  origin: z.enum(["interactive", "voice"]),
+  limits: z.array(z.object({ name: z.string(), value: z.string(), onHit: z.string().optional() })),
+});
+
 export const serverSessionInfoSchema = z.looseObject({
   type: z.literal("session_info"),
+  workerProfile: sessionWorkerProfileSchema.optional(),
   sessionId: z.string().max(MAX_ID_CHARS),
   isNew: z.boolean(),
   providerId: z.string().max(MAX_ID_CHARS).optional(),
@@ -1723,7 +1750,12 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverTurnJournalSchema = z.looseObject({
+  type: z.literal("turn_journal"), sessionId: id, turnId: id, journal: turnJournalSummarySchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
+  serverTurnJournalSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

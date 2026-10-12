@@ -2489,3 +2489,6 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   :where(.bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface > [data-bk-bottom-sheet]) :where([data-bk-sheet-control]),
   :where(.bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface > .bk-overlay-close-slot) { position: relative; z-index: 2; }
 }
+
+/* The profile picker keeps its Limits disclosure reachable at every pointer size. */
+.bk-model-chat-limits > div > [role="button"] { min-height: 44px; }
