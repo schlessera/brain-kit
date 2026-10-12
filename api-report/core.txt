@@ -71,10 +71,16 @@ export "." (./src/index.ts)
 
 export "./internal" (./src/internal.ts)
   type ArchiveResult
+  BUILTIN_GOVERNANCE_POLICY
   type BrainContext
   type CollectStatsOptions
+  type EffectiveGovernancePolicy
   type FrontmatterValue
   GEMINI_FLASH_MODEL
+  GOVERNANCE_POLICY_PATH
+  type GovernancePolicyCheck
+  type GovernancePolicyInput
+  GovernancePolicySchema
   type IngestInput
   type IngestOutcome
   SCRATCH_DIR
@@ -87,6 +93,7 @@ export "./internal" (./src/internal.ts)
   assembleContext
   assertScratchWritable
   buildTaxonomy
+  checkGovernancePolicy
   collectStats
   estimateTokens
   geminiCompletions
@@ -102,6 +109,7 @@ export "./internal" (./src/internal.ts)
   isWriteRefusal
   loadVecSupport
   openDatabase
+  parseGovernancePolicy
   prepareIngest
   pruneScratch
   readDocumentPart
@@ -109,6 +117,7 @@ export "./internal" (./src/internal.ts)
   rerankSetup
   resolveCompletionProvider
   resolveEmbeddingProvider
+  resolveGovernancePolicy
   resolveWritable
   rewriteGeneratedRegion
   runRegistry
@@ -1317,11 +1326,12 @@ signatures (every public export and the types it is made of)
         source: z.ZodString;
     }, z.core.$strict>;
   pruneScratch (packages/core/src/lib/scratch.ts)
-    export function pruneScratch(root: string, now?: number, { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile }?: {
+    export function pruneScratch(root: string, now?: number, { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile, protectedPaths }?: {
         ttlMs?: number;
         maxBytes?: number;
         pinnedPaths?: ReadonlySet<string>;
         pinsFile?: string;
+        protectedPaths?: readonly string[];
     }): ScratchPruneReport;
   readGraphClusters (packages/core/src/queries/index.ts)
     export function readGraphClusters(opts: Root & {

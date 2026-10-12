@@ -139,6 +139,18 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+**Additive protected scratch retention (#1743).** The existing module helper
+`pruneScratch(root, now?, options?)` accepts optional
+`options.protectedPaths: readonly string[]`. These brain-relative or absolute
+paths add retention for exact targets, descendants and ancestors during this
+prune, including empty protected directories. Omitting them preserves the
+existing age/byte cleanup. They cannot weaken durable conversation pins or
+explicit `pinnedPaths`; protected bytes still count toward reported size and
+overage. Hosted mask applications supply their frozen admitted protection,
+without reading another policy or changing existing approval authority. This
+optional module-helper parameter ships in a minor; its public signature report
+is updated with it.
+
 **`Overlay`, document layers and palette semantics (#1378; pre-1.0 minor).** `@schlessera/brain-ui-kit`
 exports `Overlay`, `OverlayProps`, `OverlayVariant`, `OverlayCloseReason`, `z`
 and `LAYERS`. The controlled primitive supplies sheet, dialog, fullscreen and

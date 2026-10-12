@@ -71,10 +71,10 @@ export interface PackRow {
 /** Keyed by directory under `packages/`, which is also the tarball's name. */
 export const PACK_TABLE: Record<string, PackRow> = {
   common: {
-    // Internal-only: two ./internal/* entries and no root entry.
-    files: ["dist/env-core.js", "dist/frontmatter-parse.js"],
-    bun: ["@schlessera/brain-common/internal/frontmatter"],
-    node: ["@schlessera/brain-common/internal/env", "@schlessera/brain-common/internal/frontmatter"],
+    // Internal-only helper entries; no root entry.
+    files: ["dist/env-core.js", "dist/frontmatter-parse.js", "dist/governance-policy.js"],
+    bun: ["@schlessera/brain-common/internal/frontmatter", "@schlessera/brain-common/internal/governance-policy"],
+    node: ["@schlessera/brain-common/internal/env", "@schlessera/brain-common/internal/frontmatter", "@schlessera/brain-common/internal/governance-policy"],
     react18: true,
   },
   geo: {

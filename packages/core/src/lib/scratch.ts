@@ -575,7 +575,7 @@ function removeFile(root: string, dir: string, abs: Buffer): Removal {
  * since the listing. A mismatch skips it. The one-syscall window between
  * that check and the rmdir is the same as the unlink's.
  */
-function removeEmptyDirs(root: string, scratch: string, dir: Buffer): void {
+function removeEmptyDirs(root: string, scratch: string, dir: Buffer, protectedPaths: readonly Buffer[] = []): void {
   if (!genuineDir(root, scratch, dir)) return;
   let names: Buffer[];
   try {
@@ -587,12 +587,13 @@ function removeEmptyDirs(root: string, scratch: string, dir: Buffer): void {
   for (const name of names) {
     const child = byteJoin(dir, name);
     try {
-      if (lstatSync(child).isDirectory()) removeEmptyDirs(root, scratch, child);
+      if (lstatSync(child).isDirectory()) removeEmptyDirs(root, scratch, child, protectedPaths);
     } catch (error) {
       if (!gone(error)) throw error;
     }
   }
   if (dir.equals(Buffer.from(scratch))) return;
+  if (protectedScratchPath(dir, protectedPaths)) return;
   if (!genuineDir(root, scratch, dir)) return;
   try {
     if (ANCHORED) anchored(scratch, dir, (parent, name) => rmdirSync(byteJoin(parent, name)));
@@ -603,6 +604,12 @@ function removeEmptyDirs(root: string, scratch: string, dir: Buffer): void {
     if (gone(error) || code === "ENOTEMPTY" || code === "EBUSY" || code === "EEXIST") return;
     throw error;
   }
+}
+
+/** Compare filesystem bytes, so a lossy display path cannot hide a protected target. */
+function protectedScratchPath(path: Buffer, protectedPaths: readonly Buffer[]): boolean {
+  const descendant = (child: Buffer, parent: Buffer) => child.length > parent.length && child[parent.length] === 47 && child.subarray(0, parent.length).equals(parent);
+  return protectedPaths.some(protectedPath => path.equals(protectedPath) || descendant(path, protectedPath) || descendant(protectedPath, path));
 }
 
 /**
@@ -619,10 +626,13 @@ function removeEmptyDirs(root: string, scratch: string, dir: Buffer): void {
 export function pruneScratch(
   root: string,
   now: number = Date.now(),
-  { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile }: { ttlMs?: number; maxBytes?: number; pinnedPaths?: ReadonlySet<string>; pinsFile?: string } = {},
+  { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES, pinnedPaths, pinsFile, protectedPaths }: { ttlMs?: number; maxBytes?: number; pinnedPaths?: ReadonlySet<string>; pinsFile?: string; protectedPaths?: readonly string[] } = {},
 ): ScratchPruneReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
+  // Host-admitted protection is additional retention, never an override of
+  // durable pins. Own its encoded values before any cleanup runs.
+  const protectedBytes = (protectedPaths ?? []).map(path => Buffer.from(resolve(rootReal, path)));
   const rel = (abs: Buffer) => reportPath(rootReal, abs);
   // Pins are UTF-8 strings. Compare their encoded bytes, not lossy display
   // paths, so an invalid name cannot impersonate a pinned U+FFFD filename.
@@ -636,6 +646,7 @@ export function pruneScratch(
   let pinError: string | undefined;
   /** Try to remove; true when the bytes are gone from disk (removed, or found gone). */
   const remove = (entry: Entry, reason: ScratchRemoval["reason"]): boolean => {
+    if (protectedScratchPath(entry.abs, protectedBytes)) { left.push(entry); return false; }
     // A server can publish a new retained answer while a CLI prune runs.
     // Re-read immediately before removal, so a late pin or lost snapshot
     // suspends this deletion too, before the safe filesystem removal.
@@ -688,7 +699,7 @@ export function pruneScratch(
     }
     if (remove(entry, "size")) total -= entry.bytes;
   }
-  removeEmptyDirs(root, dir, Buffer.from(dir));
+  removeEmptyDirs(root, dir, Buffer.from(dir), protectedBytes);
   const pinned = left.filter(entry => pins.has(pinKey(entry.abs)));
   return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length,
     pinned: { files: pinned.length, bytes: pinned.reduce((sum, entry) => sum + entry.bytes, 0) },

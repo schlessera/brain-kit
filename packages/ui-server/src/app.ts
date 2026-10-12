@@ -449,6 +449,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const host = new WsHost({
     governedTurns: createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
+      recordPolicy: (turnId, origin, profile, policy) => db.query(`INSERT INTO turn_governance_policy
+        (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) }),
     applicationPlanner,

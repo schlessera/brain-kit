@@ -1,7 +1,7 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { isEnvName, protectedPaths, PROTECTED_TIER_A } from "./protected-paths.js";
+import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
   type WorkerProtection, type ProtectedWorkerPath } from "./worker-sandbox.js";
 
@@ -83,7 +83,7 @@ export function resolveWorkerProtection(brain: string, options: {
         }
         paths.push({ rel, mode, reason: appeared.has(rel) ? "appeared during an active turn; awaiting quarantine"
           : (PROTECTED_TIER_A as readonly string[]).includes(rel) || isEnvName(rel) ? "governance, secrets or startup code (tier A)"
-          : "runtime permissions or configuration (tier B)" });
+          : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)" : "added by governance policy" });
       } finally { closeSync(fd); }
     }
     return { protection: { paths, ancestors: [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length) } };

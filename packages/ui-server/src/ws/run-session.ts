@@ -18,6 +18,7 @@ import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
 import { withLocalContext } from "./local-exchanges.js";
@@ -433,32 +434,6 @@ async function runRetainedSession(
       };
       turn.retryPrompt = prompt;
       turn.isManualRetry = initial.isRetry === true && turn.turnId === firstTurnId;
-      const bridge = makeBridge(
-        host,
-        turn,
-        text,
-        backend.id,
-        recorder,
-        resumeId
-          ? undefined
-          : (sid) => {
-              // A new conversation is accepted the moment it has a name,
-              // and its turn is already running (#964).
-              const revision = acceptRequest(host, sid, turn.requestId, backend.id);
-              turn.revision = revision;
-              if (revision !== undefined && turn.startedAt !== undefined) {
-                host.catalog.dispatchWork?.(sid, revision, turn.turnId, backend.id, turn.startedAt);
-              }
-              recordSource(sid);
-              recordDraftExchanges(host, sid, drafted);
-              initial.handoffHooks?.onNamed(sid);
-            },
-        failureRecording.observe,
-        // A follow-up's pill label is its turn's request label (#1004).
-        () => current.label,
-        backend.brainApplicationPolicy?.({ profileId,
-          ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) })
-      );
       const startedAt = Date.now();
       // Handed to the backend now: recovery reads this request as running.
       turn.startedAt = startedAt;
@@ -479,8 +454,35 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       try {
-        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal);
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, work?.posture === "voice" ? "voice" : "interactive");
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
+        const bridge = makeBridge(
+          host,
+          turn,
+          text,
+          backend.id,
+          recorder,
+          resumeId
+            ? undefined
+            : (sid) => {
+                // A new conversation is accepted the moment it has a name,
+                // and its turn is already running (#964).
+                const revision = acceptRequest(host, sid, turn.requestId, backend.id);
+                turn.revision = revision;
+                if (revision !== undefined && turn.startedAt !== undefined) {
+                  host.catalog.dispatchWork?.(sid, revision, turn.turnId, backend.id, turn.startedAt);
+                }
+                recordSource(sid);
+                recordDraftExchanges(host, sid, drafted);
+                initial.handoffHooks?.onNamed(sid);
+              },
+          failureRecording.observe,
+          // A follow-up's pill label is its turn's request label (#1004).
+          () => current.label,
+          backend.brainApplicationPolicy?.({ profileId,
+            ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
+          governedHold ? protectedPaths(governedHold.policy.policy) : undefined
+        );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
           const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertScratchMask, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
+import { isProtectedTarget } from "./protected-target.js";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -97,6 +98,8 @@ export function createMaskApplication(options: {
   turnId: string;
   signal: AbortSignal;
   lock: Pick<KeyedLock, "withLock">;
+  /** Immutable admitted host facts; not a browser or worker permission. */
+  protectedPaths?: readonly string[];
   isAuthorized(): boolean;
   isAvailable(): boolean;
   record(result: BrainApplicationResult): void;
@@ -104,6 +107,11 @@ export function createMaskApplication(options: {
   beforeCommit?(): void;
 }) {
   const root = realpathSync(options.root);
+  const protectedPaths = [...(options.protectedPaths ?? [])];
+  const validateTarget = (path: string): void => {
+    validatePath(path);
+    if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
+  };
   const authority = (principalId: string, turnId: string) => {
     if (principalId !== options.principalId || turnId !== options.turnId || !options.isAuthorized())
       refuse("authority_revoked", "This mask no longer has current turn authority.");
@@ -128,6 +136,7 @@ export function createMaskApplication(options: {
       const png = Uint8Array.from(input.png);
       result = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(request.principalId, request.turnId);
+        validateTarget(input.maskPath);
         const current = readMaskBase(root, input.imagePath, options.backend);
         if (current.imageHash !== base.imageHash || current.maskHash !== base.maskHash) refuse("stale_base", "The image or mask changed while its editor was open.");
         const image = open(root, input.imagePath);
@@ -141,7 +150,7 @@ export function createMaskApplication(options: {
           const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, mask.mode ?? 0o600);
           try { if (mask.mode !== undefined) fchmodSync(fd, mask.mode); writeFileSync(fd, png); fsyncSync(fd); } finally { closeSync(fd); }
           options.beforeCommit?.();
-          authority(request.principalId, request.turnId); verify(image, base.imageHash); verify(mask, base.maskHash);
+          authority(request.principalId, request.turnId); validateTarget(input.maskPath); verify(image, base.imageHash); verify(mask, base.maskHash);
           renameSync(temp, mask.at); temp = undefined;
           changes.push({ path: input.maskPath, contentHash: digest(png) }); fsyncSync(mask.chain.at(-1)!.fd);
           let pruneError: string | undefined;
@@ -153,7 +162,7 @@ export function createMaskApplication(options: {
               // same lock/authority. Its actual removals join the history.
               // The mask this operation just wrote is protected from its
               // own cleanup (#1691); later passes apply the usual policy.
-              const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([input.maskPath]) });
+              const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([input.maskPath]), protectedPaths });
               for (const removal of pruned.removed) changes.push({ path: removal.path, contentHash: null });
               if (pruned.failed.length) pruneError = "Some scratch files could not be pruned.";
             } catch (error) { pruneError = error instanceof Error ? error.message : String(error); }

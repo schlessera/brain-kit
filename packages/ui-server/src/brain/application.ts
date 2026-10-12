@@ -12,6 +12,7 @@ import {
 import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host-boundary.js";
 import { subprocessEnv } from "../config/env.js";
+import { isProtectedTarget } from "./protected-target.js";
 
 export const contentHash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
 export interface BrainApplicationRequest {
@@ -207,6 +208,8 @@ export function createBrainApplication(options: {
   principalId: string;
   turnId: string;
   policy: BrainApplicationPolicy;
+  /** Captured host admission facts, never a worker-selected list. */
+  protectedPaths?: readonly string[];
   signal: AbortSignal;
   isAuthorized(): boolean;
   approve(input: BrainApplicationInput, destructive: boolean): Promise<boolean>;
@@ -221,6 +224,11 @@ export function createBrainApplication(options: {
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
+  const protectedPaths = [...(options.protectedPaths ?? [])];
+  const validateTarget = (path: string): void => {
+    validatePath(path);
+    if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This target is protected by the policy admitted for this turn; no change was applied.");
+  };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
   function authority(request: BrainApplicationRequest): void {
     if (request.principalId !== options.principalId || request.turnId !== options.turnId || !options.isAuthorized())
@@ -265,15 +273,16 @@ export function createBrainApplication(options: {
         let outcome: Record<string, unknown> = {};
         try {
           const targetFor = (path: string, expected: string | null) => {
+            validateTarget(path);
             const target = openTarget(root, path, expected === null, created);
             targets.push(target);
             if (target.hash !== expected) refuse("stale_base", "The stated base does not match the current document. Read it again; no change was applied.");
             return target;
           };
           if (input.operation === "add") {
-            if (input.target !== undefined) validatePath(input.target);
+            if (input.target !== undefined) validateTarget(input.target);
             const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
-              validatePath(path);
+              validatePath(path); // Protection is read-only; planning may still read it.
               let target: Target;
               try { target = openTarget(root, path, false); }
               catch (error) { if (errno(error) === "ENOENT") return null; throw error; }
@@ -352,7 +361,7 @@ export function createBrainApplication(options: {
             }
             options.beforeCommit?.();
             authority(request); membership();
-            for (const entry of prepared) verifyTarget(entry.target, entry.change.expectedBaseHash);
+            for (const entry of prepared) { validateTarget(entry.change.path); verifyTarget(entry.target, entry.change.expectedBaseHash); }
             // Create destinations first so an archive never loses its source
             // before no-clobber publication. Abort cannot interleave this burst.
             for (const { change, target, temp } of prepared.filter(p => p.change.content !== null)) {

@@ -368,7 +368,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:343` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:344` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -381,7 +381,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:338`; `drainPendingForTurn`, `:343`),
+(`abortController.abort()`, `run-session.ts:339`; `drainPendingForTurn`, `:344`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -406,7 +406,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:410-416`, and the lookup computing
-`remembered`, `ws/bridge.ts:251-271`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:253-273`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -463,7 +463,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:511-526`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:280-295`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:282-297`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -592,7 +592,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:251-271`,
+  `packages/ui-server/src/ws/bridge.ts:253-273`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:410-416`).
   The evaluation happens

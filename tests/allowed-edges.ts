@@ -25,7 +25,9 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // env descriptor core and the cache-free frontmatter parser, replacing the
   // byte-identical copies each package carried, plus the worker write-area
   // rules core and the ui-sdk both state (#1693). It depends on no internal
-  // package, and nothing else may join it without its own issue.
+  // package. #1744 also shares data-only governance parsing between core
+  // and server, preserving the server’s optional core peer. Further helpers
+  // still need their own issue.
   "@schlessera/brain-common": { dependencies: [], optionalPeers: [] },
   // core owns the render template (the CLI's `brain render` uses it); the
   // Puppeteer renderer is heavyweight and optional, so it may never be hard.

@@ -481,7 +481,7 @@ export const DEFAULT_EXCLUDE = {
   // context/scheduled-tasks: host-managed schedule definitions (#914). They
   // are content in Git, never index documents; only the UI host parses them.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals",
-    "context/scheduled-tasks"],
+    "context/scheduled-tasks", "context/policies"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };

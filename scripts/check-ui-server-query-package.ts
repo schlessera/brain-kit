@@ -10,7 +10,7 @@
  * - no published ui-server declaration names `@schlessera/brain`, so a
  *   consumer that does not install the optional peer can still typecheck it.
  */
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -39,6 +39,37 @@ function declarations(dir: string): string[] {
 }
 
 try {
+  // Policy is required host data, even when the optional query peer is absent.
+  // Use a fresh process and the installed packages; workspace resolution must
+  // not hide an eager import or a second copy of the policy implementation.
+  const corePeer = join(consumer, "node_modules/@schlessera/brain");
+  const heldCorePeer = join(probeDir, "held-core-peer");
+  const policyProbe = join(probeDir, "policy-without-core.ts");
+  await Bun.write(policyProbe, `
+import { createRequire } from "node:module";
+import { mkdirSync, writeFileSync } from "node:fs";
+let peerPresent = false;
+try { createRequire(import.meta.url).resolve("@schlessera/brain/package.json"); peerPresent = true; } catch {}
+if (peerPresent) throw new Error("POLICY_OPTIONAL_CORE_ABSENT: fixture still resolves core");
+await import("@schlessera/brain-ui-server");
+const brainPath = ${JSON.stringify(brainPath)};
+mkdirSync(brainPath + "/context/policies", { recursive: true });
+for (const path of ${JSON.stringify([join(server, "src/brain/governance-policy.ts"), join(server, "dist/brain/governance-policy.js")])}) {
+  const { createGovernancePolicyReader } = await import(path);
+  const reader = createGovernancePolicyReader(brainPath);
+  writeFileSync(brainPath + "/context/policies/governance.md", "---\\nschema_version: 1\\nprofiles:\\n  interactive: strict\\n---\\n");
+  const valid = reader.load();
+  if (valid.source !== "policy" || valid.policy.profiles.interactive !== "strict" || !valid.hash) throw new Error("POLICY_OPTIONAL_CORE_VALID_READ");
+  writeFileSync(brainPath + "/context/policies/governance.md", "---\\nschema_version: 2\\n---\\n");
+  const invalid = reader.load();
+  if (invalid.source !== "last_valid" || invalid.hash !== valid.hash || !invalid.errors.length || invalid.policy.profiles.interactive !== "strict") throw new Error("POLICY_OPTIONAL_CORE_LAST_VALID");
+}
+console.log("packed ui-server: source/default policy reads and last-valid fallback work without core");
+`);
+  renameSync(corePeer, heldCorePeer);
+  try { await run([policyProbe]); }
+  finally { renameSync(heldCorePeer, corePeer); }
+
   // 1. Declarations: no reference to the optional peer, value or type.
   // A module reference — import/export from, import(), require() or a types
   // reference — not a string constant naming the package.

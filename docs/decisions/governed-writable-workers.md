@@ -150,7 +150,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:488-492`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:490-494`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -169,7 +169,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:38`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:39`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -242,6 +242,44 @@ Neither route lets an agent runtime write the file, so R35 holds.
 file. Inside a turn the file cannot change: the mounts below prevent it, and
 the measurements prove it. Outside a turn, ruling 2 makes an edit legitimate.
 An activation click would add friction and no protection.
+
+**Reader and admission identity (#1650).** The schema and data-only reader live
+in the shared internal common helper, consumed by core and the server
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:78-100`).
+This preserves the server's optional core peer (#1744).
+The hash identifies the complete UTF-8 file bytes, including prose and
+line endings; the body still has no policy semantics. This preserves a simple
+version identity without a second YAML canonicalization algorithm. The strict
+input format, defaults and read-only command are in
+[supported inputs](../supported-inputs.md#governance-policy) and the
+[CLI contract](../integration-contract/cli.md#governance-policy-check-additive-1650).
+Mixed command lists retain their valid entries and report skipped sources;
+nonempty entirely invalid lists refuse under the existing confirmation ruling.
+
+Admission captures and freezes one effective policy/hash after acquiring the
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:23-74`),
+records it for strict and governed turns in host operational state,
+and passes its protection list to the existing launcher/manifest. The journal
+consumes that captured identity rather than rereading the file. Invalid edits
+retain the process's last valid file/hash, or defaults with a null hash before
+any valid file; known absence selects defaults. True voice uses the voice profile,
+dictation uses interactive, and autonomous authority remains separate. Existing
+host strict overrides and stronger fallback remain effective. This reader does
+not enforce the budget, scope, commands, egress, outward, taint or provider fields.
+Their parsed values are inputs for their owning guardrails.
+
+**Authoritative agent applications (#1743).** Worker mounts and the privileged
+application route consume the same admitted protection. The application bridge
+is constructed after admission and captures that turn's list. It does not
+reparse the policy on each tool call. Every proposed/planned document output
+and submitted PNG destination is checked under the existing write lock and
+again before publication. Protection is read-only, so permitted reads remain
+available. Scratch cleanup performed by a permitted mask retains protected
+files, directory descendants and ancestors too. Refusals use the existing
+`policy_denied` result with no partial mutation; membership, live principal
+authority, exact browser submissions, voice exclusions and static alias checks
+remain independent requirements.
 
 ## The host execution boundary
 
@@ -630,7 +668,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:619`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
