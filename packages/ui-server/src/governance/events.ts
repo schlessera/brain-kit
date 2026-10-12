@@ -60,6 +60,13 @@ function kind<T extends z.ZodType>(version: number, payload: T) {
  * docs/http-api.md ("Governance events"); keep the two in step.
  */
 export const GOVERNANCE_EVENT_SCHEMAS = {
+  /** Persistent scratch still over its cap after preserving retained links (#1656). */
+  scratch_overage: kind(1, z.strictObject({
+    bytes: count,
+    pinnedFiles: count,
+    pinnedBytes: count,
+    overageBytes: count,
+  })),
   /** A linked turn-temp file copied into persistent scratch (#1655). */
   promotion: kind(1, z.strictObject({
     source: path,

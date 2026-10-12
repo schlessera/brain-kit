@@ -93,6 +93,7 @@ import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
+import { createScratchPins } from "./cron/scratch-pins.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
 import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
@@ -328,7 +329,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     // Exact-operation approval stays fail-closed unless the gated engine runs.
     ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
   try { await hygieneReview.recover(); } catch (error) { await inbox.close(); db.close(); throw error; }
-  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
@@ -356,6 +356,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getBillingOverrides: () => getBillingOverrides(db, dbLog),
       log: observability.logger("agent"),
     });
+  const scratchPins = createScratchPins(config.brainPath, registry);
+  const scratchPrune = startScratchPrune({ brain, pins: scratchPins, db, log: observability.logger("cron") });
   // The subscription token (#254): boot warnings now, the expiry check daily,
   // and what /api/status says about it.
   const subscription = createSubscriptionMonitor({
@@ -384,7 +386,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     brainPath: config.brainPath,
     registry,
     observability,
-    catalog: createSessionCatalog(() => db, dbLog),
+    catalog: createSessionCatalog(() => db, dbLog, scratchPins),
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver),
@@ -761,6 +763,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       subscription.close();
       await intake.close();
       await scratchPrune.close();
+      scratchPins.close();
       activity.close();
       db.close();
     },

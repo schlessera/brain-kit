@@ -482,11 +482,22 @@ bound is refused, the link is left unchanged, and that is recorded the same
 way.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:545`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:590`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:57`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted.
+
+The server scans retained backend histories before pruning and records stored
+assistant links at turn boundaries. Its session-keyed snapshot is
+`.brain/scratch-pins/pins.json`, replaced atomically. Core reads this data without
+opening the server database. The separate `.brain/scratch-pins-required` marker
+keeps missing snapshot directories fail-safe. Missing, invalid or unfinished
+managed snapshots suspend deletion for CLI maintenance and prune-on-write too.
+A retained-session scan and direct history confirmation release pins for deleted/expired sessions;
+failed or aborted scans never release pins. The server records remaining cap
+overage as a `scratch_overage` governance event, with logging as the fallback
+when the event store is unavailable.
 
 **Expired links.** A link whose file is gone renders as "expired", not as a
 404.
@@ -683,7 +694,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:255`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:261`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1319,21 +1330,11 @@ else here is read through the report.
 - **Policy grants for autonomous turns.** Ruling 3 defers them. This schema has
   no key that reaches autonomous turns, so adding one is a later, separate
   ruling.
-- **Interim credential exposure.** The maintenance workers for indexing and
-  sync hold provider and push credentials directly until the metered relays and
-  the git mirror land. Code the agent can write, such as a helper the config
-  imports, could read those credentials in the meantime.
+## Settled release defaults
 
-  The recommendation is to make `governed` the default in 0.42.0 anyway. The
-  exposure is narrower than before 0.41, where the agent itself held them. The
-  tier B default protects the config, and the relay and mirror sub-issues are
-  p1.
-
-  The stricter alternative is to keep `strict` as the default until both land.
-  That is a maintainer call.
-- **A separate worker uid on shared hosts.** [Worker identity](#worker-identity-g2)
-  keeps `governed` available without an identity helper, because the masks
-  still apply. The recommendation is to keep it available, and to have the
-  hosting template always ship the helper. The stricter alternative is to
-  refuse `governed` without a helper whenever the server's uid owns state
-  outside the masks. That is a maintainer call.
+The [maintainer’s later ruling on #1636](https://github.com/schlessera/brain-kit/issues/1636#issuecomment-6114233107)
+settles both calls on 2026-10-11: `governed` is the default in 0.42.0 despite
+interim maintenance-worker credential exposure, which host status states until
+the relays and mirror land. `strict` remains opt-in. `governed` also remains
+available without a separate-uid helper, with mask-only protection stated in
+host status; the hosting template always ships the helper.

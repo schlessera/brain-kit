@@ -99,7 +99,7 @@ export class FailureReplay {
    * record that answer's position as the turn's boundary (#964). Waits on
    * the turn's failure write first, so both describe one transcript.
    */
-  private boundary(backend: AgentBackend, sessionId: string, turnId: string, before: number): Promise<void> {
+  private boundary(backend: AgentBackend, sessionId: string, turnId: string, before: number | null): Promise<void> {
     const write = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -109,9 +109,10 @@ export class FailureReplay {
           backend.getHistory(sessionId),
           new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), BOUNDARY_READ_MS); }),
         ]);
+        this.catalog.recordScratchPins?.(sessionId, backend.id, messages);
         const count = assistantCount(messages);
         // Nothing answered during the turn: no message is this turn's.
-        if (count <= before || messages.at(-1)?.role !== "assistant") return;
+        if (before === null || count <= before || messages.at(-1)?.role !== "assistant") return;
         this.catalog.recordTurnBoundary?.(sessionId, backend.id, {
           turnId, assistantOrdinal: count - 1, prefixDigest: prefixDigest(messages, messages.length - 1),
         });
@@ -160,7 +161,7 @@ export class FailureReplay {
       finish: async (sid) => {
         const first = !closed;
         closed = true; release(); await write;
-        if (first && sid && before !== null && this.catalog.recordTurnBoundary) {
+        if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
           await this.boundary(backend, sid, turnId, before);
         }
       },

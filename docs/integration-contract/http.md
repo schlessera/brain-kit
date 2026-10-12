@@ -289,3 +289,12 @@ Rules a consumer may rely on:
 - `database.sizeBytes` is the logical size of the server database (pages ×
   page size, the WAL sidecar aside). It is a rebuild-cost figure for a
   disposable store, not a claim that the file holds authoritative state.
+
+### Scratch overage events (additive, #1656)
+
+`GET /api/governance/events` also accepts and returns kind `scratch_overage`,
+version 1, with `{bytes, pinnedFiles, pinnedBytes, overageBytes}`. Periodic scratch
+pruning records it with actor `server`, null session/turn/model/profile, and the
+existing unbound-event retention. A failed event write falls back to the overage
+log; pinned files remain protected. The closed kind/payload specification is in
+[the HTTP reference](../http-api.md#governance-events-additive-1651).

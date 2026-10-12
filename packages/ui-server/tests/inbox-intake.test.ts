@@ -259,7 +259,13 @@ test("real CLI queues trusted work, survives a lost response and rejects wrong, 
     expect((await runCli(origin, credentialFile)).body.error?.code).toBe("unauthorized");
     expect(startedTurns).toBe(0);
     expect(await Bun.file(join(fixture.brainPath, "brain.db")).exists()).toBe(false);
-    expect((await readdir(fixture.brainPath)).filter(name => ![".brain-ui", "queue-credential.json"].includes(name))).toEqual([]);
+    expect((await readdir(fixture.brainPath)).filter(name => ![".brain-ui", ".brain", "queue-credential.json"].includes(name))).toEqual([]);
+    // Startup's pin metadata is the sole additional operational write. Do not
+    // let a broad .brain exclusion hide queue-triggered scratch/content writes.
+    expect((await readdir(join(fixture.brainPath, ".brain"))).sort()).toEqual(["scratch-pins", "scratch-pins-required"]);
+    expect((await readdir(join(fixture.brainPath, ".brain/scratch-pins"))).sort()).toEqual([".gitignore", "pins.json"]);
+    expect(await readdir(join(fixture.brainPath, ".brain/scratch-pins-required"))).toEqual([".gitignore"]);
+    expect((await Bun.file(join(fixture.brainPath, ".brain/scratch-pins/pins.json")).json()).sessions).toEqual({});
   } finally { server.stop(true); }
   const unavailable = await runCli(origin);
   expect(unavailable.exit).toBe(2);

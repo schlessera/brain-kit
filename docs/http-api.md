@@ -1022,6 +1022,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
+| `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
 | `promotion` | 1 | `source`, `destination`, `bytes`, `originalLink`, `rewrittenLink` | A linked turn-temp file was copied into `.brain/scratch/turns/<turnId>/` and its link rewritten. `destination` is brain-relative. |
 | `promotion_refused` | 1 | `source`, `originalLink`, `reason`, `bytes`, `limitBytes` | A linked turn-temp file was not copied and its link was left unchanged. `reason` is `file_too_large`, `turn_too_large`, `not_regular_file`, `symlink`, `multiple_links`, `missing` or `io_error`; `bytes` and `limitBytes` may be `null`. |
 | `policy_block` | 1 | `tool`, `input`, `inputTruncated`, `rule`, `policyHash` | A tool call refused by a `commands.deny` rule. |

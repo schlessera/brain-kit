@@ -95,7 +95,7 @@ describe("pruneScratch", () => {
     expect(existsSync(join(root, SCRATCH_DIR, "nested"))).toBe(false);
     expect(existsSync(join(root, SCRATCH_DIR))).toBe(true);
     const empty = mkdtempSync(join(tmpdir(), "brain-noscratch-"));
-    expect(pruneScratch(empty, NOW)).toEqual({ removed: [], failed: [], bytes: 0, files: 0 });
+    expect(pruneScratch(empty, NOW)).toEqual({ removed: [], failed: [], bytes: 0, files: 0, pinned: { files: 0, bytes: 0 }, overageBytes: 0 });
     cleanup(empty);
   });
 });

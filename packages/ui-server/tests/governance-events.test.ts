@@ -26,6 +26,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** One valid v1 payload per kind, in the Odysseus world. */
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
+  scratch_overage: { bytes: 1_200_000_000, pinnedFiles: 3, pinnedBytes: 1_200_000_000, overageBytes: 126_258_176 },
   promotion: { source: "/tmp/brain-worker/ithaca-route.pdf", destination: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf", bytes: 48_213, originalLink: "/tmp/brain-worker/ithaca-route.pdf", rewrittenLink: ".brain/scratch/turns/turn-ithaca/ithaca-route.pdf" },
   promotion_refused: { source: "/tmp/brain-worker/cyclops-cave", originalLink: "/tmp/brain-worker/cyclops-cave", reason: "not_regular_file", bytes: null, limitBytes: null },
   policy_block: { tool: "Bash", input: "git push --force origin main", inputTruncated: false, rule: { list: "commands.deny", index: 0, pattern: "^git push (-f|--force)", reason: "No force pushes." }, policyHash: "sha256:0f1e" },
