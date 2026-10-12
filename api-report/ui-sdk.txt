@@ -4419,7 +4419,7 @@ signatures (every public export and the types it is made of)
         askUserFormLimits?: AskUserFormLimits;
         getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
         requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
-        pruneScratch?(): Promise<void>;
+        pruneScratch?(produced?: readonly string[]): Promise<void>;
         activity?(event: BackendActivityEvent): void;
         queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
         inboxList?(input: import("../tool-contracts/inbox.js").InboxListInput): Promise<{

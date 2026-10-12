@@ -782,6 +782,15 @@ experimental extension interface, including when an experimental backend
 implements it. Its [revision negotiation](wire.md#revision-negotiation) and documented
 compatibility guarantees follow the contract-versioning rules above.
 
+`BackendBridge.pruneScratch?(produced?: readonly string[]): Promise<void>`
+is an optional host hook after a toolkit fallback writes scratch output.
+`produced` contains canonical, slash-separated paths relative to the brain.
+The host must retain these files for that prune pass, in addition to its
+retained-conversation pins. The mask fallback supplies the mask it just wrote;
+its adapter-specific reported path is unchanged. An omitted argument adds no
+producer pins, and the hook retains its non-rejecting behavior. This additive
+optional parameter does not change the server-owned `applyImageMask` route.
+
 | Interface | Imported from |
 |-----------|---------------|
 | `EmbeddingProvider` | `@schlessera/brain` |
