@@ -769,3 +769,34 @@ binding: ordinary and autonomous sessions refuse `resolve_action`. Deferred
 `open_session`/`write_policy` and hygiene's separate UI preview are unavailable
 through this tool. A future bound flow must supply an explicit exact approval;
 the tool name or an extra permission tap alone cannot establish that binding.
+
+## Hosted policy proposal (additive, #1662)
+
+`propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)
+accepts exactly `{ content, rationale }`: complete governance.md, bounded to
+1 MiB of UTF-8, and a trimmed nonempty one-line rationale of at most 500
+characters. It is available only through an interactive hosted bridge,
+including ordinary interactive dictation. It is absent from genuine voice
+and autonomous rosters and excluded from bridge auto-allow lists.
+
+The server validates the governance schema before raising a per-use approval
+card. Invalid input returns errors and creates no card. The native permission
+checkpoint delegates to this validation/write route; the eventual tool handler
+reconciles the same tool-use identity rather than executing a second write.
+A remembered tool grant cannot authorize a policy change. Speech never grants.
+
+A valid card names the exact base hash (null for no file), frontmatter diff,
+changed section names, body-change indicator/body diff and quoted agent
+rationale. Decline writes nothing. Approve and write revalidates under
+`BRAIN_LOCK_KEY` and checks current turn/principal authority, exact bytes and
+anchored target topology again at publication. This is a server-owned write;
+native and application policy-path restrictions remain unchanged. The
+journal records actor `user`, class `policy`, and the server records a
+`policy_change` governance event. The next admitted turn reads the new policy;
+a running turn keeps its frozen policy.
+
+The result is the same `PolicyChangeReview` the authenticated read-only receipt
+route returns. Stale/invalid/refused consumes approval and needs a new proposal.
+Unknown completion is reconciled with Check again on the original request;
+it never resubmits a write. Duplicate identical requests return that request's
+receipt; a changed input cannot borrow its identity or approval.

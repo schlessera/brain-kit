@@ -177,6 +177,7 @@ ${lines.join("\n")}`;
  * not have is worse than saying nothing, so each backend declares its own.
  */
 export interface SurfaceTools {
+  policyChange?: string;
   /** Name of the tappable-choice tool, or false when this backend has none. */
   askUser?: string | false;
   /** Name of the one-scale-over-many-items tool, or false when absent. */
@@ -205,6 +206,7 @@ export interface SurfaceTools {
  * error rather than a tool that silently never reaches the prompt.
  */
 const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
+  propose_policy_change: "policyChange",
   inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
   [ASK_USER_CONTRACT.name]: "askUser",
   [ASK_USER_LIST_CONTRACT.name]: "askUserList",

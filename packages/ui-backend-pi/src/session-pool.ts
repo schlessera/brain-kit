@@ -49,7 +49,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      caps: { ...capsOf(req.bridge), turnTemp: !req.autonomous },
+      caps: { ...capsOf(req.bridge), policyChange: !req.autonomous && !req.noGrantSurface && req.posture !== "voice" && Boolean(req.bridge.proposePolicyChange), turnTemp: !req.autonomous },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

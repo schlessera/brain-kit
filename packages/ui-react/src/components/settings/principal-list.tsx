@@ -1,5 +1,5 @@
 import { Button, Callout, Chip, Placeholder, Surface } from "@schlessera/brain-ui-kit";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 /**
  * Devices and agents, rendered from props (S7, the `settings` directory).
@@ -26,6 +26,7 @@ export interface PrincipalRowData {
 }
 
 export interface PrincipalListProps {
+  children?: ReactNode;
   state: "loading" | "unavailable" | "error" | "ready";
   principals: PrincipalRowData[];
   error: string | null;
@@ -52,6 +53,8 @@ export function PrincipalList(p: PrincipalListProps) {
       <p className="mt-1 text-xs text-muted-foreground">
         See where this brain is signed in and create time-limited access for an agent.
       </p>
+
+      {p.children}
 
       {p.state === "loading" ? (
         <div className="mt-4">

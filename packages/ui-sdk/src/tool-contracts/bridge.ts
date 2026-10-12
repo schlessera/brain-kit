@@ -490,12 +490,14 @@ export const TURN_TEMP_CONTRACT = defineToolContract({
 
 /**
  * Every bridge tool, in the order they are described to the model. The prompt
- * section, the auto-allow posture and the renderer pack all walk this list, so
- * a new bridge tool is registered everywhere by being added here once.
+ * section and renderer pack walk this list. Backend capability gates decide
+ * registration; policy proposals are deliberately excluded from auto-allow.
  */
+import { PROPOSE_POLICY_CHANGE_CONTRACT } from "./policy.js";
 import { INBOX_TOOL_CONTRACTS } from "./inbox.js";
 
 export const BRIDGE_TOOL_CONTRACTS = [
+  PROPOSE_POLICY_CHANGE_CONTRACT,
   ...INBOX_TOOL_CONTRACTS,
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,

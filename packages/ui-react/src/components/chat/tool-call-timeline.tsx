@@ -1,3 +1,4 @@
+import { PolicyChangeCard } from "./policy-change-card.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { TextButton } from "@schlessera/brain-ui-kit";
 import { useState, useEffect, useRef, type CSSProperties } from "react";
@@ -67,7 +68,7 @@ export function ToolCallTimeline({
 
   // A restored card the host closed (#1072) stays open too: it is read-only,
   // and says why, so it must not fold into the summary row.
-  const hasPending = toolCalls.some((t) => awaitsDecision(t) || (t.restored && t.readOnly));
+  const hasPending = toolCalls.some((t) => t.policyChange || awaitsDecision(t) || (t.restored && t.readOnly));
   const effectiveCollapsed = collapsed && !hasPending && !live;
 
   if (effectiveCollapsed) {
@@ -114,7 +115,7 @@ export function ToolCallTimelineCell({
   const root = useBrainUiRoot();
   registerBuiltinRenderers(root.renderers);
   const backendId = useBackendId();
-  const hasPending = toolCalls.some((t) => awaitsDecision(t) || (t.restored && t.readOnly));
+  const hasPending = toolCalls.some((t) => t.policyChange || awaitsDecision(t) || (t.restored && t.readOnly));
   const effectiveCollapsed = collapsed && !hasPending && !live;
   const first = toolIndex === 0;
   return (
@@ -276,6 +277,7 @@ function ToolCallEntryView({
   const Input = renderer.Input;
   const Output = renderer.Output;
 
+  if (toolCall.policyChange) return <PolicyChangeCard toolCall={toolCall} onApproval={onApproval} />;
   return (
     <div className="relative">
       {/* Timeline dot: a bare mark with no content, so it takes the MARK

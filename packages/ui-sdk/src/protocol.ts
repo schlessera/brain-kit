@@ -895,6 +895,7 @@ export interface SessionHistoryMessage {
   content: string;
   thinking?: string;
   toolCalls: Array<{
+    policyChange?: import("./tool-contracts/policy.js").PolicyChangeReview;
     id: string;
     name: string;
     input: Record<string, unknown>;
@@ -1064,6 +1065,8 @@ export interface ServerToolUseComplete extends SessionScoped {
 }
 
 export interface ServerToolResult extends SessionScoped {
+  /** Host-owned policy receipt, independent of a later runtime tool result. */
+  policyChange?: import("./tool-contracts/policy.js").PolicyChangeReview;
   type: "tool_result";
   toolUseId: string;
   output: string;
@@ -1082,7 +1085,7 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * "command" — a destructive-pattern confirmation for an otherwise
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
-  kind?: "tool" | "command";
+  kind?: "tool" | "command" | "policy";
   /**
    * Whether the host will keep an "always allow" given on this card (rev 4,
    * additive). Sent as `false` when the host will refuse to remember the
@@ -3588,4 +3591,16 @@ export interface ServerTurnJournal extends SessionScoped {
   sessionId: string;
   turnId: string;
   journal: import("./turn-journal.js").TurnJournalSummary;
+}
+
+/** Read-only policy facts from the admission reader and recorded worker status (#1662). */
+export interface AgentPolicyRead {
+  path: "context/policies/governance.md";
+  hash: string | null;
+  source: "policy" | "default" | "last_valid";
+  errors: string[];
+  warnings: string[];
+  profiles: { interactive: "governed" | "strict"; voice: "governed" | "strict" };
+  protectedPaths: string[];
+  workerLimits: WorkerLimitsStatus | null;
 }
