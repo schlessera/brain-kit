@@ -905,21 +905,87 @@ test("ownership rotation aborts the native finalization transaction before clean
   expect(await c.root.recordings!.get(row.partition, row.id), "audio remains available after the failed owner repair").toMatchObject({ chunkCount: 1 });
 });
 
-test("warm auth invalidates acceptance waiting for the shared draft write lock", async ctx => {
+for (const heldRead of [false, true]) test(`warm auth invalidates acceptance waiting for the shared draft write lock${heldRead ? " after a held recording read" : ""}`, async ctx => {
   const c = fixture(ctx); await c.ready(); const row = await c.seed(); const id = c.root.stores.drafts.getState().idFor(null);
+  const originalText = "Inspect the harbour.";
+  c.root.stores.drafts.getState().edit(id, null, { text: originalText });
+  await c.root.localWork!.snapshotNow();
+  const handle = c.partitions.open(row.partition);
+  const draftKey = `root:ithaca/draft/${id}`;
+  const chunkKey = `recording:chunk:${row.id}:00000000`;
+  const audio = (await handle.get(chunkKey) as { data: Blob }).data;
+  expect(audio, "native audio blob exists before acceptance").toBeInstanceOf(Blob);
+  expect(audio.size).toBe(row.bytes);
+  expect(await handle.get(draftKey), "nonempty draft was committed before acceptance").toMatchObject({ text: originalText });
+  expect(await c.root.recordings!.get(row.partition, row.id), "nonempty recording exists before acceptance").toMatchObject({ transcript: TEXT, chunkCount: 1, bytes: row.bytes });
+  expect(row.bytes).toBeGreaterThan(0);
+  let captured = false, readEntered = false, releaseRead!: () => void;
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+  ctx.onTestFinished(() => releaseRead());
+  if (heldRead) {
+    const open = c.partitions.open.bind(c.partitions);
+    vi.spyOn(c.partitions, "open").mockImplementation(partition => {
+      const native = open(partition);
+      return { ...native, get: async key => {
+        const value = await native.get(key);
+        if (key === `recording:index:${row.id}` && !readEntered) {
+          expect(value).toMatchObject({ transcript: TEXT, chunkCount: 1 });
+          readEntered = true;
+          await readGate;
+        }
+        return value;
+      } };
+    });
+  }
+  const add = c.root.localWork!.addTranscript.bind(c.root.localWork);
+  vi.spyOn(c.root.localWork!, "addTranscript").mockImplementation((...args) => {
+    // addTranscript captures generation synchronously, before returning its
+    // real operation; observing the call alone before forwarding is too early.
+    const operation = add(...args);
+    captured = true;
+    return operation;
+  });
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const started = new Promise<void>(resolve => { entered = resolve; });
   const lock = navigator.locks.request("brain-ui:work:odysseus:root:ithaca", async () => { entered(); await gate; });
   ctx.onTestFinished(async () => { release(); await lock; }); await started;
   const acceptance = c.root.recordings!.accept(row.partition, row.id, id, null).then(() => null, error => error);
-  await wait(50);
+  if (heldRead) {
+    await expect.poll(() => readEntered, { message: "native recording read reached the controlled handoff" }).toBe(true);
+    expect(captured, "recording read precedes generation capture").toBe(false);
+    expect((await navigator.locks.query()).held.some(l => l.name === "brain-ui:recording"), "accept owns the native recording lock during its read").toBe(true);
+    releaseRead();
+  }
+  await expect.poll(async () => captured && (await navigator.locks.query()).pending.some(l => l.name === "brain-ui:work:odysseus:root:ithaca"), {
+    message: "old generation captured and acceptance actually queued on the held native work lock",
+  }).toBe(true);
   c.root.localWork!.lock(); c.root.stores.drafts.getState().release();
   c.root.stores.drafts.setState(c.root.stores.drafts.getInitialState(), true);
   expect(await c.root.localWork!.resume(), "warm context actually restores before the old operation resumes").toBe(true);
   release(); await lock;
   expect(await acceptance, "an old auth generation cannot report acceptance committed").toBeInstanceOf(Error);
   expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1 });
+  expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`)).toBeUndefined();
+  expect(await handle.get(draftKey), "rejected acceptance never appends its transcript").toMatchObject({ text: originalText });
+  expect((await handle.get(chunkKey) as { data: Blob }).data.size, "native audio remains after rejection").toBe(audio.size);
+});
+
+test("recording lock contention refuses acceptance before draft generation capture", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const id = c.root.stores.drafts.getState().idFor(null);
+  const add = vi.spyOn(c.root.localWork!, "addTranscript");
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const lock = navigator.locks.request("brain-ui:recording", async () => { entered(); await gate; });
+  ctx.onTestFinished(async () => { release(); await lock; });
+  await started;
+  await expect(c.root.recordings!.accept(row.partition, row.id, id, null)).rejects.toThrow("Recording in another Brain tab");
+  expect(add, "ifAvailable recording contention never enters draft acceptance").not.toHaveBeenCalled();
+  expect((await navigator.locks.query()).pending.some(l => l.name === "brain-ui:recording"), "ifAvailable refusal is not a queued recording lock").toBe(false);
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ transcript: TEXT, chunkCount: 1, bytes: row.bytes });
+  expect(row.bytes).toBeGreaterThan(0);
   expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`)).toBeUndefined();
 });
 
