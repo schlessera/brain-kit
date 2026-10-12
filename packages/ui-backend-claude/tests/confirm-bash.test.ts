@@ -254,8 +254,9 @@ describe("what the card says (#112)", () => {
     ])).toBe("ship to production");
   });
 
-  test("an explicit empty list still runs without confirmation", async () => {
-    expect(await descriptionFor("git push --force", [])).toBeUndefined();
+  test("an explicit empty legacy list leaves local commands unconfirmed and cannot waive force-push approval", async () => {
+    expect(await descriptionFor("rm -rf notes/old", [])).toBeUndefined();
+    expect(await descriptionFor("git push --force", [])).toContain("remote history rewrite always needs approval");
   });
 });
 
