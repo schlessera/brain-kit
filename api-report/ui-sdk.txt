@@ -171,6 +171,7 @@ export "." (./src/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -560,6 +561,7 @@ export "./client" (./src/client/index.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -789,6 +791,7 @@ export "./internal" (./src/internal.ts)
   ARCHIVING_UPDATE_REASON
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
+  BUILTIN_OUTWARD_MCP_DESCRIPTORS
   CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
@@ -816,6 +819,9 @@ export "./internal" (./src/internal.ts)
   type MaintenanceWorker
   OUTPUT_STAGING_BUDGET_ENV
   OUTPUT_STAGING_BYTES_ENV
+  OUTWARD_VOICE_REFUSAL
+  type OutwardClassification
+  type OutwardPlan
   PROMOTED_SCRATCH_DIR
   PROMOTION_FILE_MAX_BYTES
   PROMOTION_TURN_MAX_BYTES
@@ -840,6 +846,7 @@ export "./internal" (./src/internal.ts)
   type TurnTempPurgeResult
   type TurnTempSpace
   VERSION_PROBE_TIMEOUT_MS
+  type VisibleOutwardAction
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
@@ -869,6 +876,7 @@ export "./internal" (./src/internal.ts)
   type WorkerMount
   type WorkerNoteFacts
   type WorkerNoteLimit
+  type WorkerOutwardRule
   type WorkerProfile
   WorkerResourceLimitError
   type WorkerSandbox
@@ -884,6 +892,7 @@ export "./internal" (./src/internal.ts)
   bashCommand
   brainGitSync
   canonicalModelId
+  classifyOutwardCall
   claudeMaskFilename
   claudeReportedMaskPath
   compileWorkerCommandPolicy
@@ -912,11 +921,14 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   observeClassification
+  observeOutwardPlan
   outputStagingLimit
+  outwardTarget
   parseWorkerStateBytes
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareOutwardPlan
   prepareWorkerOutput
   prepareWorkerSandbox
   probeMaintenanceWorker
@@ -952,6 +964,7 @@ export "./internal" (./src/internal.ts)
   workerLimitsPlan
   workerLimitsStatus
   workerNoteLimits
+  workerOutwardNote
   workerProfile
   workerSandboxNote
   workerSandboxWarnings
@@ -1144,6 +1157,7 @@ export "./protocol" (./src/protocol.ts)
   type InboxThread
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -1738,6 +1752,7 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type JournalOutwardAction
   type JournalVersion
   type KeyedLock
   type KeyedLockAcquireOptions
@@ -4410,6 +4425,29 @@ signatures (every public export and the types it is made of)
         requestKind: "tool" | "command";
         reason: string;
     } | {
+        kind: "outward_classification";
+        toolUseId: string;
+        classification: import("./outward-actions.js").OutwardClassification;
+        decision: "allow" | "deny" | "refused";
+    } | {
+        kind: "outward_action";
+        toolUseId: string;
+        payload: {
+            tool: string;
+            input: string;
+            inputTruncated: boolean;
+            action: "git_push" | "gh_write" | "mcp_tool" | "http_write";
+            target: string | null;
+            historyRewrite: boolean;
+            tainted: boolean;
+            decision: "policy_allowed" | "approved" | "declined" | "refused";
+            rule: {
+                list: "outward.allow";
+                index: number;
+                pattern: string;
+            } | null;
+        };
+    } | {
         kind: "policy_block";
         toolUseId: string;
         payload: PolicyCommandRecord<"commands.deny">;
@@ -5982,6 +6020,17 @@ signatures (every public export and the types it is made of)
         instruction: string;
         operation?: InboxOperation;
     }
+  JournalOutwardAction (packages/ui-sdk/src/turn-journal.ts)
+    export interface JournalOutwardAction {
+        id: number;
+        at: number;
+        tool: string;
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+        target: string | null;
+        decision: "policy_allowed" | "approved" | "declined" | "refused";
+        historyRewrite: boolean;
+        revertible: false;
+    }
   JournalVersion (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalVersion {
         kind: "file" | "symlink" | "other";
@@ -6363,6 +6412,14 @@ signatures (every public export and the types it is made of)
         commit?: string | null;
     }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  OutwardActionKind (packages/ui-sdk/src/server/outward-actions.ts)
+    export type OutwardActionKind = "git_push" | "gh_write" | "mcp_tool" | "http_write";
+  OutwardClassification (packages/ui-sdk/src/server/outward-actions.ts)
+    export interface OutwardClassification {
+        kind: "outward" | "read" | "unknown";
+        actions: VisibleOutwardAction[];
+        opaque?: true;
+    }
   PILL_LABEL_MAX_CHARS (packages/ui-sdk/src/protocol.ts)
     const PILL_LABEL_MAX_CHARS: 32;
   PROFILE_UNAVAILABLE_REASONS (packages/ui-sdk/src/protocol.ts)
@@ -8995,6 +9052,8 @@ signatures (every public export and the types it is made of)
             path: string;
             reason: string;
         }[];
+        outwardActions?: JournalOutwardAction[];
+        outwardActionsTruncated?: boolean;
     }
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
@@ -9092,6 +9151,15 @@ signatures (every public export and the types it is made of)
         phase: string;
         action: string;
         unknownReason?: string;
+    }
+  VisibleOutwardAction (packages/ui-sdk/src/server/outward-actions.ts)
+    export interface VisibleOutwardAction {
+        action: OutwardActionKind;
+        command: string;
+        target: string | null;
+        historyRewrite: boolean;
+        remote?: string;
+        gitOptions?: readonly string[];
     }
   VoiceCapabilitiesResponse (packages/ui-sdk/src/protocol.ts)
     export interface VoiceCapabilitiesResponse {

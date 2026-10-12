@@ -16,19 +16,36 @@ test(`${binding}: a matching command AND actual origin destination executes with
 test(`${binding}: a matching allow cannot waive force push confirmation`, async () => {
   const result = await probe(binding, { command: "git push origin --force main", outwardAllow: allow, decision: { behavior: "deny", message: "Declined." } });
   expect(result.executed, "PI_OUTWARD_FORCE_ALWAYS_ASKS").toBe(false); expect(result.requests).toHaveLength(1);
+  expect(result.events.find(event => event.kind === "outward_action")).toMatchObject({ payload: { historyRewrite: true, decision: "declined" } });
 });
 for (const command of ["gh issue comment 12 --body Homeward", "curl -X POST https://ithaca.example/api", "wget --post-data=Homeward https://ithaca.example/api"]) test(`${binding}: visible write ${command.split(" ")[0]} asks`, async () => {
   const result = await probe(binding, { command, decision: { behavior: "deny", message: "Declined." } });
   expect(result.executed, "PI_OUTWARD_WRITE_DECLINED").toBe(false); expect(result.requests[0]?.kind).toBe("command");
+  expect(result.events.find(event => event.kind === "outward_action")).toMatchObject({ payload: { decision: "declined" } });
 });
 for (const command of ["gh issue view 12", "curl https://ithaca.example/api"]) test(`${binding}: classified read ${command.split(" ")[0]} needs no outward card`, async () => {
   const result = await probe(binding, { command }); expect(result.executed).toBe(true); expect(result.requests).toEqual([]);
-  expect(result.events.find(e => e.kind === "outward_classification")).toMatchObject({ classification: { kind: "read" } });
+  expect(result.events.find(e => e.kind === "outward_classification")).toMatchObject({ classification: { kind: "read" }, decision: "allow" });
 });
 test(`${binding}: true voice refuses outward even a matching policy allow`, async () => {
   const result = await probe(binding, { command: "git push origin main", outwardAllow: allow, voice: true });
   expect(result.executed, "PI_VOICE_OUTWARD_REFUSED").toBe(false); expect(result.requests).toEqual([]);
   if (binding === "gate") expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { decision: "refused" } });
+});
+
+test(`${binding}: edited outward input needs its own exact confirmation`, async () => {
+  const result = await probe(binding, { command: "git push origin main", decision: { behavior: "allow", updatedInput: { command: "git push origin --force main" } } });
+  expect(result.executed, "PI_OUTWARD_EDIT_NOT_SHOWN").toBe(false);
+  expect(result.events.find(event => event.kind === "outward_action")).toMatchObject({ payload: { historyRewrite: true, decision: "refused" } });
+});
+test(`${binding}: retries each need a fresh outward approval`, async () => {
+  const result = await probe(binding, { command: "git push origin main", repeats: 2 });
+  expect(result.bytes).toBe("push origin main\npush origin main\n");
+  expect(result.requests.filter(request => request.kind === "command")).toHaveLength(2);
+});
+test(`${binding}: cancellation during outward approval executes nothing`, async () => {
+  const result = await probe(binding, { command: "git push origin main", cancelOnApproval: true });
+  expect(result.executed, "PI_OUTWARD_CANCELLED").toBe(false);
 });
 
 }

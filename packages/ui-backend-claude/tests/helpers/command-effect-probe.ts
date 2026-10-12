@@ -63,6 +63,8 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
           env: { PATH: bin }, stdout: "pipe", stderr: "pipe" });
         const stderr = await new Response(child.stderr).text();
         expect(await child.exited, stderr).toBe(0);
+        // The real stream loop releases after the matching tool result.
+        turnLock.releaseForTool(id);
       }
     }
     return { requests, events, outputs, rewritten: existsSync(rewriteMarker), executed: existsSync(marker),

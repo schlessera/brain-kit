@@ -47,13 +47,15 @@ export function createPermissionWiring(options: {
   log: BackendLogFn;
   /** Host-held actual startup view, never worker-supplied authority. */
   configurationRoot?: () => string | undefined;
+  /** Trusted host ledger and limits; never copied to worker initialization. */
+  maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
   const commandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
   const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
   const outward = (toolName: string, input: unknown) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
     allow: req.workerSandbox?.commandPolicy?.outwardAllow, autonomous: Boolean(req.autonomous), voice: req.posture === "voice",
-    configurationRoot: options.configurationRoot?.() ?? (req.workerSandbox?.profile === "governed" ? brainPath : undefined), maskPaths: req.workerSandbox?.maskPaths });
+    configurationRoot: options.configurationRoot?.() ?? (req.workerSandbox?.profile === "governed" ? brainPath : undefined), maskPaths: req.workerSandbox?.maskPaths, maintenance: options.maintenance });
   const observe = (plan: ReturnType<typeof outward>, toolName: string, input: unknown, toolUseId: string,
     decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(plan, { bridge: req.bridge, toolName, input, toolUseId, decision });
   // Only a host-completed per-use admission, with exact input identity, may

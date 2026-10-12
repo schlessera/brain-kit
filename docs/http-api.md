@@ -517,6 +517,14 @@ returns `TurnJournalDetails`: summary, ordered observations, overlapping turn
 IDs and missing-detail reasons. No retained turn in that session is JSON 404.
 An expired summary is still readable, with no raw detail or review actions.
 
+Journal details additionally expose outward admission receipts (#1664) through
+optional `outwardActions` and `outwardActionsTruncated`. Rows include event
+id/time, tool, action, nullable target, decision, history-rewrite status and
+`revertible: false`. They record approval/refusal, never external completion.
+The response bounds this list to 1,000 records and explicitly reports more;
+the retained governance query remains available. Ownership remains the same
+session/turn boundary.
+
 GET the same path plus `/:sequence/preview` accepts a positive safe integer
 observation sequence. Missing/expired observations are 404; invalid sequences
 are 400. Successful preview is `{ inline:true, before, after }`, decoding raw

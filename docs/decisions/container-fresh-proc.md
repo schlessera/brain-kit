@@ -22,7 +22,7 @@ does not change.
    /proc because the parent /proc has masked or covered paths; in Docker, run
    the container with --security-opt systempaths=unconfined", followed by
    bubblewrap's own line. Every other launch failure keeps the generic list
-   (`FRESH_PROC_REFUSED`, `packages/ui-sdk/src/server/worker-launcher.ts:1053`).
+   (`FRESH_PROC_REFUSED`, `packages/ui-sdk/src/server/worker-launcher.ts:1056`).
    The match is on bubblewrap's literal message, not a guess from the
    environment: a host that refuses for another reason is not told to change
    Docker options.

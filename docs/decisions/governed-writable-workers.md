@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-80`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -258,8 +258,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:29-42`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:81-106`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:88-120`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -271,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-80`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-81`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -674,7 +674,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:815-815`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:817-817`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1110,7 +1110,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1200`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1203`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1358,6 +1358,32 @@ outward:
 
 Each outward action is recorded with its attribution. Because it cannot be
 reverted, it is listed in the journal as irreversible.
+
+**Delivered visible-command admission (#1664).** Both adapters share the
+visible Git, GitHub CLI and explicit HTTP-write classifier and use the existing
+per-use command cards. Named Git push destinations are read only by a
+credential-free isolated maintenance command in the worker's actual startup
+configuration view; the host-selected maintenance admission domain and masks
+remain in force. Unknown or multiple push destinations cannot match an allow
+rule. Force, deletion, mirror and prune writes ask even with a matching rule.
+Approval edits are rechecked against their exact visible input; retries need
+fresh per-use approval. Native Pi retains its existing refusal of voice turns;
+the Claude voice gate and Pi's shared permission gate refuse outward calls.
+Autonomous admission remains unchanged.
+
+The shipped Claude and Pi tool inventories supply local brain tools and read
+capabilities, but no built-in outward mail/calendar/booking/payment MCP
+descriptors. The fixed outward descriptor inventory is consequently empty;
+this implementation does not assign invented external effects to third-party
+names. Capabilities explicitly disclose that opaque HTTPS scripts are outside
+this visible-command coverage and that the egress proxy is not active.
+
+Every visible outward admission is retained as `outward_action`, including
+refusals. The existing expanded turn disclosure lists these as irreversible
+external actions, names their approval decision, and does not claim that an
+external action completed. Local-file restore is never offered for them.
+Classification observations include the exact call identity, decision and
+unknown-segment coverage; they confer no egress authority by themselves.
 
 **Opaque network code.** A script making an HTTPS `POST` shows nothing in its
 tool input, and a `CONNECT`-only proxy cannot see the method. Classification

@@ -3,6 +3,7 @@ import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernanc
 
 export interface TurnGovernancePolicy {
   readonly commandRuleIndices: Readonly<GovernanceCommandRuleIndices>;
+  readonly outwardRuleIndices: readonly number[];
   readonly hash: string | null;
   readonly source: "policy" | "default" | "last_valid";
   readonly policy: EffectiveGovernancePolicy;
@@ -20,19 +21,19 @@ function freeze<T>(value: T): T {
 }
 
 export function createGovernancePolicyReader(brainPath: string) {
-  let lastValid: { policy: EffectiveGovernancePolicy; hash: string; commandRuleIndices: GovernanceCommandRuleIndices } | undefined;
+  let lastValid: { policy: EffectiveGovernancePolicy; hash: string; commandRuleIndices: GovernanceCommandRuleIndices; outwardRuleIndices: number[] } | undefined;
   return { load(): TurnGovernancePolicy {
     const checked = checkGovernancePolicy(brainPath);
     if (checked.status === "valid") {
-      lastValid = { policy: freeze(checked.effective), hash: checked.content_hash!, commandRuleIndices: freeze(checked.commandRuleIndices!) };
+      lastValid = { policy: freeze(checked.effective), hash: checked.content_hash!, commandRuleIndices: freeze(checked.commandRuleIndices!), outwardRuleIndices: freeze(checked.outwardRuleIndices!) };
       return freeze({ ...lastValid, source: "policy" as const, errors: [], warnings: [...checked.warnings] });
     }
     if (checked.status === "missing") {
       // Removing the optional file is an outside-turn edit selecting defaults;
       // an invalid edit retains the last valid file, not an inferred new policy.
-      return freeze({ commandRuleIndices: { deny: [], confirm: [] }, policy: resolveGovernancePolicy({ schema_version: 1 }), hash: null, source: "default" as const, errors: [], warnings: [] });
+      return freeze({ commandRuleIndices: { deny: [], confirm: [] }, outwardRuleIndices: [], policy: resolveGovernancePolicy({ schema_version: 1 }), hash: null, source: "default" as const, errors: [], warnings: [] });
     }
-    return freeze({ commandRuleIndices: lastValid?.commandRuleIndices ?? { deny: [], confirm: [] }, policy: lastValid?.policy ?? resolveGovernancePolicy({ schema_version: 1 }),
+    return freeze({ commandRuleIndices: lastValid?.commandRuleIndices ?? { deny: [], confirm: [] }, outwardRuleIndices: lastValid?.outwardRuleIndices ?? [], policy: lastValid?.policy ?? resolveGovernancePolicy({ schema_version: 1 }),
       hash: lastValid?.hash ?? null, source: lastValid ? "last_valid" as const : "default" as const, errors: [...checked.errors], warnings: [] });
   } };
 }

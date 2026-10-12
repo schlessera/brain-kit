@@ -32,6 +32,24 @@ as an error with its named partial-work receipt, rather than being relabeled
 as a timeout. A user cancellation or host timeout that already won keeps its
 existing terminal precedence. No automatic retry or revert is implied.
 
+### Outward admission receipts (additive, #1664)
+
+Backend activity adds `outward_action` with the existing retained governance
+payload, plus `outward_classification` for the exact `toolUseId`, visible
+classification and admission decision (`allow`, `deny` or `refused`). An
+`opaque` classification marks unknown/config-sourced segments. These are
+observations, not network grants; no proxy enforcement or external completion
+is implied. Older observers may ignore the additions.
+
+The existing journal details response may add `outwardActions` and
+`outwardActionsTruncated`. Each row gives the retained event id/time, tool,
+action, known target or null, admission decision, remote-history-rewrite flag
+and `revertible: false`. Approved and declined/refused attempts stay distinct.
+Restoring local files cannot undo an external effect. The endpoint returns at
+most 1,000 rows, explicitly marks truncation, and leaves the complete retained
+governance event query available. No permission/card or protocol revision is
+added.
+
 <a id="revision-negotiation"></a>
 
 ### Revision negotiation

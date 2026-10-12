@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
+import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
@@ -28,6 +29,9 @@ beforeAll(async () => {
   app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() });
   app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
+  app.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
+  for (const decision of ["approved", "declined"] as const) recordGovernanceEvent(app.db, { kind: "outward_action", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed",
+    payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
   app.wsHost.journal!.finish(turnId);
   const seed = JSON.stringify({ turnId, summary: app.wsHost.journal!.summary(turnId) });
   await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed}</script><script type="module" src="/client.js"></script></body></html>`);
@@ -59,6 +63,11 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (con
     expect(await page.evaluate(() => (window as any).__journalFixture.state().runState), "JOURNAL_RECEIPT_NEVER_REOPENS_RUN_STATE").toBe("idle");
     await disclosure.focus(); await page.keyboard.press("Enter");
     const review = page.getByRole("button", { name: "Review notes/voyage.md", exact: true }); await review.waitFor();
+    expect(await page.getByRole("heading", { name: "Outward actions", exact: true }).count(), "OUTWARD_JOURNAL_IRREVERSIBLE_VISIBLE").toBe(1);
+    expect(await page.getByText("These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.", { exact: true }).count(), "OUTWARD_JOURNAL_TRUTHFUL_SCOPE").toBe(1);
+    expect(await page.getByText("Git push · Approved · github.com/odysseus/voyage.git", { exact: true }).count()).toBe(1);
+    expect(await page.getByText("Git push · Declined · github.com/odysseus/voyage.git", { exact: true }).count()).toBe(1);
+    expect(await page.getByRole("button", { name: /Revert.*push/i }).count(), "OUTWARD_JOURNAL_NO_REVERT").toBe(0);
     await review.focus(); await page.keyboard.press("Enter");
     await page.getByRole("dialog", { name: "Retained change", exact: true }).waitFor();
     await page.getByText("Athena charts the return.", { exact: true }).waitFor();
