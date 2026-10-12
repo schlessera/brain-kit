@@ -310,6 +310,12 @@ authenticate carries `brain.failure_class` (the runtime's own class, e.g.
 `authentication_failed`, or `subscription_required` when the backend refused
 the turn before sending it) and an `auth_failure` event. Absent means the
 backend did not report it; older clients may ignore all of them.
+A run whose worker hit a host resource limit (additive, #1660) carries one
+`worker_resource_limit` event per report: `{ limits, fatal }`, where each of
+`limits` is `{ limit, source, value, events }` (`events` is the kernel's count
+since the last report, or null when it does not count). `fatal: true` means
+the limit ended the worker; the root then also carries `brain.failure_class`
+`worker_resource_limit`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
@@ -520,6 +526,9 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
   Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  `worker_resource_limit` (#1660) means a host resource limit ended the turn's
+  worker; the message names the limit, its value and whether an rlimit or the
+  worker's cgroup enforced it.
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
@@ -528,7 +537,7 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   exported from `@schlessera/brain-ui-sdk` and `/protocol`, is an immutable
   registry whose keys and values are the first-party class names. Emitters
   reference it and the failed-turn review derives its class allowlist from its
-  values. It includes `worker_host_unsupported`, `auth_failure` and the installed
+  values. It includes `worker_host_unsupported`, `worker_resource_limit`, `auth_failure` and the installed
   Claude SDK's forwarded classes. Inventory proof covers first-party `errorClass`
   literals, registry references and that installed SDK vocabulary. Unregistered
   third-party classes still appear as `unknown` in the default outgoing review;

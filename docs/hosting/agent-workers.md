@@ -310,6 +310,144 @@ and the app shows a standing notice above the composer that links this
 section. The warning names what a root-run worker keeps: it can read
 root-owned files and connect to root-owned and abstract Unix sockets.
 
+## Resource limits
+
+Every agent worker runs under resource limits (#1660), so one runaway turn
+cannot exhaust the host. The defaults are far above what normal work uses.
+The design is in the
+[governed-workers decision](../decisions/governed-writable-workers.md#resource-limits-g1).
+
+**rlimits, always.** `prlimit` from util-linux is the first program inside the
+worker's namespaces. It sets each limit, soft and hard, and then execs the
+worker command. No agent process can raise a hard limit, because that needs
+`CAP_SYS_RESOURCE` in the initial namespace. A host without `prlimit` refuses
+agent turns with the named requirement, the same way it refuses a missing
+bubblewrap.
+
+| Limit | rlimit | Default | What a step that hits it sees |
+| --- | --- | --- | --- |
+| `processes` | `RLIMIT_NPROC` | 4096 tasks, threads included | `fork: Resource temporarily unavailable` (`EAGAIN`) |
+| `data` | `RLIMIT_DATA` | half the server's memory, per process (below) | `Out of memory` / `Cannot allocate memory` |
+| `file_size` | `RLIMIT_FSIZE` | 16 GiB per file | `File too large` (`EFBIG`) |
+| `open_files` | `RLIMIT_NOFILE` | 65536 per process | `Too many open files` |
+
+`RLIMIT_NPROC` is set inside the user namespace on purpose. The kernel counts
+it per user and namespace. Set outside, it would count every process of the
+server's uid and refuse the namespace itself. Set inside, it counts only the
+worker's own tasks, so two workers do not share one budget. The kernel never
+applies `RLIMIT_NPROC` to uid 0, so a root-run server's workers are bounded
+only by a cgroup `pids.max`, and the status reports `processes` as absent with
+that reason ([running as root](#running-the-server-as-root)).
+
+"The server's memory" is physical memory, or less when a cgroup above the
+server caps it: a systemd `MemoryMax=`, or a container started with
+`--memory`. The memory defaults are half of it. On a small host they keep at
+least 1 GiB, but never more than three quarters of it, so the server always
+keeps headroom.
+
+The per-process memory bound is `RLIMIT_DATA` rather than the address-space
+limit `RLIMIT_AS`. Chromium reserves more than a terabyte of address space at
+start. Measured on 2026-10-12 in the worker's namespaces, Chromium 152 crashed
+under `RLIMIT_AS` at 8, 16 and 32 GiB, hung at 64 GiB, and started only from
+1 TiB, where the limit bounds nothing. `RLIMIT_DATA` counts private writable
+memory, not reservations. Chromium, Bun and Claude Code all started under
+1 GiB, and an allocation past the limit failed inside the allocating process.
+
+Any rlimit is lowered to the server's own hard limit when that is lower: an
+unprivileged process cannot raise it.
+
+**A cgroup per worker, when the host delegates one.** When the server runs
+alone in a cgroup v2 subtree it can write, it creates one child cgroup per
+worker. That is the case for a systemd service with `Delegate=yes`, or a
+`systemd-run --user --scope -p Delegate=yes` scope.
+
+| Limit | cgroup file | Default |
+| --- | --- | --- |
+| `memory` | `memory.max`, with `memory.swap.max` 0 | half the server's memory, for the whole worker |
+| `pids` | `pids.max` | 4096 tasks for the whole worker |
+| `cpu` | `cpu.max` | all CPUs but one |
+
+The server moves itself into a `brain-server` leaf of its cgroup and creates
+the workers under `brain-workers/`. This is the layout systemd expects of a
+delegated unit. The trusted bootstrap joins the worker's cgroup before it
+execs anything, so no worker process runs outside it. The worker sees `/sys`
+read-only and cannot leave its cgroup or change its limits. A worker can mount
+cgroup2 afresh from a nested user and cgroup namespace, but there its own
+cgroup is the namespace root. The cgroup2 mount option `nsdelegate`, which
+systemd sets by default, keeps a namespace root's limits out of reach from
+inside it. A host whose cgroup2 lacks `nsdelegate` gets no per-worker cgroup,
+and the status says why. A worker's cgroup has `cgroup.max.descendants` 0, so
+a worker cannot leave child cgroups behind it either.
+
+Swap is off inside a worker's cgroup, because a worker swapping past its limit
+would fill the host's swap instead of stopping. A memory overrun kills the
+largest process, usually the runaway command, and the agent keeps running.
+
+The server takes over its cgroup only when it is the only process in it, as
+a systemd unit's command is when the unit starts. A cgroup holding anything
+else, even a process the server started, is never restructured. A terminal's
+desktop scope is one example. Docker mounts the cgroup filesystem read-only, so
+a container gets the rlimits only. If a worker's cgroup cannot be created
+later, that launch is refused, and from then on the cgroup limits are reported
+absent. The cgroup limits a host cannot apply are stated as absent, with the
+reason, never silently assumed.
+
+**Configuration.** `BRAIN_UI_WORKER_LIMITS` overrides single limits as
+comma-separated `name=value` pairs, for example
+`BRAIN_UI_WORKER_LIMITS=memory=8GiB,pids=2048,cpu=2`. Sizes take `KiB`, `MiB`,
+`GiB` or `TiB`. `unlimited` turns one limit off, and `cgroup=off` skips the
+per-worker cgroup. A malformed entry refuses agent turns with the entry named,
+and the status lists every limit as absent for that reason: a limit the
+operator asked for is never dropped silently.
+
+**Where the limits are stated.** `GET /api/status` reports
+`runtime.workerHost.limits`, with each limit enforced (with its value) or
+absent (with why)
+([contract](../integration-contract/http.md#worker-resource-limits-additive-1660)).
+The boot log says the same once and warns for each limit the host cannot
+enforce. The agent reads the same values before it starts, in the "Limits in
+this turn" list of its sandbox note: each limit, how hitting it looks, and
+those this host cannot enforce.
+
+**When a worker hits one.** With a cgroup, each new hit is recorded in the
+run's Activity as a `worker_resource_limit` event, and as a `resource_limit`
+governance event kept with the session (#1651), next to the tool step that
+caused it, naming the limit, its value and the kernel's count: the times the
+worker reached its own `memory.max` (an OOM kill by the host or an ancestor
+cgroup is not counted), refused a fork at `pids.max`, or was throttled at
+`cpu.max`. A worker killed (exit 137) within a second of its own memory limit
+firing and an OOM kill counts as ended by that limit. A command the limit
+killed earlier, which the worker survived, does not. A limit that
+ends the worker itself fails the turn with `failure.errorClass =
+worker_resource_limit` and the limit named. An rlimit fails the step inside the
+worker with the error in the table above and leaves no record the server can
+read, so the server cannot attribute it. The agent's note names those errors
+so the agent can recognise them.
+
+**Measured headroom.** `tests/worker-limits-workloads.test.ts` runs the four
+first-party workloads through the real launcher under the host's defaults,
+behind an offline network namespace with loopback fixture inference. It
+records each one's peak resident memory in `tmp/worker-limit-workloads.json`.
+On 2026-10-12, on the Linux x86_64 row below and in its Docker container, the
+peaks were:
+
+| Workload | Peak resident memory (largest process) |
+| --- | --- |
+| A Claude Code turn with one shell tool | 232 MiB |
+| A pi turn with one shell tool | 207–219 MiB |
+| `brain index` of the fixture corpus | 114 MiB |
+| A Chromium render through `brain render` | 189–203 MiB |
+
+All four also passed with `data=1GiB,processes=256,open_files=1024`, far below
+the defaults. `packages/ui-sdk/tests/worker-limits.test.ts` proves the bounds.
+A fixture that forks without bound stops at `RLIMIT_NPROC` while the host still
+starts processes. An allocation past `RLIMIT_DATA` fails inside the worker.
+Inside a delegated scope, `pids.max` stops a fork bomb, `memory.max`
+OOM-kills inside the worker only, `cpu.max` throttles, and all three are
+reported. A worker's own cgroup2 mount cannot raise its limits. The cgroup half
+runs only where a systemd user manager can delegate a scope, and says so when
+it cannot.
+
 ## Measured host-component matrix
 
 These rows qualify the launcher/probe component. Where a row says so, the

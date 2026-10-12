@@ -25,6 +25,7 @@ import type {
   TurnUsage,
 } from "@schlessera/brain-ui-sdk/server";
 import {
+  FIRST_PARTY_FAILURE_CLASSES,
   SPAN_OP_EXECUTE_TOOL,
   SPAN_OP_INVOKE_AGENT,
   SPAN_TOOL_NAME_PREFIX,
@@ -33,6 +34,7 @@ import {
   type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
+import type { GovernanceEventInput } from "../governance/events.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -44,6 +46,8 @@ export interface TurnRecorderDeps {
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;
+  /** The governance-event writer (#1651). Absent: interventions stay span events only. */
+  governance?: (input: GovernanceEventInput) => void;
 }
 
 export interface TurnRecorder {
@@ -96,6 +100,8 @@ export function createTurnRecorder(
     principalId?: string;
     /** Server-selected; autonomous attempts never acquire an interactive session. */
     origin?: "session" | "autonomous";
+    /** A session turn's posture, for governance attribution. Absent: interactive. */
+    posture?: "voice";
     /**
      * The root span's name, when the run is not a conversation turn: the
      * handoff preparation summary (#61) is a run on its source session that
@@ -358,6 +364,29 @@ export function createTurnRecorder(
               ...(event.message ? { message: redactCredentials(event.message) } : {}),
             });
             runtime?.authFailure(event, runId, observedPolicy);
+            onWrite?.();
+            break;
+          }
+          case "resource_limit": {
+            // A host resource limit stopped a step or the whole worker
+            // (#1660): on the run's root span, and as a governance event
+            // (#1651) kept with the session after span detail is pruned.
+            ensureRoot();
+            store.appendEvent(rootSpanId, "worker_resource_limit", { limits: event.limits, fatal: event.fatal });
+            if (event.fatal) {
+              store.patchSpan(rootSpanId, { attrs: { "brain.failure_class": FIRST_PARTY_FAILURE_CLASSES.worker_resource_limit } });
+            }
+            if (deps.governance && event.limits.length) {
+              try {
+                deps.governance({ kind: "resource_limit", payload: { limits: event.limits.slice(0, 20), fatal: event.fatal },
+                  sessionId: sessionId ?? null, turnId: runId,
+                  actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
+                  model: null, profile: turn.origin === "autonomous" ? "restricted" : null });
+              } catch (error) {
+                // A refused record must not break the turn it describes.
+                log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
+              }
+            }
             onWrite?.();
             break;
           }

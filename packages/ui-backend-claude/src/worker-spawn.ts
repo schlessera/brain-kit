@@ -3,7 +3,8 @@ import { EventEmitter } from "node:events";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { launchAgentWorker, requireWorkerHost, type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
+import { launchAgentWorker, mergeLimitReports, requireWorkerHost, type WorkerLimitReport,
+  type WorkerLimitsPlan, type WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { createClaudeWorkerState, validateSessionId } from "./worker-state.js";
@@ -34,9 +35,20 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  * runtime state, and the relay directory as the one route out.
  */
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
-  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox) {
+  restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan) {
   const completions: Promise<void>[] = [];
+  const reports: Array<() => WorkerLimitReport> = [];
+  const limits = () => mergeLimitReports(reports.map(report => report()));
   return {
+    /** The resource limits this turn's workers hit so far (#1660). */
+    limits,
+    /** The same, once the workers have exited or `waitMs` has passed. */
+    async settledLimits(waitMs = 3_000): Promise<WorkerLimitReport> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.allSettled(completions), new Promise(resolve => { timer = setTimeout(resolve, waitMs); })]);
+      clearTimeout(timer);
+      return limits();
+    },
     spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
       requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
       immediateSignal.throwIfAborted();
@@ -53,12 +65,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
           worker = launchAgentWorker({ brainPath, statePath: state.path, command: [command, ...args], env: childEnv,
-            restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}) });
+            restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}),
+            ...(limitsPlan ? { limits: limitsPlan } : {}) });
         } else {
           worker = launchAgentWorker({ brainPath, statePath: state.path,
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}) });
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}),
+            ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { state.cleanup(); throw error; }
+      reports.push(worker.limitReport);
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
       let tail = "";
       worker.stderr.setEncoding("utf8");

@@ -310,6 +310,7 @@ export async function prepareHandoff(
           {
             store: host.activity.store,
             ...(host.activity.runtime ? { runtime: host.activity.runtime } : {}),
+            ...(host.activity.governance ? { governance: host.activity.governance } : {}),
             onWrite: () => host.activity!.stream.pump(),
             log: host.log,
           },

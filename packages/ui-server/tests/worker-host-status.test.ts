@@ -44,7 +44,7 @@ describe("boot probe", () => {
       // Only the ordinary mode: autonomous work is not enabled.
       expect(spy.mock.calls.map(([, options]) => options)).toEqual([{ restricted: false }]);
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
-      expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) } });
+      expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) }, limits: expect.any(Object) });
       const warnings = observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes(FRESH_PROC));
       expect(warnings).toHaveLength(1);
       expect(String(warnings[0]!.body)).toContain("The server keeps running");
@@ -58,7 +58,7 @@ describe("boot probe", () => {
     const t = await createTestApp();
     try {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
-      expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) } });
+      expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) }, limits: expect.any(Object) });
     } finally { await t.teardown(); }
   });
 
@@ -75,6 +75,40 @@ describe("boot probe", () => {
   });
 });
 
+describe("worker resource limits (#1660)", () => {
+  test("/api/status reports the limits each worker runs under and why the others are absent; absent ones warn once", async () => {
+    probeAnswers({ ok: true });
+    const observability = createRecordingObservability();
+    const t = await createTestApp({ env: { BRAIN_UI_WORKER_LIMITS: "processes=2048,data=2GiB,file_size=1GiB,open_files=512,cgroup=off" },
+      appOptions: { observability } });
+    try {
+      const limits = (await workerHostOf(await t.fetch("/api/status")))?.limits;
+      expect(limits).toEqual({
+        enforced: [
+          { limit: "processes", source: "rlimit", value: 2048 }, { limit: "data", source: "rlimit", value: 2 * 1024 ** 3 },
+          { limit: "file_size", source: "rlimit", value: 1024 ** 3 }, { limit: "open_files", source: "rlimit", value: 512 }],
+        absent: (["memory", "pids", "cpu"] as const).map(limit => ({ limit, source: "cgroup" as const, reason: "turned off by the host (cgroup=off)" })),
+      });
+      // The operator turned the cgroup off: that is stated, not warned about.
+      expect(observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes("is not enforced"))).toEqual([]);
+      // Check again re-reads them with the probe.
+      const checked = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
+      expect(checked.limits).toEqual(limits);
+    } finally { await t.teardown(); }
+  });
+
+  test("a malformed configuration reports every limit absent, naming the entry", async () => {
+    probeAnswers({ ok: true });
+    const t = await createTestApp({ env: { BRAIN_UI_WORKER_LIMITS: "memory=lots" } });
+    try {
+      const limits = (await workerHostOf(await t.fetch("/api/status")))?.limits;
+      expect(limits?.enforced).toEqual([]);
+      expect(limits?.absent).toHaveLength(7);
+      for (const entry of limits!.absent) expect(entry.reason).toBe("BRAIN_UI_WORKER_LIMITS is malformed: memory=lots is not a size such as 8GiB");
+    } finally { await t.teardown(); }
+  });
+});
+
 describe("Check again", () => {
   test("re-runs the real probe and records what it found, in both directions", async () => {
     const spy = probeAnswers({ ok: false, requirement: FRESH_PROC }, { ok: true }, { ok: false, requirement: "bubblewrap is missing" });
@@ -82,7 +116,7 @@ describe("Check again", () => {
     try {
       const fixed = await t.fetch("/api/status/worker-host", { method: "POST" });
       expect(fixed.status).toBe(200);
-      expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) } });
+      expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) }, limits: expect.any(Object) });
       expect(spy).toHaveBeenCalledTimes(2);
       // A pass is not cached: the next check probes again.
       const broken = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;

@@ -324,6 +324,22 @@ export type BackendActivityEvent =
       /** The runtime's own class for it, e.g. `authentication_failed`. */
       errorClass: string;
       message?: string;
+    }
+  | {
+      /**
+       * The turn's worker hit a host resource limit (#1660): reported once per
+       * new hit, next to the step that caused it, and once more if the limit
+       * ended the worker (`fatal`). Each hit names the limit, where it is
+       * enforced, its configured value and how many times the kernel counted it.
+       */
+      kind: "resource_limit";
+      limits: Array<{
+        limit: "processes" | "data" | "file_size" | "memory" | "pids" | "cpu";
+        source: "rlimit" | "cgroup";
+        value: number;
+        events: number | null;
+      }>;
+      fatal: boolean;
     };
 
 // The subscription auth actions are part of the wire (`TurnFailure.authAction`,

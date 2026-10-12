@@ -132,6 +132,24 @@ never written to `brain.db` or the brain, never authoritative for anything,
 and never shown to the user. They survive the Activity span-detail prune and
 are deleted with their session.
 
+<a id="worker-resource-limits-additive-1660"></a>
+
+### Worker resource limits (additive, #1660)
+
+`WorkerHostStatus` gains `limits: { enforced, absent }`
+(`WorkerLimitsStatus` in `@schlessera/brain-ui-sdk/protocol`), re-read with
+every probe. Each `enforced` entry is `{ limit, source, value }`; each
+`absent` entry is `{ limit, source, reason }`. `limit` is one of `processes`,
+`data`, `file_size`, `open_files` (`source: "rlimit"`, per process) or
+`memory`, `pids`, `cpu` (`source: "cgroup"`, for the whole worker). `value` is
+bytes for `data`, `file_size` and `memory`, CPUs for `cpu`, and a count
+otherwise. `reason` says why a limit is not enforced: no delegated cgroup, no
+`prlimit`, no `nsdelegate` on the cgroup2 mount, uid 0 for `processes`, a
+malformed `BRAIN_UI_WORKER_LIMITS`, or the host turned it off.
+It appears on `GET /api/status` as `runtime.workerHost.limits` and in the
+answer of `POST /api/status/worker-host`. Clients must tolerate it being
+absent and must not assume the list of limit names is closed.
+
 <a id="internal-queue-poke-additive"></a>
 
 ### Internal Queue poke (additive)

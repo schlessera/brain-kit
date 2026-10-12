@@ -14,7 +14,8 @@ import {
   BackendRequestError,
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
-import { WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
+  type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
@@ -212,6 +213,26 @@ export function createClaudeTurnRunner(options: {
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
     /**
+     * The host resource limits the turn's worker hit (#1660). Each new hit is
+     * reported next to the tool step that caused it; a limit that ended the
+     * worker becomes the turn's failure, with the limit named.
+     */
+    let workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> } | undefined;
+    const freshLimitHits = createLimitTracker();
+    const reportLimitHits = (report: WorkerLimitReport): void => {
+      const fresh = freshLimitHits(report);
+      if (fresh.length) reportActivity({ kind: "resource_limit", limits: fresh, fatal: false });
+    };
+    const limitFailure = async (): Promise<{ code: string; message: string; failure: TurnFailure } | null> => {
+      if (!workerLimits) return null;
+      const report = await workerLimits.settled();
+      if (!report.fatal) { reportLimitHits(report); return null; }
+      reportActivity({ kind: "resource_limit", limits: report.hits, fatal: true });
+      const message = limitFailureMessage(report.hits);
+      return { code: "WORKER_RESOURCE_LIMIT", message,
+        failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.worker_resource_limit, message } };
+    };
+    /**
      * Set when the subscription check refused the turn before its prompt was
      * released. It outranks the abort it causes: the turn failed, it was not
      * cancelled.
@@ -285,6 +306,7 @@ export function createClaudeTurnRunner(options: {
       });
       finishWorker = sdkTurn.finishWorker;
       archiveEnv = sdkTurn.options.env;
+      workerLimits = sdkTurn.workerLimits;
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = (turnInput = createTurnInput(sdkTurn.prompt));
       if (!req.autonomous) turn.input = input;
@@ -494,6 +516,7 @@ export function createClaudeTurnRunner(options: {
           // lands (the turn-end backstop covers anything still held).
           if (serverMsg.type === "tool_result") {
             turnLock.releaseForTool(serverMsg.toolUseId);
+            if (workerLimits) reportLimitHits(workerLimits.current());
           }
           emit(serverMsg);
         }
@@ -510,6 +533,8 @@ export function createClaudeTurnRunner(options: {
       }
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
+      if (!sawResult && !refused && !abortController.signal.aborted) refused = await limitFailure();
+      else if (workerLimits) reportLimitHits(workerLimits.current());
       if (!sawResult) {
         if (refused) {
           emitTerminal("error");
@@ -533,6 +558,8 @@ export function createClaudeTurnRunner(options: {
       // result before throwing. Diagnostics only make sense BEFORE the
       // terminal frame; when the stream already delivered its result, the turn
       // is over and nothing may follow it.
+      // A worker ended by a host limit fails the turn with that limit named (#1660).
+      if (!sawResult && !refused && !abortController.signal.aborted) refused = await limitFailure().catch(() => null);
       if (sawResult) {
         // Terminal frame already sent — swallow the late failure.
       } else if (refused) {

@@ -222,11 +222,11 @@ Stated before the requirements because five of them derive from it.
 ### Execution
 
 - R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:10-13`) owns only manual triggers and
-  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:52-190`) already runs an interval tick with a boot sweep —
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:55-194`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:593`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:594`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -248,15 +248,15 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:339-427`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:355-443`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
   recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:84-151`).
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:88-158`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:903-914`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:906-917`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
@@ -266,7 +266,7 @@ Stated before the requirements because five of them derive from it.
   promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:222-280`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:334-340`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:335-341`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -289,7 +289,7 @@ Stated before the requirements because five of them derive from it.
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:72-247`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:75-252`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -336,14 +336,14 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2203`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2226`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:499`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:528`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:72-247`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:75-252`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK

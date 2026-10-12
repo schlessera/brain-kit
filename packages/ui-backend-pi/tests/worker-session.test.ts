@@ -46,7 +46,7 @@ beforeEach(() => {
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
 });
 afterEach(() => {

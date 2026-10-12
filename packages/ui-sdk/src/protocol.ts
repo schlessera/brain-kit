@@ -1122,7 +1122,7 @@ type FirstPartyFailureClass =
   | "verification_required" | "billing_error" | "subscription_required"
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
-  | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "unknown";
+  | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1147,6 +1147,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   cloud_credential_error: "cloud_credential_error",
   worker_host_unsupported: "worker_host_unsupported",
   session_too_large: "session_too_large",
+  worker_resource_limit: "worker_resource_limit",
   unknown: "unknown",
 });
 
@@ -1576,6 +1577,28 @@ export interface WorkerHostStatus {
    * the words the boot log uses. The server is not refused for it.
    */
   rootServer?: { warning: string };
+  /**
+   * The resource limits every agent worker runs under (#1660), resolved from
+   * the host's configuration when the status is read. Each limit is either
+   * enforced, with its value, or absent, with why: no delegated cgroup, no
+   * `prlimit`, or turned off by the host.
+   */
+  limits?: WorkerLimitsStatus;
+}
+
+/**
+ * A worker resource limit (#1660). The rlimits (`processes`, `data`,
+ * `file_size`, `open_files`) apply per process; the cgroup limits
+ * (`memory`, `pids`, `cpu`) apply to the whole worker. Byte values for
+ * `data`, `file_size` and `memory`; CPUs for `cpu`.
+ */
+export type WorkerLimitName = "processes" | "data" | "file_size" | "open_files" | "memory" | "pids" | "cpu";
+export type WorkerLimitSource = "rlimit" | "cgroup";
+
+/** Which worker limits this host enforces, and why each other one is absent (#1660). */
+export interface WorkerLimitsStatus {
+  enforced: Array<{ limit: WorkerLimitName; source: WorkerLimitSource; value: number }>;
+  absent: Array<{ limit: WorkerLimitName; source: WorkerLimitSource; reason: string }>;
 }
 
 export interface SystemStatus {

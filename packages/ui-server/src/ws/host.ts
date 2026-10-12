@@ -13,6 +13,7 @@ import type { ActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
+import type { GovernanceEventInput } from "../governance/events.js";
 import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
@@ -35,6 +36,8 @@ export interface ActivityRuntime {
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
   /** Where each turn's runtime report and auth failures are kept for /api/status. */
   runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
+  /** The governance-event writer (#1651) the turn recorders emit through. */
+  governance?: (input: GovernanceEventInput) => void;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

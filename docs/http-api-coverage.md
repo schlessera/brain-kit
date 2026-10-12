@@ -121,9 +121,9 @@ row's real mounting check. They do not establish mounting by themselves.
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:292-312`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:39-54`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:79-93`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:95-104`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:131-148`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:113-127`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:129-138`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:165-182`)
 
 **A — Password access and revocation.**
 
