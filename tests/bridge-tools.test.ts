@@ -328,10 +328,14 @@ describe("bridge tool adapter identity", () => {
     }
   });
 
-  test("Claude's four definition and result bytes are unchanged", async () => {
+  test("Claude preserves migration receipts except the additive roadblocks definition", async () => {
     const before = readSnapshot("before");
     const after = readSnapshot("after");
-    expect(after.claude).toEqual(before.claude);
+    for (const name of SNAPSHOT_NAMES) {
+      if (name !== "query_activity") expect(after.claude[name]).toEqual(before.claude[name]);
+    }
+    expect(after.claude.query_activity.resultSha256).toBe(before.claude.query_activity.resultSha256);
+    expect(after.claude.query_activity.definitionSha256).not.toBe(before.claude.query_activity.definitionSha256);
     expect((await currentSnapshot()).claude).toEqual(after.claude);
   });
 

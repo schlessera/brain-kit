@@ -308,6 +308,15 @@ checks both nonempty priced and mixed-knownness fixtures
 - `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:228-236`)
 - `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:263-270`)
 
+**Local roadblock report (internal #1672).**
+
+`governance-roadblock-report.test.ts` covers a week of classified fixture turns,
+exact count/token/cost/time rankings, authenticated access, malformed parameters,
+unknown measurement coverage, complete-window aggregation, storage failures
+and both backend tools' parity. `mounted internal router: GET /api/governance/roadblocks`
+provides the real composition-root receipt. This endpoint remains internal;
+the additive `query_activity` scope carries the supported agent contract.
+
 **GV — Governance events.**
 
 - `governance events reject unauthenticated requests` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events reject unauthenticated requests`, `packages/ui-server/tests/governance-events-http.test.ts:38-46`)

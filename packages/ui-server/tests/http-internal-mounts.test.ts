@@ -4,7 +4,7 @@ import { documentedRoutes } from "./helpers/http-spec";
 
 // Internal families still need a real mounting receipt, without promoting
 // their presentation/configuration payloads to independent HTTP contracts.
-for (const path of ["/api/pi-auth/providers", "/api/web-search", "/api/tool-permissions", "/api/skills", "/api/graph/meta", "/api/vpn-check"]) {
+for (const path of ["/api/governance/roadblocks", "/api/pi-auth/providers", "/api/web-search", "/api/tool-permissions", "/api/skills", "/api/graph/meta", "/api/vpn-check"]) {
   test(`mounted internal router: GET ${path}`, async () => {
     expect(documentedRoutes.some((r) => r.method === "GET" && r.path === path && r.classification === "I")).toBe(true);
     const t = await httpContractApp();

@@ -222,10 +222,10 @@ export interface BackendBridge {
 
 /** A read over the activity record, shaped for model consumption. */
 export interface ActivityQuery {
-  scope: "running" | "recent" | "run" | "rollups" | "inbox";
+  scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
   /** Required for scope "run". */
   runId?: string;
-  /** Window for "recent"/"rollups", in hours back from now (default 24). */
+  /** Window for "recent"/"rollups"/"roadblocks", in hours back from now (default 24). */
   hoursBack?: number;
   limit?: number;
 }

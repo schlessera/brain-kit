@@ -2638,7 +2638,7 @@ signatures (every public export and the types it is made of)
     export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
   ActivityQuery (packages/ui-sdk/src/server/backend.ts)
     export interface ActivityQuery {
-        scope: "running" | "recent" | "run" | "rollups" | "inbox";
+        scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
         runId?: string;
         hoursBack?: number;
         limit?: number;
@@ -3595,6 +3595,7 @@ signatures (every public export and the types it is made of)
         scope: z.ZodEnum<{
             inbox: "inbox";
             recent: "recent";
+            roadblocks: "roadblocks";
             rollups: "rollups";
             run: "run";
             running: "running";
@@ -6405,6 +6406,7 @@ signatures (every public export and the types it is made of)
         scope: z.ZodEnum<{
             inbox: "inbox";
             recent: "recent";
+            roadblocks: "roadblocks";
             rollups: "rollups";
             run: "run";
             running: "running";
@@ -6420,6 +6422,7 @@ signatures (every public export and the types it is made of)
         scope: z.ZodEnum<{
             inbox: "inbox";
             recent: "recent";
+            roadblocks: "roadblocks";
             rollups: "rollups";
             run: "run";
             running: "running";

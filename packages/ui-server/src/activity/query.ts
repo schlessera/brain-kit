@@ -11,6 +11,7 @@
 import type { Database } from "bun:sqlite";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
 
+import { queryRoadblockReport } from "../governance/roadblock-report.js";
 import { latestActivityDigest } from "./digest.js";
 import type { ActivityNotifier } from "./notify.js";
 import { rowToRunRollup, summarizeRollups, type ActivityStore, type SpanRow } from "./store.js";
@@ -26,6 +27,8 @@ export function runActivityQuery(
   const since = Date.now() - hoursBack * 60 * 60 * 1000;
 
   switch (query.scope) {
+    case "roadblocks":
+      return queryRoadblockReport(db, query);
     case "running": {
       return {
         running: store.openRootSpans().map(liveSummary),
