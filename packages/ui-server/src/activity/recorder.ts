@@ -576,10 +576,10 @@ export function createTurnRecorder(
             : budgetStop || authFailed
               ? "error"
               : (resultOutcome ?? disposition);
-        // A server checkpoint is an expected cancellation, not a crash. The
-        // runtime's cancelled result may omit usage (Claude) or include an
-        // unfinished answer (pi). Completed responses are the lower bound.
-        if (completedUsage && (autonomousStop && disposition === "cancelled" || disposition === "error")) {
+        // A successful autonomous checkpoint can use completed responses;
+        // crashes retain its conservative reservation. Ordinary turn errors
+        // still retain measured usage when the runtime omits a final receipt.
+        if (completedUsage && (autonomousStop && disposition === "cancelled" || turn.origin !== "autonomous" && disposition === "error")) {
           const reportedCost = resultUsage?.costUsd;
           resultUsage = usageFromTurnUsage(completedUsage);
           resultAttrs = { ...resultAttrs, "gen_ai.usage.per_model": completedUsage.perModel,
