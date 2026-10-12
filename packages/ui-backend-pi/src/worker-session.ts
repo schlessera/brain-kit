@@ -108,9 +108,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME });
     const limits = launchLimits({});
-    sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
+    sandboxNote = [workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
-      outputStagingLimit()] }) + "\n\n" + workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns);
+      outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns)].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
