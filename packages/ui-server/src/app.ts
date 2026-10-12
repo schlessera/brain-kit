@@ -95,7 +95,6 @@ import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
-import { dirname, resolve } from "node:path";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
@@ -111,7 +110,7 @@ import { createObservability, type Observability } from "./observability/index.j
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
-import { assertOperationalStateOutsideBrain } from "./brain/operational-state.js";
+import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
 
@@ -450,7 +449,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const host = new WsHost({
     governedTurns: createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
-      maskPaths: config.dbPath === ":memory:" ? [] : [dirname(resolve(config.dbPath))],
+      maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) }),
     applicationPlanner,
     drafts,

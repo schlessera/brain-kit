@@ -888,6 +888,7 @@ export "./internal" (./src/internal.ts)
   maintenanceLaunch
   mergeLimitReports
   mib
+  mountPointsUnder
   observeClassification
   outputStagingLimit
   parseWorkerStateBytes

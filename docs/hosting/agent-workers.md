@@ -399,7 +399,10 @@ run under `strict`, and the brain's code stays on the host only when:
 Before opening SQLite, provisioning the private poke token, reconciling turns or
 executing brain code, the server resolves `DB_PATH` and
 `BRAIN_UI_INBOX_POKE_TOKEN_FILE` through symlinks, including existing parents of
-new paths and the derived quarantine sibling. For an in-memory database, private quarantine storage under `TMPDIR`
+new paths and the derived quarantine sibling. Database, WAL/SHM and private-state aliases through hardlinks or bind mounts inside
+the brain refuse too, including new database paths beneath a mounted state parent.
+Aliases wholly outside remain valid. Masks cover configured directories and
+resolved database, token and quarantine targets. For an in-memory database, private quarantine storage under `TMPDIR`
 (or the system temp directory) is checked too. A database or private state file or directory inside the brain refuses
 boot as `OperationalStateInBrainError`. The same resolver reports
 `database_in_brain` or `private_state_in_brain` with migration guidance on the

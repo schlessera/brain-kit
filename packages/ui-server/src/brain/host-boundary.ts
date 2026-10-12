@@ -21,7 +21,7 @@
  * only ever written through the server's own routes, as before 0.42.
  */
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
   CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
@@ -33,7 +33,7 @@ import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brai
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
+import { operationalStateMasks, operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
@@ -258,7 +258,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     return availability.available || (availability.reason === "worker_host_unavailable" && workerHostProven(brain));
   };
 
-  const maskPaths = options.dbPath && options.dbPath !== ":memory:" ? [dirname(resolve(options.dbPath))] : [];
+  const maskPaths = operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths });
   const workerPath = (env: BrainExecution["env"]) => [join(brain, "node_modules", ".bin"), env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":");
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0]): MaintenanceCommand => {
     const path = workerPath(execution.env);

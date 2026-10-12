@@ -285,7 +285,10 @@ requires the operational database and other private server state outside the
 brain for every hosted profile. Boot refuses as `OperationalStateInBrainError`
 before opening state or executing brain code when the database or private state
 resolves inside the brain, including through symlinks or a new path's existing
-parents. The refusal gives migration steps: stop the server, move the complete
+parents. Database, WAL/SHM, and private-state inode aliases through hardlinks or bind mounts
+inside the brain refuse too, including new database paths beneath a mounted state
+parent. Aliases wholly outside remain valid. Worker masks cover configured state
+directories and resolved database/token/quarantine targets. The refusal gives migration steps: stop the server, move the complete
 state directory outside the brain, point the configuration at it, and restart.
 The same diagnostic is reflected in host boundary status and the boot error/log.
 No strict private-state exclusions are introduced and no mask is weakened.

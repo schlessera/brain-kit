@@ -13,3 +13,5 @@ Bound immutable inputs and publication copies in a separate admitted 256 MiB out
 Require the operational database and private server state outside the brain for every hosted profile. Refuse invalid layouts at boot with named migration guidance and matching status diagnostics, preserving the worker masks. Hosts must install util-linux nsenter and allow setns in the namespace seccomp profile for bounded staging.
 
 Revalidate complete startup inputs, retain native-write path locks through staged publication, preserve peer-created output names, and handle publication refusals without unhandled worker lifecycle rejections.
+
+Refuse database, WAL/SHM and private-state aliases exposed inside the brain by hardlinks or bind mounts, including new database paths beneath mounted state parents. Preserve valid outside-only aliases and mask resolved database, token and quarantine targets.
