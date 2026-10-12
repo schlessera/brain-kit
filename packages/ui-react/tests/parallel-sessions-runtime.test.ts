@@ -60,7 +60,7 @@ const titles = new Map<string, string>();
 /** Held turns, by prompt: release with `ok` or `fail`. */
 const gates = new Map<string, (how: "ok" | "fail") => void>();
 /** Every turn the host started, and every one whose signal fired. */
-const started: Array<{ sessionId: string; prompt: string }> = [];
+const started: Array<{ sessionId: string; prompt: string; command: string }> = [];
 const aborted: string[] = [];
 /** What the backend's tools were answered with, by prompt. */
 const answers = new Map<string, unknown>();
@@ -117,7 +117,7 @@ function scriptedBackend(): AgentBackend {
       const prompt = contextPrompt.split("\n", 1)[0]!;
       signal.addEventListener("abort", () => aborted.push(prompt), { once: true });
       const sessionId = resumed ?? `odysseus-parallel-${++sequence}`;
-      started.push({ sessionId, prompt });
+      started.push({ sessionId, prompt: contextPrompt, command: prompt });
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
       if (!titles.has(sessionId)) titles.set(sessionId, title);
       // A first message the host has not named a session for yet.
@@ -685,7 +685,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         expect(aborted.filter((p) => [pa, pb, draftA, pc].includes(p)), "nothing aborted").toEqual([]);
         expect(a.dialogs, "no native dialog").toEqual([]);
         expect(await confirmations(a.page), "no confirmation").toBe(0);
-        for (const p of [pa, pb, draftA, pc]) expect(started.filter((s) => s.prompt === p), `${p} ran once`).toHaveLength(1);
+        for (const p of [pa, pb, draftA, pc]) expect(started.filter((s) => s.command === p), `${p} ran once`).toHaveLength(1);
       } finally {
         await a.context.close();
         for (const p of [pa, pb, draftA, pc]) gates.get(p)?.("ok");
@@ -1140,14 +1140,14 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, `p.views().some((v) => !${JSON.stringify([A])}.includes(v.sessionId))`);
         expect(await probe(a.page, (p) => p.activeSessionId()), "the late session is not selected").toBeNull();
         expect(await composer(a.page).inputValue(), "the new chat keeps its own words").toBe(other);
-        const L = started.find((s) => s.prompt === late)!.sessionId;
+        const L = started.find((s) => s.command === late)!.sessionId;
         expect(await probe(a.page, (p) => p.transcript(null).join("\n")), "the late answer is not in the new chat").not.toContain("Telemachus");
         await openTracker(run, a.page, L);
         await until(a.page, `p.activeSessionId() === ${JSON.stringify(L)}`);
         await a.page.getByText("Noted: Word to Telemachus").first().waitFor();
         expect(await composer(a.page).inputValue(), "the late session's draft was its sent message, consumed").toBe("");
         expect(await probe(a.page, (p) => p.unbound()).then((u) => u.sort())).toEqual([letter, other].sort());
-        expect(started.filter((s) => s.prompt === late), "sent once").toHaveLength(1);
+        expect(started.filter((s) => s.command === late), "sent once").toHaveLength(1);
 
         // Full: the host keeps 100 drafts; the 101st is kept here and says so.
         const filler: string[] = [];
