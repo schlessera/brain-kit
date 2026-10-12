@@ -1586,7 +1586,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-165`).
+(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-176`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;
@@ -1619,6 +1619,20 @@ entries that overlap this turn's window. When both changed a path, every
 version an observation captured is kept, and the entry is marked as a
 conflict. The user resolves it from history by keeping one version or keeping
 both, as `brain sync` does.
+
+The history reader names explicit retained observations rather than inferring
+exclusive "mine" or "theirs" ownership. A conflict requires two distinct
+observed after-versions sharing an overlapping turn; one version remains shared
+attribution. User choices use the existing authenticated history operation,
+comparing current raw state with the reviewed latest observation before effects
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+Keep both creates the other version beside the selected file with sync's
+numbered `-remote` convention, using exclusive descriptor-rooted creation,
+existing CAS leases and explicit coverage for its final generated name
+(`createJournalSibling`, `packages/ui-server/src/brain/revert-files.ts:74-102`).
+The same user journal records both effects and enables stale-safe Undo; index
+refresh follows. Nothing here promises atomic merging or recovers an
+unobserved overwritten version.
 
 **The guarantee is narrower than "nothing is lost".** A version that one shell
 write created and another overwrote between two observations was never

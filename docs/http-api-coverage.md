@@ -117,7 +117,7 @@ row's real mounting check. They do not establish mounting by themselves.
 J uses the real host admission, tool-completion and terminal observations,
 checks authenticated session/turn isolation and reads exact retained CRLF bytes
 (`host admission, tool completion and terminal observation`,
-`packages/ui-server/tests/ws-turn-journal.test.ts:19-72`). The real Chrome
+`packages/ui-server/tests/ws-turn-journal.test.ts:20-87`). The real Chrome
 matrix covers live/replay at 320/1280 in both themes, receipt focus stability,
 reader heading focus, raw download, 200% zoom and Escape return; storage tests
 cover start refusal, mid-turn partial work, overlapping observations and leases.

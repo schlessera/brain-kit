@@ -14,6 +14,7 @@ import { createPrincipal } from "../src/db/principals.js";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { WsHost } from "../src/ws/host.js";
+import { queryGovernanceEvents } from "../src/governance/events.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 
 test("host admission, tool completion and terminal observation produce scoped retained receipts and authenticated raw routes", async () => {
@@ -30,6 +31,11 @@ test("host admission, tool completion and terminal observation produce scoped re
     bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
     await writeFile(resolve(brain, "notes/journal.md"), "Athena\r\n");
     bridge.emit({ type: "tool_result", toolUseId: "loom", output: "Recorded", isError: false });
+    // Exact native guard error/frame shape; adapter guard execution is proved
+    // separately in its own source tests. The actual host retains it unchanged.
+    bridge.emit({type:"tool_use_start",toolUseId:"toolu_ithaca_write",toolName:"Write"});
+    bridge.emit({type:"tool_use_complete",toolUseId:"toolu_ithaca_write",toolName:"Write",input:{file_path:resolve(brain,"notes/journal.md"),content:"Odysseus overwrites.\n"}});
+    bridge.emit({type:"tool_result",toolUseId:"toolu_ithaca_write",output:"File changed since you read it; read it again before writing. Nothing was written.",isError:true});
     await new Promise<void>(resolve => { release = resolve; });
     await writeFile(resolve(brain, "notes/journal.md"), "Penelope\r\n");
     history.push({ role: "assistant", content: "The return is recorded.", toolCalls: [] });
@@ -58,6 +64,11 @@ test("host admission, tool completion and terminal observation produce scoped re
     const details = app.wsHost.journal!.details("sess-ithaca", receipt.turnId)!;
     expect(details.summary.policyHash, "JOURNAL_FROZEN_ADMISSION_POLICY").toMatch(/^[a-f0-9]{64}$/);
     expect(details.changes.filter(change => change.path === "notes/journal.md").map(change => app.wsHost.journal!.version("sess-ithaca", receipt.turnId, change.sequence, "after")!.bytes(1024).toString()), "JOURNAL_TOOL_AND_TERMINAL_VERSIONS").toEqual(["Athena\r\n", "Penelope\r\n"]);
+    expect(frames().find(frame=>frame.type==="tool_result"&&frame.toolUseId==="toolu_ithaca_write"),"CONFLICT_NATIVE_DENIAL_RETAINED_FRAME").toMatchObject({isError:true,output:"File changed since you read it; read it again before writing. Nothing was written."});
+    const roadblocks=queryGovernanceEvents(app.db,{turnId:receipt.turnId,kinds:["roadblock"],limit:100});
+    expect(roadblocks.some(event=>(event.payload.failures as {toolCallId:string}[]).some(failure=>failure.toolCallId==="toolu_ithaca_write")),"CONFLICT_NATIVE_DENIAL_RETAINED_ROADBLOCK").toBe(true);
+    const recorded=app.wsHost.activity!.store.snapshotRun(receipt.turnId)!;
+    expect(recorded.events.find(event=>event.spanId==="toolu_ithaca_write"&&event.eventType==="tool_input")?.payload,"CONFLICT_NATIVE_DENIAL_ORIGINAL_INPUT").toBe(JSON.stringify({file_path:resolve(brain,"notes/journal.md"),content:"Odysseus overwrites.\n"}));
     const endpoint = `/api/sessions/sess-ithaca/turns/${receipt.turnId}/journal`;
     expect((await app.fetch(new Request(`http://localhost${endpoint}`))).status).toBe(401);
     const login = await app.fetch(new Request("http://localhost/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }));

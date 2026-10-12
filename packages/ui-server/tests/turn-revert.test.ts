@@ -70,3 +70,70 @@ test("expired Undo detail and an interrupted applying receipt never repeat or pr
  expect(readFileSync(join(f.brain,"fleet.bin")),"REVERT_INTERRUPTED_IDENTITY_NEVER_REPLAYS").toEqual(Buffer.from([0,255,10]));
  }finally{f.close();}
 });
+
+async function observedShellConflict(f: ReturnType<typeof fixture>) {
+  const a = await f.gate.acquire("shared", "turn:odysseus", { turn: true }), b = await f.gate.acquire("shared", "turn:athena", { turn: true });
+  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
+  try {
+    f.journal.begin("shell-a", metadata, error => { throw error; }); f.journal.begin("shell-b", metadata, error => { throw error; });
+    for (const bytes of ["Odysseus observed version\n", "Athena observed version\n"]) {
+      const child = Bun.spawn(["bash", "-c", 'printf "%s" "$2" > "$1"', "odysseus-fixture", join(f.brain, "fleet.bin"), bytes], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+      expect(await child.exited).toBe(0); expect(await new Response(child.stderr).text()).toBe("");
+      f.journal.observe();
+      if (bytes.startsWith("Odysseus")) expect(f.journal.details("ithaca", "shell-a")!.changes[0], "CONFLICT_SINGLE_OVERLAP_IS_ONLY_SHARED").not.toHaveProperty("conflict");
+    }
+    f.journal.finish("shell-a"); f.journal.finish("shell-b");
+  } finally { a.release(); b.release(); }
+  return f.journal.details("ithaca", "shell-a")!;
+}
+test("overlapping actual shell writes retain explicit conflict versions and user keep-both creates a numbered sibling without overwriting", async () => {
+  const f = fixture();
+  try {
+    const details = await observedShellConflict(f), change = details.changes.at(-1)!;
+    expect(change.conflict, "CONFLICT_TWO_OBSERVED_VERSIONS").toBeDefined();
+    const versions = change.conflict!.versions, expected = change.conflict!.latest;
+    expect(versions).toHaveLength(2);
+    expect(versions.map(ref => f.journal.version("ithaca", ref.turnId, ref.sequence, ref.side)!.bytes(1024).toString()), "CONFLICT_OBSERVED_RAW_VERSIONS").toEqual(["Odysseus observed version\n", "Athena observed version\n"]);
+    writeFileSync(join(f.brain, "fleet.bin-remote"), "Penelope's existing sibling\n");
+    const request = { id: "odysseus_keep_both_01", path: "fleet.bin", action: "keep_both" as const, version: versions[0]!, otherVersion: versions[1]!, expected };
+    const receipt = f.reverts.start("odysseus", "ithaca", "shell-a", request); await f.reverts.idle(receipt.id);
+    expect(f.reverts.receipt(receipt.id, "odysseus", "ithaca", "shell-a"), "CONFLICT_KEEP_BOTH_RECORDED").toMatchObject({ state: "complete", undoAvailable: true });
+    expect(readFileSync(join(f.brain, "fleet.bin"), "utf8")).toBe("Odysseus observed version\n");
+    expect(readFileSync(join(f.brain, "fleet.bin-remote"), "utf8"), "CONFLICT_EXISTING_SIBLING_PRESERVED").toBe("Penelope's existing sibling\n");
+    expect(readFileSync(join(f.brain, "fleet.bin-remote-2"), "utf8")).toBe("Athena observed version\n");
+    expect(f.journal.details("ithaca", receipt.journalTurnId)!.changes.map(item => item.path)).toEqual(["fleet.bin", "fleet.bin-remote-2"]);
+    expect(f.refreshes).toBe(1);
+    expect(f.reverts.start("odysseus", "ithaca", "shell-a", request).id).toBe(receipt.id);
+    const undo = f.reverts.start("odysseus", "ithaca", receipt.journalTurnId, { id: "odysseus_keep_both_undo" }); await f.reverts.idle(undo.id);
+    expect(readFileSync(join(f.brain, "fleet.bin"), "utf8")).toBe("Athena observed version\n"); expect(existsSync(join(f.brain, "fleet.bin-remote-2"))).toBe(false);
+  } finally { f.close(); }
+});
+test("explicit conflict choice refuses later current bytes, forged observations, other-session and voice authority", async () => {
+  const f = fixture();
+  try {
+    const details = await observedShellConflict(f), conflict = details.changes.at(-1)!.conflict!;
+    expect(conflict, "CONFLICT_CHOICE_HAS_RETAINED_EVIDENCE").toBeDefined();
+    const request = { id: "odysseus_keep_version_01", path: "fleet.bin", action: "keep_version" as const, version: conflict.versions[0]!, expected: conflict.latest };
+    expect(() => f.reverts.start("odysseus", "other", "shell-a", request)).toThrow();
+    expect(() => f.reverts.start("odysseus", "ithaca", "shell-a", { ...request, version: { ...request.version, turnId: "shell-b" } }), "CONFLICT_SELECTION_CANNOT_BORROW_OBSERVATION").toThrow();
+    writeFileSync(join(f.brain, "fleet.bin"), "Penelope's later work\n");
+    const receipt = f.reverts.start("odysseus", "ithaca", "shell-a", request); await f.reverts.idle(receipt.id);
+    expect(f.reverts.receipt(receipt.id, "odysseus", "ithaca", "shell-a"), "CONFLICT_REVIEWED_CURRENT_RAW_STATE").toMatchObject({ state: "partial", paths: [{ path: "fleet.bin", state: "conflict" }] });
+    expect(readFileSync(join(f.brain, "fleet.bin"), "utf8")).toBe("Penelope's later work\n");
+  } finally { f.close(); }
+});
+
+test("keep-both explicitly covers its final sibling under ignored names and Undo retains that observed version", async () => {
+  const f=fixture();
+  try {
+    writeFileSync(join(f.brain,".gitignore"),"fleet.bin-remote*\n");
+    const details=await observedShellConflict(f), conflict=details.changes.at(-1)!.conflict!;
+    const request={id:"odysseus_ignored_both",path:"fleet.bin",action:"keep_both" as const,version:conflict.versions[0]!,otherVersion:conflict.versions[1]!,expected:conflict.latest};
+    const receipt=f.reverts.start("odysseus","ithaca","shell-a",request);await f.reverts.idle(receipt.id);
+    const sibling=f.journal.details("ithaca",receipt.journalTurnId)!.changes.find(change=>change.path==="fleet.bin-remote")!;
+    expect(sibling.after,"CONFLICT_IGNORED_SIBLING_EXPLICIT_RAW_COVERAGE").toMatchObject({ignored:false,hash:expect.any(String)});
+    expect(f.journal.version("ithaca",receipt.journalTurnId,sibling.sequence,"after")!.bytes(1024).toString()).toBe("Athena observed version\n");
+    const undo=f.reverts.start("odysseus","ithaca",receipt.journalTurnId,{id:"odysseus_ignored_undo"});await f.reverts.idle(undo.id);
+    expect(existsSync(join(f.brain,"fleet.bin-remote"))).toBe(false);
+  } finally {f.close();}
+});

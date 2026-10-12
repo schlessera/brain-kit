@@ -20,6 +20,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const [selected, setSelected] = useState<TurnJournalChange | null>(null);
   const [preview, setPreview] = useState<{ inline: boolean; before?: string; after?: string; reason?: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [otherSequence, setOtherSequence] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const announced = useRef<string | undefined>(undefined);
   const wrapper = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), trigger = useRef<HTMLElement | null>(null);
@@ -66,6 +67,9 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     ["Workspaces", details.changes.filter(change => change.class === "content" && !!change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
     ["Non-revertible changes", details.changes.filter(change => change.class === "content" && (change.before?.ignored || change.after?.ignored || (change.before?.kind ?? change.after?.kind) === "other"))],
   ] as const : [];
+  const selectedObservation=selected?.conflict?.versions.find(ref=>ref.sequence===selected.sequence);
+  const otherObservations=selected?.conflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
+  const otherObservation=otherObservations.find(ref=>ref.sequence===otherSequence)??otherObservations[0];
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
     {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
@@ -91,7 +95,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {details?.missing.map((missing, index) => <p key={`${missing.path}-${index}`} className="break-words">Unavailable: {missing.path} ({missing.reason})</p>)}
         {revert.controls}
         {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-          <span className="break-all min-w-0">{change.path}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
+          <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
           {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
         </li>)}</ul></section>)}
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
@@ -108,6 +112,21 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         <h2 ref={heading} tabIndex={-1} className="font-medium break-all">{selected?.path}</h2>
         <p className="text-sm text-muted-foreground">Observed raw version · {selected?.before?.bytes ?? 0} → {selected?.after?.bytes ?? 0} bytes</p>
         {selected?.tainted === true && selected.taintSourceEventId && <p className="text-sm">Review recommended: this steering observation follows recorded untrusted input (source event {selected.taintSourceEventId}).</p>}
+        {selected?.conflict && <section className="grid gap-3 min-w-0" aria-label="Observed conflict versions">
+          <p className="text-sm">Distinct versions were observed while turns overlapped. These links do not identify an exclusive writer. Versions overwritten between observations cannot be recovered.</p>
+          <div className="flex flex-wrap gap-2">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} style={{minHeight:44}} onClick={()=>{
+            const change=details?.changes.find(change=>change.path===selected.path&&change.sequence===ref.sequence);
+            if(change)setSelected(change);
+          }} />)}</div>
+          {selectedObservation && revert.canResolve && <div className="grid gap-3">
+            <p className="text-sm">Selected: retained after observation {selectedObservation.sequence}. Current file must still match reviewed observation {selected.conflict.latest.sequence}; later changes are skipped.</p>
+            <Button label={`Keep observation ${selectedObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
+            {otherObservation && <>
+              <label className="grid gap-2 text-sm">Other observed version<select aria-label="Other observed version" className="min-h-11 min-w-0 rounded border bg-background px-3 text-foreground" value={otherObservation.sequence} onChange={event=>setOtherSequence(Number(event.target.value))}>{otherObservations.map(ref=><option key={ref.sequence} value={ref.sequence}>After observation {ref.sequence}</option>)}</select></label>
+              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
+            </>}
+          </div>}
+        </section>}
         {!preview && !previewError && <p>Loading retained version…</p>}
         {previewError && <p role="status">{previewError}</p>}
         {preview?.inline ? <div className="max-h-[60vh] overflow-auto min-w-0"><DiffBlock tinted variant="inset" text={diffText(computeDiffRows(preview.before ?? "", preview.after ?? ""))} /></div> : preview && <p>Inline diff unavailable ({preview.reason}). Raw versions remain available below.</p>}

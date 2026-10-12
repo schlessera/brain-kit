@@ -1,6 +1,6 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { Database } from "bun:sqlite";
-import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import { createJournalWalker, type JournalSnapshot, type JournalSnapshotEntry } from "./journal-snapshot.js";
@@ -11,7 +11,7 @@ import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/even
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
-type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; overlaps: string };
+type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
   ...(entry.hash ? { hash: entry.hash } : {}), ...(entry.target !== undefined ? { target: entry.target } : {}),
@@ -153,6 +153,16 @@ export function createTurnJournal(db: Database, options: {
               actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
               payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds } });
             pin(turnId, item.before); pin(turnId, item.after);
+            const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
+            const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
+            const conflicting = new Map<number, JournalObservationReference>();
+            for (const other of participants) {
+              const shared = observed.filter(row => (JSON.parse(row.overlaps) as string[]).includes(other));
+              if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
+              for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
+            }
+            if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
+              .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
           const failures = missing.get(turnId) ?? [];
@@ -228,6 +238,11 @@ export function createTurnJournal(db: Database, options: {
     },
     bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
     observe(): void { observe(); },
+    /** @internal Only the authenticated history service selects generated sibling coverage. */
+    coverPaths(turnId: string, paths: readonly string[]): void {
+      const turn=active.get(turnId); if(!turn)throw new JournalStorageUnavailable("history coverage requires an active observation window");
+      turn.walker.cover(paths);
+    },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
     observeUserPolicy(turnId: string, approvedWrite: () => void): void {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");
@@ -280,7 +295,9 @@ export function createTurnJournal(db: Database, options: {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
       const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}) }));
+        before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}),
+        ...(JSON.parse(item.conflict_observations).length ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
+          latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
       const failure = failures.get(turnId) ?? row.failure.trim();
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,

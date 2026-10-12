@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { pathToFileURL } from "node:url";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,6 +28,8 @@ beforeAll(async () => {
   root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-browser-"));
   const brain = resolve(root, "brain"), assets = resolve(root, "assets");
   await createFixtureBrain(repo, brain); await mkdir(assets);
+  await mkdir(resolve(brain,"scripts"));
+  await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("0.42.0");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
   await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
   await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
   await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
@@ -41,18 +45,25 @@ beforeAll(async () => {
     payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
   app.wsHost.journal!.finish(turnId);
   const seed = JSON.stringify({ turnId, summary: app.wsHost.journal!.summary(turnId) });
-  await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed}</script><script type="module" src="/client.js"></script></body></html>`);
+  const conflictPath=resolve(brain,"notes/crossing.md"), conflictId="odysseus-conflict";
+  await writeFile(conflictPath,"---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\nInitial crossing.\n");
+  const metadata={sessionId:"ithaca",actor:"interactive" as const,model:null,profile:"governed" as const,policyHash:null};
+  app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
+  for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);app.wsHost.journal!.observe();}
+  app.wsHost.journal!.finish(conflictId);app.wsHost.journal!.finish("athena-conflict");
+  const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
+  await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed}</script><script type="module" src="/client.js"></script></body></html>`);
   for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket }); origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 }, 180_000);
 afterAll(async () => { await browser?.close(); server?.stop(true); await app?.close(); if (root) await rm(root, { recursive: true, force: true }); });
-async function scene(width = 1280, theme = "dark", replay = false) {
+async function scene(width = 1280, theme = "dark", replay = false, conflict = false) {
   const context = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" }), outside: string[] = [];
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : (outside.push(route.request().url()), route.abort()));
   expect((await context.request.post(`${origin}/api/auth/login`, { data: { password } })).status()).toBe(200);
   const page = await context.newPage(), errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
-  await page.goto(`${origin}/?${new URLSearchParams({ theme, ...(replay ? { replay: "1" } : {}) })}`);
+  await page.goto(`${origin}/?${new URLSearchParams({ theme, ...(replay ? { replay: "1" } : {}), ...(conflict ? {conflict:"1"} : {}) })}`);
   try { await page.getByRole("button", { name: /changed file/ }).waitFor({ timeout: 5000 }); }
   catch { const body = await page.locator("body").innerText(); await context.close(); throw new Error(`Journal scene failed: ${body}; ${errors.join("; ")}`); }
   return { context, page, outside };
@@ -205,4 +216,52 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`st
     expect(await readFile(resolve(root, "brain", skillPath), "utf8")).toBe("# Voyage log\nAthena reviews the crossing.\n");
     expect(outside).toEqual([]);
   } finally { await context.close(); }
+});
+
+for(const width of [320,1280])for(const theme of ["dark","light"])test(`shared conflict reader chooses retained versions, keeps both and Undo ${theme} ${width}`,async()=>{
+  const {context,page,outside}=await scene(width,theme,true,true);
+  try {
+    await page.getByRole("button",{name:/changed file/}).click();
+    await page.getByRole("button",{name:"Review notes/crossing.md",exact:true}).first().click();
+    const heading=page.getByRole("heading",{name:"notes/crossing.md",exact:true});await heading.waitFor();
+    expect(await heading.evaluate(element=>document.activeElement===element),"CONFLICT_READER_READING_FOCUS").toBe(true);
+    await page.getByText("Distinct versions were observed while turns overlapped. These links do not identify an exclusive writer. Versions overwritten between observations cannot be recovered.",{exact:true}).waitFor();
+    await page.getByRole("button",{name:"Review observation 1",exact:true}).click();
+    await page.getByText("Odysseus charts the crossing.",{exact:true}).waitFor();
+    expect(await page.getByRole("button",{name:"Keep both observations 1 and 2",exact:true}).count(),"CONFLICT_REVIEW_OFFERS_EXPLICIT_BOTH").toBe(1);
+    await page.getByRole("button",{name:"Keep both observations 1 and 2",exact:true}).click();
+    await page.getByRole("button",{name:"Close",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await readFile(resolve(root,"brain/notes/crossing.md"),"utf8"),"CONFLICT_BROWSER_SELECTED_RAW_BYTES").toContain("Odysseus charts the crossing.");
+    expect(await readFile(resolve(root,"brain/notes/crossing-remote.md"),"utf8"),"CONFLICT_BROWSER_OTHER_RAW_BYTES").toContain("Athena charts the crossing.");
+    await page.evaluate(()=>{document.documentElement.style.zoom="2";});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),"CONFLICT_PHONE_ZOOM_BOUNDS").toBe(true);
+    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("button",{name:"Revert 2 files",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await readFile(resolve(root,"brain/notes/crossing.md"),"utf8")).toContain("Athena charts the crossing.");
+    expect(await Bun.file(resolve(root,"brain/notes/crossing-remote.md")).exists()).toBe(false);expect(outside).toEqual([]);
+  }finally{await context.close();}
+});
+test("keep-both refreshes the actual disposable index with both retained files",async()=>{
+  const {context,page}=await scene(1280,"dark",true,true);
+  try{
+    await page.getByRole("button",{name:/changed file/}).click();await page.getByRole("button",{name:"Review notes/crossing.md",exact:true}).first().click();await page.getByRole("button",{name:"Keep both observations 1 and 2",exact:true}).click();await page.getByRole("button",{name:"Close",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    let paths:string[]=[];
+    for(let attempt=0;attempt<100;attempt++){
+      const path=resolve(root,"brain/brain.db");
+      if(await Bun.file(path).exists()){const db=new Database(path,{readonly:true});try{if(db.query("SELECT 1 FROM sqlite_schema WHERE name='documents'").get())paths=(db.query("SELECT path FROM documents WHERE path IN ('notes/crossing.md','notes/crossing-remote.md') ORDER BY path").all()as{path:string}[]).map(row=>row.path);}finally{db.close();}}
+      if(paths.length===2)break;await Bun.sleep(50);
+    }
+    expect(paths,"CONFLICT_KEEP_BOTH_ACTUAL_INDEX_SEES_BOTH").toEqual(["notes/crossing-remote.md","notes/crossing.md"]);
+  }finally{await context.close();}
+});
+
+test("conflict facts stay readable for voice while keep controls and expired actions are absent",async()=>{
+  const {context,page}=await scene(320,"light",true,true);
+  try{
+    await page.getByRole("button",{name:/changed file/}).click();await page.getByRole("button",{name:"Review notes/crossing.md",exact:true}).first().click();
+    await page.getByRole("button",{name:"Keep observation 1",exact:true}).waitFor();
+    await page.evaluate(()=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:(window as any).__conflictSeed.turnId,journal:{...(window as any).__conflictSeed.summary,actor:"voice"}}));
+    expect(await page.getByRole("button",{name:/^Keep observation|^Keep both observations/}).count(),"CONFLICT_VOICE_HAS_NO_USER_OPERATION_CONTROLS").toBe(0);
+    expect(await page.getByRole("button",{name:"Review observation 1",exact:true}).count()).toBe(1);
+    await page.evaluate(()=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:(window as any).__conflictSeed.turnId,journal:{...(window as any).__conflictSeed.summary,state:"expired"}}));
+    expect(await page.getByRole("dialog").count(),"CONFLICT_EXPIRED_READER_HAS_NO_EFFECT_SURFACE").toBe(0);
+  }finally{await context.close();}
 });

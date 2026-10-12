@@ -27,6 +27,27 @@ export interface JournalVersion {
   ignored: boolean;
 }
 
+export interface JournalObservationReference {
+  turnId: string;
+  sequence: number;
+  side: "after";
+}
+export type TurnHistoryAction = "revert" | "restore" | "keep_version" | "keep_both";
+export interface ConflictVersionSelection {
+  path: string;
+  version: JournalObservationReference;
+  otherVersion?: JournalObservationReference;
+  expected: JournalObservationReference;
+}
+export interface TurnRevertRequest {
+  id: string;
+  path?: string;
+  action?: TurnHistoryAction;
+  version?: JournalObservationReference;
+  otherVersion?: JournalObservationReference;
+  expected?: JournalObservationReference;
+}
+
 export interface TurnJournalChange {
   sequence: number;
   path: string;
@@ -39,6 +60,8 @@ export interface TurnJournalChange {
   /** Present only when an existing same-session/turn taint event preceded this observation. */
   tainted?: true;
   taintSourceEventId?: number;
+  /** At least two distinct retained after-versions observed in one shared window. */
+  conflict?: { versions: JournalObservationReference[]; latest: JournalObservationReference };
 }
 
 /** An admission receipt, not a claim that the external action completed. */
@@ -81,7 +104,8 @@ export interface TurnRevertReceipt {
   sourceTurnId: string;
   journalTurnId: string;
   state: "waiting" | "applying" | "complete" | "partial" | "failed" | "unknown";
-  action: "revert" | "restore";
+  action: TurnHistoryAction;
+  resolution?: ConflictVersionSelection;
   undoAvailable: boolean;
   paths: TurnRevertPath[];
   error: string | null;

@@ -69,3 +69,34 @@ export function restoreJournalPath(brain: string, path: string, expected: Journa
     throw error;
   } finally { if (target !== undefined) closeSync(target); for (const descriptor of descriptors.reverse()) closeSync(descriptor); }
 }
+
+/** Same sync naming, but raw bytes and exclusive descriptor-rooted creation. */
+export function createJournalSibling(brain: string, source: string, desired: JournalVersion, copy: (fd: number) => void,
+  prepare: (path: string) => void, occupied: (path: string) => void): string {
+  if (process.platform !== "linux" || !reversibleJournalPath(source) || desired.kind !== "file" || desired.ignored || !desired.hash) throw new Error("sibling_version_unavailable");
+  const descriptors: number[] = [], parents: {parent:number;name:string;child:number}[] = [];
+  let file: number | undefined;
+  try {
+    const root = openSync(brain, DIRECTORY); descriptors.push(root);
+    const parts = source.split("/"), name = parts.pop()!; let parent = root;
+    for (const part of parts) { const child = openSync(at(parent,part),DIRECTORY); descriptors.push(child); parents.push({parent,name:part,child}); parent=child; }
+    const verify = () => {
+      const named = lstatSync(brain), opened = fstatSync(root);
+      if (!named.isDirectory() || named.dev !== opened.dev || named.ino !== opened.ino) throw new Error("changed_parent");
+      for (const chain of parents) { const named = lstatSync(at(chain.parent,chain.name)), opened = fstatSync(chain.child);
+        if (!named.isDirectory() || named.dev !== opened.dev || named.ino !== opened.ino) throw new Error("changed_parent"); }
+    };
+    const dot = name.toLowerCase().endsWith(".md") ? name.length-3 : name.length, stem=name.slice(0,dot), extension=name.slice(dot);
+    for (let number=1;;number++) {
+      const candidate=`${stem}-remote${number===1?"":`-${number}`}${extension}`, path=[...parts,candidate].join("/");
+      verify(); if (lstatSync(at(parent,candidate),{throwIfNoEntry:false})) continue;
+      // Reserve durable operation metadata and journal coverage before effects.
+      prepare(path); verify();
+      try { file=openSync(at(parent,candidate),constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW|constants.O_NONBLOCK,desired.mode); }
+      catch(error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") { occupied(path); continue; } throw error; }
+      verify(); const opened=fstatSync(file), named=lstatSync(at(parent,candidate));
+      if(!opened.isFile()||opened.nlink!==1||opened.dev!==named.dev||opened.ino!==named.ino)throw new Error("changed_entry");
+      copy(file); fchmodSync(file,desired.mode); fsyncSync(file); fsyncSync(parent); return path;
+    }
+  } finally { if(file!==undefined)closeSync(file); for(const descriptor of descriptors.reverse())closeSync(descriptor); }
+}

@@ -1189,3 +1189,24 @@ resource facts). It uses the same `GovernedTurns.facts` reader/cache as admissio
 It returns 503 when shared facts are unavailable or changed during the read.
 It does not treat parsed cost/scope/network policy values as already enforced,
 and it does not imply a running turn changed its frozen policy.
+
+
+### Shared-window conflict choices
+
+The retained journal details may add `conflict: { versions, latest }` to a
+changed path. Each link names an existing after-observation by turn and sequence;
+it never names an arbitrary object hash. Two distinct observed versions within
+one overlapping window are required. Merely sharing a single observation does
+not identify conflicting writers.
+
+The existing authenticated user history POST accepts `action: "keep_version"`
+or `"keep_both"`, with `path`, selected `version`, reviewed latest `expected`,
+and `otherVersion` for keep both. Each reference is
+`{ turnId, sequence, side: "after" }` from that same path and original turn.
+Malformed references return 400; unavailable/expired or changed selection
+returns 409; the raw file is compared again at application. Receipt `resolution`
+records the explicit selection; generated numbered siblings appear in its paths.
+These actions reuse the existing queue, identity-bound readback, partial
+receipts, journal and user Undo. No additional endpoint, automatic merge or
+agent permission is introduced. The reader calls versions observed, never
+exclusive "mine" or "theirs" ownership.

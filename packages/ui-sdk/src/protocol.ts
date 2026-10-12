@@ -3590,7 +3590,7 @@ export interface QueueStagingManifest extends ShareIntakeResult {
   source: "cli";
 }
 
-export type { JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction } from "./turn-journal.js";
+export type { JournalObservationReference, TurnHistoryAction, ConflictVersionSelection, TurnRevertRequest, JournalVersion, TurnJournalSummary, TurnJournalChange, TurnJournalDetails, TurnRevertPath, TurnRevertPlan, TurnRevertReceipt, JournalOutwardAction } from "./turn-journal.js";
 
 /** Durable journal progress can arrive after the terminal result without reopening the turn. */
 export interface ServerTurnJournal extends SessionScoped {
