@@ -226,6 +226,8 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * modules (#1053; docs/decisions/public-export-boundary.md).
  */
 export class WsHost {
+  /** @internal Concrete user history service mounted by this host, not agent authority. */
+  turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
   readonly workerLock: KeyedLock = createKeyedLock();

@@ -514,7 +514,11 @@ async function runRetainedSession(
           });
         }
         await backend.startTurn({
-          ...(governedHold ? { workerSandbox: governedHold.sandbox, workerLock: host.workerLock } : {}),
+          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
+            ...governedHold.sandbox.noteFacts,
+            history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
+              userRevert: Boolean(host.turnReverts && host.journal && host.journal.summary(turn.turnId).state === "recording" && work?.posture !== "voice") },
+          } }, workerLock: host.workerLock } : {}),
           prompt,
           attachments,
           sessionId: resumeId,

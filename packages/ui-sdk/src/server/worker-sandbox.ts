@@ -71,6 +71,8 @@ export interface WorkerArea {
 export interface WorkerSandbox {
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
   readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
+  /** @internal Advisory facts resolved by the admitting host, never a model grant. */
+  readonly noteFacts?: WorkerNoteFacts;
   /** Canonical brain path the layout was resolved for. */
   readonly brain: string;
   readonly restricted: boolean;
@@ -389,10 +391,9 @@ export function resolveWorkspacesMount(brain: string, limit = WORKER_MOUNT_SCAN_
 }
 
 /**
- * The profile a worker runs under: `strict` is the 0.41 read-only brain plus
- * the named areas, `restricted` the autonomous envelope. The governed profile
- * (#1649) adds `governed` here and to `PROFILE_LINES`, rendered from its
- * resolved protected-path list, and resolves it onto the sandbox.
+ * The resolved worker profile: `strict` keeps the brain read-only, `governed`
+ * makes it writable except its resolved protected paths, and `restricted` is
+ * the autonomous envelope. The note describes the same resolved layout.
  */
 export type WorkerProfile = "governed" | "strict" | "restricted";
 
@@ -428,11 +429,13 @@ export interface WorkerNoteLimit {
 /** Facts resolved outside the mount list that the note states with it. */
 export interface WorkerNoteFacts {
   readonly limits?: readonly WorkerNoteLimit[];
+  /** Only actual host services and this admitted observation window supply these facts. */
+  readonly history?: { readonly journal: boolean; readonly userRevert: boolean };
 }
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
-  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. The worker shares the server's uid; protection is mask-only until an identity helper is installed. Egress is unrecorded. Maintenance workers may receive provider or git credentials until the relays and host-owned mirror land. Change journaling and revert are not yet available.`,
+  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. The worker shares the server's uid; protection is mask-only until an identity helper is installed. Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
   strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
 };
 
@@ -464,6 +467,7 @@ function turnTempPlaces(): string {
  */
 export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts = {}): string {
   const lines: string[] = [];
+  const resolvedFacts = { ...sandbox.noteFacts, ...facts };
   const profile = workerProfile(sandbox);
   if (profile === "restricted") {
     lines.push(
@@ -492,7 +496,17 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       linkRule(scratch?.rel),
     );
   }
-  const limits = facts.limits ?? [];
+  if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {
+    const history = resolvedFacts.history;
+    lines.push("", !history
+      ? "Host change journaling and user history restoration availability was not supplied; do not promise retained versions or recovery."
+      : !history.journal
+        ? "Host change journaling is unavailable for this turn; do not promise retained raw versions or recovery. User history restoration is unavailable for this turn."
+        : `Host change journaling is active for this turn. Only observed raw versions are retained; writes overwritten between observations cannot be recovered. ${history.userRevert
+          ? "User history can revert retained observed paths and Undo the recorded user operation; changed paths are skipped as conflicts."
+          : "User history restoration is unavailable for this turn."} Only the authenticated user can trigger history restoration; the agent has no revert or Undo tool. No automatic revert occurs.`);
+  }
+  const limits = resolvedFacts.limits ?? [];
   if (limits.length) lines.push("", "Limits in this turn:", ...limits.map(limit => `- **${limit.name}: ${limit.value}.** ${limit.onHit}`));
   return `# Where files go in this turn\n\n${lines.join("\n")}`;
 }

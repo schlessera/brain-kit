@@ -1528,6 +1528,19 @@ and the enforcement cannot drift.
 | `strict` | The brain is read-only. Edits go through `write_file`, `edit_file` and the curated tools, and a direct write fails with `EROFS`. The named writable areas. Budgets, commands and egress as above. |
 | `restricted` | Unchanged: the autonomous system prompt and its roster. |
 
+The delivered host note (#1654) receives history availability through the
+existing resolved sandbox. The shared renderer is
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:466-510`).
+Journaling is stated as active only after this
+turn's real observation window is admitted; user restoration additionally
+requires the concrete mounted history service and a non-voice turn. Missing
+host facts stay unrecorded, and hosts missing a service do not promise it.
+Both adapters inject the shared generator's exact protected paths/reasons and
+history statement. Only the authenticated user can restore retained observed
+paths through history; the agent gains no revert or Undo tool. The statement
+preserves overwritten-between-observations and stale-conflict limitations,
+with no automatic revert and no new budget or egress authority.
+
 An `EROFS` or a refused write under any profile names the rule that refused it
 and the allowed alternative. It is also recorded as a governance event.
 
