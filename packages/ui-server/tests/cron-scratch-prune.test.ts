@@ -214,10 +214,8 @@ describe("BrainClient.scratchPrune", () => {
   });
 
   test("an aborted signal kills the child, and the call rejects only once it is gone", async () => {
-    const { root, capture, bin } = brainWithCli(
-      `import { writeFileSync } from "fs";\n` +
-
-        `await Bun.sleep(60_000);\n`
+    const { root, bin } = brainWithCli(
+      `await Bun.sleep(60_000);\n`
     );
     try {
       const brain = createBrainClient({ brainPath: root });
@@ -247,13 +245,10 @@ describe("BrainUiApp.close", () => {
     const root = mkdtempSync(join(tmpdir(), "brain-app-close-"));
     const binDir = join(root, "node_modules", ".bin");
     mkdirSync(binDir, { recursive: true });
-    const capture = join(root, "pid.txt");
     writeFileSync(
       join(binDir, "brain"),
       `#!/usr/bin/env bun\n` +
         `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
-        `import { writeFileSync } from "fs";\n` +
-
         `await Bun.sleep(60_000);\n`
     );
     chmodSync(join(binDir, "brain"), 0o755);
@@ -286,18 +281,14 @@ describe("BrainUiApp.close", () => {
 
 describe("the shared test-app helper", () => {
   test("teardown awaits the app's close: the prune child is gone before state is removed", async () => {
-    let capture = "";
     const harness = await createTestApp({
       prepare: (brainPath) => {
         const binDir = join(brainPath, "node_modules", ".bin");
         mkdirSync(binDir, { recursive: true });
-        capture = join(brainPath, "pid.txt");
         writeFileSync(
           join(binDir, "brain"),
           `#!/usr/bin/env bun\n` +
             `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
-            `import { writeFileSync } from "fs";\n` +
-
             `await Bun.sleep(60_000);\n`
         );
         chmodSync(join(binDir, "brain"), 0o755);
