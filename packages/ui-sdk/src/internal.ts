@@ -47,3 +47,5 @@ export { createStateLedger, processStateLedger, WorkerStateError } from "./serve
 export type { Reservation, StateLedger, WorkerStateErrorClass } from "./server/worker-state-budget.js";
 
 export { resolveWorkerProtection } from "./server/worker-protection.js";
+
+export { prepareWorkerOutput } from "./server/worker-output.js";

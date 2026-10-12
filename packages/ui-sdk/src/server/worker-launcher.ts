@@ -15,6 +15,7 @@ import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from ".
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
+import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -46,6 +47,8 @@ export interface WorkerLaunch {
   brainPath: string;
   /** Host-owned immutable execution view for snapshot consumers. */
   startupView?: WorkerStartupView;
+  /** Private validated persistent outputs for snapshot consumers. */
+  areaOutput?: { source: string };
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
   scratchPath?: string;
   /**
@@ -516,7 +519,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
       || within(path, scratch) || within(scratch, path) || (state !== undefined && (within(path, state) || within(state, path)))) {
       throw new WorkerHostError(`the writable ${name} area must be a real directory at its own path inside the brain`);
     }
-    out.binds.push("--bind", path, input.sandbox?.profile === "governed" ? path : `${WORKER_AREA_ROOT}/${name}`);
+    out.binds.push("--bind", input.areaOutput ? join(input.areaOutput.source, rel) : path,
+      input.sandbox?.profile === "governed" ? path : `${WORKER_AREA_ROOT}/${name}`);
   }
   // `$HOME` stays the host's, read-only; what tools write there goes to the
   // per-turn XDG directories in turn temp instead (#1703).
@@ -787,6 +791,7 @@ function launchDiagnostics(stderr: number): string {
  */
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let startupView = input.startupView;
+  let areaOutput: ReturnType<typeof prepareWorkerOutput> | undefined;
   const plan = launchLimits(input);
   let cgroup: WorkerCgroup | undefined;
   if (plan.cgroup.available) {
@@ -803,7 +808,9 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let stateFd: number | undefined, tempFd: number | undefined;
   try {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
-    input = { ...input, ...(startupView ? { startupView } : {}) };
+    const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
+    if (startupView && areas.length) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
+    input = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
     pipes = createWorkerPipes();
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
     child = Bun.spawn(boot.command, { env: boot.env,
@@ -863,7 +870,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       final = report(code);
       if (cgroup) final.peak = cgroup.peak();
       cgroup?.remove();
-      startupView?.cleanup();
+      try { areaOutput?.publish(); }
+      finally { areaOutput?.cleanup(); startupView?.cleanup(); }
       return code;
     });
     return { ...streams, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -875,8 +883,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
-    if (child) void child.exited.finally(() => startupView?.cleanup());
-    else startupView?.cleanup();
+    if (child) void child.exited.finally(() => { areaOutput?.cleanup(); startupView?.cleanup(); });
+    else { areaOutput?.cleanup(); startupView?.cleanup(); }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`

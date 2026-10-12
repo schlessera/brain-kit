@@ -441,13 +441,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:727-768`):
+`packages/ui-sdk/src/server/worker-launcher.ts:750-865`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:637-661`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:660-745`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -457,7 +457,7 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:38`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:41`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in

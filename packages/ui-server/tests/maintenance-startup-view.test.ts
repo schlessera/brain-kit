@@ -121,3 +121,15 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
     expect(readFileSync(join(brain, "filters/value.txt"), "utf8")).toBe("during launch\n");
   } finally { worker.kill("SIGKILL"); }
 });
+
+test("deleting a directory refuses changed membership before deleting its original children", () => {
+  const brain = fixture();
+  mkdirSync(join(brain, "notes"));
+  writeFileSync(join(brain, "notes/loom.md"), "Penelope's original.\n");
+  const outputs = prepareMaintenanceOutput(brain); cleanup.push(outputs.cleanup);
+  rmSync(join(outputs.output.source, "notes"), { recursive: true });
+  writeFileSync(join(brain, "notes/peer.md"), "Odysseus from the peer.\n");
+  expect(() => outputs.publish()).toThrow("stale maintenance output");
+  expect(readFileSync(join(brain, "notes/loom.md"), "utf8")).toBe("Penelope's original.\n");
+  expect(readFileSync(join(brain, "notes/peer.md"), "utf8")).toBe("Odysseus from the peer.\n");
+});

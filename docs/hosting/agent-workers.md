@@ -772,6 +772,7 @@ Strict and restricted workers execute configuration from complete immutable
 startup views, including imported helpers and absent names. Strict persistent
 writes use `/tmp/brain-worker-areas/scratch` and
 `/tmp/brain-worker-areas/workspaces`; link their canonical brain destinations.
+Strict persistent writes are staged privately and validated after worker exit.
 Maintenance writes use a separate server-validated output workspace. Curated
 writes retain their authoritative route. A governed turn triggers an incremental
 index refresh after its workers exit, serialized on the server lock.

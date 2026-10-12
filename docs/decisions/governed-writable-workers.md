@@ -469,8 +469,8 @@ the worker cannot reach the live brain through an alternate source path.
 
 **Explicit writable outputs.** The execution view receives no write mount.
 Strict persistent areas are mounted at `/tmp/brain-worker-areas/scratch` and
-`/tmp/brain-worker-areas/workspaces`, outside it, with their canonical link
-paths stated in the note. Restricted staging and inference remain outside the
+`/tmp/brain-worker-areas/workspaces`, outside it, from private startup copies whose writes are validated and
+published after the worker exits, with their canonical link paths stated in the note. Restricted staging and inference remain outside the
 brain. Maintenance receives `/tmp/brain-maintenance-output`, a private output
 workspace; `BRAIN_ROOT` names that workspace and core configuration/module
 resolution still uses the immutable execution view. Index files, skills sync,
