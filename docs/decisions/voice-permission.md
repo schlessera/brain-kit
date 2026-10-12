@@ -488,13 +488,13 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:125`, and what it
-becomes, `allowedTools: allowed`, `:219`). The voice posture is one
+becomes, `allowedTools: allowed`, `:220`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
 The current plan still specifies *"Tool **availability** control (`tools`) or a
 measured enforced membership"*
-(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1248-1250`).
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1231-1250`).
 The plan is #51's design record. It was written before #141 and #154 measured
 the runtime paths described below; those measurements strengthen the argument
 for removing a tool's availability rather than leaving its execution reachable.
@@ -503,7 +503,7 @@ for removing a tool's availability rather than leaving its execution reachable.
 was trivial is superseded. Its resource loader and inline extension gate expose
 more than the curated tool roster, so both first-party runtimes need executable
 boundary proof
-(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1261-1265`).
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1244-1265`).
 This correction does not choose a second enforcement mechanism or weaken the
 voice/unattended membership requirement below.
 

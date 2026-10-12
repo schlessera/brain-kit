@@ -592,7 +592,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:731-757`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:791-791`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -813,7 +813,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:222`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:223`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:533`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1000,7 +1000,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1044`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1176`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
