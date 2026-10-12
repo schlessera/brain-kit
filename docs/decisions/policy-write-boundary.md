@@ -43,9 +43,9 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:84-261`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:85-262`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:28-103`). A child-only wrapper
+`packages/ui-backend-pi/src/session-resources.ts:28-105`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
 the concrete unsandboxed extension-initialization escape.
 
@@ -441,13 +441,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:943-1049`):
+`packages/ui-sdk/src/server/worker-launcher.ts:946-1052`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:788-813`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:791-816`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -457,7 +457,7 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:43`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:42`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
@@ -512,7 +512,7 @@ result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
 `worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:236-243`). A result, success or
+`packages/ui-backend-claude/src/turn-runner.ts:239-246`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the

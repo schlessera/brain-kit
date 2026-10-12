@@ -116,7 +116,11 @@ async function initialize(init: Init): Promise<void> {
     allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
-    ...(init.governed ? { directWrites: true } : { shellCwd: WORKER_SCRATCH }),
+    ...(init.governed ? { directWrites: true, ...(init.env.autonomous ? {} : { nativeFileObservation: async (phase: string, path: string, id: string) => {
+      const scope = toolScope.getStore();
+      if (!scope || scope.id !== id) throw new Error("A file observation needs the active native tool call");
+      await rpc("fileObservation", scope.name, id, { phase, path });
+    } }) } : { shellCwd: WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
       pi.on("tool_call", async event => {

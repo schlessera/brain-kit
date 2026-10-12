@@ -63,3 +63,8 @@ export { classifyOutwardCall, outwardTarget, BUILTIN_OUTWARD_MCP_DESCRIPTORS } f
 export { prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
 export type { OutwardClassification, VisibleOutwardAction } from "./server/outward-actions.js";
 export type { WorkerOutwardRule, OutwardPlan } from "./server/outward-policy.js";
+export { NativeFileVersions, nativeFileVersion, STALE_NATIVE_WRITE } from "./server/native-file-versions.js";
+export type { NativeFileVersion } from "./server/native-file-versions.js";
+export { createWorkerFileObserver } from "./server/worker-file-observer.js";
+export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
+export { WORKER_AREA_ROOT } from "./server/worker-sandbox.js";

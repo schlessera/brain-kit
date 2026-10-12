@@ -9,7 +9,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
+import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -32,13 +32,15 @@ function grantedReadBasePath(granted: string): string | undefined {
   catch { return undefined; }
 }
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
-  env: SessionEnv, profileId?: string, resumeId?: string) {
+  env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
   const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
   const info = infos.find(i => i.id === resumeId);
   if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
   const sessionId = resumeId ?? randomUUID();
+  const nativeVersions = nativeSessions.get(sessionId) ?? new NativeFileVersions();
+  if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
   const entries = info ? readPiSession(info.path) : undefined;
   /** Entries saved before this turn: their answers were promoted, if at all, by their own turn. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
@@ -182,6 +184,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // The first failure is the turn's: a later path cannot reclassify it.
     if (error) return;
     error = reason instanceof Error ? reason : new Error(String(reason));
+    nativeVersions.cancelPending();
     ended = true;
     ready.reject(error); done.reject(error);
     child.kill("SIGKILL");
@@ -280,6 +283,26 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
       try { live(); } catch (error) { release(); throw error; }
       const lockId = randomUUID(); releases.set(lockId, release); return { lockId };
+    }
+    if (msg.method === "fileObservation") {
+      const grant = grants.get(msg.toolCallId);
+      const input = grant && JSON.parse(grant.input);
+      const phase = msg.input.phase;
+      if (env.autonomous || sandbox.profile !== "governed" || !grant || grant.name !== msg.toolName
+        || !["read_file", "write_file", "edit_file"].includes(msg.toolName)
+        || typeof input.path !== "string" || msg.input.path !== input.path || Object.keys(msg.input).length !== 2
+        || !(msg.toolName === "read_file" ? ["read_start", "read_end"] : ["write_check", "write_end"]).includes(phase as string)) {
+        throw new Error("Native file observation has no matching granted operation");
+      }
+      const observed = child.observeFile?.(input.path);
+      if (!observed) throw new Error("Native file observation is outside the worker file view");
+      if (phase === "read_start") nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
+      else if (phase === "read_end") nativeVersions.finishRead(msg.toolCallId, observed.version, true);
+      else if (phase === "write_check") {
+        const refusal = nativeVersions.check(observed.key, observed.version);
+        if (refusal) throw new Error(refusal);
+      } else nativeVersions.finishWrite(observed.key, observed.version);
+      return { ok: true };
     }
     if (msg.method === "syncAuth") {
       if (Object.keys(msg.input).length !== 1 || typeof msg.input.content !== "string") throw new Error("Malformed native pi state request");
@@ -411,7 +434,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         if (!active) throw new Error("Pi worker completed an inactive turn");
         // Hits after the last tool step, or in a turn without one, still count.
         reportLimitHits();
-        cost = msg.cost; ended = true;
+        cost = msg.cost; nativeVersions.cancelPending(); ended = true;
         if (msg.error) done.reject(new Error(msg.error)); else done.resolve();
       } else throw msg.errorClass === "session_too_large" ? new SessionTooLargeError() : new BackendRequestError(msg.message);
     }

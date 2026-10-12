@@ -674,7 +674,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:821-821`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:824-824`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -940,12 +940,39 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:225`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:534`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
+
+**Native stale writes.** Interactive sessions remember SHA-256 observations of
+native file reads and writes. Before Claude `Write`, `Edit` or `NotebookEdit`,
+and Pi `write_file` or `edit_file`, a different observed byte version refuses the
+write with an ordinary native tool error. A path the session never read remains
+writable. This is an optimistic check before writing, not a lock against an
+external editor throughout a native tool's execution.
+
+The parent observes the worker's resolved mount sources, including strict
+startup copies and writable area aliases; it does not substitute newer
+canonical bytes for a frozen view (`createWorkerFileObserver`,
+`packages/ui-sdk/src/server/worker-file-observer.ts:13`). A failed or changing
+read cannot establish a new version. Claude's native `file_unchanged` response
+also preserves the previous observation: it supplied no new bytes
+(`const finishNativeFile`,
+`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+
+Claude keeps these observations in its backend-owned session map
+(`const fileVersionsBySession`,
+`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+backend-owned session runtime across fresh per-turn workers
+(`const nativeFileVersions`,
+`packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
+observation phases for the actual granted native operation, not a supplied hash
+or authority. Both preserve ordinary next turns on the running host. Neither
+restores the observations after a backend restart; resuming a saved transcript
+after restart does not establish restart-safe stale-write protection.
 
 ## Monitoring
 
@@ -1193,7 +1220,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:181`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:182`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1205,7 +1232,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1210`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1218`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1559,7 +1586,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`observe`, `packages/ui-server/src/brain/turn-journal.ts:112-162`).
+(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-165`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;

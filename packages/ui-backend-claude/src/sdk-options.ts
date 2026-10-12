@@ -72,6 +72,7 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
 
 interface ClaudeSdkTurnOptions {
   backend: ClaudeBackendOptions;
+  fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
   abortController: AbortController;
@@ -230,6 +231,8 @@ function assembleClaudeSdkTurn(
       allowedTools: allowed,
       confirmPatterns,
       brainPath: backend.brainPath,
+      fileVersions: options.fileVersions,
+      observeFile: path => worker.observeFile(path),
       turnLock,
       childEnv,
       configurationRoot: () => worker.configurationRoot(),

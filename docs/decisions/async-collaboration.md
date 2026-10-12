@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:84-263`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:85-264`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -83,7 +83,7 @@ and configuration audience; the old plan's “full host environment” descripti
 is historical. Preserve subscription billing and the selected runtime identity.
 
 Pi disables built-in tools but currently loads resources and extensions
-(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:28-134`)
+(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:28-136`)
 and gates extension calls (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:77-104`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have

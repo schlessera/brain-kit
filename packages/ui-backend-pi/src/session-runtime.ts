@@ -1,3 +1,4 @@
+import { NativeFileVersions } from "@schlessera/brain-ui-sdk/internal";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import type { TurnContext } from "./turn-context.js";
@@ -15,6 +16,7 @@ export function createSessionRuntime(options: {
   sessionDir: string;
   resources: ReturnType<typeof createSessionResources>;
 }): SessionRuntime {
+  const nativeFileVersions = new Map<string, NativeFileVersions>();
   async function acquire(env: SessionEnv, profileId?: string, sessionId?: string) {
     if (!sessionId) resolveModelSpec(options.backend, profileId);
     // Internal contract doubles carry no installed SDK/extension writer. The
@@ -27,7 +29,7 @@ export function createSessionRuntime(options: {
         : await options.backend.sessionFactory.newSession(profileId, toolkit);
       return { session, turnContext: toolkit.turnContext };
     }
-    return openPiWorkerSession(options.backend, options.sessionDir, env, profileId, sessionId);
+    return openPiWorkerSession(options.backend, options.sessionDir, env, profileId, sessionId, nativeFileVersions);
   }
   return {
     newSession: (profileId, env) => acquire(env, profileId),

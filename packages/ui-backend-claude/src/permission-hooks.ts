@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { relative, resolve } from "node:path";
+import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
@@ -49,8 +52,60 @@ export function createPermissionWiring(options: {
   configurationRoot?: () => string | undefined;
   /** Trusted host ledger and limits; never copied to worker initialization. */
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
+  fileVersions?: NativeFileVersions;
+  observeFile?: (path: string) => ObservedWorkerFile | undefined;
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
+  const fileVersions = options.fileVersions ?? new NativeFileVersions();
+  const legacyObserve = req.workerSandbox?.profile === "governed" ? createWorkerFileObserver({ brain: brainPath, configurationRoot: brainPath, areas: [], maskPaths: req.workerSandbox.maskPaths }) : undefined;
+  const filePath = (toolName: string, input: unknown): string | undefined => {
+    if (!input || typeof input !== "object") return undefined;
+    const value = input as Record<string, unknown>;
+    const path = toolName === "NotebookEdit" ? value.notebook_path : value.file_path;
+    return typeof path === "string" ? path : undefined;
+  };
+  const observation = (path: string): ObservedWorkerFile | undefined => {
+    const result = (options.observeFile ?? legacyObserve)?.(path);
+    if (result) return result;
+    const absolute = resolve(brainPath, path), rel = relative(brainPath, absolute);
+    if (rel && rel !== ".." && !rel.startsWith("../")) return { key: rel, version: { status: "unavailable" } };
+    for (const area of req.workerSandbox?.areas ?? []) {
+      const alias = resolve(WORKER_AREA_ROOT, area.name), suffix = relative(alias, absolute);
+      if (suffix && suffix !== ".." && !suffix.startsWith("../")) return { key: `${area.rel}/${suffix}`, version: { status: "unavailable" } };
+    }
+    return undefined;
+  };
+  const nativeRefusal = (toolName: string, input: unknown): string | null => {
+    if (req.autonomous || !["Write", "Edit", "NotebookEdit"].includes(toolName)) return null;
+    const path = filePath(toolName, input), current = path ? observation(path) : undefined;
+    return current ? fileVersions.check(current.key, current.version) : null;
+  };
+  const beginNativeRead: HookCallback = async hookInput => {
+    if (req.autonomous || req.signal.aborted || hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Read") return { continue: true };
+    const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
+    if (current) fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version);
+    return { continue: true };
+  };
+  const finishNativeFile: HookCallback = async hookInput => {
+    if (req.autonomous || (hookInput.hook_event_name !== "PostToolUse" && hookInput.hook_event_name !== "PostToolUseFailure")) return { continue: true };
+    const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
+    if (hookInput.tool_name === "Read") {
+      fileVersions.finishRead(hookInput.tool_use_id, current?.version ?? { status: "unavailable" }, hookInput.hook_event_name === "PostToolUse" && !req.signal.aborted && (hookInput.tool_response as { type?: string } | null)?.type === "text");
+    } else if (current && hookInput.hook_event_name === "PostToolUse" && ["Write", "Edit", "NotebookEdit"].includes(hookInput.tool_name)) {
+      const response = hookInput.tool_response as { content?: unknown; originalFile?: unknown; oldString?: unknown; newString?: unknown; replaceAll?: unknown; staged?: unknown } | null;
+      if (response?.staged === true) return { continue: true };
+      // The installed native Write/Edit response names the bytes it wrote.
+      // Do not substitute a newer peer version observed after its result.
+      let written: string | undefined;
+      if (hookInput.tool_name === "Write" && typeof response?.content === "string") written = response.content;
+      if (hookInput.tool_name === "Edit" && typeof response?.originalFile === "string" && typeof response.oldString === "string" && typeof response.newString === "string") {
+        if (response.originalFile.includes(response.oldString)) written = response.replaceAll ? response.originalFile.replaceAll(response.oldString, response.newString) : response.originalFile.replace(response.oldString, response.newString);
+      }
+      if (written !== undefined) fileVersions.remember(current.key, createHash("sha256").update(written, "utf8").digest("hex"));
+      else fileVersions.finishWrite(current.key, current.version);
+    }
+    return { continue: true };
+  };
   const commandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
   const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
   const outward = (toolName: string, input: unknown) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
@@ -271,6 +326,8 @@ export function createPermissionWiring(options: {
         lockKeyForTool(toolName, effectiveInput, brainPath)
       );
       if (!acquired.ok) return { behavior: "deny", message: acquired.reason };
+      const stale = nativeRefusal(toolName, effectiveInput);
+      if (stale) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: stale }; }
     }
     return toPermissionResult(decision);
   };
@@ -398,6 +455,8 @@ export function createPermissionWiring(options: {
         },
       };
     }
+    const stale = nativeRefusal(hookInput.tool_name, edited ?? hookInput.tool_input);
+    if (stale) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: stale } }; }
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A
       // PreToolUse hook's rewrite takes effect without one — measured for #124
@@ -471,7 +530,12 @@ export function createPermissionWiring(options: {
         { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },
+        ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [beginNativeRead] }] : []),
       ],
+      ...(!req.autonomous ? {
+        PostToolUse: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],
+        PostToolUseFailure: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],
+      } : {}),
       PermissionDenied: [
         {
           // A deny decided outside canUseTool (settings deny rules, other

@@ -849,9 +849,12 @@ export "./internal" (./src/internal.ts)
   type MaintenanceHost
   type MaintenanceResult
   type MaintenanceWorker
+  type NativeFileVersion
+  NativeFileVersions
   OUTPUT_STAGING_BUDGET_ENV
   OUTPUT_STAGING_BYTES_ENV
   OUTWARD_VOICE_REFUSAL
+  type ObservedWorkerFile
   type OutwardClassification
   type OutwardPlan
   PROMOTED_SCRATCH_DIR
@@ -865,6 +868,7 @@ export "./internal" (./src/internal.ts)
   type QuestionObservation
   type Reservation
   type RestrictedEnvelope
+  STALE_NATIVE_WRITE
   SUBPROCESS_ENV
   type StateLedger
   TURN_TEMP_BUDGET_ENV
@@ -883,6 +887,7 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
   WORKER_AREAS
+  WORKER_AREA_ROOT
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
@@ -932,6 +937,7 @@ export "./internal" (./src/internal.ts)
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
+  createWorkerFileObserver
   createWorkerStartupView
   denyWorkerCommand
   describeLimitHits
@@ -952,6 +958,7 @@ export "./internal" (./src/internal.ts)
   mergeLimitReports
   mib
   mountPointsUnder
+  nativeFileVersion
   observeClassification
   observeOutwardPlan
   outputStagingLimit

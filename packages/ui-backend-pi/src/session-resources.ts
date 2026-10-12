@@ -36,6 +36,7 @@ export function createSessionResources(options: {
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
   shellCwd?: string;
   directWrites?: boolean;
+  nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
   /** The worker's sandbox note, rendered by the server from its resolved mounts (#1626). */
   sandboxNote?: string;
 }) {
@@ -51,6 +52,7 @@ export function createSessionResources(options: {
       lock,
       shellCwd: options.shellCwd,
       directWrites: options.directWrites,
+      nativeFileObservation: options.nativeFileObservation,
       capabilities: {
         policyChange: caps.policyChange,
         location: caps.location,
