@@ -532,7 +532,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:595`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:619`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the

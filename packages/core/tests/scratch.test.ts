@@ -110,6 +110,113 @@ describe("cleanScratch", () => {
   });
 });
 
+describe("raw scratch filename bytes (#1682)", () => {
+  const rawNow = Date.UTC(2026, 6, 12);
+  function rawFile(name: Buffer, bytes: number, ageMs: number, directory?: Buffer): Buffer {
+    const scratch = Buffer.from(join(root, SCRATCH_DIR));
+    const parent = directory ? Buffer.concat([scratch, Buffer.from("/"), directory]) : scratch;
+    mkdirSync(parent, { recursive: true });
+    const path = Buffer.concat([parent, Buffer.from("/"), name]);
+    writeFileSync(path, Buffer.alloc(bytes, 1));
+    utimesSync(path, (rawNow - ageMs) / 1000, (rawNow - ageMs) / 1000);
+    return path;
+  }
+  const name = (byte: number) => Buffer.concat([Buffer.from("shroud-"), Buffer.from([byte]), Buffer.from(".png")]);
+
+  test("age prune removes nonempty invalid-byte names and empties nested raw directories", () => {
+    const directory = Buffer.concat([Buffer.from("raft-"), Buffer.from([0xff]), Buffer.from("/sails-"), Buffer.from([0xfe])]);
+    const path = rawFile(name(0xff), 26, SCRATCH_TTL_MS + 1, directory);
+    const report = pruneScratch(root, rawNow);
+    expect(existsSync(path), "RAW_EXPIRED_FILE_REMOVED").toBe(false);
+    expect(report.removed).toEqual([{ path: `${SCRATCH_DIR}/${directory.toString()}/${name(0xff).toString()}`, bytes: 26, reason: "age" }]);
+    expect(report).toMatchObject({ bytes: 0, files: 0, failed: [] });
+    expect(readdirSync(join(root, SCRATCH_DIR), { encoding: "buffer" }), "RAW_EMPTY_DIRECTORIES_REMOVED").toEqual([]);
+  });
+
+  test("young raw names contribute bytes and size prune distinguishes lossy display collisions", () => {
+    const oldest = rawFile(name(0xff), 26, 3000);
+    const newer = rawFile(name(0xfe), 27, 2000);
+    expect(name(0xff).toString()).toBe(name(0xfe).toString());
+    expect(pruneScratch(root, rawNow)).toMatchObject({ bytes: 53, files: 2, removed: [], failed: [] });
+    const report = pruneScratch(root, rawNow, { maxBytes: 27 });
+    expect(existsSync(oldest), "RAW_SIZE_FILE_REMOVED").toBe(false);
+    expect(existsSync(newer), "DISTINCT_RAW_NAME_RETAINED").toBe(true);
+    expect(report).toMatchObject({ bytes: 27, files: 1, failed: [] });
+    expect(report.removed).toEqual([{ path: `${SCRATCH_DIR}/${name(0xff).toString()}`, bytes: 26, reason: "size" }]);
+  });
+
+  test("clean removes both colliding raw names and nested directories", () => {
+    const directory = Buffer.concat([Buffer.from("raft-"), Buffer.from([0xff])]);
+    const a = rawFile(name(0xff), 26, 0, directory);
+    const b = rawFile(name(0xfe), 27, 0, directory);
+    const report = cleanScratch(root);
+    expect(existsSync(a), "RAW_CLEAN_FILE_REMOVED").toBe(false);
+    expect(existsSync(b), "RAW_CLEAN_SECOND_FILE_REMOVED").toBe(false);
+    expect(report.removed.map(entry => entry.bytes).sort()).toEqual([26, 27]);
+    expect(report.removed.every(entry => entry.reason === "clean")).toBe(true);
+    expect(report).toMatchObject({ bytes: 0, files: 0, failed: [] });
+    expect(readdirSync(join(root, SCRATCH_DIR), { encoding: "buffer" })).toEqual([]);
+  });
+
+  test("a pinned replacement-character filename cannot pin a different byte name", () => {
+    const invalid = rawFile(name(0xff), 26, SCRATCH_TTL_MS + 1);
+    const validName = Buffer.from(name(0xff).toString());
+    const pinned = rawFile(validName, 27, SCRATCH_TTL_MS + 1);
+    const report = pruneScratch(root, rawNow, { maxBytes: 0, pinnedPaths: new Set([pinned.toString()]) });
+    expect(existsSync(invalid), "RAW_PIN_IDENTITY_NOT_DISPLAY").toBe(false);
+    expect(existsSync(pinned), "VALID_PIN_RETAINED").toBe(true);
+    expect(report).toMatchObject({ bytes: 27, files: 1, pinned: { bytes: 27, files: 1 }, overageBytes: 27 });
+  });
+
+  test.skipIf(process.platform === "win32")("an explicit pin preserves a literal backslash filename on POSIX", () => {
+    const path = rawFile(Buffer.from("shroud\\mask.png"), 26, SCRATCH_TTL_MS + 1);
+    const report = pruneScratch(root, rawNow, { maxBytes: 0, pinnedPaths: new Set([path.toString()]) });
+    expect(existsSync(path), "LITERAL_BACKSLASH_PRODUCER_PIN_RETAINED").toBe(true);
+    expect(report).toMatchObject({ removed: [], failed: [], bytes: 26, files: 1, pinned: { bytes: 26, files: 1 }, overageBytes: 26 });
+  });
+
+  test("an OS refusal for a raw name keeps its bytes and file count in prune and clean", () => {
+    const path = rawFile(name(0xff), 26, SCRATCH_TTL_MS + 1);
+    const original = fs.unlinkSync;
+    const spy = spyOn(fs, "unlinkSync").mockImplementation(input => {
+      const bytes = Buffer.isBuffer(input) ? input : Buffer.from(String(input));
+      if (bytes.subarray(bytes.lastIndexOf("/") + 1).equals(name(0xff))) {
+        throw Object.assign(new Error("EPERM: fixture keeps the shroud"), { code: "EPERM" });
+      }
+      original(input);
+    });
+    try {
+      for (const report of [pruneScratch(root, rawNow), cleanScratch(root)]) {
+        expect(report).toMatchObject({ bytes: 26, files: 1, removed: [] });
+        expect(report.failed).toEqual([{ path: `${SCRATCH_DIR}/${name(0xff).toString()}`, reason: "EPERM: fixture keeps the shroud" }]);
+      }
+      expect(existsSync(path)).toBe(true);
+    } finally { spy.mockRestore(); }
+  });
+
+  test.skipIf(process.platform !== "linux")("raw nested deletion uses descriptor paths without following a raw symlink", () => {
+    const directory = Buffer.concat([Buffer.from("raft-"), Buffer.from([0xff])]);
+    const path = rawFile(name(0xfe), 26, SCRATCH_TTL_MS + 1, directory);
+    const outside = outsideDir();
+    const link = Buffer.concat([Buffer.from(join(root, SCRATCH_DIR) + "/link-"), Buffer.from([0xff])]);
+    symlinkSync(outside.dir, link);
+    const calls: Buffer[] = [];
+    const original = fs.unlinkSync;
+    const spy = spyOn(fs, "unlinkSync").mockImplementation(input => {
+      calls.push(Buffer.isBuffer(input) ? input : Buffer.from(String(input)));
+      original(input);
+    });
+    try {
+      const report = cleanScratch(root);
+      expect(existsSync(path)).toBe(false);
+      expect(readFileSync(outside.file, "utf8"), "RAW_SYMLINK_TARGET_UNTOUCHED").toBe("keep me");
+      expect(report.removed).toHaveLength(2);
+      expect(calls.every(input => input.subarray(0, 14).equals(Buffer.from("/proc/self/fd/"))), "RAW_UNLINK_DESCRIPTOR_ANCHORED").toBe(true);
+      expect(calls.some(input => input.subarray(input.lastIndexOf("/") + 1).equals(name(0xfe)))).toBe(true);
+    } finally { spy.mockRestore(); cleanup(outside.dir); }
+  });
+});
+
 describe("a symlinked scratch", () => {
   const outsides: string[] = [];
   afterEach(() => {

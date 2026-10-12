@@ -43,7 +43,7 @@ import {
   rmSync,
   unlinkSync,
 } from "fs";
-import type { Dirent, Stats } from "fs";
+import type { Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
@@ -156,7 +156,7 @@ function canonicalRoot(root: string): string {
   }
 }
 
-function isSymlink(path: string): boolean {
+function isSymlink(path: string | Buffer): boolean {
   try {
     return lstatSync(path).isSymbolicLink();
   } catch {
@@ -251,11 +251,17 @@ export function assertScratchWritable(root: string, abs: string): void {
  * is itself (no link at any segment) and `lstat` says directory. The check
  * a removal, a descent and a publication each repeat just before they act.
  */
-function genuineDir(root: string, dir: string, path: string): boolean {
+function genuineDir(root: string, dir: string, path: string | Buffer): boolean {
   try {
     scratchDir(root);
-    if (!under(dir, path)) return false;
-    if (realpathSync(path) !== path) return false;
+    if (Buffer.isBuffer(path)) {
+      const base = Buffer.from(dir);
+      if (!path.equals(base) && !path.subarray(0, base.length + 1).equals(Buffer.from(dir + sep))) return false;
+      if (!realpathSync(path, { encoding: "buffer" }).equals(path)) return false;
+    } else {
+      if (!under(dir, path)) return false;
+      if (realpathSync(path) !== path) return false;
+    }
     return lstatSync(path).isDirectory();
   } catch {
     return false;
@@ -426,10 +432,17 @@ function readScratchPins(root: string, pinsFile?: string): Set<string> {
 }
 
 interface Entry {
-  abs: string;
+  abs: Buffer;
   bytes: number;
   mtimeMs: number;
 }
+
+// Keep byte identities until the report boundary. Decoding a name for a
+// filesystem call conflates distinct invalid UTF-8 names with U+FFFD.
+const byteJoin = (dir: string | Buffer, name: Buffer) => Buffer.concat([Buffer.from(dir), Buffer.from(sep), name]);
+const byteParent = (path: Buffer) => path.subarray(0, path.lastIndexOf(sep));
+const byteName = (path: Buffer) => path.subarray(path.lastIndexOf(sep) + 1);
+const reportPath = (root: string, path: Buffer) => path.subarray(Buffer.byteLength(root) + 1).toString().split("\\").join("/");
 
 /** An entry that another process removed or replaced between two of our calls. */
 function gone(error: unknown): boolean {
@@ -443,18 +456,18 @@ function gone(error: unknown): boolean {
  * descended into. A prune running beside a writer, or beside another prune,
  * sees entries vanish between readdir and stat; those are skipped.
  */
-function listFiles(dir: string): Entry[] {
+function listFiles(dir: Buffer): Entry[] {
   if (isSymlink(dir)) return [];
-  let names: Dirent[];
+  let names: Buffer[];
   try {
-    names = readdirSync(dir, { withFileTypes: true });
+    names = readdirSync(dir, { encoding: "buffer" });
   } catch (error) {
     if (gone(error)) return [];
     throw error;
   }
   const out: Entry[] = [];
-  for (const entry of names) {
-    const abs = join(dir, entry.name);
+  for (const name of names) {
+    const abs = byteJoin(dir, name);
     let s: Stats;
     try {
       s = lstatSync(abs);
@@ -482,8 +495,14 @@ const ANCHORED = process.platform === "linux";
 const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 
 /** Runs `act` with `/proc/self/fd/<fd>` for the real directory holding `abs` under `scratch`, and the entry's name. */
-function anchored<T>(scratch: string, abs: string, act: (parent: string, name: string) => T): T | "skipped" | "gone" {
-  const segments = relative(scratch, dirname(abs)).split(sep).filter(Boolean);
+function anchored<T>(scratch: string, abs: Buffer, act: (parent: string, name: Buffer) => T): T | "skipped" | "gone" {
+  const parent = byteParent(abs);
+  const segments: Buffer[] = [];
+  for (let start = Buffer.byteLength(scratch) + 1; start < parent.length;) {
+    const end = parent.indexOf(sep, start);
+    segments.push(parent.subarray(start, end < 0 ? parent.length : end));
+    start = end < 0 ? parent.length : end + 1;
+  }
   let fd: number;
   try {
     fd = openSync(scratch, DIRECTORY_FLAGS);
@@ -494,7 +513,7 @@ function anchored<T>(scratch: string, abs: string, act: (parent: string, name: s
     for (const segment of segments) {
       let next: number;
       try {
-        next = openSync(`/proc/self/fd/${fd}/${segment}`, DIRECTORY_FLAGS);
+        next = openSync(byteJoin(`/proc/self/fd/${fd}`, segment), DIRECTORY_FLAGS);
       } catch (error) {
         // ENOENT: gone. ELOOP/ENOTDIR: a link or file now sits where the directory was.
         return (error as { code?: string }).code === "ENOENT" ? "gone" : "skipped";
@@ -502,7 +521,7 @@ function anchored<T>(scratch: string, abs: string, act: (parent: string, name: s
       closeSync(fd);
       fd = next;
     }
-    return act(`/proc/self/fd/${fd}`, basename(abs));
+    return act(`/proc/self/fd/${fd}`, byteName(abs));
   } finally {
     closeSync(fd);
   }
@@ -524,13 +543,13 @@ function anchored<T>(scratch: string, abs: string, act: (parent: string, name: s
 /** `gone`: already removed by someone else. `skipped`: not ours to remove any more (moved, swapped, a directory now). */
 type Removal = "removed" | "gone" | "skipped" | { failed: string };
 
-function removeFile(root: string, dir: string, abs: string): Removal {
-  if (!genuineDir(root, dir, dirname(abs))) return "skipped";
+function removeFile(root: string, dir: string, abs: Buffer): Removal {
+  if (!genuineDir(root, dir, byteParent(abs))) return "skipped";
   try {
     if (ANCHORED) {
       return anchored(dir, abs, (parent, name) => {
-        if (lstatSync(join(parent, name)).isDirectory()) return "skipped";
-        unlinkSync(join(parent, name));
+        if (lstatSync(byteJoin(parent, name)).isDirectory()) return "skipped";
+        unlinkSync(byteJoin(parent, name));
         return "removed";
       });
     }
@@ -556,22 +575,27 @@ function removeFile(root: string, dir: string, abs: string): Removal {
  * since the listing. A mismatch skips it. The one-syscall window between
  * that check and the rmdir is the same as the unlink's.
  */
-function removeEmptyDirs(root: string, scratch: string, dir: string): void {
+function removeEmptyDirs(root: string, scratch: string, dir: Buffer): void {
   if (!genuineDir(root, scratch, dir)) return;
-  let names: Dirent[];
+  let names: Buffer[];
   try {
-    names = readdirSync(dir, { withFileTypes: true });
+    names = readdirSync(dir, { encoding: "buffer" });
   } catch (error) {
     if (gone(error)) return;
     throw error;
   }
-  for (const entry of names) {
-    if (entry.isDirectory()) removeEmptyDirs(root, scratch, join(dir, entry.name));
+  for (const name of names) {
+    const child = byteJoin(dir, name);
+    try {
+      if (lstatSync(child).isDirectory()) removeEmptyDirs(root, scratch, child);
+    } catch (error) {
+      if (!gone(error)) throw error;
+    }
   }
-  if (dir === scratch) return;
+  if (dir.equals(Buffer.from(scratch))) return;
   if (!genuineDir(root, scratch, dir)) return;
   try {
-    if (ANCHORED) anchored(scratch, dir, (parent, name) => rmdirSync(join(parent, name)));
+    if (ANCHORED) anchored(scratch, dir, (parent, name) => rmdirSync(byteJoin(parent, name)));
     else rmdirSync(dir);
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -599,7 +623,10 @@ export function pruneScratch(
 ): ScratchPruneReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
-  const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
+  const rel = (abs: Buffer) => reportPath(rootReal, abs);
+  // Pins are UTF-8 strings. Compare their encoded bytes, not lossy display
+  // paths, so an invalid name cannot impersonate a pinned U+FFFD filename.
+  const pinKey = (abs: Buffer) => abs.subarray(Buffer.byteLength(rootReal) + 1).toString("hex");
   const removed: ScratchRemoval[] = [];
   const failed: ScratchFailure[] = [];
   // What is still in scratch after this pass, as far as it could tell: a
@@ -614,7 +641,7 @@ export function pruneScratch(
     // suspends this deletion too, before the safe filesystem removal.
     try {
       pins = currentPins();
-      if (pins.has(rel(entry.abs))) { left.push(entry); return false; }
+      if (pins.has(pinKey(entry.abs))) { left.push(entry); return false; }
     } catch (error) {
       pinError = error instanceof Error ? error.message : String(error);
       left.push(entry); return false;
@@ -629,10 +656,14 @@ export function pruneScratch(
     left.push(entry);
     return false;
   };
-  const entries = listFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const entries = listFiles(Buffer.from(dir)).sort((a, b) => a.mtimeMs - b.mtimeMs);
   let pins: ReadonlySet<string>;
-  const explicit = [...(pinnedPaths ?? [])].map(path => rel(resolve(rootReal, path)));
-  const currentPins = () => new Set([...readScratchPins(rootReal), ...(pinsFile ? readScratchPins(rootReal, pinsFile) : []), ...explicit]);
+  const explicit = [...(pinnedPaths ?? [])].map(path => Buffer.from(relative(rootReal, resolve(rootReal, path))).toString("hex"));
+  const currentPins = () => new Set([
+    ...[...readScratchPins(rootReal), ...(pinsFile ? readScratchPins(rootReal, pinsFile) : [])]
+      .map(path => Buffer.from(path.split("/").join(sep)).toString("hex")),
+    ...explicit,
+  ]);
   try {
     // Explicit pins only add protection; they cannot bypass the durable set.
     pins = currentPins();
@@ -643,7 +674,7 @@ export function pruneScratch(
   }
   const candidates: Entry[] = [];
   for (const entry of entries) {
-    if (!pins.has(rel(entry.abs)) && now - entry.mtimeMs > ttlMs) remove(entry, "age");
+    if (!pins.has(pinKey(entry.abs)) && now - entry.mtimeMs > ttlMs) remove(entry, "age");
     else candidates.push(entry);
   }
   // The cap counts everything still there, the files that would not go
@@ -651,14 +682,14 @@ export function pruneScratch(
   // oldest, so the cap is met whenever the removable files allow it.
   let total = [...left, ...candidates].reduce((sum, e) => sum + e.bytes, 0);
   for (const entry of candidates) {
-    if (pins.has(rel(entry.abs)) || total <= maxBytes) {
+    if (pins.has(pinKey(entry.abs)) || total <= maxBytes) {
       left.push(entry);
       continue;
     }
     if (remove(entry, "size")) total -= entry.bytes;
   }
-  removeEmptyDirs(root, dir, dir);
-  const pinned = left.filter(entry => pins.has(rel(entry.abs)));
+  removeEmptyDirs(root, dir, Buffer.from(dir));
+  const pinned = left.filter(entry => pins.has(pinKey(entry.abs)));
   return { removed, failed, bytes: left.reduce((sum, e) => sum + e.bytes, 0), files: left.length,
     pinned: { files: pinned.length, bytes: pinned.reduce((sum, entry) => sum + entry.bytes, 0) },
     overageBytes: Math.max(0, total - maxBytes), ...(pinError ? { pinError } : {}) };
@@ -668,11 +699,11 @@ export function pruneScratch(
 export function cleanScratch(root: string): ScratchReport {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
-  const rel = (abs: string) => relative(rootReal, abs).split("\\").join("/");
+  const rel = (abs: Buffer) => reportPath(rootReal, abs);
   const removed: ScratchRemoval[] = [];
   const failed: ScratchFailure[] = [];
   const survivors: Entry[] = [];
-  for (const entry of listFiles(dir)) {
+  for (const entry of listFiles(Buffer.from(dir))) {
     const outcome = removeFile(root, dir, entry.abs);
     if (outcome === "removed") removed.push({ path: rel(entry.abs), bytes: entry.bytes, reason: "clean" });
     else if (outcome === "gone") continue;
@@ -681,6 +712,6 @@ export function cleanScratch(root: string): ScratchReport {
       survivors.push(entry);
     }
   }
-  removeEmptyDirs(root, dir, dir);
+  removeEmptyDirs(root, dir, Buffer.from(dir));
   return { removed, failed, bytes: survivors.reduce((sum, e) => sum + e.bytes, 0), files: survivors.length };
 }
