@@ -406,7 +406,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:411-417`, and the lookup computing
-`remembered`, `ws/bridge.ts:280-300`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:282-302`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -460,10 +460,10 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:527-542`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:531-546`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:309-324`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:311-326`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:515`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:524`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -592,7 +592,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:280-300`,
+  `packages/ui-server/src/ws/bridge.ts:282-302`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:411-417`).
   The evaluation happens
