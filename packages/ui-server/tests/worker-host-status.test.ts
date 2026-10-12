@@ -42,7 +42,8 @@ describe("boot probe", () => {
     const t = await createTestApp({ appOptions: { observability } });
     try {
       // Only the ordinary mode: autonomous work is not enabled.
-      expect(spy.mock.calls.map(([, options]) => options)).toEqual([{ restricted: false, stateBytes: 64 * 1024 * 1024 }]);
+      expect(spy.mock.calls.map(([, options]) => options)).toEqual([{ restricted: false, stateBytes: 64 * 1024 * 1024,
+        turnTempBytes: 256 * 1024 * 1024 }]);
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) },
         // #1648: governed cannot run either, and with no turn able to change the brain its code stays on the host.
@@ -70,7 +71,10 @@ describe("boot probe", () => {
     const t = await createTestApp({ env: { BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY: "100" },
       appOptions: { [INBOX_DISPATCH_FIXTURE]: { select: async () => null } } as never });
     try {
-      expect(spy.mock.calls.map(([, options]) => options)).toEqual([{ restricted: false, stateBytes: 64 * 1024 * 1024 }, { restricted: true, stateBytes: 64 * 1024 * 1024 }]);
+      expect(spy.mock.calls.map(([, options]) => options)).toEqual([
+        { restricted: false, stateBytes: 64 * 1024 * 1024, turnTempBytes: 256 * 1024 * 1024 },
+        { restricted: true, stateBytes: 64 * 1024 * 1024, turnTempBytes: 256 * 1024 * 1024 },
+      ]);
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost?.ordinary).toMatchObject({ available: true, trigger: "boot" });
       expect(workerHost?.restricted).toMatchObject({ available: false, requirement: "a private network namespace with only loopback failed" });

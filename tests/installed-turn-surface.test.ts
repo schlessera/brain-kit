@@ -1,6 +1,6 @@
 // The installed Claude CLI's serialisation of the shipped tool surface under
 // `createClaudeSdkTurn`'s production defaults: core brain tools stay deferred,
-// the twelve bridge tools (the four inbox tools among them) load eagerly with
+// the thirteen bridge tools (the four inbox tools among them) load eagerly with
 // their schemas, and the emitted skill listing reaches the request. Package
 // tests check only the MCP `_meta` stamp; this is the half where the CLI
 // honours it. Split verbatim from the turn-surface measurement test (#1386),
@@ -19,8 +19,8 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_add", "mcp__brain__brain_archive", "mcp__brain__brain_context", "mcp__brain__brain_graph",
     "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(12);
-  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action"]) {
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(13);
+  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "turn_temp"]) {
     const tool = capture.request.tools.find(tool => tool.name === `mcp__brain-ui__${name}`);
     expect(tool?.input_schema).toBeDefined();
     expect(tool?.defer_loading).not.toBe(true);

@@ -462,12 +462,12 @@ host (`export function launchAgentWorker`,
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
    through the held descriptor (`populate(root) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:190-211`), then opens the
+   `packages/ui-backend-claude/src/worker-state.ts:195-216`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:216-255`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:221-260`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,

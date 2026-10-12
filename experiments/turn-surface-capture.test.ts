@@ -17,7 +17,7 @@ test("token groups partition the captured request and reject missing classificat
   expect(JSON.stringify(payloads[1]!.body.messages)).not.toContain("mcp__brain__brain_read");
   expect(JSON.stringify(payloads[1]!.body.messages)).toContain("WebFetch");
   expect(JSON.stringify(payloads[2]!.body.messages)).toContain("mcp__brain__brain_read");
-  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(12);
+  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(13);
   expect(payloads[4]!.body.tools).toEqual(capture.request.tools);
   expect(payloads[4]!.body.messages).toEqual(capture.request.messages);
   // Missing classification/listing evidence must reject the measurement.
