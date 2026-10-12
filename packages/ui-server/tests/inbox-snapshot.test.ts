@@ -374,8 +374,9 @@ test("app boot closes a pending restore database before allocating pricing or ba
   const backend = makeFakeBackend({ id: "fixture" });
   try {
     try {
+      mkdirSync(join(f.root, "brain"), { recursive: true });
       const app = await createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: f.path,
-        BRAIN_PATH: f.root, BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
+        BRAIN_PATH: join(f.root, "brain"), BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
         registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
       await app.close();
     } catch (caught) { error = caught; }

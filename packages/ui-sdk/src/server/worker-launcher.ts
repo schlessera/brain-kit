@@ -377,26 +377,42 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
 
 /** Applied after the complete startup view too, so a snapshot never lifts the secret mask. */
 function maintenanceEnvMasks(source: string, brain: string): string[] {
-    const argv: string[] = [];
-    const covered = new Set<string>();
-    for (const name of readdirSync(source)) {
-      if (!isEnvName(name)) continue;
-      const path = join(source, name);
-      const info = lstatSync(path, { throwIfNoEntry: false });
-      if (info?.isDirectory()) { argv.push("--tmpfs", join(brain, name), "--remount-ro", join(brain, name)); continue; }
-      // A link is covered where it leads, without following it in a mount
-      // destination: the file it resolves to now (in the brain or on the
-      // host) is replaced, so Bun reads nothing through it. A link that
-      // resolves to nothing has nothing to read.
-      let target = path;
-      if (info?.isSymbolicLink()) {
-        try { target = realpathSync(path); } catch { continue; }
+  const argv: string[] = [];
+  const covered = new Set<string>();
+  // Resolve in worker-visible names, inspecting brain components through
+  // the held snapshot spelling. realpath loses /proc/<server>/fd aliases
+  // into the helper-private namespace; absolute brain links must also use
+  // the snapshot, rather than resolve against later live bytes.
+  function target(path: string, links = 0): { path: string; info: import("node:fs").Stats } | undefined {
+    if (links > 40) return undefined;
+    const parts = path.split("/");
+    let current = "/";
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (!part || part === ".") continue;
+      if (part === "..") { current = dirname(current); continue; }
+      const next = current === "/" ? `/${part}` : `${current}/${part}`;
+      const inspected = within(brain, next) ? source + next.slice(brain.length) : next;
+      const info = lstatSync(inspected, { throwIfNoEntry: false });
+      if (!info) return undefined;
+      if (info.isSymbolicLink()) {
+        const link = readlinkSync(inspected);
+        return target(`${isAbsolute(link) ? link : `${current}/${link}`}/${parts.slice(i + 1).join("/")}`, links + 1);
       }
-      if (covered.has(target) || !lstatSync(target, { throwIfNoEntry: false })?.isFile()) continue;
-      covered.add(target);
-      if (within(source, target)) target = brain + target.slice(source.length);
-      argv.push("--ro-bind", "/dev/null", target);
+      current = next;
     }
+    const inspected = within(brain, current) ? source + current.slice(brain.length) : current;
+    const info = lstatSync(inspected, { throwIfNoEntry: false });
+    return info ? { path: current, info } : undefined;
+  }
+  for (const name of readdirSync(source)) {
+    if (!isEnvName(name)) continue;
+    const resolved = target(`${brain}/${name}`);
+    if (!resolved || covered.has(resolved.path)) continue;
+    covered.add(resolved.path);
+    if (resolved.info.isDirectory()) argv.push("--tmpfs", resolved.path, "--remount-ro", resolved.path);
+    else if (resolved.info.isFile()) argv.push("--ro-bind", "/dev/null", resolved.path);
+  }
   return argv;
 }
 

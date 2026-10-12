@@ -27,7 +27,7 @@ import {
   CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, type MaintenanceCommand, type WorkerHostProbe,
 } from "@schlessera/brain-ui-sdk/internal";
-import { killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
@@ -229,6 +229,14 @@ function serverInstallation(): string[] {
   return serverRuntime ??= restrictedReadPaths([MAINTENANCE_ENTRY]);
 }
 
+// Maintenance readers can write derived projections and frozen Git objects
+// into their private outputs. Serialize that lifecycle per canonical brain,
+// including across independently constructed clients; governed peers still
+// use the existing gate and publication revalidation.
+const OUTPUT_LOCK = Symbol.for("@schlessera/brain-ui-server/maintenance-output-lock");
+const outputSlot = globalThis as { [OUTPUT_LOCK]?: KeyedLock };
+const outputLock = outputSlot[OUTPUT_LOCK] ??= createKeyedLock();
+
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const brain = real(options.brainPath);
   const exec = options.exec ?? {};
@@ -345,13 +353,13 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
       }
       return gated(execution, async () => {
-        if (execution.sync) return runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
+        if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
         const run = async () => {
           const outputs = prepareMaintenanceOutput(brain);
           try {
             const launch = command(execution);
-            const git = await prepareMaintenanceGit(launch, outputs);
+            const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
               ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
             if (!result.killed) {
@@ -361,7 +369,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
           } finally { outputs.cleanup(); }
         };
-        return execution.lock ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run();
+        return outputLock.withLock(brain, () => execution.lock
+          ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
       });
     },
     async launch(execution) {
@@ -372,6 +381,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") };
       }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
+      let releaseOutput: () => void;
+      try { execution.signal?.throwIfAborted(); releaseOutput = await outputLock.acquire(brain, { signal: execution.signal }); }
+      catch (error) { hold?.release(); execution.signal?.throwIfAborted(); throw error; }
       if (execution.sync) {
         try {
           // An abort can arrive while the gate is resolving. Check it before
@@ -392,13 +404,13 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             .finally(() => {
               try { stdout.close(); } finally {
                 try { stderr.close(); } finally {
-                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { hold?.release(); }
+                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { try { releaseOutput(); } finally { hold?.release(); } }
                 }
               }
             });
           return { stdout: stdout.stream, stderr: stderr.stream, exited, get signalCode() { return signalCode; },
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
-        } catch (error) { hold?.release(); throw error; }
+        } catch (error) { try { releaseOutput(); } finally { hold?.release(); } throw error; }
       }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
       let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
@@ -406,10 +418,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         outputs = prepareMaintenanceOutput(brain);
         const launch = command(execution);
-        const git = await prepareMaintenanceGit(launch, outputs);
+        const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+        execution.signal?.throwIfAborted();
         worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
       }
-      catch (error) { try { outputs?.cleanup(); } finally { hold?.release(); } throw error; }
+      catch (error) { try { outputs?.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
@@ -419,7 +432,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(() => { try { outputs!.cleanup(); } finally { hold?.release(); } });
+        .finally(() => { try { outputs!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };

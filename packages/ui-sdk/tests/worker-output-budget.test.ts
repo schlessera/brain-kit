@@ -75,7 +75,7 @@ test("starting bytes and output copies share capacity and failed preparation fre
   process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = String(1024 ** 2);
   cleanup.push(() => { if (old === undefined) delete process.env.BRAIN_UI_OUTPUT_STAGING_BYTES; else process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = old; });
   const brain = mkdtempSync("/tmp/odysseus-staging-start-"); cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
-  writeFileSync(join(brain, "Odysseus.bin"), Buffer.alloc(600 * 1024));
+  writeFileSync(join(brain, "Odysseus.bin"), Buffer.alloc(600 * 1024, 1));
   const ledger = processStateLedger(), before = ledger.outputStagingHeld;
   expect(() => prepareWorkerOutput(brain), "STARTING_COPIES_CHARGED").toThrow("Output staging exceeds its 1 MiB allowance (ENOSPC)");
   expect(ledger.outputStagingHeld).toBe(before);

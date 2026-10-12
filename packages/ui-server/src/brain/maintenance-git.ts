@@ -10,13 +10,14 @@ const hooks = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
   "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change"];
 
-export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: ReturnType<typeof prepareMaintenanceOutput>): Promise<MaintenanceCommand["git"]> {
+export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: ReturnType<typeof prepareMaintenanceOutput>, signal?: AbortSignal): Promise<MaintenanceCommand["git"]> {
+  signal?.throwIfAborted();
   const metadata = join(outputs.view.root, ".git");
   if (!lstatSync(metadata, { throwIfNoEntry: false })?.isDirectory() || !existsSync(join(metadata, "config"))) return undefined;
   const binary = Bun.which("git");
   if (!binary) throw new Error("maintenance needs Git");
   const result = await runMaintenanceWorker({ ...command, startupView: outputs.view,
-    command: [binary, "-c", `safe.directory=${command.brainPath}`, "config", "--null", "--list", "--includes"], network: false, timeoutMs: 5000 });
+    command: [binary, "-c", `safe.directory=${command.brainPath}`, "config", "--null", "--list", "--includes"], network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
   if (result.exitCode !== 0 || result.killed) throw new Error(`cannot freeze Git configuration: ${result.stderr.slice(-400)}`);
   const config: [string, string][] = result.stdout.split("\0").filter(Boolean).map(record => {
     const separator = record.indexOf("\n");
@@ -44,7 +45,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   // tree pins both existing bytes and absence without blocking checkout writes.
   const gitRun = async (args: string[], stdin?: string) => {
     const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
-      command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, ...args], ...(stdin !== undefined ? { stdin } : {}), network: false, timeoutMs: 5000 });
+      command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, ...args], ...(stdin !== undefined ? { stdin } : {}), network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
     if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
     return answer.stdout.trim();
   };

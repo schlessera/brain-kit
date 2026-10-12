@@ -64,7 +64,8 @@ export function createStateLedger(): StateLedger {
   const entries = new Set<{ bytes: number; turnTempBytes: number; outputStagingBytes: number }>();
   let held = 0, turnTempHeld = 0, outputStagingHeld = 0;
   const busy = (what: string, allowance: number, inUse: number, budget: number) => {
-    const running = entries.size;
+    const running = [...entries].filter(entry => what === "runtime-state" ? entry.bytes > 0
+      : what === "turn-temp" ? entry.turnTempBytes > 0 : entry.outputStagingBytes > 0).length;
     return new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy,
       `Not enough worker ${what} capacity for this turn right now: it needs its ${mib(allowance)} allowance, `
       + `and ${running} running conversation${running === 1 ? "" : "s"} hold${running === 1 ? "s" : ""} ${mib(inUse)} `

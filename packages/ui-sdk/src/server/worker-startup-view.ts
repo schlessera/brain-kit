@@ -1,6 +1,6 @@
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
+  readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, ftruncateSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
 import { createOutputStagingStorage } from "./worker-launcher.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
@@ -56,6 +56,7 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
   let entries = 0;
   let bytes = 0;
   const buffer = Buffer.alloc(64 * 1024);
+  const zeros = Buffer.alloc(buffer.length);
   const stamps: { parts: string[]; info: import("node:fs").Stats }[] = [];
   const same = (a: import("node:fs").Stats, b: import("node:fs").Stats) =>
     a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
@@ -94,14 +95,21 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
           const opened = fstatSync(input);
           if (!opened.isFile() || !same(info, opened)) throw new Error("startup file changed before open");
           output = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, info.mode & 0o777);
+          let position = 0;
           for (;;) {
             const count = readSync(input, buffer);
             if (!count) break;
             bytes += count;
             if (bytes > 4 * 1024 ** 3) throw new Error("startup view exceeds 4 GiB");
-            let written = 0;
-            while (written < count) written += writeSync(output, buffer, written, count - written);
+            // Preserve zero extents as holes. A sparse scratch artifact must
+            // not allocate its logical size in the bounded private tmpfs.
+            if (!buffer.subarray(0, count).equals(zeros.subarray(0, count))) {
+              let written = 0;
+              while (written < count) written += writeSync(output, buffer, written, count - written, position + written);
+            }
+            position += count;
           }
+          ftruncateSync(output, position);
           if (!same(opened, fstatSync(input))) throw new Error("startup file changed while copying");
           fchmodSync(output, info.mode & 0o777);
           futimesSync(output, info.atime, info.mtime);

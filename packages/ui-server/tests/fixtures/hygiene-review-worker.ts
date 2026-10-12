@@ -4,7 +4,7 @@ import { createBrainClient } from "../../src/brain/client.js";
 import { createHygieneReview } from "../../src/inbox/hygiene-review.js";
 import { InboxStore } from "../../src/inbox/store.js";
 const [root, principalId, itemId, ready] = process.argv.slice(2);
-const db = createUiDb(`${root}/ui.sqlite`);
+const db = createUiDb(`${root}/../ui.sqlite`);
 const review = createHygieneReview(db, { brain: createBrainClient({ brainPath: root!, exec: {} }) });
 const original = InboxStore.prototype.commit;
 InboxStore.prototype.commit = function(mutations) {

@@ -37,7 +37,7 @@ async function refused(req: ReturnType<typeof request>, code: string) {
 }
 test("PNG mask preserves exact bytes, filename and actual-effect history", async () => {
   const result = await app()(request());
-  expect(result.ok).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
+  expect(result.ok, result.message).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
   expect(result.changes).toEqual([{ path: maskPath, contentHash: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
   expect(result.outcome?.maskPath).toBe(maskPath); expect(records).toEqual([result]);
 });
@@ -87,7 +87,7 @@ test("scratch mask prunes under the same authority and records actual removals",
   writeFileSync(join(root, imagePath), png); writeFileSync(join(root, ".brain/scratch/old.png"), png);
   utimesSync(join(root, ".brain/scratch/old.png"), new Date(0), new Date(0));
   const result = await app()({ principalId: "odysseus", turnId: "raft-turn", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
-  expect(result.ok).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
+  expect(result.ok, result.message).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
   expect(result.changes).toContainEqual({ path: ".brain/scratch/old.png", contentHash: null });
   expect(existsSync(join(root, ".brain/scratch/old.png"))).toBe(false); expect(records).toEqual([result]);
 });
@@ -101,7 +101,7 @@ test("retained pins over the cap do not let the scratch mask's own prune delete 
     JSON.stringify({ version: 1, ready: true, sessions: { "claude:odysseus": [".brain/scratch/voyage-log.bin", imagePath] } }));
   writeFileSync(join(root, imagePath), png);
   const result = await app()({ principalId: "odysseus", turnId: "raft-turn", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
-  expect(result.ok).toBe(true); expect(result.changes).toEqual([{ path: maskPath, contentHash: expect.any(String) }]);
+  expect(result.ok, result.message).toBe(true); expect(result.changes).toEqual([{ path: maskPath, contentHash: expect.any(String) }]);
   expect(readFileSync(join(root, maskPath))).toEqual(png);
   expect(statSync(pinned).size).toBe(1024 * 1024 * 1024 + 1);
 });
@@ -136,7 +136,7 @@ test("validated PNG bytes are owned before lock admission", async () => {
     isAuthorized: () => authorized, isAvailable: () => available, record: result => records.push(result),
     lock: { async withLock(_key, fn) { bytes.fill(0); return fn(); } } });
   const result = await apply(request({ input: { imagePath, maskPath, png: bytes } }));
-  expect(result.ok).toBe(true); expect(readFileSync(join(root, maskPath)), "application writes the validated owned PNG").toEqual(png);
+  expect(result.ok, result.message).toBe(true); expect(readFileSync(join(root, maskPath)), "application writes the validated owned PNG").toEqual(png);
 });
 test("mask membership is rechecked immediately before commit", async () => {
   beforeCommit = () => { available = false; }; await refused(request(), "membership_denied");
@@ -154,6 +154,6 @@ test("trusted pi mask identity refuses the Claude filename and accepts only the 
   expect(wrong.code, "worker input cannot select the other adapter's filename").toBe("invalid_target");
   expect(existsSync(join(root, maskPath))).toBe(false);
   const result = await apply({ ...request(), base, input: { imagePath, maskPath: "assets/raft.mask.png", png } });
-  expect(result.ok).toBe(true);
+  expect(result.ok, result.message).toBe(true);
   expect(readFileSync(join(root, "assets/raft.mask.png"))).toEqual(png);
 });

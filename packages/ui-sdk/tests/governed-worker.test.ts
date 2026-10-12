@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher.js";
 import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
 import { workerSandboxNote } from "../src/server/worker-sandbox.js";
+import { resolveWorkerProtection } from "../src/server/worker-protection.js";
 import { protectedPaths } from "../src/server/protected-paths.js";
 
 const roots: string[] = [];
@@ -118,4 +119,14 @@ test("the governed /run mask refuses a host Unix socket", async () => {
   const [code, output, errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   expect(code, errors + output).toBe(0);
   expect(JSON.parse(output.trim()), "HOST_SOCKET_MASKED").toEqual({ code: 0, hits: 0 });
+});
+
+
+test("a missing protection root reports a strict fallback instead of throwing", () => {
+  const missing = join(mkdtempSync(join(tmpdir(), "odysseus-missing-protection-")), "absent");
+  try {
+    const result = resolveWorkerProtection(missing);
+    expect(result.reason, "MISSING_PROTECTION_ROOT_REFUSAL").toBe("protected paths could not be verified: ENOENT");
+    expect(result.protection).toEqual({ paths: [], ancestors: [] });
+  } finally { rmSync(join(missing, ".."), { recursive: true, force: true }); }
 });

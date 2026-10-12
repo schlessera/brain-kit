@@ -13,6 +13,8 @@ export interface GovernedTurns {
   begin(turnId: string, signal: AbortSignal): Promise<GovernedTurnHold>;
   /** Deferred maintenance, serialized with application/CLI mutations. */
   refresh(lock: KeyedLock): void;
+  /** Stop new deferred refreshes and drain the current worker before state closes. */
+  close(): Promise<void>;
 }
 
 export function createGovernedTurns(options: {
@@ -22,7 +24,9 @@ export function createGovernedTurns(options: {
 }): GovernedTurns {
   let current: Promise<unknown> | undefined;
   let again = false;
+  let closing = false;
   const refresh = (lock: KeyedLock): void => {
+    if (closing) return;
     if (current) { again = true; return; }
     again = false;
     current = options.index(lock).catch(error => options.report(`governed index refresh failed: ${String(error)}`))
@@ -30,6 +34,7 @@ export function createGovernedTurns(options: {
   };
   return {
     refresh,
+    async close() { closing = true; again = false; await current; },
     async begin(turnId, signal) {
       const availability = options.execution.boundary.governed();
       const gate = options.execution.gate();

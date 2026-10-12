@@ -19,17 +19,18 @@ test("mounted jobs settings reject invalid boards before writes and save an inte
     writeFileSync(join(t.brainPath, "career/criteria.md"), readFileSync(resolve(import.meta.dir, "../../module-jobs/tests/fixtures/criteria.md"), "utf8"));
     const config = `export default ${JSON.stringify({ modules: { "@schlessera/brain-module-jobs": { criteria: "career/criteria.md", boards: ["workingnomads"] } } })};\n`;
     writeFileSync(join(t.brainPath, "brain.config.ts"), config);
-    writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
+    writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT ??=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
     git(t.brainPath, ["init", "--initial-branch=main"]);
-    git(t.brainPath, ["config", "user.name", "Alex Example"]);
-    git(t.brainPath, ["config", "user.email", "alex@example.com"]);
+    git(t.brainPath, ["config", "core.fsmonitor", "false"]);
+    git(t.brainPath, ["config", "user.name", "Odysseus"]);
+    git(t.brainPath, ["config", "user.email", "odysseus@example.test"]);
     git(t.brainPath, ["config", "commit.gpgsign", "false"]);
     git(t.brainPath, ["add", "brain.config.ts", "career"]);
     git(t.brainPath, ["commit", "-m", "fixture"]);
     const head = git(t.brainPath, ["rev-parse", "HEAD"]);
     const path = "/api/modules/jobs/settings";
     const read = await t.fetch(path);
-    expect(read.status).toBe(200);
+    expect(read.status, await read.clone().text()).toBe(200);
     const snapshot = await read.json();
     expect(snapshot.values.boards).toEqual(["workingnomads"]);
     const put = (boards: string[]) => t.fetch(path, { method: "PUT", headers: { "content-type": "application/json", "If-Match": snapshot.revision }, body: JSON.stringify({ values: { boards } }) });
@@ -37,7 +38,7 @@ test("mounted jobs settings reject invalid boards before writes and save an inte
       const boards = ["remoteok", invalid];
       expect(boards).toHaveLength(2);
       const response = await put(boards);
-      expect(response.status).toBe(422);
+      expect(response.status, await response.clone().text()).toBe(422);
       const body = await response.json();
       expect(body.errors).toHaveLength(1);
       expect(body.errors[0].path).toBe("boards.1");
@@ -47,7 +48,7 @@ test("mounted jobs settings reject invalid boards before writes and save an inte
       expect(git(t.brainPath, ["rev-parse", "HEAD"])).toBe(head);
     }
     const saved = await put([]);
-    expect(saved.status).toBe(200);
+    expect(saved.status, await saved.clone().text()).toBe(200);
     const body = await saved.json();
     expect(body.changed).toBe(true);
     expect(body.values.boards).toEqual([]);

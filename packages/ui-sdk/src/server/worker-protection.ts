@@ -42,8 +42,9 @@ export function resolveWorkerProtection(brain: string, options: {
   const paths: ProtectedWorkerPath[] = [];
   const ancestors = new Set<string>();
   const appeared = new Set(options.appeared ?? []);
-  const root = openDirectory(brain);
+  let root: number | undefined;
   try {
+    root = openDirectory(brain);
     const names = [...new Set([...(options.paths ?? protectedPaths()), ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
     if (mountPointsUnder(brain).some(path => path !== brain)) throw new Error("the brain contains another mount");
     // A writable brain must not provide a writable alias to a host file.
@@ -88,7 +89,7 @@ export function resolveWorkerProtection(brain: string, options: {
     return { protection: { paths, ancestors: [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length) } };
   } catch (error) {
     return { protection: { paths: [], ancestors: [] }, reason: `protected paths could not be verified: ${code(error)}` };
-  } finally { closeSync(root); }
+  } finally { if (root !== undefined) closeSync(root); }
 }
 
 /** Fixed order: ancestor mount points first, then the protected names. */

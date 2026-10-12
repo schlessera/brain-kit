@@ -853,6 +853,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       scratchPins.close();
       // A keyed reindex still queued finishes before the gate's database closes.
       await keyedReindex.idle();
+      await host.governedTurns?.close();
       activity.close();
       db.close();
     },

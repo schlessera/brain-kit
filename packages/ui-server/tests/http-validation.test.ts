@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CLI_LOG, httpContractApp } from "./helpers/http-contract-app";
 
@@ -18,12 +18,13 @@ test("mounted capture rejects incorrect JSON media, oversized bytes and missing 
     expect(await limit.json()).toEqual({ error: "Request body too large" });
     const empty = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(empty.status).toBe(400);
-    const calls = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    expect(calls.length).toBeGreaterThan(0);
+    const calls = existsSync(join(t.brainPath, CLI_LOG))
+      ? readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
     expect(calls.some((a: string[]) => a[0] === "add")).toBe(false);
     const admitted = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: valid });
     expect(admitted.status).toBe(200);
     expect(await admitted.json()).toMatchObject({ success: true, indexed: false });
+    expect(readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map(l => JSON.parse(l)[0])).toContain("add");
   } finally { await t.close(); }
 });
 

@@ -121,7 +121,7 @@ for (const [operation, check] of Object.entries(checks)) {
       if (operation === "POST /api/share") { const form = new FormData(); form.set("text", "Odysseus reaches the harbor."); body = form; }
       const path = check.path ?? operation.slice(operation.indexOf(" ") + 1);
       const response = await t.fetch(path, { ...check.init, headers, body });
-      expect(response.status).toBe(check.status ?? 200);
+      expect(response.status, await response.clone().text()).toBe(check.status ?? 200);
       if (check.body !== undefined) { expect(Object.keys(check.body as object).length).toBeGreaterThan(0); expect(await response.clone().json()).toMatchObject(check.body); }
       await check.verify?.(response, t);
       if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {

@@ -492,6 +492,14 @@ module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
 through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
+Within one server process, maintenance clients serialize preparation through
+publication per canonical brain. Even readers produce SQLite projections or
+Git attribute objects in their private outputs; concurrent copies of that
+state cannot be published independently without stale-base conflicts. This
+serialization does not replace the writer gate or peer revalidation. Deferred
+turn refreshes drain before the server closes the writer-gate database; shutdown
+admits no further refresh. Git preparation carries cancellation, and streaming
+launch rechecks cancellation before starting the command.
 
 Git's server-built adapter retains expanded startup config, immutable hooks
 and an attributes tree while directing repository state to the output workspace.
@@ -511,6 +519,14 @@ Retry. Writes over capacity fail with named `ENOSPC`, never by overflowing a
 host-backed directory. Read-only startup-copy occupancy and writable copies
 share this capacity. An oversized starting copy refuses before execution.
 The agent's limits list and the hosting guide state the enforcing value.
+Secret links are resolved in worker-visible names while brain components are
+inspected through the held startup copy. Relative links, absolute brain links
+and link/parent traversal keep their masks after the startup bind.
+
+Zero-filled extents are copied as sparse holes, preserving every logical byte
+without allocating a sparse artifact's logical length in the tmpfs. The
+capacity bound applies to allocated storage; logical file bytes still meet
+the existing copy and inventory bounds.
 
 The implementation retains a trusted tmpfs mount helper until publication and
 starts the worker's bubblewrap inside that namespace using `nsenter`. Its

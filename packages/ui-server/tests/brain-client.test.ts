@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "fs";
@@ -17,6 +18,7 @@ import { createApp } from "../src/app";
 import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
 import { resolveServerConfig, type ServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
+import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createBrainRoutes } from "../src/routes/brain";
 
@@ -92,7 +94,7 @@ describe("brain CLI invocation", () => {
     installBrainCli(
       root,
       `import { appendFileSync } from "fs";\n` +
-        `appendFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
+        `appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.jsonl" : ${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
         `console.log(JSON.stringify({ dates: ["2026-09-01", "2026-09-02"], documents: [3, 4], ` +
         `health: { orphans: [null, 1] } }));\n`
     );
@@ -121,7 +123,7 @@ describe("brain CLI invocation", () => {
     installBrainCli(
       root,
       `import { appendFileSync } from "fs";\n` +
-        `appendFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
+        `appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.jsonl" : ${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
         `console.log(JSON.stringify({ results: [], warnings: [] }));\n`
     );
 
@@ -151,14 +153,15 @@ describe("search cancellation and deadlines", () => {
     }
   }
 
-  /**
-   * The pid the stalled CLI wrote, or null until it has written one:
-   * `writeFileSync` creates the file before it writes, and `Number("")` is 0,
-   * which `kill(0, 0)` reports running for as long as this test lives.
-   */
+  /** Actual host PID of the CLI, rather than the worker's PID namespace ID. */
   function pidIn(path: string): number | null {
-    const text = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
-    return /^[1-9]\d*$/.test(text) ? Number(text) : null;
+    for (const pid of readdirSync("/proc").filter(name => /^\d+$/.test(name))) {
+      try {
+        const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+        if (args[1] === path) return Number(pid);
+      } catch { /* The process may have exited. */ }
+    }
+    return null;
   }
 
   function running(pid: number): boolean {
@@ -167,11 +170,9 @@ describe("search cancellation and deadlines", () => {
 
   function stalledBrain() {
     const root = temporaryBrain();
-    const pidPath = join(root, "search.pid");
+    const pidPath = join(root, "node_modules/.bin/brain");
     installBrainCli(root, `
-      import { writeFileSync } from "fs";
       process.on("SIGTERM", () => {});
-      writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
       setInterval(() => {}, 1000);
     `);
     return { root, pidPath };
@@ -182,7 +183,7 @@ describe("search cancellation and deadlines", () => {
     await expect(createBrainClient({ brainPath: root }).search("query", {
       signal: AbortSignal.abort(),
     })).rejects.toHaveProperty("name", "AbortError");
-    expect(existsSync(pidPath)).toBe(false);
+    expect(pidIn(pidPath)).toBeNull();
   });
 
   test("aborting a running search reaps a CLI that ignores SIGTERM", async () => {
@@ -206,12 +207,13 @@ describe("search cancellation and deadlines", () => {
     const { root, pidPath } = stalledBrain();
     const brain = createBrainClient({ brainPath: root, searchTimeoutMs: 1_500 });
     const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
-    const response = await app.request("/brain/search?q=query");
+    const pending = app.request("/brain/search?q=query");
+    await waitUntil(() => pidIn(pidPath) !== null);
+    const pid = pidIn(pidPath)!;
+    const response = await pending;
     expect(response.status).toBe(504);
     expect(await response.json()).toHaveProperty("error", expect.stringContaining("timed out"));
-    const pid = pidIn(pidPath);
-    expect(pid).not.toBeNull();
-    expect(running(pid!)).toBe(false);
+    expect(running(pid)).toBe(false);
   });
 
   test("a real HTTP disconnect propagates through Hono to the search process", async () => {
@@ -470,7 +472,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
   function installWrapper(root: string): string {
     const log = join(root, "wrapper-argv.log");
     const wrapper = join(root, "wrapper.sh");
-    writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${log}'\nexec "$@"\n`, {
+    writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> "\${BRAIN_WORKER_DATA_ROOT:-${root}}/wrapper-argv.log"\nexec "$@"\n`, {
       mode: 0o755,
     });
     chmodSync(wrapper, 0o755);
@@ -512,7 +514,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
     );
     const wrapperAt = (name: string) => {
       const wrapper = join(root, `${name}.sh`);
-      writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${join(root, `${name}.log`)}'\nexec "$@"\n`);
+      writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> "\${BRAIN_WORKER_DATA_ROOT:-${root}}/${name}.log"\nexec "$@"\n`);
       chmodSync(wrapper, 0o755);
       return { wrapper, log: join(root, `${name}.log`) };
     };
@@ -589,30 +591,24 @@ describe("the exec wrapper covers the shared CLI client", () => {
     // spawnSync's timeout kills the process it started, which with a
     // supervising wrapper is the wrapper — the CLI it launched keeps running.
     const root = temporaryBrain();
-    const childPidFile = join(root, "child.pid");
+    const marker = `odysseus-wrapper-child-${root.split("/").at(-1)}`;
     installBrainCli(root, `console.log("0.42.0");\n`);
 
     const wrapper = join(root, "supervise.sh");
     writeFileSync(
       wrapper,
-      `#!/bin/sh\nsleep 300 &\necho $! > '${childPidFile}'\nsleep 300\n`,
+      `#!/bin/sh\n/bin/sh -c 'sleep 300; :' '${marker}' &\nsleep 300\n`,
       { mode: 0o755 }
     );
     chmodSync(wrapper, 0o755);
     // Times out after 5s, logs a warning, and continues — the probe is
     // advisory. What must not survive it is the child.
-    await probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper } });
-
-    const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
+    const pending = probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper } });
+    const pids = await waitForHostProcesses(marker);
+    expect(pids.length).toBeGreaterThan(0);
+    await pending;
     const deadline = Date.now() + 10_000;
-    const alive = () => {
-      try {
-        process.kill(childPid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    };
+    const alive = () => pids.some(hostProcessAlive);
     while (alive() && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 25));
     }

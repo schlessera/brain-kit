@@ -3,6 +3,10 @@ import { afterEach, expect, test, spyOn } from "bun:test";
 import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as workerSdk from "@schlessera/brain-ui-sdk/internal";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
+import { createTestApp } from "./helpers/test-app";
 import { prepareMaintenanceOutput } from "../src/brain/maintenance-output.js";
 import { listDirectory } from "../src/files/walker.js";
 import { createHostBoundary } from "../src/brain/host-boundary.js";
@@ -354,4 +358,101 @@ for (const moved of [false, true]) test(`finalizing a child with parent search r
   chmodSync(join(brain, "voyage"), 0o700);
   if (moved) expect(statSync(join(brain, "voyage/moved")).mode & 0o777, "MOVED_CHILD_MODE_NOT_OVERWRITTEN").toBe(0o755);
   else expect(statSync(join(brain, "voyage/harbor")).mode & 0o777, "UNAFFECTED_CHILD_FINAL_MODE").toBe(0o555);
+});
+
+
+test("separate maintenance clients serialize frozen preparation through publication", async () => {
+  const brain = fixture(), control = mkdtempSync("/var/tmp/odysseus-output-serialization-");
+  cleanup.push(() => rmSync(control, { recursive: true, force: true }));
+  const events = join(control, "events"), release = join(control, "release");
+  writeFileSync(events, ""); writeFileSync(join(brain, "counter.txt"), "0");
+  const program = (name: string, wait: boolean) => `import {appendFileSync,existsSync,readFileSync,writeFileSync} from "node:fs";
+    const path=process.env.BRAIN_WORKER_DATA_ROOT+"/counter.txt", before=Number(readFileSync(path,"utf8"));
+    appendFileSync(${JSON.stringify(events)},${JSON.stringify(name + "\n")});
+    ${wait ? `while(!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);` : ""}
+    writeFileSync(path,String(before+1)); console.log(before);`;
+  const command = (name: string, wait: boolean) => ({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program(name, wait)],
+    env: {}, credentials: false, gate: "shared" as const, purpose: "serialized maintenance", writeFiles: [events] });
+  const first = createHostBoundary({ brainPath: brain, exec: {} });
+  const second = createHostBoundary({ brainPath: brain, exec: {} });
+  const live = await first.launch(command("first", true));
+  const drained = Promise.all([new Response(live.stdout).text(), new Response(live.stderr).text()]);
+  let other: ReturnType<typeof second.run> | undefined;
+  try {
+    const deadline = Date.now() + 5_000;
+    while (!readFileSync(events, "utf8").includes("first") && Date.now() < deadline) await Bun.sleep(10);
+    expect(readFileSync(events, "utf8")).toBe("first\n");
+    other = second.run(command("second", false));
+    void other.catch(() => {});
+    await Bun.sleep(150);
+    expect(readFileSync(events, "utf8"), "MAINTENANCE_OUTPUT_LIFECYCLE_SERIALIZED").toBe("first\n");
+    writeFileSync(release, "go");
+    expect(await live.exited).toBe(0);
+    expect((await drained)[0]).toBe("0\n");
+    expect(await other).toMatchObject({ exitCode: 0, stdout: "1\n" });
+    expect(readFileSync(join(brain, "counter.txt"), "utf8")).toBe("2");
+    expect(readFileSync(events, "utf8")).toBe("first\nsecond\n");
+  } finally { writeFileSync(release, "go"); live.kill("SIGKILL"); await live.exited.catch(() => {}); await drained; await other?.catch(() => {}); }
+});
+
+
+test("app close drains its real deferred maintenance refresh before closing the writer gate database", async () => {
+  const fixture = await createTestApp({ prepare(brain) {
+    mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(brain, "node_modules/.bin/brain"), `#!${process.execPath}\nif(process.argv.includes("--version")) console.log("0.42.0");
+else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");} else console.log("{}");`, { mode: 0o755 });
+  } });
+  try {
+    fixture.app.wsHost.governedTurns!.refresh(createKeyedLock());
+    const pids = await waitForHostProcesses(join(fixture.brainPath, "node_modules/.bin/brain"), "index");
+    expect(pids.length).toBeGreaterThan(0);
+    await fixture.app.close();
+    expect(pids.filter(hostProcessAlive), "DEFERRED_REFRESH_EXITED_BEFORE_DB_CLOSE").toEqual([]);
+    const db = createUiDb(fixture.dbPath);
+    try { expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "DEFERRED_REFRESH_GATE_RELEASED").toEqual({ n: 0 }); }
+    finally { db.close(); }
+  } finally { await fixture.teardown(); }
+});
+
+for (const timing of ["during", "after"] as const) test(`cancellation ${timing} Git preparation starts no maintenance command and releases admission`, async () => {
+  const brain = fixture(), state = mkdtempSync("/var/tmp/odysseus-cancel-git-");
+  cleanup.push(() => rmSync(state, { recursive: true, force: true }));
+  const realGit = Bun.which("git")!;
+  const init = Bun.spawnSync([realGit, "-C", brain, "init", "-q"]); expect(init.exitCode, init.stderr.toString()).toBe(0);
+  Bun.spawnSync([realGit, "-C", brain, "config", "core.fsmonitor", "false"]);
+  const controller = new AbortController(), previousPath = process.env.PATH;
+  const fakeGit = join(brain, "git");
+  if (timing === "during") {
+    writeFileSync(fakeGit, `#!/bin/sh\nsleep 0.6\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${brain}:${previousPath}`;
+  }
+  const which = Bun.which;
+  const selectGit = timing === "during" ? spyOn(Bun, "which").mockImplementation((name, options) => name === "git" ? fakeGit : which(name, options)) : undefined;
+  const original = workerSdk.runMaintenanceWorker;
+  let injected = false;
+  const spy = timing === "after" ? spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    const result = await original(input);
+    if (input.command.includes("mktree") && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
+    return result;
+  }) : undefined;
+  const dbPath = join(state, "ui.db"), db = createUiDb(dbPath);
+  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
+  const heldBefore = processStateLedger().outputStagingHeld;
+  let abortedAt = 0;
+  try {
+    const pending = execution.boundary.launch({ argv: [process.execPath, "--no-env-file", "-e", 'require("node:fs").writeFileSync(process.env.BRAIN_ROOT+"/harbor.md","cancelled command ran");'],
+      env: {}, credentials: false, gate: "exclusive", purpose: "cancel Git preparation", signal: controller.signal })
+      .then(async worker => { const streams = Promise.all([new Response(worker.stdout).text(),new Response(worker.stderr).text()]); const code = await worker.exited; await streams; return { code }; }, error => error as Error);
+    if (timing === "during") {
+      const pids = await waitForHostProcesses(fakeGit); expect(pids.length).toBeGreaterThan(0);
+      abortedAt = performance.now();
+      controller.abort(new DOMException("during Git preparation", "AbortError"));
+    }
+    expect(await pending, "CANCELLED_GIT_PREPARATION_STARTS_NO_COMMAND").toHaveProperty("name", "AbortError");
+    if (timing === "during") expect(performance.now() - abortedAt, "PREPARATION_ABORT_REAPS_ACTIVE_GIT").toBeLessThan(600);
+    if (timing === "after") expect(injected, "REAL_GIT_PREPARATION_COMPLETED_BEFORE_ABORT").toBe(true);
+    expect(readFileSync(join(brain, "harbor.md"), "utf8")).toBe("Odysseus before launch.\n");
+    expect(execution.gate()!.holders()).toEqual([]);
+    expect(processStateLedger().outputStagingHeld).toBe(heldBefore);
+  } finally { spy?.mockRestore(); selectGit?.mockRestore(); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath; db.close(); }
 });

@@ -105,8 +105,8 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **HY — Human-started hygiene review.**
 
-- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:459-481`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
-- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:375-383`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:460-482`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
+- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:376-384`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
 
 
 **H — Liveness.**
@@ -156,10 +156,10 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **B — Corpus transport and CLI errors.**
 
-- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:118-142`)
-- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:205-215`)
-- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:61-87`)
-- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:89-116`)
+- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:120-144`)
+- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:206-220`)
+- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:63-89`)
+- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:91-118`)
 - `mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame` ([source](../packages/ui-server/tests/http-cli-errors.test.ts)), (`mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame`, `packages/ui-server/tests/http-cli-errors.test.ts:7-37`)
 
 **C — Capture and index recovery.**
@@ -174,7 +174,7 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **V — Mounted validation.**
 
-- `mounted input validation returns route-specific errors for corpus, files, geometry and hidden models` ([source](../packages/ui-server/tests/http-validation.test.ts)), (`mounted input validation returns route-specific errors for corpus, files, geometry and hidden models`, `packages/ui-server/tests/http-validation.test.ts:30-46`)
+- `mounted input validation returns route-specific errors for corpus, files, geometry and hidden models` ([source](../packages/ui-server/tests/http-validation.test.ts)), (`mounted input validation returns route-specific errors for corpus, files, geometry and hidden models`, `packages/ui-server/tests/http-validation.test.ts:31-47`)
 
 **F — Content and byte ranges.**
 
@@ -209,8 +209,8 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **I — Local poke.**
 
-- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:247-266`)
-- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:325-331`)
+- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:248-267`)
+- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:326-332`)
 
 **M — Model roster and discovery.**
 
@@ -297,7 +297,7 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **E — Rendering.**
 
-- `mounted renderer validates input and returns configured PNG/PDF bytes with protected headers` ([source](../packages/ui-server/tests/http-validation.test.ts)), (`mounted renderer validates input and returns configured PNG/PDF bytes with protected headers`, `packages/ui-server/tests/http-validation.test.ts:48-77`)
+- `mounted renderer validates input and returns configured PNG/PDF bytes with protected headers` ([source](../packages/ui-server/tests/http-validation.test.ts)), (`mounted renderer validates input and returns configured PNG/PDF bytes with protected headers`, `packages/ui-server/tests/http-validation.test.ts:49-78`)
 - `rejects a multibyte body over 5 MB even when its UTF-16 length is under the cap` ([source](../packages/ui-server/tests/render-routes.test.ts)), (`rejects a multibyte body over 5 MB even when its UTF-16 length is under the cap`, `packages/ui-server/tests/render-routes.test.ts:7-41`)
 
 **G — Geometry validation and degradation.**

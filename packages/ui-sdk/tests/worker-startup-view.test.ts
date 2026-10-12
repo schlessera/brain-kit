@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
 import { afterEach, expect, test, spyOn } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, closeSync, writeSync, ftruncateSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { text } from "node:stream/consumers";
+import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { once } from "node:events";
 import { workerCommand, prepareWorkerSandbox, launchAgentWorker } from "../src/server/worker-launcher.js";
 
@@ -113,3 +115,56 @@ test("strict output publication holds the same path lock as a governed native wr
     expect(readFileSync(destination, "utf8")).toBe("Penelope's newer content");
   } finally { release(); worker.kill("SIGKILL"); await worker.exited.catch(() => {}); }
 });
+
+
+test("startup preserves sparse zero extents and mixed bytes within its bounded storage", () => {
+  const brain = fixture(), path = join(brain, "raft.bin");
+  const length = 512 * 1024 ** 2 + 17;
+  const fd = openSync(path, "w", 0o640);
+  try { writeSync(fd, Buffer.from("Odysseus"), 0, 8, 0); writeSync(fd, Buffer.from("Ithaca"), 0, 6, length - 6); ftruncateSync(fd, length); }
+  finally { closeSync(fd); }
+  const view = createWorkerStartupView(brain); cleanup.push(view.cleanup);
+  const saved = join(view.root, "raft.bin"), info = statSync(saved);
+  expect(info.size, "SPARSE_STARTUP_LOGICAL_SIZE").toBe(length);
+  expect(info.mode & 0o777).toBe(0o640);
+  expect(info.blocks * 512, "SPARSE_STARTUP_ALLOCATED_BYTES").toBeLessThan(1024 ** 2);
+  const held = openSync(saved, "r"), bytes = Buffer.alloc(8);
+  try {
+    fs.readSync(held, bytes, 0, 8, 0); expect(bytes.toString()).toBe("Odysseus");
+    fs.readSync(held, bytes, 0, 8, 256 * 1024 ** 2); expect(bytes).toEqual(Buffer.alloc(8));
+    fs.readSync(held, bytes, 0, 6, length - 6); expect(bytes.subarray(0, 6).toString()).toBe("Ithaca");
+  } finally { closeSync(held); }
+});
+
+
+for (const mode of ["strict", "restricted", "maintenance"] as const) for (const link of ["relative", "absolute", "link-parent"] as const) {
+  test(`${mode} snapshot masks the ${link} secret link in its worker-visible view`, async () => {
+    const brain = fixture();
+    mkdirSync(join(brain, "tokens/deeper"), { recursive: true });
+    writeFileSync(join(brain, "tokens/harbor.txt"), "BRAIN_DOTENV_MARK=Odysseus\n");
+    if (link === "link-parent") fs.symlinkSync("tokens/deeper", join(brain, "link"));
+    fs.symlinkSync(link === "relative" ? "tokens/harbor.txt" : link === "absolute" ? join(brain, "tokens/harbor.txt")
+      : "link/../harbor.txt", join(brain, ".env"));
+    const program = `import{readFileSync}from"node:fs";const read=p=>{try{return readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(".env"),target:read("tokens/harbor.txt"),public:read("helper.ts")}));`;
+    let output: string;
+    if (mode === "maintenance") {
+      const result = await runMaintenanceWorker({ brainPath: brain, credentials: false, env: {},
+        command: [process.execPath, "--no-env-file", "-e", program] });
+      expect(result.exitCode, result.stderr).toBe(0); output = result.stdout;
+    } else {
+      const sandbox = prepareWorkerSandbox(brain, { profile: "strict", restricted: mode === "restricted", areas: [], readPaths: [process.execPath] });
+      const inferenceDir = mode === "restricted" ? mkdtempSync("/var/tmp/odysseus-secret-relay-") : undefined;
+      if (inferenceDir) cleanup.push(() => rmSync(inferenceDir, { recursive: true, force: true }));
+      const worker = launchAgentWorker({ brainPath: brain, sandbox, ...(inferenceDir ? { restricted: { readPaths: [process.execPath], inferenceDir } } : {}), env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
+      try {
+        const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
+        const code = await worker.exited, [stdout, stderr] = await streams;
+        expect(code, stderr).toBe(0); output = stdout;
+      } finally { worker.kill("SIGKILL"); }
+    }
+    const result = JSON.parse(output.trim());
+    expect(["", "EACCES"], "SNAPSHOT_SECRET_LINK_MASKED").toContain(result.alias);
+    expect(["", "EACCES"], "SNAPSHOT_SECRET_DESTINATION_MASKED").toContain(result.target);
+    expect(result.public).toContain("Odysseus before launch");
+  });
+}

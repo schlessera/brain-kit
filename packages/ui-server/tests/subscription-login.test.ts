@@ -138,7 +138,7 @@ describe("the re-login procedure, headless and keyless", () => {
       // The stub refused the token: the operator is told to log in again.
       expect(status.lastAuthFailure).toMatchObject({ errorClass: "authentication_failed", action: "relogin" });
     } finally {
-      first.close();
+      await first.close();
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(new Set(seen.map((request) => request.authorization))).toEqual(new Set([`Bearer ${FIRST_TOKEN}`]));
@@ -149,7 +149,7 @@ describe("the re-login procedure, headless and keyless", () => {
       await sendTurn(rotated);
       expect((await subscriptionStatus(rotated)).mintedAt).toBe("2026-09-23T00:00:00.000Z");
     } finally {
-      rotated.close();
+      await rotated.close();
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(new Set(seen.map((request) => request.authorization))).toEqual(new Set([`Bearer ${ROTATED_TOKEN}`]));

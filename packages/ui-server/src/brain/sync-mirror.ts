@@ -127,7 +127,7 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
 async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number }): Promise<ExecutionResult> {
   const outputs = prepareMaintenanceOutput(command.brainPath);
   try {
-    const git = await prepareMaintenanceGit(command, outputs);
+    const git = await prepareMaintenanceGit(command, outputs, command.signal);
     const result = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
     if (!result.killed) outputs.publish();
     return result;
