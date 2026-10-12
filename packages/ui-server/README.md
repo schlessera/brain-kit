@@ -380,7 +380,7 @@ under the [service terms](../geo/README.md#configuration).
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). The server factory defaults to ./brain-ui.db; brain-ui-cron defaults to the container path /data/db/brain-ui.db. | ./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron) |
 | `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
-| `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the host sync mirror transport falls back to it when BRAIN_UI_SYNC_GITHUB_TOKEN is unset. Git credentials never reach brain maintenance workers. | — |
+| `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the host sync mirror transport falls back to it when BRAIN_UI_SYNC_GITHUB_TOKEN is unset. These GitHub tokens never reach brain maintenance workers. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
 | `MAX_AUTONOMOUS_RUNS` | Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch. | 2 |

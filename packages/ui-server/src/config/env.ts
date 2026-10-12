@@ -185,7 +185,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "Generic GitHub token fallback. Used for skill installs when " +
       "BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the host sync mirror " +
       "transport falls back to it when BRAIN_UI_SYNC_GITHUB_TOKEN is unset. " +
-      "Git credentials never reach brain maintenance workers.",
+      "These GitHub tokens never reach brain maintenance workers.",
     default: null,
     required: false,
   },
