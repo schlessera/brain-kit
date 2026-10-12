@@ -111,7 +111,7 @@ default, and these areas will remain what its strict profile gets.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp`, writes under `$HOME` | Deleted when the turn ends | Never: the reader cannot open it |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp`, writes under `$HOME` | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
 | Persistent scratch | `.brain/scratch/`, and `workspaces/` for repository clones | Kept across turns; scratch is pruned after 7 days, oldest first past 1 GB | Yes: the only non-brain place to link |
 | The brain | Everything else | Canonical | Yes, as documents |
 
@@ -143,6 +143,18 @@ default, and these areas will remain what its strict profile gets.
   `XDG_DATA_HOME` at per-turn directories under `/tmp/brain-worker-home`,
   which is what headless Chromium needs to start. Ubuntu 24.04's bubblewrap
   0.9.0 takes the fallback.
+- **Turn temp** is a private directory the server creates for each worker on
+  a tmpfs that is not the brain's device: its own temporary directory when
+  that is a tmpfs, otherwise `/dev/shm`. Its capacity is that tmpfs's free
+  space, shared with every running worker and, on `/dev/shm`, with Claude's
+  runtime state; in Docker, size `/dev/shm` with `--shm-size` accordingly.
+  When the worker exits, files its answer linked there are copied into
+  `.brain/scratch/turns/<turnId>/` (128 MiB per file, 256 MiB and 64 files per
+  turn), the saved answer links the copies, and the directory is removed. A
+  symlink, a hard-linked file, a directory or anything over the bounds is not
+  copied, and its link stays as written. Each copy or refusal is a governance
+  event (`GET /api/governance/events`). A host without a usable tmpfs keeps
+  turn temp inside the worker's namespace, logs that, and copies nothing.
 - **Restricted (autonomous) turns** are unchanged: no area is bound, there is
   no host home, and `$BRAIN_WORKER_SCRATCH` and `/tmp` are the only writable
   places.

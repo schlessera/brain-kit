@@ -22,7 +22,7 @@ import {
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
-import { bindTurnEvents } from "../governance/events.js";
+import { bindTurnEvents, recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -129,6 +129,12 @@ export interface SessionCatalog {
    * Never throws.
    */
   bindGovernanceEvents?(turnId: string, sessionId: string): void;
+  /**
+   * Keep one governance event (#1651) with the session history. An invalid
+   * event or a failed write is logged, never thrown: a record must not fail
+   * the turn it describes.
+   */
+  recordGovernanceEvent?(event: GovernanceEventInput): void;
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -363,6 +369,22 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     bindGovernanceEvents(turnId, sessionId) {
       try { bindTurnEvents(db(), turnId, sessionId); }
       catch (err) { reportWriteFailure(sessionId, err); }
+    },
+
+    recordGovernanceEvent(event) {
+      try { recordGovernanceEvent(db(), event); }
+      catch (err) {
+        log?.emit({
+          severityText: "WARN",
+          body: "governance event not recorded",
+          attributes: {
+            "governance.kind": String(event.kind),
+            ...(event.sessionId ? { "session.id": event.sessionId } : {}),
+            ...(event.turnId ? { "turn.id": event.turnId } : {}),
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+      }
     },
 
     addSessionCost(sessionId, costUsd) {

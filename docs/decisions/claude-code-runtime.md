@@ -452,7 +452,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:56-62`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:260`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:271`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The

@@ -79,7 +79,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   promotion_refused: kind(1, z.strictObject({
     source: path,
     originalLink: text,
-    reason: z.enum(["file_too_large", "turn_too_large", "not_regular_file", "symlink", "multiple_links", "missing", "io_error"]),
+    reason: z.enum(["file_too_large", "turn_too_large", "not_regular_file", "symlink", "multiple_links", "missing", "io_error",
+      "scratch_unavailable"]),
     bytes: count.nullable(),
     limitBytes: count.nullable(),
   })),

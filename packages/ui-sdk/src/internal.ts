@@ -25,3 +25,6 @@ export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome
 export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
   workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
 export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
+export { createTurnTemp, createTurnTempPromoter, turnTempRoot, PROMOTED_SCRATCH_DIR, PROMOTION_FILE_MAX_BYTES, PROMOTION_TURN_MAX_BYTES,
+  PROMOTION_TURN_MAX_FILES, TURN_TEMP_PREFIX } from "./server/worker-turn-temp.js";
+export type { TurnTemp, TurnTempPromoterOptions, TurnTempPromotionRecord } from "./server/worker-turn-temp.js";

@@ -118,6 +118,10 @@ Original fragment identities remain available at this entry point.
 
 - [Logo in the empty state (additive, #1426)](integration-contract/package-api.md#logo-in-the-empty-state-additive-1426) (original line 453).
 
+<a id="turn-temp-promotion-additive-1655"></a>
+
+- [Turn-temp promotion (additive, #1655)](integration-contract/package-api.md#turn-temp-promotion-additive-1655).
+
 <a id="consumers"></a>
 
 - [Consumers](integration-contract/package-api.md#consumers) (original line 460).

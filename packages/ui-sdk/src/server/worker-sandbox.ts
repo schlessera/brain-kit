@@ -140,12 +140,12 @@ const SCAN_DEPTH_LIMIT = 256;
 const SCAN_ATTEMPTS = 3;
 
 /** A path resolved through an open directory descriptor, so a rename or symlink swap of an ancestor cannot redirect it. */
-function at(fd: number, name: Buffer | string): Buffer {
+export function at(fd: number, name: Buffer | string): Buffer {
   return Buffer.concat([Buffer.from(`/proc/self/fd/${fd}/`), typeof name === "string" ? Buffer.from(name) : name]);
 }
 
 /** Opens `path` (absolute, or anchored by `at`) as a directory; the caller closes it. */
-function openDirectory(path: string | Buffer): number {
+export function openDirectory(path: string | Buffer): number {
   return openSync(path, DIRECTORY_FLAGS);
 }
 

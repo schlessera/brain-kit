@@ -236,7 +236,18 @@ function assembleClaudeSdkTurn(
   // Every runtime-owned executor enters the worker. An optional host exec
   // wrapper runs inside it and can never replace the filesystem boundary.
   const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal,
-    envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox, limits);
+    envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox, limits,
+    // Files the answer links in turn temp are promoted into scratch and the
+    // saved answer links the copies (#1655); a turn that saves nothing has no answer to keep.
+    req.autonomous ? undefined : {
+      turnId: req.turnId,
+      report: records => {
+        for (const record of records) {
+          try { req.bridge.activity?.(record); } catch { /* Observability must not fail the observed turn. */ }
+        }
+      },
+      log: (level, message) => log(level, message),
+    });
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their

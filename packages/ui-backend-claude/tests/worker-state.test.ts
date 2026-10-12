@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createClaudeWorkerState, MAX_STATE_BYTES, stateReserveBytes, SessionTooLargeError } from "../src/worker-state.js";
+import { createHash } from "node:crypto";
+import { createClaudeWorkerState, MAX_STATE_BYTES, rewriteAppendedAnswers, stateReserveBytes, SessionTooLargeError } from "../src/worker-state.js";
 import { resumedSessionId } from "../src/worker-spawn.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -134,6 +135,33 @@ for (const capacity of [64 * MiB, MAX_STATE_BYTES + MiB]) {
     } finally { write.mockRestore(); }
   });
 }
+test("persist rewrites only the answer text this run appended to a session's own transcript (#1655)", () => {
+  const line = (type: string, text: string) => JSON.stringify({ type, message: { role: type, content: [{ type: "text", text }] } });
+  const before = `${line("assistant", "Earlier: [map](/tmp/map.png)")}\n`;
+  put(ID, before);
+  fs.mkdirSync(join(saved, project, ID)); fs.writeFileSync(join(saved, project, ID, "agent.jsonl"), `${line("assistant", "[x](/tmp/x)")}\n`);
+  const snapshot = state(ID); const target = join(snapshot.path, project);
+  fs.appendFileSync(join(target, `${ID}.jsonl`), `${line("user", "[u](/tmp/u.txt)")}\n${line("assistant", "Now: [report](/tmp/report.pdf) and [map](/tmp/map.png)")}\n`);
+  fs.appendFileSync(join(target, ID, "agent.jsonl"), `${line("assistant", "[y](/tmp/y)")}\n`);
+  fs.writeFileSync(join(target, `${NEW}.jsonl`), `${line("assistant", "New: [report](/tmp/report.pdf)")}\n`);
+  const seen: string[] = [];
+  snapshot.persist(text => { seen.push(text); return text.replaceAll("/tmp/", ".brain/scratch/turns/t/"); });
+  expect(seen.sort()).toEqual(["New: [report](/tmp/report.pdf)", "Now: [report](/tmp/report.pdf) and [map](/tmp/map.png)"]);
+  const out = fs.readFileSync(join(saved, project, `${ID}.jsonl`), "utf8");
+  expect(out.startsWith(before)).toBe(true);
+  expect(out.slice(before.length)).toBe(`${line("user", "[u](/tmp/u.txt)")}\n${line("assistant", "Now: [report](.brain/scratch/turns/t/report.pdf) and [map](.brain/scratch/turns/t/map.png)")}\n`);
+  expect(fs.readFileSync(join(saved, project, ID, "agent.jsonl"), "utf8")).toBe(`${line("assistant", "[x](/tmp/x)")}\n${line("assistant", "[y](/tmp/y)")}\n`);
+  expect(fs.readFileSync(join(saved, project, `${NEW}.jsonl`), "utf8")).toBe(`${line("assistant", "New: [report](.brain/scratch/turns/t/report.pdf)")}\n`);
+});
+test("a transcript whose saved prefix changed is not rewritten", () => {
+  const record = (text: string) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  const before = Buffer.from(`${record("a")}\n`);
+  const changed = Buffer.from(`${record("b")}\n${record("c")}\n`);
+  const prefix = { length: before.length, hash: createHash("sha256").update(before).digest("hex") };
+  expect(rewriteAppendedAnswers(changed, prefix, () => "rewritten")).toBe(changed);
+  expect(rewriteAppendedAnswers(Buffer.concat([before, Buffer.from(`${record("c")}\n`)]), prefix, () => "rewritten").toString())
+    .toBe(`${record("a")}\n${record("rewritten")}\n`);
+});
 test("settings copy fits but its minimum reserve does not", () => {
   let error: any; try { state(undefined, 16 * MiB + 1); } catch (e) { error = e; }
   expect(error?.errorClass).toBe("worker_host_unsupported");

@@ -75,6 +75,7 @@ export function createPiTurnRunner(
     turnContext.pendingMutations = pendingMutations;
     turnContext.enforceAllowedTools = req.enforceAllowedTools === true;
     turnContext.noGrantSurface = req.noGrantSurface === true;
+    turnContext.turnId = req.turnId;
     let yielded = false;
     turnContext.autonomous = req.autonomous ? { ...req.autonomous, onYield: req.autonomous.onYield ? (key) => {
       if (yielded || req.signal.aborted) return;
@@ -182,6 +183,7 @@ export function createPiTurnRunner(
       turnContext.pendingMutations = undefined;
       turnContext.enforceAllowedTools = false;
       turnContext.noGrantSurface = false;
+      turnContext.turnId = undefined;
       // Now that this session is idle, drop cold sessions above the cap.
       pool.finish(entry);
     }

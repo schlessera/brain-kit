@@ -485,6 +485,7 @@ async function runRetainedSession(
           // mid-flight.
           turnBudgetMs: host.turnTimeoutMs,
           bridge,
+          turnId: turn.turnId,
           ...(client ? { client } : {}),
           ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
           // A new turn started by voice runs the voice posture: the backend's

@@ -387,7 +387,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:592-653`).
 
-- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:232-271`).
+- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:238-277`).
 
 - Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1489-1505`).
 
@@ -399,7 +399,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:594`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:686-730`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:687-731`).
 
 - Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1124-1154`).
 

@@ -216,6 +216,27 @@ The synchronous synthetic bridge captures escalation data before no-grant denial
 and aborts without parking. Durable Action transitions, reservation admission,
 containment and full-system enablement remain separate gated tasks.
 
+<a id="turn-temp-promotion-additive-1655"></a>
+
+## Turn-temp promotion (additive, #1655)
+
+`StartTurnRequest.turnId?: string` is the host's identity for the turn. A
+backend names per-turn artifacts with it; without it, the backend mints its own.
+The shipped server sets it on every interactive and voice turn.
+
+Two server-only `BackendActivityEvent` variants report what happened to a file
+an answer linked in turn temp, once the worker has exited. `promotion` carries
+`{ source, destination, bytes, originalLink, rewrittenLink }`: the file was
+copied to `destination`, brain-relative below
+`.brain/scratch/turns/<turnId>/`, and the stored answer now links
+`rewrittenLink`. `promotion_refused` carries `{ source, originalLink, reason,
+bytes, limitBytes }`, with `reason` a `TurnTempPromotionRefusal`
+(`file_too_large`, `turn_too_large`, `not_regular_file`, `symlink`,
+`multiple_links`, `missing`, `io_error` or `scratch_unavailable`); the answer
+keeps the link as written. The host stores both as the governance events of the
+same names ([http-api.md](../http-api.md), "Governance event kinds") and shows
+nothing in the chat. No client frame changes; the stored answer's text does.
+
 <a id="autonomous-admission-configuration-additive-678"></a>
 
 ## Autonomous admission configuration (additive, #678)
