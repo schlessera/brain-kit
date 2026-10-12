@@ -24,14 +24,14 @@ async function setup(fetchImpl: GeoRuntimeOptions["fetchImpl"], extra: GeoConfig
 
 /** Instance-local latency observation; retain the real fsync/rename writer. */
 function delayAdmissionWrites(geo: GeoClient, delayMs: number, admissionDir: string) {
-  const instrumented = geo.transport as unknown as {writeAtomic(path: string, value: unknown): Promise<void>};
+  const instrumented = (geo as unknown as {transport: {writeAtomic(path: string, value: unknown): Promise<void>}}).transport;
   const original = instrumented.writeAtomic;
   const writes = new Map<string, number>(), delayed: string[] = [];
   instrumented.writeAtomic = async (path, value) => {
     const count = (writes.get(path) ?? 0) + 1; writes.set(path, count);
     const admission = dirname(path) === admissionDir;
     if (admission && count % 2 === 0) await Bun.sleep(delayMs);
-    await original.call(geo.transport, path, value);
+    await original.call(instrumented, path, value);
     if (admission && count % 2 === 0) delayed.push(path);
   };
   return {writes, delayed, restore() {instrumented.writeAtomic = original;}};
