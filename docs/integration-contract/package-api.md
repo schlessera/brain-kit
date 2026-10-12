@@ -2987,3 +2987,18 @@ the filesystem allowance fail with `ENOSPC`. Internal launch/request fields rema
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.
+
+
+<a id="session-profile-picker-additive-1663"></a>
+
+## Session profile picker (additive, #1663)
+
+`ModelPickerProps.chat?` adds the approved This chat native radio group and
+Limits disclosure: `profile` (governed/strict/null), `disabledReason?`,
+`saving?`, `error?`, `running?`, `limits` (facts or null), and `onProfile?`.
+Confirmed selection remains visible while saving or after failure; pending
+controls preserve focus without accepting a second save. Voice, offline,
+policy-locked and unavailable states show their reason read-only. The picker
+remains reachable for a fixed model without effort controls. Native keyboard
+behavior, 44px rows, Escape and return focus reuse the existing picker.
+`SessionWorkerProfile` and `sessionWorkerProfileSchema` are additive SDK exports.

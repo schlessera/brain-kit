@@ -13,7 +13,9 @@ export interface GovernedTurnHold {
   end(): Reconciliation | null;
 }
 export interface GovernedTurns {
-  begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice"): Promise<GovernedTurnHold>;
+  begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict"): Promise<GovernedTurnHold>;
+  /** Display facts use the same process-local last-valid reader as admission. */
+  facts(origin?: "interactive" | "voice"): { policyProfile: "governed" | "strict"; policy: TurnGovernancePolicy };
   /** Deferred maintenance, serialized with application/CLI mutations. */
   refresh(lock: KeyedLock): void;
   /** Stop new deferred refreshes and drain the current worker before state closes. */
@@ -39,8 +41,12 @@ export function createGovernedTurns(options: {
   };
   return {
     refresh,
+    facts(origin = "interactive") {
+      const policy = policyReader.load();
+      return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
+    },
     async close() { closing = true; again = false; await current; },
-    async begin(turnId, signal, origin = "interactive") {
+    async begin(turnId, signal, origin = "interactive", preference) {
       const availability = options.execution.boundary.governed();
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
@@ -48,7 +54,7 @@ export function createGovernedTurns(options: {
       const hold = await gate.acquire("shared", `turn:${turnId}`, { signal });
       try {
         const policy = policyReader.load();
-        const requested = options.profile === "strict" ? "strict" : policy.policy.profiles[origin];
+        const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolved = prepareWorkerSandbox(options.brainPath, { profile: selected,
           protectedPaths: protectedPaths(policy.policy),

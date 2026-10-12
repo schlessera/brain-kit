@@ -165,6 +165,19 @@ export interface ClientHello {
   capabilities?: Record<string, boolean>;
 }
 
+/** Host-confirmed next-turn preference and currently resolved policy facts (#1663). */
+export interface SessionWorkerProfile {
+  preference: "governed" | "strict";
+  policyProfile: "governed" | "strict";
+  policyHash: string | null;
+  /** A successful save exists for this existing unbound draft identity. */
+  draftPreferenceStored?: boolean;
+  /** The admitted worker, never inferred from the requested preference. */
+  actualProfile?: "governed" | "strict";
+  origin: "interactive" | "voice";
+  limits: { name: string; value: string; onHit?: string }[];
+}
+
 export interface ClientChatMessage {
   type: "chat_message";
   text: string;
@@ -234,6 +247,9 @@ export interface ClientChatMessage {
    * whose text is a reviewed summary rather than a composer draft.
    */
   draftRef?: DraftRef;
+  /** Existing unbound composer draft whose confirmed preference starts this chat. */
+  profileDraftId?: string;
+
 }
 
 /** Most characters a reviewed handoff summary may carry (#61). */
@@ -1351,6 +1367,8 @@ export interface ServerSessionInfo {
   requestId?: string;
   thinkingLevel?: ThinkingLevel;
   effectiveThinkingLevel?: ThinkingLevel;
+  workerProfile?: SessionWorkerProfile;
+
 }
 
 /** Safe profile metadata exposed to the client (never keys/env). */

@@ -43,7 +43,8 @@ export function makeBridge(
   promptLabel?: () => string | undefined,
   applicationPolicy?: BrainApplicationPolicy,
   /** Frozen policy protection captured after this turn's gate admission. */
-  protectedPaths?: readonly string[]
+  protectedPaths?: readonly string[],
+  workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -53,6 +54,7 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   const requestId = turn.requestId;
+  let profileBound = false;
   // The draft this bridge's message was sent from (#979), and whether that
   // message named an existing session. Captured like requestId: a late frame
   // settles only this request's draft.
@@ -148,6 +150,15 @@ export function makeBridge(
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
+        if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
+          if (!profileBound && workerProfile.draftId && workerProfile.preference) {
+            host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId);
+            profileBound = true;
+          }
+          host.sessionProfiles.record(msg.sessionId, workerProfile.origin, workerProfile.actualProfile);
+          msg = { ...msg, workerProfile: host.sessionProfiles.read(turn.principalId, "session", msg.sessionId) };
+        }
+
         // The session's pill label follows its latest request (#1004), asked
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {

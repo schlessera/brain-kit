@@ -99,6 +99,7 @@ type RunSessionInput = {
   draftId?: string;
   /** The saved draft revision this message was sent from (#979). */
   draftRef?: DraftRef;
+  profileDraftId?: string;
   /** Accepted-work revision of this request (#964), for a known session. */
   revision?: number;
   /**
@@ -454,7 +455,13 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       try {
-        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, work?.posture === "voice" ? "voice" : "interactive");
+        if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
+          || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
+          throw new Error("A draft profile requires the matching first-send identity and correlation.");
+        const origin = work?.posture === "voice" ? "voice" : "interactive";
+        const preference = origin === "interactive"
+          ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference);
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         const bridge = makeBridge(
           host,
@@ -481,7 +488,9 @@ async function runRetainedSession(
           () => current.label,
           backend.brainApplicationPolicy?.({ profileId,
             ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-          governedHold ? protectedPaths(governedHold.policy.policy) : undefined
+          governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+          governedHold ? { origin, actualProfile: governedHold.sandbox.profile === "governed" ? "governed" : "strict",
+            ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
@@ -778,6 +787,7 @@ export async function handleChatMessage(
     thinkingLevel?: ThinkingLevel;
     requestId?: string;
     draftId?: string;
+    profileDraftId?: string;
     /** Only present when the host stores drafts (#979). */
     draftRef?: DraftRef;
     localExchanges?: LocalExchange[];
@@ -972,6 +982,7 @@ export async function handleChatMessage(
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
+    ...(msg.profileDraftId ? { profileDraftId: msg.profileDraftId } : {}),
     ...(draftRef ? { draftRef } : {}),
     ...(revision !== undefined ? { revision } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),

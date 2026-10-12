@@ -391,6 +391,7 @@ export const draftRefSchema = z.looseObject({
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
+  profileDraftId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
     providerId: id.optional(),
@@ -1248,8 +1249,19 @@ export const serverStatusSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerStatus>;
 
+export const sessionWorkerProfileSchema = z.object({
+  preference: z.enum(["governed", "strict"]),
+  policyProfile: z.enum(["governed", "strict"]),
+  policyHash: z.string().nullable(),
+  draftPreferenceStored: z.boolean().optional(),
+  actualProfile: z.enum(["governed", "strict"]).optional(),
+  origin: z.enum(["interactive", "voice"]),
+  limits: z.array(z.object({ name: z.string(), value: z.string(), onHit: z.string().optional() })),
+});
+
 export const serverSessionInfoSchema = z.looseObject({
   type: z.literal("session_info"),
+  workerProfile: sessionWorkerProfileSchema.optional(),
   sessionId: z.string().max(MAX_ID_CHARS),
   isNew: z.boolean(),
   providerId: z.string().max(MAX_ID_CHARS).optional(),

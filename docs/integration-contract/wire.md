@@ -1451,3 +1451,31 @@ prompt).
   these runs itself; a `WsHost` embedder that builds its own labeller passes
   `createLabeller({ options, activity: { store, onWrite? } })`, and without
   `activity` it records none.
+
+
+<a id="session-worker-profile-additive-1663"></a>
+
+## Session worker profile (additive, #1663)
+
+`server_hello.capabilities.sessionProfiles: true` advertises authenticated
+profile GET/PUT routes. `session_info.workerProfile?: SessionWorkerProfile`
+carries host-stamped confirmed preference, policy and actual admitted-worker
+facts, as described in the [HTTP contract](http.md#session-worker-profile-additive-1663).
+Backends do not choose or stamp these host facts. Turn accounting records the
+actual admitted profile independently of the next-turn preference.
+
+A first `chat_message` may carry `profileDraftId`, the existing composer
+identity whose preference was successfully saved. It must also carry the
+existing `draftId` correlation and `requestId`; a supplied `draftRef` must
+name the same composer identity. The host refuses missing, foreign-principal
+or mismatched preference identities before starting the worker. The eventual
+`session_info` binds the preference to the actual named session and echoes
+existing correlation fields. Repeated announcements do not bind twice.
+Resumed sessions use only their own stored preference. Genuine voice ignores
+interactive preference and uses its policy; dictation remains interactive.
+
+Clients apply only validated save acknowledgements to the same selected
+session/draft and connection. Pending, failed and late receipts never replace
+another chat's confirmed choice. A new-chat send waits for fresh draft facts
+on a supporting host, including after reload/reconnect; an old host remains
+compatible. No protocol revision or permission grant is added.

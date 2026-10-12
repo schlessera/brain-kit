@@ -281,6 +281,7 @@ export "." (./src/index.ts)
   type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
+  type SessionWorkerProfile
   type SetBillingOverridesRequest
   type SetCustomModelsRequest
   type SetDefaultModelRequest
@@ -692,6 +693,7 @@ export "./client" (./src/client/index.ts)
   type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
+  type SessionWorkerProfile
   type SetBillingOverridesRequest
   type SetCustomModelsRequest
   type SetDefaultModelRequest
@@ -1231,6 +1233,7 @@ export "./protocol" (./src/protocol.ts)
   type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
+  type SessionWorkerProfile
   type SetBillingOverridesRequest
   type SetCustomModelsRequest
   type SetDefaultModelRequest
@@ -1417,6 +1420,7 @@ export "./schemas" (./src/schemas.ts)
   serverToolUseStartSchema
   sessionDraftLimitsSchema
   sessionRecoverySchema
+  sessionWorkerProfileSchema
   sharedFileMetaSchema
   stateRoomObservationSchema
   v1ResolutionEffectSchema
@@ -1857,6 +1861,7 @@ export "./server" (./src/server/index.ts)
   type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
+  type SessionWorkerProfile
   type SetBillingOverridesRequest
   type SetCustomModelsRequest
   type SetDefaultModelRequest
@@ -4900,6 +4905,7 @@ signatures (every public export and the types it is made of)
         localExchanges?: LocalExchange[];
         handoff?: HandoffRequest;
         draftRef?: DraftRef;
+        profileDraftId?: string;
     }
   ClientConversationAudio (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationAudio {
@@ -8364,6 +8370,7 @@ signatures (every public export and the types it is made of)
         requestId?: string;
         thinkingLevel?: ThinkingLevel;
         effectiveThinkingLevel?: ThinkingLevel;
+        workerProfile?: SessionWorkerProfile;
     }
   ServerSessionQueue (packages/ui-sdk/src/protocol.ts)
     export interface ServerSessionQueue {
@@ -8534,6 +8541,20 @@ signatures (every public export and the types it is made of)
     export interface SessionScoped {
         sessionId?: string;
         turnId?: string;
+    }
+  SessionWorkerProfile (packages/ui-sdk/src/protocol.ts)
+    export interface SessionWorkerProfile {
+        preference: "governed" | "strict";
+        policyProfile: "governed" | "strict";
+        policyHash: string | null;
+        draftPreferenceStored?: boolean;
+        actualProfile?: "governed" | "strict";
+        origin: "interactive" | "voice";
+        limits: {
+            name: string;
+            value: string;
+            onHit?: string;
+        }[];
     }
   SetBillingOverridesRequest (packages/ui-sdk/src/protocol.ts)
     export interface SetBillingOverridesRequest {
@@ -9306,6 +9327,7 @@ signatures (every public export and the types it is made of)
             id: z.ZodString;
             prompt: z.ZodString;
         }, z.core.$loose>>>;
+        profileDraftId: z.ZodOptional<z.ZodString>;
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -9565,6 +9587,7 @@ signatures (every public export and the types it is made of)
             id: z.ZodString;
             prompt: z.ZodString;
         }, z.core.$loose>>>;
+        profileDraftId: z.ZodOptional<z.ZodString>;
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -13615,6 +13638,31 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         thinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
         type: z.ZodLiteral<"session_info">;
+        workerProfile: z.ZodOptional<z.ZodObject<{
+            actualProfile: z.ZodOptional<z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>>;
+            draftPreferenceStored: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                onHit: z.ZodOptional<z.ZodString>;
+                value: z.ZodString;
+            }, z.core.$strip>>;
+            origin: z.ZodEnum<{
+                interactive: "interactive";
+                voice: "voice";
+            }>;
+            policyHash: z.ZodNullable<z.ZodString>;
+            policyProfile: z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>;
+            preference: z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>;
+        }, z.core.$strip>>;
     }, z.core.$loose>, z.ZodObject<{
         append: z.ZodOptional<z.ZodBoolean>;
         messages: z.ZodArray<z.ZodObject<{
@@ -16089,6 +16137,31 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         thinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
         type: z.ZodLiteral<"session_info">;
+        workerProfile: z.ZodOptional<z.ZodObject<{
+            actualProfile: z.ZodOptional<z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>>;
+            draftPreferenceStored: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                onHit: z.ZodOptional<z.ZodString>;
+                value: z.ZodString;
+            }, z.core.$strip>>;
+            origin: z.ZodEnum<{
+                interactive: "interactive";
+                voice: "voice";
+            }>;
+            policyHash: z.ZodNullable<z.ZodString>;
+            policyProfile: z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>;
+            preference: z.ZodEnum<{
+                governed: "governed";
+                strict: "strict";
+            }>;
+        }, z.core.$strip>>;
     }, z.core.$loose>;
   serverSessionQueueSchema (packages/ui-sdk/src/schemas.ts)
     const serverSessionQueueSchema: z.ZodObject<{
@@ -16285,6 +16358,32 @@ signatures (every public export and the types it is made of)
         revision: z.ZodNumber;
         sessionId: z.ZodString;
     }, z.core.$loose>;
+  sessionWorkerProfileSchema (packages/ui-sdk/src/schemas.ts)
+    const sessionWorkerProfileSchema: z.ZodObject<{
+        actualProfile: z.ZodOptional<z.ZodEnum<{
+            governed: "governed";
+            strict: "strict";
+        }>>;
+        draftPreferenceStored: z.ZodOptional<z.ZodBoolean>;
+        limits: z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            onHit: z.ZodOptional<z.ZodString>;
+            value: z.ZodString;
+        }, z.core.$strip>>;
+        origin: z.ZodEnum<{
+            interactive: "interactive";
+            voice: "voice";
+        }>;
+        policyHash: z.ZodNullable<z.ZodString>;
+        policyProfile: z.ZodEnum<{
+            governed: "governed";
+            strict: "strict";
+        }>;
+        preference: z.ZodEnum<{
+            governed: "governed";
+            strict: "strict";
+        }>;
+    }, z.core.$strip>;
   sharedFileMetaSchema (packages/ui-sdk/src/track-schemas.ts)
     const sharedFileMetaSchema: z.ZodType<SharedFileMeta>;
   signedArea (packages/geo/src/coastline.ts) recorded in api-report/geo.txt

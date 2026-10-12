@@ -28,6 +28,9 @@ export interface ConnectionState {
   wsStatus: WsStatus;
   /** The current host accepts per-message effort and correlated chat acknowledgements. */
   chatRequestAck: boolean;
+  sessionProfiles: boolean;
+  profileEpoch: number;
+  setSessionProfiles(supported: boolean): void;
   setChatRequestAck(supported: boolean): void;
   /** The current host reports pending follow-ups (`session_queue`, #1002). */
   followUpQueue: boolean;
@@ -64,6 +67,9 @@ export function createConnectionStore() {
   return createStore<ConnectionState>((set) => ({
     wsStatus: "disconnected",
     chatRequestAck: false,
+    sessionProfiles: false,
+    profileEpoch: 0,
+    setSessionProfiles: (sessionProfiles) => set(s => ({ sessionProfiles, profileEpoch: s.profileEpoch + 1 })),
     setChatRequestAck: (chatRequestAck) => set({ chatRequestAck }),
     followUpQueue: false,
     setFollowUpQueue: (followUpQueue) => set({ followUpQueue }),
@@ -88,6 +94,8 @@ export function createConnectionStore() {
     noteSocketOpen: () =>
       set((state) => ({
         chatRequestAck: false,
+        sessionProfiles: false,
+        profileEpoch: state.profileEpoch + 1,
         followUpQueue: false,
         handshakeFailures: 0,
         // Cleared here, not on the next close: the server accepts the upgrade and

@@ -1,4 +1,4 @@
-import { Overlay, Button, IconButton, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
+import { Overlay, Button, IconButton, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState, type ModelPickerProps } from "@schlessera/brain-ui-kit";
 import { TrackChip } from "./track-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
 import { X } from "lucide-react";
@@ -81,6 +81,7 @@ export interface ComposerViewProps {
   onRetryTrack?: (id: string) => void;
   attachErrors: string[];
   provider: ComposerProvider | null;
+  chatProfile?: ModelPickerProps["chat"];
   /** The container's ref: it focuses the field after a recall or a voice edit. */
   frameRef: RefObject<HTMLDivElement | null>;
   /** The container's ref for the provider popover's outside-click dismissal. */
@@ -186,7 +187,7 @@ export function ComposerView(p: ComposerViewProps) {
       {/* The provider list, anchored above the field: the chip that opens it
           sits in the kit's hint line, so the list is the frame's. */}
       {p.provider?.menuOpen && <ModelPicker id={pickerId} containerRef={p.providerMenuRef}
-        models={p.provider.options} selectedModelId={p.provider.selectedId} modelLocked={p.provider.locked}
+        chat={p.chatProfile} models={p.provider.options} selectedModelId={p.provider.selectedId} modelLocked={p.provider.locked}
         phone={!pointer} defaultEffort={p.provider.defaultEffort} effortLevels={p.provider.effortLevels}
         selectedEffort={p.provider.selectedEffort ?? null} onModel={p.onProviderSelect}
         {...(p.provider.lockedAction ? { lockedAction: p.provider.lockedAction } : {})}
@@ -217,7 +218,7 @@ export function ComposerView(p: ComposerViewProps) {
         providerDetailExplanation={p.provider?.effortExplanation}
         providerExpanded={p.provider?.menuOpen}
         providerControls={pickerId}
-        onProvider={p.provider && (!p.provider.locked || p.provider.effortLevels?.length || p.provider.lockedAction) ? p.onProviderToggle : undefined}
+        onProvider={p.provider && (!p.provider.locked || p.provider.effortLevels?.length || p.provider.lockedAction || p.chatProfile) ? p.onProviderToggle : undefined}
         onChange={p.onChange}
         onSend={p.onSend}
         onStop={p.onStop}

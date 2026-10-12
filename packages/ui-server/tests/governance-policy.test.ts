@@ -1,3 +1,8 @@
+import { Hono } from "hono";
+import type { AppEnv } from "../src/app-env";
+import { createPrincipal, revokePrincipal } from "../src/db/principals";
+import { createSessionProfiles } from "../src/ws/session-profiles";
+import { createSessionProfileRoutes } from "../src/routes/session-profiles";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,5 +120,105 @@ test.each(["interactive", "voice", "dictation"] as const)("real session routing 
         : origin === "dictation" ? { source: "voice-dictate" as const } : {}) });
     expect(actualProfile, "POLICY_ROUTED_ORIGIN_PROFILE").toBe(origin === "voice" ? "strict" : "governed");
     expect(f.db.query("SELECT origin, profile FROM turn_governance_policy").get()).toEqual({ origin: origin === "voice" ? "voice" : "interactive", profile: actualProfile });
+  } finally { host.close(); }
+});
+
+
+test("confirmed session preference tightens the next actual worker without changing another session or voice", async () => {
+  const f = fixture(); f.write("profiles: { interactive: governed, voice: governed }");
+  writeFileSync(join(f.brain, "harbor.md"), "Odysseus arrives.\n");
+  const signal = new AbortController().signal;
+  const active = await f.turns.begin("preference-active", signal);
+  expect(active.sandbox.profile).toBe("governed");
+  const strict = await f.turns.begin("preference-next", signal, "interactive", "strict");
+  try {
+    expect(strict.sandbox.profile, "SESSION_PROFILE_NEXT_ADMISSION").toBe("strict");
+    expect(active.sandbox.profile, "SESSION_PROFILE_RUNNING_UNCHANGED").toBe("governed");
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: strict.sandbox, env: {}, command: ["/bin/sh", "-c", 'if printf attack > harbor.md; then exit 41; fi; printf STRICT_SESSION_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(worker.exitCode, worker.stderr.toString()).toBe(0);
+    expect(worker.stdout.toString()).toBe("STRICT_SESSION_WRITE_REFUSED");
+  } finally { strict.end(); active.end(); }
+  const other = await f.turns.begin("preference-other", signal, "interactive", "governed");
+  expect(other.sandbox.profile).toBe("governed"); other.end();
+  const voice = await f.turns.begin("preference-voice", signal, "voice", "strict");
+  expect(voice.sandbox.profile, "SESSION_PROFILE_VOICE_IGNORES_INTERACTIVE_PREFERENCE").toBe("governed"); voice.end();
+  f.write("profiles: { interactive: strict }");
+  const facts = f.turns.facts();
+  expect(facts.policyProfile).toBe("strict");
+  f.write("unknown: true");
+  const locked = await f.turns.begin("preference-policy-lock", signal, "interactive", "governed");
+  expect(locked.sandbox.profile, "SESSION_PROFILE_POLICY_LOWER_BOUND").toBe("strict");
+  expect(locked.policy.hash).toBe(facts.policy.hash); locked.end();
+});
+
+
+test("authenticated profile routes persist named preferences, lock policy and refuse expired, unknown and mismatched drafts", async () => {
+  const f = fixture(); const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db); catalog.persistSessionStub("ithaca-chat", "Odysseus reviews the harbor.", "claude", "claude");
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
+  const save = (path: string, preference: string) => app.request(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ preference }) });
+  expect((await save("/api/sessions/missing-chat/profile", "strict")).status, "SESSION_PROFILE_UNKNOWN_REFUSED").toBe(404);
+  expect((await save("/api/sessions/ithaca-chat/profile", "strict")).status).toBe(200);
+  expect(createSessionProfiles(f.db, f.turns).read(principal.id, "session", "ithaca-chat").preference, "SESSION_PROFILE_RELOAD_CONFIRMED").toBe("strict");
+  f.write("profiles: { interactive: strict }");
+  expect((await save("/api/sessions/ithaca-chat/profile", "governed")).status, "SESSION_PROFILE_LOCKED_ROUTE_REFUSAL").toBe(409);
+  expect((await save("/api/drafts/harbor-draft/profile", "strict")).status).toBe(200);
+  const foreign = createPrincipal(f.db, { authMethod: "password", label: "Penelope device", ttlSeconds: 3600 });
+  expect(() => profiles.preference(foreign.id, undefined, "harbor-draft"), "SESSION_PROFILE_DRAFT_PRINCIPAL_ISOLATION").toThrow("unavailable");
+  expect(profiles.read(foreign.id, "draft", "harbor-draft").draftPreferenceStored).toBe(false);
+  revokePrincipal(f.db, principal.id, Date.now());
+  expect((await save("/api/sessions/ithaca-chat/profile", "strict")).status, "SESSION_PROFILE_EXPIRED_ROUTE_REFUSAL").toBe(401);
+});
+
+test("real first sends bind only their authenticated draft preference and emit actual admitted attribution", async () => {
+  const f = fixture(); f.write("profiles: { interactive: governed, voice: governed }");
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const profiles = createSessionProfiles(f.db, f.turns);
+  profiles.save(principal.id, "draft", "ithaca-draft", "strict");
+  profiles.save(principal.id, "draft", "harbor-draft", "governed");
+  const observations: string[] = []; let nextSession = "ithaca-chat";
+  let paused: (() => void) | undefined; let resumeWorker: (() => void) | undefined;
+  let pauseWorker = false;
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    observations.push(request.workerSandbox!.profile!);
+    if (pauseWorker) { paused!(); await new Promise<void>(resolve => { resumeWorker = resolve; }); }
+    const sessionId = request.sessionId ?? nextSession;
+    request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId });
+    // A repeated backend announcement must not bind or consume a preference twice.
+    request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId });
+    request.bridge.emit({ type: "result", sessionId, durationMs: 1, numTurns: 1, isError: false });
+  } });
+  const frames: any[] = [];
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles,
+    registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => f.db) });
+  host.clients.add({ send: raw => frames.push(JSON.parse(String(raw))) }, principal.id);
+  try {
+    const common = { authorization: testAuthorization(principal.id), text: "Odysseus inspects the harbor.", attachments: [] };
+    await runSession(host, { ...common, draftId: "correlation-ithaca", requestId: "request-ithaca", profileDraftId: "ithaca-draft" });
+    expect(observations, "SESSION_PROFILE_FIRST_SEND_STRICT").toEqual(["strict"]);
+    expect(profiles.read(principal.id, "session", "ithaca-chat")).toMatchObject({ preference: "strict", actualProfile: "strict", origin: "interactive" });
+    expect(profiles.read(principal.id, "draft", "harbor-draft")).toMatchObject({ preference: "governed", draftPreferenceStored: true });
+    nextSession = "harbor-chat";
+    await runSession(host, { ...common, draftId: "correlation-harbor", requestId: "request-harbor", profileDraftId: "harbor-draft" });
+    expect(observations, "SESSION_PROFILE_SEPARATE_DRAFT_ISOLATION").toEqual(["strict", "governed"]);
+    const named = frames.filter(frame => frame.type === "session_info");
+    expect(named[0]).toMatchObject({ sessionId: "ithaca-chat", draftId: "correlation-ithaca", requestId: "request-ithaca", workerProfile: { preference: "strict", actualProfile: "strict" } });
+    profiles.save(principal.id, "session", "ithaca-chat", "strict");
+    const workerStarted = new Promise<void>(resolve => { paused = resolve; }); pauseWorker = true;
+    const inFlight = runSession(host, { ...common, sessionId: "ithaca-chat" });
+    await workerStarted;
+    profiles.save(principal.id, "session", "ithaca-chat", "governed");
+    expect(observations.at(-1), "SESSION_PROFILE_SUCCESSFUL_SAVE_RUNNING_AUTHORITY_UNCHANGED").toBe("strict");
+    resumeWorker!(); await inFlight; pauseWorker = false;
+    expect(profiles.read(principal.id, "session", "ithaca-chat")).toMatchObject({ preference: "governed", actualProfile: "strict" });
+    await runSession(host, { ...common, sessionId: "ithaca-chat", source: "voice-dictate" });
+    expect(observations.at(-1), "SESSION_PROFILE_DICTATION_INTERACTIVE").toBe("governed");
+    await runSession(host, { ...common, sessionId: "ithaca-chat", work: { posture: "voice", started() {}, settle() {} } as never });
+    expect(profiles.read(principal.id, "session", "ithaca-chat").origin).toBe("voice");
+    expect(() => profiles.save(principal.id, "session", "ithaca-chat", "strict"), "SESSION_PROFILE_VOICE_SAVE_REFUSAL").toThrow("Voice uses");
+    const before = observations.length;
+    await runSession(host, { ...common, profileDraftId: "harbor-draft" });
+    expect(observations.length, "SESSION_PROFILE_UNCORRELATED_FIRST_SEND_REFUSAL").toBe(before);
   } finally { host.close(); }
 });

@@ -1589,6 +1589,19 @@ signatures (every public export and the types it is made of)
             why?: string;
             onSelect: () => void;
         };
+        chat?: {
+            profile: "governed" | "strict" | null;
+            disabledReason?: string;
+            saving?: boolean;
+            error?: string;
+            running?: boolean;
+            limits: readonly {
+                name: string;
+                value: string;
+                onHit?: string;
+            }[] | null;
+            onProfile?: (profile: "governed" | "strict") => void;
+        };
         containerRef?: RefObject<HTMLDivElement | null>;
         onModel: (id: string) => void;
         onEffort: (level: string | null) => void;

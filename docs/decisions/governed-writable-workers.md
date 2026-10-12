@@ -140,6 +140,19 @@ What a turn can do is the intersection of the two.
 - **Autonomous.** The profile is always `restricted`, and the policy cannot
   change it.
 
+**Delivered session tightening (#1663).** The existing model picker's This chat
+section saves authenticated next-turn preferences in the operational session
+catalog. An unbound composer saves only its preference under its existing
+draft identity; validated first-send correlation binds it to the actual
+named session. There is no draft text requirement or session reservation.
+Admission still uses the same last-valid policy reader and may only tighten
+interactive work. Voice shows its policy read-only; dictation is interactive.
+The current worker never changes profile because a later save succeeded.
+Unknown enforcement facts remain unknown, and requested preference is separate
+from the actual admitted worker, including fallback
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:11-88`;
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-80`).
+
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
 (`nlink > 1`), or another mount, using #1626's guard. In that case the turn
@@ -150,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:490-494`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:501-505`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -258,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:23-74`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-80`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits

@@ -82,6 +82,8 @@ export interface WsHostOptions {
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
+  /** @internal Concrete authenticated session preference store, supplied by createApp. */
+  sessionProfiles?: import("./session-profiles.js").SessionProfiles;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
@@ -229,6 +231,8 @@ export class WsHost {
   /** @internal Hosted worker admission/reconciliation. */
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
+  /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
+  readonly sessionProfiles?: import("./session-profiles.js").SessionProfiles;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -301,6 +305,7 @@ export class WsHost {
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
     this.maintenance = options.maintenance;
+    this.sessionProfiles = options.sessionProfiles;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
