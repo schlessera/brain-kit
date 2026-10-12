@@ -60,6 +60,6 @@ test("a host cancellation outranks a full state found after the result", async (
 }, 30_000);
 
 test("a write failure the worker reported stays on record however much it prints afterwards", async () => {
-  const results = await run(`echo "Error: ENOSPC: no space left on device, write" >&2; head -c 200000 /dev/zero | tr '\\0' x >&2; exit 0`);
+  const results = await run(`echo "Error: ENOSPC: no space left on device, write $CLAUDE_CONFIG_DIR/late" >&2; head -c 200000 /dev/zero | tr '\\0' x >&2; exit 0`);
   expect(results[0]).toMatchObject({ outcome: "error", failure: { errorClass: "worker_state_exceeded" } });
 }, 30_000);

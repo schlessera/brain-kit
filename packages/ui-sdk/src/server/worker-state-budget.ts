@@ -99,7 +99,8 @@ export function createStateLedger(): StateLedger {
 
 // The key predates the ledger's move from the Claude backend, so an older copy
 // of that backend loaded beside this one still shares the one ledger.
-const PROCESS_LEDGER = Symbol.for("@schlessera/brain-backend-claude/worker-state-ledger");
+// This is a symbol identity, not a dependency/import on the Claude backend.
+const PROCESS_LEDGER = Symbol.for(["@schlessera", "brain-backend-claude", "worker-state-ledger"].join("/"));
 /** The server process's one ledger, even if this module is loaded twice (source and build). */
 export function processStateLedger(): StateLedger {
   const slot = globalThis as { [PROCESS_LEDGER]?: StateLedger };

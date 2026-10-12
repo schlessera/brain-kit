@@ -97,7 +97,8 @@ describe("VOICE_ALLOWED_TOOLS", () => {
     expect(RECORD_EXCLUDED).toContain("Bash");
     expect(RECORD_EXCLUDED).toContain("mcp__brain-ui__request_image_mask");
     expect(RECORD_ALLOWED).toContain("mcp__brain__jobs_review");
-    expect(RECORD_ALLOWED).toHaveLength(17);
+    expect(RECORD_ALLOWED).toContain("mcp__brain-ui__turn_temp");
+    expect(RECORD_ALLOWED).toHaveLength(18);
     expect(RECORD_EXCLUDED).toHaveLength(15);
   });
 

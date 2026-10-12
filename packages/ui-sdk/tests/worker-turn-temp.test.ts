@@ -62,6 +62,28 @@ async function run(f: ReturnType<typeof fixture>, program: string, extra: { stat
 }
 
 describe("turn temp (#1655, #1703)", () => {
+  test.skipIf(!LINUX)("the held-root gate refuses the host tmpfs even when its size equals admission", () => {
+    const f = fixture();
+    // Hold a fake launcher before any pivot. Its only child still sees the
+    // outer /tmp, deliberately a tmpfs of exactly the admitted size.
+    const program = `import { launchAgentWorker } from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-launcher.ts"))};
+      const spawn = Bun.spawn.bind(Bun);
+      Bun.spawn = (_command, options) => spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options);
+      let worker;
+      try {
+        worker = launchAgentWorker({brainPath:${JSON.stringify(f.brain)},command:['/bin/true'],env:{},turnTempBytes:${ALLOWANCE}});
+        console.log(JSON.stringify({refused:false}));
+      } catch(error) { console.log(JSON.stringify({refused:true,message:error.message})); }
+      finally { Bun.spawn=spawn; worker?.kill('SIGKILL'); worker?.turnTemp?.close(); }`;
+    const run = Bun.spawnSync(["bwrap", "--unshare-net", "--unshare-pid", "--bind", "/", "/", "--size", String(ALLOWANCE),
+      "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", process.execPath, "--no-env-file", "-e", program],
+      { stdout: "pipe", stderr: "pipe", timeout: 20_000 });
+    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    const receipt = JSON.parse(run.stdout.toString().trim());
+    expect(receipt.refused, "the held descriptor must not name the host's /tmp").toBe(true);
+    expect(receipt.message).toContain("private turn-temp tmpfs");
+  });
+
   test.skipIf(!LINUX)("the held-root gate refuses a private tmpfs whose size differs from admission", () => {
     const f = fixture();
     const spawn = Bun.spawn.bind(Bun);

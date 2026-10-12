@@ -329,7 +329,7 @@ const NO_WORKER = "No worker is running for this turn, so it has no turn temp.";
 
 /** The names in a held directory, or none when it cannot be read. */
 function names(dir: number): string[] {
-  try { return readdirSync(at(dir, ".")).map(String); } catch { return []; }
+  try { return readdirSync(at(dir, ".")).map(String).sort(); } catch { return []; }
 }
 
 /**
