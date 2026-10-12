@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, WORKER_SCRATCH, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempTool, createTurnTempPressureHook } from "../packages/ui-backend-claude/src/turn-temp-tool";
-import { createPiBridgeTools } from "../packages/ui-backend-pi/src/bridge-tools";
+import { createSessionResources } from "../packages/ui-backend-pi/src/session-resources";
+import { createBrainAccess } from "../packages/ui-backend-pi/src/brain-access";
+import { toolLockFromKeyed } from "../packages/ui-backend-pi/src/tools";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 test("both turn_temp registrations report real private usage, keep linked bytes and emit purge receipts; Claude warns once", async () => {
   const parent = join(import.meta.dir, "../tmp");
@@ -30,8 +33,15 @@ test("both turn_temp registrations report real private usage, keep linked bytes 
     expect(await hook(input, undefined, context)).toMatchObject({ hookSpecificOutput: { additionalContext: expect.stringContaining("mcp__brain-ui__turn_temp") } });
     expect(await hook(input, undefined, context)).toEqual({ continue: true });
     const claude = createTurnTempTool(access, event => events.push(event));
-    const pi = createPiBridgeTools({ brainPath: brain, capabilities: { turnTemp: true },
-      turn: { turnTemp: access, bridge: { activity: (event: unknown) => events.push(event) } } as never }).find(tool => tool.name === "turn_temp")!;
+    const resources = createSessionResources({ backend: { brainPath: brain }, brain: createBrainAccess(brain),
+      lock: toolLockFromKeyed(createKeyedLock()), allowedTools: new Set(), confirmPatterns: [], loadExtensions: false });
+    const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false, turnTemp: true };
+    const toolkit = resources.buildToolkit(caps);
+    expect(toolkit.tools.map(tool => tool.name), "the actual pi session toolkit must advertise turn_temp").toContain("turn_temp");
+    expect(resources.buildToolkit({ ...caps, turnTemp: false }).tools.map(tool => tool.name)).not.toContain("turn_temp");
+    toolkit.turnContext.turnTemp = access;
+    toolkit.turnContext.bridge = { emit() {}, activity: (event: unknown) => events.push(event) } as never;
+    const pi = toolkit.tools.find(tool => tool.name === "turn_temp")!;
     const invoke = async (backend: "claude" | "pi", input: object) => {
       const result = backend === "claude" ? await claude.handler(input as never, {}) : await pi.execute("purge-call", input as never, undefined, undefined, undefined as never);
       const text = result.content.find(c => c.type === "text");

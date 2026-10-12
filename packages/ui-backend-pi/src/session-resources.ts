@@ -54,6 +54,7 @@ export function createSessionResources(options: {
         activity: caps.activity,
         inbox: caps.inbox,
         mask: caps.mask,
+        turnTemp: caps.turnTemp,
       },
     });
     return { tools, turnContext };
