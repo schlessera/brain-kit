@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 
 import {
   assertScratchMask,
@@ -67,6 +67,36 @@ const mask = (imagePath: string, bridge: BackendBridge = bridgeWith([])) =>
   );
 
 describe("request_image_mask into scratch", () => {
+  test("nested scratch targets retain bytes, exact replacement mode, reporting and one prune", async () => {
+    ignore();
+    mkdirSync(join(root, SCRATCH, "drafts"));
+    writeFileSync(join(root, SCRATCH, "drafts", "draft.png"), "png");
+    const target = join(root, SCRATCH, "drafts", "draft-mask.png");
+    writeFileSync(target, "old"); fs.chmodSync(target, 0o600);
+    const pruned: number[] = [];
+    const payload = await mask(`${SCRATCH}/drafts/draft.png`, bridgeWith(pruned));
+    expect(payload.maskPath).toBe(`${SCRATCH}/drafts/draft-mask.png`);
+    expect(readFileSync(target)).toEqual(Buffer.from([1, 2, 3]));
+    expect(fs.statSync(target).mode & 0o7777).toBe(0o600);
+    expect(pruned).toHaveLength(1);
+    expect(readdirSync(join(root, SCRATCH, "drafts")).sort()).toEqual(["draft-mask.png", "draft.png"]);
+  });
+
+  test("a supplied mask application receives the exact request and bypasses fallback writes and prune", async () => {
+    const pruned: number[] = [];
+    const applied: unknown[] = [];
+    const bridge = bridgeWith(pruned);
+    bridge.applyImageMask = async (input) => {
+      applied.push(input);
+      writeFileSync(join(root, SCRATCH, "draft-mask.png"), input.png);
+      return { ok: true, message: "Fixture application", changes: [] };
+    };
+    const payload = await mask(`${SCRATCH}/draft.png`, bridge);
+    expect(applied).toEqual([{ imagePath: `${SCRATCH}/draft.png`, maskPath: `${SCRATCH}/draft-mask.png`, png: new Uint8Array([1, 2, 3]) }]);
+    expect(payload.maskPath).toBe(`${SCRATCH}/draft-mask.png`);
+    expect(readFileSync(join(root, SCRATCH, "draft-mask.png"))).toEqual(Buffer.from([1, 2, 3]));
+    expect(pruned).toEqual([]);
+  });
   test("refuses while the scratch directory is not gitignored, naming the fix, and writes nothing", async () => {
     await expect(mask(`${SCRATCH}/draft.png`)).rejects.toThrow(/not gitignored as a directory.*brain doctor --fix/s);
     expect(existsSync(join(root, SCRATCH, "draft-mask.png"))).toBe(false);
@@ -166,7 +196,7 @@ describe("request_image_mask into scratch", () => {
     const real = fs.openSync;
     const spy = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags: unknown, mode?: unknown) => {
       const fd = real(path, flags as never, mode as never);
-      if (String(path).startsWith(nested + "/.x-mask.png.")) {
+      if (basename(String(path)).startsWith(".x-mask.png.") && realpathSync(dirname(String(path))) === nested) {
         writeFileSync(join(outside, basename(String(path))), "outside tmp");
         rmSync(nested, { recursive: true, force: true });
         symlinkSync(outside, nested);

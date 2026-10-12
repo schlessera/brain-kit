@@ -69,6 +69,41 @@ and edited-input check (`checkEditedApproval`,
 `packages/ui-sdk/src/server/permission-gate.ts:148-180`). Pattern compilation is
 shared (`compileConfirmPatterns`, `packages/ui-sdk/src/server/confirm-patterns.ts:97-134`).
 
+## Mask fallback containment
+
+A host-provided `BackendBridge.applyImageMask` remains the first choice for
+`handleRequestImageMask`; that branch never invokes the SDK filesystem fallback.
+The provided ui-server operation retains its own descriptor, hash, authority
+and locking checks.
+
+#1683 repairs the SDK fallback for another host that omits that callback.
+On Linux, both fallback writers hold a chain of directory descriptors opened
+with `O_NOFOLLOW | O_DIRECTORY`. Directory creation, exclusive temporary open,
+rename and failure cleanup use the held parent rather than resolving a worker
+controlled path again. Visible inode identities are checked before and after
+publication to refuse changed destinations. This also anchors the directory
+creation used by the scratch gitignore check. Nested scratch targets remain
+supported; root-directory and traversing targets refuse before temporary writes, and replacement modes, adapter-owned filenames/reporting and prune
+calls retain their prior behavior. These are private helpers, with no new
+extension seam or SDK dependency on core.
+
+Scratch fallback requires Linux descriptor paths, consistent with the existing
+Linux maintenance-worker requirement for its gitignore query. An unqualified
+non-Linux scratch fallback refuses before directory creation or mask writes;
+it never falls back to path-only scratch operations. A host on another platform
+must supply its existing application callback. Ordinary non-scratch toolkit
+fallback behavior on other platforms is preserved; this repair does not claim
+that path-only branch has Linux's descriptor race guarantee. The tool name,
+inputs, saved-PNG result and public signatures are unchanged.
+
+Isolated subprocess controls exercise the actual filesystem boundaries and
+record outside operations as well as outside bytes, so cleanup cannot conceal
+a temporary leak. They cover temporary open, mkdir, rename, cleanup, and
+no-follow directory opens on both writers, plus scratch-ignore mkdir, write
+failure cleanup and descriptor-stat failure closure. Separate simulated
+non-Linux refusal/ordinary-write controls are branch evidence, not native
+macOS runtime qualification.
+
 ## Behavior and policy defaults
 
 The toolkit does not execute a tool. The adapter must wait for the decision,

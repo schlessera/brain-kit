@@ -110,6 +110,15 @@ lock keys, `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`,
 `rtkRewriteCommand` and `DEFAULT_CONFIRM_BASH_PATTERNS`) are public on
 `./server` too, `@experimental` until 1.0; see the
 [shared backend toolkit](../../docs/extending/agent-backends.md#the-shared-backend-toolkit).
+
+The image-mask handler delegates to a host's `applyImageMask` callback when
+provided. Its Linux filesystem fallback anchors directory creation, temporary
+writes, rename and cleanup on held descriptors, including nested scratch
+paths. Scratch fallback on another platform refuses before mutation; supply
+the application callback there. Ordinary non-scratch fallback behavior on
+other platforms is preserved without claiming Linux's race guarantee. See the
+[mask fallback boundary](../../docs/decisions/backend-authoring-toolkit.md#mask-fallback-containment).
+
 Helpers with a single consumer stay at `/internal`, which has no compatibility
 guarantee. The
 [classification table](../../docs/decisions/backend-authoring-toolkit.md#inventory)

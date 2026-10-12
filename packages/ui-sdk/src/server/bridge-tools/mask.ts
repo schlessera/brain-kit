@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
-import { closeSync, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
 import type { Stats } from "fs";
-import { basename, dirname, extname, join, relative, resolve, sep } from "path";
+import { basename, dirname, extname, join, parse, relative, resolve, sep } from "path";
 
 import type {
   ImageMaskPayload,
@@ -33,7 +33,7 @@ export interface ImageMaskHandlerOptions {
 /**
  * The filename is adapter-owned on purpose: Claude derives `x-mask.png` from
  * the submitted path, while pi derives `x.mask.png` from the canonical path.
- * Both overwrite with writeFileSync, so changing either derivation could
+ * Both replace the same existing mask filename, so changing either derivation could
  * overwrite a file the previous backend left untouched, and an image rollback
  * cannot restore those bytes. Any future unification needs `wx` writes and a
  * collision test as a separate change.
@@ -137,7 +137,11 @@ function isSymlink(path: string): boolean {
  * to exist, and outside a repository the same question through an empty one.
  */
 function scratchIgnored(rootReal: string): boolean {
-  mkdirSync(join(rootReal, SCRATCH_DIR), { recursive: true });
+  requireScratchDescriptors();
+  // Creating the directory is a write too: a scratch/.brain replacement must
+  // not redirect even this setup step outside the held directory chain.
+  const directory = openMaskDirectory(join(rootReal, SCRATCH_DIR));
+  try { directory.verify(); } finally { directory.close(); }
   // Git reads the brain's configuration and ignore files, so it answers from
   // a maintenance worker (#1648); one that cannot run refuses the mask.
   const inRepo =
@@ -189,18 +193,104 @@ export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: st
   }
 }
 
+/** Scratch fallback never substitutes a path-only write on an unqualified host. */
+function requireScratchDescriptors(): void {
+  if (process.platform !== "linux") {
+    throw new Error("Scratch mask fallback requires Linux descriptor paths; provide bridge.applyImageMask on another host.");
+  }
+}
+
+/** A held directory chain: every mkdir/open goes through its parent's descriptor. */
+function openMaskDirectory(directory: string) {
+  const absolute = resolve(directory);
+  const root = parse(absolute).root;
+  const parts = relative(root, absolute).split(sep).filter(Boolean);
+  const chain: Array<{ fd: number; visible: string; dev: number; ino: number }> = [];
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  const changed = () => new Error(`${absolute} is no longer a directory of its own, so no mask is written there.`);
+  const close = () => { for (const entry of chain.reverse()) closeSync(entry.fd); };
+  try {
+    let visible = root;
+    let at = root;
+    for (const segment of ["", ...parts]) {
+      if (segment) {
+        at = `/proc/self/fd/${chain.at(-1)!.fd}/${segment}`;
+        visible = join(visible, segment);
+      }
+      let fd: number;
+      try { fd = openSync(at, flags); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        try { mkdirSync(at); } catch (mkdirError) {
+          if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
+        }
+        fd = openSync(at, flags);
+      }
+      try {
+        const info = fstatSync(fd);
+        chain.push({ fd, visible, dev: info.dev, ino: info.ino });
+      } catch (error) { closeSync(fd); throw error; }
+    }
+    return {
+      at: `/proc/self/fd/${chain.at(-1)!.fd}`,
+      verify() {
+        for (const entry of chain) {
+          const current = lstatSync(entry.visible, { throwIfNoEntry: false });
+          if (!current?.isDirectory() || current.isSymbolicLink() || current.dev !== entry.dev || current.ino !== entry.ino) throw changed();
+        }
+      },
+      close,
+    };
+  } catch (error) {
+    close();
+    if (["ELOOP", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      throw new Error(`${absolute} is not a directory of its own, so no mask is written there.`);
+    }
+    throw error;
+  }
+}
+
+/** A Linux fallback write that never resolves an untrusted parent path after opening it. */
+function writeAnchoredMaskFile(maskAbs: string, png: Uint8Array): void {
+  const directory = openMaskDirectory(dirname(maskAbs));
+  const target = join(directory.at, basename(maskAbs));
+  const tmp = join(directory.at, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
+  let temporary = false;
+  try {
+    directory.verify();
+    writeMaskExclusive(tmp, png, lstatSync(target, { throwIfNoEntry: false }), true);
+    temporary = true;
+    directory.verify();
+    const entry = lstatSync(target, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) throw new Error(`${maskAbs} is a symlink, so no mask is written through it.`);
+    if (entry?.isDirectory()) throw new Error(`${maskAbs} is a directory, so no mask is written there.`);
+    renameSync(tmp, target);
+    temporary = false;
+    // A swap at rename cannot redirect the syscall; still refuse a stale
+    // visible destination rather than return a successful lexical mask path.
+    directory.verify();
+  } finally {
+    try { if (temporary) rmSync(tmp, { force: true }); } finally { directory.close(); }
+  }
+}
+
 /**
  * Create `tmp` exclusively and fill it; when it replaces a regular file it
  * takes that file's exact mode first (the port of core's `writeExclusive`),
  * so a mask never becomes readable more widely than the one it replaces.
  */
-function writeMaskExclusive(tmp: string, png: Uint8Array, existing: Stats | undefined): void {
+function writeMaskExclusive(tmp: string, png: Uint8Array, existing: Stats | undefined, anchored = false): void {
   const mode = existing?.isFile() ? existing.mode & 0o7777 : undefined;
   const fd = openSync(tmp, "wx", mode);
   try {
     if (mode !== undefined) fchmodSync(fd, mode);
     let offset = 0;
     while (offset < png.byteLength) offset += writeSync(fd, png, offset, png.byteLength - offset);
+  } catch (error) {
+    // The exclusive open succeeded. Only the held-parent path permits
+    // cleanup here: the legacy non-scratch branch retains its old behavior.
+    if (anchored) rmSync(tmp, { force: true });
+    throw error;
   } finally {
     closeSync(fd);
   }
@@ -214,6 +304,12 @@ function writeMaskExclusive(tmp: string, png: Uint8Array, existing: Stats | unde
  * replaces an earlier mask of the same name, as it always did.
  */
 export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
+  if (process.platform === "linux") return writeAnchoredMaskFile(maskAbs, png);
+  const parts = resolve(maskAbs).split(sep);
+  if (parts.some((part, i) => part === ".brain" && parts[i + 1] === "scratch")) requireScratchDescriptors();
+  // Ordinary non-scratch toolkit writes retain their existing behavior on
+  // platforms without Linux descriptor paths. Hosted scratch already needs
+  // Linux maintenance workers; it never uses this path-only branch.
   const parent = dirname(maskAbs);
   mkdirSync(parent, { recursive: true });
   const genuine = (): boolean => {
@@ -241,8 +337,11 @@ export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
 
 /**
  * Write a mask into the scratch area: the port of core's `writeScratchFile`.
- * At the moment of the write, the chain is re-verified, the target's
- * directory must be exactly what its path says (no symlink at any segment),
+ * Every directory is opened with O_NOFOLLOW | O_DIRECTORY from a held
+ * parent descriptor, including mkdir, temp open, rename and error cleanup.
+ * The visible chain is re-verified so a changed destination is refused;
+ * every syscall still targets the held directory if it changes after a check.
+ * The target's directory must be exactly what its path says (no symlink at any segment),
  * the target's own entry must not be a link or a directory, and the bytes go
  * to a random temporary sibling that is renamed onto the name. A rename
  * replaces the directory entry: it never writes through a planted link, nor
@@ -250,53 +349,16 @@ export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
  * earlier mask of the same name, as it always did.
  */
 export function writeScratchMask(rootReal: string, maskAbs: string, png: Uint8Array): void {
+  requireScratchDescriptors();
   const dir = scratchDir(rootReal);
   if (!scratchIgnored(rootReal)) {
     throw new Error(`${SCRATCH_DIR}/ is not gitignored as a directory; run \`brain doctor --fix\`.`);
   }
-  const rel = relative(rootReal, maskAbs);
-  if (!under(dir, maskAbs)) throw new Error(`${rel} is outside ${SCRATCH_DIR}/, so no mask is written there.`);
-  const parent = dirname(maskAbs);
-  let path = dir;
-  for (const segment of ["", ...(parent === dir ? [] : relative(dir, parent).split(sep))]) {
-    if (segment) path = join(path, segment);
-    let s = lstatSync(path, { throwIfNoEntry: false });
-    if (!s) {
-      mkdirSync(path);
-      s = lstatSync(path);
-    }
-    if (s.isSymbolicLink() || !s.isDirectory()) {
-      throw new Error(`${relative(rootReal, path)} is not a directory of its own, so no mask is written there.`);
-    }
-  }
-  // Re-verified immediately before the rename, and before the temporary
-  // file is removed on failure: a directory swapped for a link while the
-  // temporary file was being written is refused rather than renamed or
-  // removed through. The one syscall between the check and the rename
-  // remains, as in core's primitive.
-  const genuine = (): boolean => {
-    try {
-      scratchDir(rootReal);
-      return realpathSync(parent) === parent && lstatSync(parent).isDirectory();
-    } catch {
-      return false;
-    }
-  };
-  const swapped = () =>
-    new Error(`${relative(rootReal, parent)} is no longer a directory of its own, so no mask is written there.`);
-  if (!genuine()) throw swapped();
-  const tmp = join(parent, `.${basename(maskAbs)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeMaskExclusive(tmp, png, lstatSync(maskAbs, { throwIfNoEntry: false }));
-  try {
-    if (!genuine()) throw swapped();
-    const entry = lstatSync(maskAbs, { throwIfNoEntry: false });
-    if (entry?.isSymbolicLink()) throw new Error(`${rel} is a symlink, so no mask is written there.`);
-    if (entry?.isDirectory()) throw new Error(`${rel} is a directory, so no mask is written there.`);
-    renameSync(tmp, maskAbs);
-  } catch (error) {
-    if (genuine()) rmSync(tmp, { force: true });
-    throw error;
-  }
+  const absolute = resolve(maskAbs);
+  const rel = relative(rootReal, absolute);
+  if (!under(dir, absolute)) throw new Error(`${rel} is outside ${SCRATCH_DIR}/, so no mask is written there.`);
+  if (absolute === dir) throw new Error(`${SCRATCH_DIR}/ is a directory, so no mask is written there.`);
+  writeAnchoredMaskFile(absolute, png);
 }
 
 export function claudeMaskFilename(
