@@ -193,7 +193,7 @@ test("the daily snapshot restores into an empty installation with its decision, 
   const backup = join(at.dir, "operational-backup.json");
   // The daily export, while the host runs; content Markdown has its own Git backup.
   const exported = Bun.spawnSync([process.execPath, BIN, "export", "--db", at.db, "--brain-root", at.brain, "--file", backup, "--json"]);
-  expect(exported.exitCode, exported.stderr.toString()).toBe(0);
+  expect(exported.exitCode, exported.stdout.toString() + exported.stderr.toString()).toBe(0);
   expect(JSON.parse(exported.stdout.toString())).toMatchObject({ ok: true, snapshot: { recovery_point_hours: 24 } });
   const spent = reservations(at);
   const content = installation();
@@ -258,10 +258,12 @@ test("staging missing after a restore becomes a visible decision, never blind ex
   const at = installation();
   let host = await start(at);
   const itemId = await arrive(host);
+  // This scenario needs a stable checkpoint, not a live-export race with the
+  // host's periodic database writers. Live export is covered above.
+  await host.stop();
   const backup = join(at.dir, "operational-backup.json");
   const exported = Bun.spawnSync([process.execPath, BIN, "export", "--db", at.db, "--brain-root", at.brain, "--file", backup, "--json"]);
-  expect(exported.exitCode, exported.stderr.toString()).toBe(0);
-  await host.kill();
+  expect(exported.exitCode, exported.stdout.toString() + exported.stderr.toString()).toBe(0);
   const target = installation();
   rmSync(target.db, { force: true });
   const restored = Bun.spawnSync([process.execPath, BIN, "restore", "--db", target.db, "--brain-root", target.brain, "--file", backup, "--json"]);
