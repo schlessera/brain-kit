@@ -9,22 +9,24 @@ import type { BackendModuleContext, BackendRuntimeReport } from "@schlessera/bra
 import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
 import { createRecordingObservability } from "../src/observability";
 import { resolveServerConfig } from "../src/config/env";
+import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(version = "0.42.0") {
-  const root = mkdtempSync(join(tmpdir(), "host-version-"));
-  roots.push(root);
+  const directory = mkdtempSync(join(tmpdir(), "host-version-"));
+  roots.push(directory);
+  const root = join(directory, "brain"); mkdirSync(root);
   const calls = join(root, "calls.jsonl");
   const bin = join(root, "node_modules/.bin/brain");
   mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
   function install(nextVersion: string) {
-    writeFileSync(bin, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nconst args = process.argv.slice(2);\nappendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + "\\n");\nif (args[0] === "--version") console.log(${JSON.stringify(nextVersion)});\nelse console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
+    writeFileSync(bin, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nconst args = process.argv.slice(2);\nappendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/calls.jsonl" : ${JSON.stringify(calls)}, JSON.stringify(args) + "\\n");\nif (args[0] === "--version") console.log(${JSON.stringify(nextVersion)});\nelse console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
     chmodSync(bin, 0o755);
   }
   install(version);
-  const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: join(root, "ui.db"), BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" });
+  const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: join(directory, "ui.db"), BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" });
   const observability = createRecordingObservability();
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
   const invocations = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [];
@@ -175,16 +177,17 @@ describe("explicit probes retain bounded wrapper cleanup", () => {
     test(`an explicit ${timesOut ? "timed-out" : "failed"} probe leaves no wrapper child`, async () => {
       const f = fixture();
       const wrapper = join(f.root, "wrapper.sh");
-      const pidFile = join(f.root, "child.pid");
-      writeFileSync(wrapper, `#!/bin/sh\nsleep 300 ${timesOut ? "" : ">/dev/null 2>&1 "}&\necho $! > '${pidFile}'\n${timesOut ? "sleep 300" : "exit 4"}\n`);
+      const marker = `odysseus-version-child-${f.root.split("/").at(-2)}`;
+      writeFileSync(wrapper, `#!/bin/sh\n/bin/sh -c 'sleep 300; :' '${marker}' ${timesOut ? "" : ">/dev/null 2>&1 "}&\nsleep 0.3\n${timesOut ? "sleep 300" : "exit 4"}\n`);
       chmodSync(wrapper, 0o755);
-      await expect(probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, minimumVersion: "0.40.0" })).rejects.toThrow(timesOut ? "within 5 s" : "exited 4");
-      const pid = Number(readFileSync(pidFile, "utf8").trim());
-      expect(pid).toBeGreaterThan(0);
+      const pending = probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, minimumVersion: "0.40.0" })
+        .then(() => null, error => error as Error);
+      const pids = await waitForHostProcesses(marker);
+      expect(pids.length).toBeGreaterThan(0);
+      expect((await pending)?.message).toContain(timesOut ? "within 5 s" : "exited 4");
       const until = Date.now() + 2_000;
-      const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
-      while (alive() && Date.now() < until) await Bun.sleep(10);
-      expect(alive()).toBe(false);
+      while (pids.some(hostProcessAlive) && Date.now() < until) await Bun.sleep(10);
+      expect(pids.filter(hostProcessAlive)).toEqual([]);
       expect(f.invocations()).toEqual([]);
     });
   }
@@ -195,7 +198,7 @@ describe("explicit CLI minima on direct clients and probes", () => {
     const f = fixture();
     const wrapper = join(f.root, "wrapper.ts");
     const records = join(f.root, "wrapper.jsonl");
-    writeFileSync(wrapper, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(records)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), color: process.env.NO_COLOR }) + "\\n");\nconst child = Bun.spawn(process.argv.slice(2), { stdin: "inherit", stdout: "inherit", stderr: "inherit" });\nprocess.exit(await child.exited);\n`);
+    writeFileSync(wrapper, `#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\nappendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/wrapper.jsonl" : ${JSON.stringify(records)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), color: process.env.NO_COLOR }) + "\\n");\nconst child = Bun.spawn(process.argv.slice(2), { stdin: "inherit", stdout: "inherit", stderr: "inherit" });\nprocess.exit(await child.exited);\n`);
     chmodSync(wrapper, 0o755);
     const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
@@ -226,15 +229,15 @@ describe("explicit CLI minima on direct clients and probes", () => {
   });
   test("a cancelled explicit invocation check reaps its child before sending user input", async () => {
     const f = fixture();
-    const pidFile = join(f.root, "probe.pid");
-    writeFileSync(f.bin, `#!/bin/sh\necho $$ > '${pidFile}'\nexec sleep 300\n`);
+    writeFileSync(f.bin, "#!/bin/sh\nsleep 300\n");
     const client = createBrainClient({ brainPath: f.root, minimumVersion: "0.40.0", searchTimeoutMs: 500 });
     const started = Date.now();
-    await expect(client.search("user-query")).rejects.toHaveProperty("name", "TimeoutError");
+    const pending = client.search("user-query").then(() => null, error => error as Error);
+    const pids = await waitForHostProcesses(f.bin);
+    expect(await pending).toHaveProperty("name", "TimeoutError");
     expect(Date.now() - started).toBeLessThan(2_000);
-    const pid = Number(readFileSync(pidFile, "utf8").trim());
-    expect(pid).toBeGreaterThan(0);
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(pids.length).toBeGreaterThan(0);
+    expect(pids.filter(hostProcessAlive)).toEqual([]);
     expect(f.invocations()).toEqual([]);
   });
   test("a failed explicit probe reports its owner, phase and corrective action", async () => {

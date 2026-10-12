@@ -1,3 +1,4 @@
+import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,10 +9,12 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
+import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
-  requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
+  outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
+
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
@@ -69,8 +72,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const init = { type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
-    loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
+  const { workerSandbox, workerLock, ...workerSessionEnv } = env;
+  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+    loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
   // holds the worker's session state too (#1703).
@@ -101,16 +105,18 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
-    sandbox = prepareWorkerSandbox(backend.brainPath, { restricted, ...(envelope ? {} : { home: workerEnv.HOME }) });
+    sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
+      : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME });
     const limits = launchLimits({});
     sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status),
-      turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined)] });
+      turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
+      outputStagingLimit()] });
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
-      command: [process.execPath, entry], env: workerEnv, sandbox, limits,
+      command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
     turnTemp = child.turnTemp;
@@ -120,7 +126,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
-  void child.exited.finally(() => { workerLive = false; });
+  void child.exited.finally(() => { workerLive = false; }).catch(() => {});
   if (env.caps.turnTemp && turnTemp) {
     const root = turnTemp.root;
     turnContext.turnTemp = {
@@ -130,11 +136,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     };
   }
   // The relay lives exactly as long as the worker it serves.
-  if (envelope) void child.exited.finally(() => envelope.relay.stop());
+  if (envelope) void child.exited.finally(() => envelope.relay.stop()).catch(() => {});
+  const releases = new Map<string, () => void>();
+  void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
   // A worker that never ran a turn has nothing to promote; one that did is
   // cleaned up by `promote` once its answer has been read.
   let prompted = false;
-  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); });
+  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); }).catch(() => {});
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -153,7 +161,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let limitSettlement: Promise<WorkerResourceLimitError | undefined> | undefined;
   const limitEnded = (): Promise<WorkerResourceLimitError | undefined> => limitSettlement ??= (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const exited = await Promise.race([child.exited.then(() => true),
+    const exited = await Promise.race([child.exited.then(() => true, () => true),
       new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), 3_000); })]);
     clearTimeout(timer);
     if (!exited) return undefined;
@@ -252,6 +260,25 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (msg.id <= lastRpcId) throw new Error("Replayed pi worker RPC");
     lastRpcId = msg.id;
     const bridge = turnContext.bridge!;
+    if (msg.method === "unlock") {
+      if (typeof msg.input.lockId !== "string" || Object.keys(msg.input).length !== 1 || !releases.has(msg.input.lockId)) throw new Error("Unknown pi worker lock");
+      releases.get(msg.input.lockId)!(); releases.delete(msg.input.lockId); return { ok: true };
+    }
+    if (msg.method === "lock") {
+      const grant = grants.get(msg.toolCallId);
+      if (!workerLock || !grant || grant.name !== msg.toolName) throw new Error("Pi worker lock has no server permission grant");
+      const input = JSON.parse(grant.input);
+      const fileTool = ["write_file", "edit_file"].includes(msg.toolName);
+      // The worker locks the canonical contained target, including an internal
+      // symlink or a missing leaf below an existing parent. Validate identically.
+      const target = fileTool && typeof input.path === "string" ? safeResolve(backend.brainPath, input.path) : null;
+      const key = msg.toolName === "bash" ? bashLockKey(input.command)
+        : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
+      if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
+      const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
+      try { live(); } catch (error) { release(); throw error; }
+      const lockId = randomUUID(); releases.set(lockId, release); return { lockId };
+    }
     if (msg.method === "syncAuth") {
       if (Object.keys(msg.input).length !== 1 || typeof msg.input.content !== "string") throw new Error("Malformed native pi state request");
       syncPiAuth(agentDir, agentFiles["auth.json"], msg.input.content);
@@ -262,7 +289,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (isCompletedAutonomousToolCall(turnContext.autonomous, msg.toolName, msg.input)) {
         return { behavior: "deny", message: "This call already completed before yielding; inspect its retained result instead of replaying it." };
       }
-      if (bridge.applyBrain && Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)) {
+      if (bridge.applyBrain && Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)
+        && !(workerSandbox?.profile === "governed" && ["write_file", "edit_file"].includes(msg.toolName))) {
         // Exact application authorization belongs to the server route.
         return { behavior: "allow" };
       }
@@ -403,7 +431,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // message: if the worker is gone, settle the limit before blaming the
     // protocol. A live worker that broke the protocol is stopped at once.
     if (ended) return fail(error);
-    const exited = await Promise.race([child.exited.then(() => true), Bun.sleep(250).then(() => false)]);
+    const exited = await Promise.race([child.exited.then(() => true, () => true), Bun.sleep(250).then(() => false)]);
     fail((exited ? await limitEnded() : undefined) ?? error);
   });
   void child.exited.then(async code => {
@@ -411,7 +439,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // the limit that ended the worker, outranks a generic exit.
     await Promise.race([received, Bun.sleep(1_000)]);
     if (!ended) fail((await limitEnded()) ?? new BackendRequestError(`Pi worker exited (${code}): ${diagnostic}`));
-  });
+  }).catch(fail);
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
   try {
@@ -434,7 +462,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       // The send is inside the lifecycle: an oversized prompt still ends the
       // worker and removes its turn temp.
       try { send({ type: "prompt", text, options }); await done.promise; }
-      finally { child.stdin.end(); child.kill("SIGKILL"); await child.exited; await received; promote(); }
+      finally {
+        child.stdin.end(); child.kill("SIGKILL");
+        try { await child.exited; } finally { await received; promote(); }
+      }
       if (error) throw error;
     },
     async abort() {

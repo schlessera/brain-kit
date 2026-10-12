@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serializeSigned } from "hono/utils/cookie";
@@ -17,6 +17,7 @@ const Socket = WebSocket as unknown as { new(url: string, options: Bun.WebSocket
 
 test("the authenticated app attaches durable tools to the live turn bridge and refuses unbound resolution", async () => {
   const root = mkdtempSync(join(tmpdir(), "inbox-bridge-host-")); closes.push(() => rmSync(root, { recursive: true, force: true }));
+  const brain = join(root, "brain"); mkdirSync(brain);
   let finish!: () => void, reject!: (error: unknown) => void;
   const proof = new Promise<void>((resolve, fail) => { finish = resolve; reject = fail; });
   // Observe rejection immediately, even if the browser hello has not arrived yet.
@@ -34,7 +35,7 @@ test("the authenticated app attaches durable tools to the live turn bridge and r
     } catch (error) { reject(error); }
   } });
   const app = await createApp({ config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: SECRET,
-    HOST: "127.0.0.1", DB_PATH: join(root, "ui.sqlite"), BRAIN_PATH: root, BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
+    HOST: "127.0.0.1", DB_PATH: join(root, "ui.sqlite"), BRAIN_PATH: brain, BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
     observability: createSilentObservability(), registry: createStaticBackendRegistry([backend], backend.id) });
   closes.push(() => app.close());
   createInboxStore(app.db).ingest({ threadId: "share", itemId: "arrival", source: "share", dedupKey: "share", stagingId: crypto.randomUUID(), stakes: 1, expiresAt: Date.now() + 86400000 });

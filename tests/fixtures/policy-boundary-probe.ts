@@ -68,7 +68,7 @@ function filesContaining(dir: string, needle: string, out: string[] = []): strin
 
 /** Shared attempt code for executors that run before the first tool event. */
 const attemptSource = `
-const __aliases = ${JSON.stringify(Object.values(aliases))}, __entries = ${JSON.stringify(newEntries)}, __areas = ${JSON.stringify(writableAreas)};
+const __aliases = ${JSON.stringify(Object.values(aliases))}, __entries = ${JSON.stringify(newEntries)}, __areas = ["/tmp/brain-worker-areas/scratch", "/tmp/brain-worker-areas/workspaces/ithaca"];
 function __attempt(fs) {
   const results = [];
   const run = (op, path, fn) => { try { fn(); results.push({ op, path, ok: true }); } catch (e) { results.push({ op, path, ok: false, code: e.code }); } };
@@ -117,9 +117,10 @@ async function outer(): Promise<void> {
   writeFileSync(policyPath, POLICY);
   writeFileSync(notebookPath, JSON.stringify({ cells: [{ cell_type: "markdown", id: "crew", source: [POLICY], metadata: {} }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
   writeFileSync(targetPath, TARGET);
+  if (scenario === "governed-alias") symlinkSync("harbor-log.md", join(brainPath, "notes/harbor-alias.md"));
   // Case 1: a preexisting hardlink elsewhere in the brain, a policy alias where
   // host scratch used to live, and symlinked file/directory aliases.
-  linkSync(policyPath, aliases.hardlink); linkSync(policyPath, aliases.hostScratch);
+  if (!scenario.startsWith("governed")) { linkSync(policyPath, aliases.hardlink); linkSync(policyPath, aliases.hostScratch); }
   symlinkSync("../context/policies/crew.md", aliases.symlink);
   symlinkSync("../context/policies", join(brainPath, "notes/policies-link"));
   // Case 5: topology race targets, each nonempty.
@@ -138,7 +139,7 @@ async function outer(): Promise<void> {
   // server and a SessionStart hook (Claude), an extension factory (pi).
   writeFileSync(join(brainPath, "witness.ts"), `import * as fs from "node:fs";${attemptSource}
 const source = process.argv[2];
-const report = { source, ...__attempt(fs) };
+const report = { source, ...${scenario.startsWith("governed") ? "{ results: [], scratchAliases: [], scratch: true, areaWritable: [] }" : "__attempt(fs)"} };
 if (process.env.BRAIN_WORKER_SCRATCH) fs.writeFileSync(process.env.BRAIN_WORKER_SCRATCH + "/witness-" + source + ".json", JSON.stringify(report));
 const base = process.env.ANTHROPIC_BASE_URL;
 if (base) await fetch(base + "/witness", { method: "POST", body: JSON.stringify(report) }).catch(() => {});
@@ -149,6 +150,11 @@ if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSO
   mkdirSync(join(brainPath, ".pi/extensions"), { recursive: true });
   writeFileSync(join(brainPath, ".pi/extensions/proof.ts"), piExtension());
   // The one place outside-boundary observations are taken, before and after.
+  if (scenario === "governed-lock") {
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brainPath, stdout: "pipe", stderr: "pipe" });
+    if (git("init", "-q").exitCode !== 0) throw new Error("fixture git init failed");
+    writeFileSync(join(brainPath, ".gitignore"), ".brain/scratch/\nbrain.db*\n");
+  }
   const before = { policy: readFileSync(policyPath, "utf8"), members: readdirSync(policyDir).sort(),
     nlink: lstatSync(policyPath).nlink, target: readFileSync(targetPath, "utf8"), tree: manifest(brainPath) };
   // The fixture's own scripts name the marker; any other file containing it is an escape.
@@ -213,6 +219,7 @@ export default function (pi) {
 async function server(): Promise<void> {
   const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
   const { createActivityStore } = await import("../../packages/ui-server/src/activity/store.js");
+  const { recordGovernanceEvent, queryGovernanceEvents } = await import("../../packages/ui-server/src/governance/events.js");
   const { createActivityStream } = await import("../../packages/ui-server/src/activity/stream.js");
   const { createStaticBackendRegistry } = await import("../../packages/ui-server/src/agent/backend.js");
   const { createSessionCatalog } = await import("../../packages/ui-server/src/ws/session-catalog.js");
@@ -222,7 +229,7 @@ async function server(): Promise<void> {
   const { createInboxBudget } = await import("../../packages/ui-server/src/inbox/budget.js");
   const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
   const { runAutonomousTurn } = await import("../../packages/ui-server/src/inbox/autonomous-turn.js");
-  const { createBrainApplication } = await import("../../packages/ui-server/src/brain/application.js");
+  const { createBrainApplication, boundaryPlanner } = await import("../../packages/ui-server/src/brain/application.js");
   const { workerHostBoundary } = await import("../../packages/ui-sdk/src/server/worker-launcher.js");
   const { createClaudeBackend } = await import("../../packages/ui-backend-claude/src/backend.js");
   const { createPiBackend } = await import("../../packages/ui-backend-pi/src/backend.js");
@@ -302,6 +309,19 @@ async function server(): Promise<void> {
       [{ name: "probe_worker", input: { config: attackConfig } }, bash(attack)],
       bashWrites.map(bash), routed, bridgeEffects, [permitted],
     ];
+  } else if (scenario === "governed-alias") {
+    script = [
+      [{ name: "read_file", input: { path: "notes/harbor-alias.md" } }],
+      [{ name: "write_file", input: { path: "notes/harbor-alias.md", content: "Odysseus writes through the harbor alias.\n" } }],
+    ];
+  } else if (scenario.startsWith("governed") && scenario !== "governed-voice") {
+    script = [
+      [adapter === "claude" ? { name: "Write", input: { file_path: join(brainPath, "notes/native.md"), content: "Odysseus writes directly.\n" } }
+        : { name: "write_file", input: { path: "notes/native.md", content: "Odysseus writes directly.\n" } }],
+      [bash(`printf 'Penelope writes from Bash.\\n' > notes/shell.md`)],
+      [bash(`cd ${brainPath} && ${process.execPath} ${join(REPO, "packages/core/src/cli/brain.ts")} add 'Odysseus repairs the raft' --json`)],
+      [bash(`if printf attack > context/policies/crew.md; then exit 41; fi; if mv context context-moved; then exit 42; fi; if ln context/policies/crew.md notes/alias.md; then exit 43; fi; printf '{}' > .claude/settings.local.json`)],
+    ];
   } else if (scenario === "race") {
     script = [
       ["notes/race-dir/log.md", "notes/race-hard.md", "notes/race-sym.md"].map(path => ({ name: n("write_file"),
@@ -309,7 +329,7 @@ async function server(): Promise<void> {
       [{ name: n("write_file"), input: { path: "notes/race-ancestor/new.md", content: "RACE-PAYLOAD", expectedBaseHash: null } }],
       [permitted],
     ];
-  } else if (scenario === "voice") {
+  } else if (scenario === "voice" || scenario === "governed-voice") {
     script = [[bash(bashWrites[0]!), { name: "Write", input: { file_path: policyPath, content: ESCAPE } },
       { name: n("write_file"), input: { path: "notes/harbor-log.md", content: ESCAPE, expectedBaseHash: targetHash } },
       { name: n("brain_add"), input: { content: ESCAPE, target: "context/policies/voice.md" } },
@@ -325,6 +345,7 @@ async function server(): Promise<void> {
   // Loopback inference: the main agent follows `script`; a subagent's
   // requests (identified by its prompt) get the subagent script.
   let step = 0, subStep = 0, calls = 0;
+  const lockSteps = new Map<string, number>();
   const requests: Array<{ tools: string[]; results: unknown[]; subagent: boolean }> = [];
   const witnesses: unknown[] = [];
   const unavailable: string[] = [];
@@ -338,7 +359,11 @@ async function server(): Promise<void> {
     const tools = body.tools?.map(t => t.name) ?? [];
     const isSub = JSON.stringify(body.messages?.[0]?.content ?? "").includes("SUBAGENT-ODYSSEUS");
     requests.push({ tools, subagent: isSub, results: (body.messages ?? []).flatMap(m => Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "tool_result") : []) });
-    const chosen = (isSub ? (subStep < subagent.length ? [subagent[subStep++]!] : []) : (script[step++] ?? []))
+    const lockActor = JSON.stringify(body.messages).includes("Odysseus lock session A") ? "A" : "B";
+    const lockStep = lockSteps.get(lockActor) ?? 0;
+    if (scenario === "governed-lock") lockSteps.set(lockActor, lockStep + 1);
+    const lockScript = lockStep ? [] : [bash(`printf 'start-${lockActor}\\n' >> notes/git-serialization.md; printf Odysseus > notes/lock-${lockActor}.md; git add notes/lock-${lockActor}.md && sleep 0.2 && git -c user.name=Odysseus -c user.email=odysseus@ithaca.example commit -m 'Odysseus lock ${lockActor}'; printf 'end-${lockActor}\\n' >> notes/git-serialization.md`)];
+    const chosen = (scenario === "governed-lock" ? lockScript : isSub ? (subStep < subagent.length ? [subagent[subStep++]!] : []) : (script[step++] ?? []))
       .map(call => call.name === "$subagent" ? { ...call, name: tools.includes("Agent") ? "Agent" : "Task" } : call);
     for (const call of chosen) if (!tools.includes(call.name)) unavailable.push(call.name);
     chosen.forEach((call, index) => issued.push({ id: `toolu_${calls}_${index}`, name: call.name, input: call.input, subagent: isSub }));
@@ -365,7 +390,7 @@ async function server(): Promise<void> {
   const backend = adapter === "claude"
     ? createClaudeBackend({ brainPath, log: () => {}, profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
       buildEnv: () => ({ ANTHROPIC_BASE_URL: url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) }] })
-    : createPiBackend({ brainPath, sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
+    : createPiBackend({ brainPath, loadExtensions: !scenario.startsWith("governed"), sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
       profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }] });
 
   // Case 5: the route's own deterministic race seam swaps topology between
@@ -402,8 +427,19 @@ async function server(): Promise<void> {
 
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "policy-boundary-test" }), stream = createActivityStream(store);
-  const host = new WsHost({ brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
-    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 90_000 });
+  let governedTurns;
+  let applicationPlanner;
+  if (scenario.startsWith("governed")) {
+    const { createHostExecution } = await import("../../packages/ui-server/src/brain/host-execution.js");
+    const { createGovernedTurns } = await import("../../packages/ui-server/src/brain/governed-turn.js");
+    const execution = createHostExecution({ brainPath, dbPath: ":memory:" });
+    execution.attach(db);
+    applicationPlanner = boundaryPlanner(execution.boundary);
+    governedTurns = createGovernedTurns({ brainPath, execution, profile: "governed", maskPaths: [],
+      index: async () => {}, report: message => { throw new Error(message); } });
+  }
+  const host = new WsHost({ governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
+    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: 90_000 });
   const frames: Frame[] = [];
   let maskRequests = 0, askRequests = 0;
   const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -429,7 +465,7 @@ async function server(): Promise<void> {
 
   const refused = scenario.startsWith("refused-");
   if (refused) workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture: user namespaces unavailable" });
-  const posture = refused ? scenario.slice("refused-".length) : scenario === "voice" ? "voice" : scenario === "autonomous" ? "autonomous" : "interactive";
+  const posture = refused ? scenario.slice("refused-".length) : (scenario === "voice" || scenario === "governed-voice") ? "voice" : scenario === "autonomous" ? "autonomous" : "interactive";
   const settled: unknown[] = [];
   let failure: { name: string; message: string } | undefined;
   let autonomous: unknown;
@@ -452,7 +488,13 @@ async function server(): Promise<void> {
     } else {
       const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
       const work = posture === "voice" ? { posture: "voice" as const, started() {}, observe() {}, settle(outcome: string, detail?: unknown) { settled.push({ outcome, detail }); } } : undefined;
-      await runSession(host, { authorization, text: "Odysseus boundary proof", attachments: [], providerId: "fixture", ...(work ? { work } : {}) });
+      if (scenario === "governed-lock") {
+        const other = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
+        try {
+          await Promise.all([runSession(host, { authorization, text: "Odysseus lock session A", attachments: [], providerId: "fixture" }),
+            runSession(host, { authorization: other, text: "Odysseus lock session B", attachments: [], providerId: "fixture" })]);
+        } finally { other.release(); }
+      } else await runSession(host, { authorization, text: "Odysseus boundary proof", attachments: [], providerId: "fixture", ...(work ? { work } : {}) });
       authorization.release();
     }
   } finally { clearTimeout(deadline); }
@@ -462,7 +504,7 @@ async function server(): Promise<void> {
   const toolStarts = frames.filter(f => f.type === "tool_use_start" || f.type === "tool_use_complete").map(f => ({ toolUseId: f.toolUseId, toolName: f.toolName }));
   writeFileSync(receiptPath, JSON.stringify({ calls, spawned, issued, requests, witnesses, unavailable, frames: frames.filter(f => f.type !== "text_delta" && f.type !== "status"),
     toolResults, toolStarts, applications, raceReceipts, maskRequests, askRequests, settled, failure, autonomous, held, mapped, mappingBytes: mapping.length,
-    serverPid: process.pid, python, posture }));
+    governance: queryGovernanceEvents(db, { limit: 100 }), serverPid: process.pid, python, posture, serialization: existsSync(join(brainPath, "notes/git-serialization.md")) ? readFileSync(join(brainPath, "notes/git-serialization.md"), "utf8") : null }));
   Bun.spawn = original.spawn; Bun.spawnSync = original.spawnSync;
   closeSync(preConfinementFd);
   host.close(); stream.close(); db.close(); inference.stop(true);

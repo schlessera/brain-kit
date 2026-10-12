@@ -230,7 +230,7 @@ describe("brain-ui-cron subprocess", () => {
       writeFileSync(
         fakeBrain,
         "#!/bin/sh\n" +
-          `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$HOME" "$CLAUDE_CONFIG_DIR" "$ANTHROPIC_API_KEY" "\${DB_PATH-unset}" "$CUSTOM_DISCOVERY_TOKEN" "\${BRAIN_UI_SUBPROCESS_ENV_EXTRA-unset}" "\${UNKNOWN_CHILD_VALUE-unset}" > '${observedEnv}'\n` +
+          `printf '%s|%s|%s|%s|%s|%s|%s\\n' "$HOME" "$CLAUDE_CONFIG_DIR" "$ANTHROPIC_API_KEY" "\${DB_PATH-unset}" "$CUSTOM_DISCOVERY_TOKEN" "\${BRAIN_UI_SUBPROCESS_ENV_EXTRA-unset}" "\${UNKNOWN_CHILD_VALUE-unset}" > "\${BRAIN_WORKER_DATA_ROOT:-${brainRoot}}/module-discovery-env.txt"\n` +
           "printf '%s\\n' '{\"enabled\":[],\"available\":[]}'\n"
       );
       chmodSync(fakeBrain, 0o755);

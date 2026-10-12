@@ -7,7 +7,7 @@ import { createTurnTempPromoter, launchAgentWorker, mergeLimitReports, mib, requ
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { wrapCommand, type ExecWrapperConfig, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
+import { wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { processStateLedger } from "./worker-state-budget.js";
 import { createClaudeWorkerState, validateSessionId, workerStateSaveFailure, workerStateSaveReason } from "./worker-state.js";
@@ -82,7 +82,8 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  */
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
-  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {}) {
+  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
+  outputLock?: KeyedLock) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -123,7 +124,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       // The real launcher, with this worker's allowance, before anything is
       // restored, admitted or copied.
       requireWorkerHost(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes,
-        turnTempBytes: turnTempLimits.allowanceBytes });
+        turnTempBytes: turnTempLimits.allowanceBytes,
+        ...(sandbox?.profile && sandbox.profile !== "restricted" ? { profile: sandbox.profile } : {}) });
       immediateSignal.throwIfAborted();
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
@@ -143,15 +145,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
-            command: [command, ...args], env: childEnv,
+            command: [command, ...args], env: childEnv, ...(outputLock ? { outputLock } : {}),
             restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { state.release(); throw error; }
+      } catch (error) { record(error); state.release(); throw error; }
       reports.push(worker.limitReport);
       const handle = worker.state!;
       const turnTemp = worker.turnTemp;
@@ -169,7 +171,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       // be buffered when the exit is observed. Bounded, should a pipe linger.
       const drained = new Promise<void>(done => {
         worker.stderr.once("end", done); worker.stderr.once("close", done); worker.stderr.once("error", () => done());
-        void worker.exited.then(() => setTimeout(done, 2_000).unref?.());
+        const afterExit = () => { setTimeout(done, 2_000).unref?.(); };
+        void worker.exited.then(afterExit, afterExit);
       });
       const kill = (sig: NodeJS.Signals): boolean => { killed = true; signalCode = sig; worker.kill(sig); return true; };
       const abort = () => kill("SIGKILL");

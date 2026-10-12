@@ -12,7 +12,7 @@ test("capture keeps partial success and retry runs only index through the actual
     const bin = join(root, "node_modules/.bin/brain");
     const calls = join(root, "calls.jsonl");
     writeFileSync(bin, `#!/usr/bin/env bun\nimport {appendFileSync} from "node:fs";
-      appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+      appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/calls.jsonl" : ${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + "\\n");
       if (process.argv[2] === "add") console.log(JSON.stringify({action:"created",path:"notes/topic.md",title:"Topic",type:"note",indexed:false,indexError:"database is locked"}));
       else if (process.argv[2] === "index") { await Bun.sleep(30); console.log("{}"); }
     `);

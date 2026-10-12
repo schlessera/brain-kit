@@ -24,7 +24,7 @@ for (const scenario of [
         mkdirSync(join(t.brainPath, "settings"));
         writeFileSync(join(t.brainPath, "settings/jobs.json"), JSON.stringify(scenario.saved));
       }
-      writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
+      writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT ??=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
       expect(scenario.expected.length).toBeGreaterThan(0);
       if (scenario.configured) expect(scenario.configured.length).toBeGreaterThan(0);
       if (scenario.saved && "boards" in scenario.saved) {

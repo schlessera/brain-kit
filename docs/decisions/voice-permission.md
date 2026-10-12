@@ -368,7 +368,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:340` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:343` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
@@ -381,7 +381,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:335`; `drainPendingForTurn`, `:340`),
+(`abortController.abort()`, `run-session.ts:338`; `drainPendingForTurn`, `:343`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -406,7 +406,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:410-416`, and the lookup computing
-`remembered`, `ws/bridge.ts:250-270`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:251-271`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -460,10 +460,10 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:509-524`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:511-526`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:279-294`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:280-295`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -488,13 +488,13 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:125`, and what it
-becomes, `allowedTools: allowed`, `:218`). The voice posture is one
+becomes, `allowedTools: allowed`, `:220`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
 The current plan still specifies *"Tool **availability** control (`tools`) or a
 measured enforced membership"*
-(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1231-1233`).
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1231-1250`).
 The plan is #51's design record. It was written before #141 and #154 measured
 the runtime paths described below; those measurements strengthen the argument
 for removing a tool's availability rather than leaving its execution reachable.
@@ -503,7 +503,7 @@ for removing a tool's availability rather than leaving its execution reachable.
 was trivial is superseded. Its resource loader and inline extension gate expose
 more than the curated tool roster, so both first-party runtimes need executable
 boundary proof
-(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1244-1248`).
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1244-1265`).
 This correction does not choose a second enforcement mechanism or weaken the
 voice/unattended membership requirement below.
 
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:468`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:472`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -592,7 +592,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:250-270`,
+  `packages/ui-server/src/ws/bridge.ts:251-271`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:410-416`).
   The evaluation happens

@@ -30,7 +30,7 @@ import { createTestApp } from "./helpers/test-app";
  */
 function hostPidsRunning(marker: string): number[] {
   return readdirSync("/proc").filter(name => /^\d+$/.test(name)).flatMap(name => {
-    try { return readFileSync(`/proc/${name}/cmdline`, "utf8").includes(marker) ? [Number(name)] : []; } catch { return []; }
+    try { return readFileSync(`/proc/${name}/cmdline`, "utf8").split("\0")[1] === marker ? [Number(name)] : []; } catch { return []; }
   });
 }
 /** Whether `pid` still answers signal 0, which a zombie does until it is reaped. */
@@ -171,7 +171,7 @@ describe("BrainClient.scratchPrune", () => {
     mkdirSync(binDir, { recursive: true });
     const capture = join(root, "capture.txt");
     const bin = join(binDir, "brain");
-    writeFileSync(bin, `#!/usr/bin/env bun\n${source.replaceAll("CAPTURE", JSON.stringify(capture))}`);
+    writeFileSync(bin, `#!/usr/bin/env bun\n${source.replaceAll("CAPTURE", `(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/capture.txt" : ${JSON.stringify(capture)})`)}`);
     chmodSync(bin, 0o755);
     return { root, capture, bin };
   }
@@ -214,16 +214,14 @@ describe("BrainClient.scratchPrune", () => {
   });
 
   test("an aborted signal kills the child, and the call rejects only once it is gone", async () => {
-    const { root, capture, bin } = brainWithCli(
-      `import { writeFileSync } from "fs";\n` +
-        `writeFileSync(CAPTURE, String(process.pid));\n` +
-        `await Bun.sleep(60_000);\n`
+    const { root, bin } = brainWithCli(
+      `await Bun.sleep(60_000);\n`
     );
     try {
       const brain = createBrainClient({ brainPath: root });
       const controller = new AbortController();
       const call = brain.scratchPrune({ signal: controller.signal });
-      while (!existsSync(capture)) await settle(10);
+      while (!hostPidsRunning(bin).length) await settle(10);
       const pids = hostPidsRunning(bin);
       expect(pids.length).toBeGreaterThan(0);
       controller.abort(new Error("deadline"));
@@ -247,13 +245,10 @@ describe("BrainUiApp.close", () => {
     const root = mkdtempSync(join(tmpdir(), "brain-app-close-"));
     const binDir = join(root, "node_modules", ".bin");
     mkdirSync(binDir, { recursive: true });
-    const capture = join(root, "pid.txt");
     writeFileSync(
       join(binDir, "brain"),
       `#!/usr/bin/env bun\n` +
         `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
-        `import { writeFileSync } from "fs";\n` +
-        `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
         `await Bun.sleep(60_000);\n`
     );
     chmodSync(join(binDir, "brain"), 0o755);
@@ -269,8 +264,8 @@ describe("BrainUiApp.close", () => {
         observability: createRecordingObservability(),
         registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
       });
-      // The boot prune is running: the child wrote its pid and is sleeping.
-      while (!existsSync(capture)) await settle(10);
+      // The actual boot-prune CLI is running; its host PID is observable.
+      while (!hostPidsRunning(join(binDir, "brain")).length) await settle(10);
       const pids = hostPidsRunning(join(binDir, "brain"));
       expect(pids.length).toBeGreaterThan(0);
       await app.close();
@@ -286,24 +281,20 @@ describe("BrainUiApp.close", () => {
 
 describe("the shared test-app helper", () => {
   test("teardown awaits the app's close: the prune child is gone before state is removed", async () => {
-    let capture = "";
     const harness = await createTestApp({
       prepare: (brainPath) => {
         const binDir = join(brainPath, "node_modules", ".bin");
         mkdirSync(binDir, { recursive: true });
-        capture = join(brainPath, "pid.txt");
         writeFileSync(
           join(binDir, "brain"),
           `#!/usr/bin/env bun\n` +
             `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
-            `import { writeFileSync } from "fs";\n` +
-            `writeFileSync(${JSON.stringify(capture)}, String(process.pid));\n` +
             `await Bun.sleep(60_000);\n`
         );
         chmodSync(join(binDir, "brain"), 0o755);
       },
     });
-    while (!existsSync(capture)) await settle(10);
+    while (!hostPidsRunning(join(harness.brainPath, "node_modules/.bin/brain")).length) await settle(10);
     const pids = hostPidsRunning(join(harness.brainPath, "node_modules", ".bin", "brain"));
     expect(pids.length).toBeGreaterThan(0);
     await harness.teardown();

@@ -192,7 +192,7 @@ describe("asynchronous startup resource ordering", () => {
     writeFileSync(path, `#!/bin/sh\ntouch '${marker}'\necho '2.0.0 (Claude Code)'\n`);
     chmodSync(path, 0o755);
     const dbPath = join(dir, "ui.db");
-    const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: dir, DB_PATH: dbPath, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: path, BRAIN_UI_CLAUDE_TOKEN_MINTED_AT: "last spring" });
+    const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: join(dir, "brain"), DB_PATH: dbPath, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: path, BRAIN_UI_CLAUDE_TOKEN_MINTED_AT: "last spring" });
     await expect(createApp({ config })).rejects.toThrow("BRAIN_UI_CLAUDE_TOKEN_MINTED_AT");
     expect(existsSync(marker)).toBe(false);
     expect(existsSync(dbPath)).toBe(false);

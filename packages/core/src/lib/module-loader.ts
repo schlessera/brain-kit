@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { BrainConfig } from "./config.js";
 import {
+  configurationRoot,
   assetTitleRuleSchema,
   propagationRuleSchema,
   repoRelativePathSchema,
@@ -93,6 +94,7 @@ export async function loadModules(
   config: BrainConfig | null,
   root: string
 ): Promise<LoadedModule[]> {
+  root = configurationRoot(root);
   const entries = Object.entries(config?.modules ?? {});
   const loaded: LoadedModule[] = [];
   const seenNames = new Set<string>();
@@ -186,6 +188,7 @@ export async function importManifest(
   key: string,
   root: string
 ): Promise<{ manifest: ModuleManifest; dir: string }> {
+  root = configurationRoot(root);
   let specifier: string;
   let dir: string;
 

@@ -94,6 +94,7 @@ import {
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
+import { createGovernedTurns } from "./brain/governed-turn.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
@@ -109,6 +110,8 @@ import { createObservability, type Observability } from "./observability/index.j
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
+import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
+
 export type { AppRenderer };
 
 /** Explicit host minima for independently resolved content and backend runtimes. */
@@ -118,6 +121,8 @@ export interface HostVersionRequirements {
 }
 
 export interface CreateAppOptions {
+  /** Tighten ordinary hosted turns to the read-only brain profile. Default: governed. */
+  workerProfile?: "governed" | "strict";
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -249,6 +254,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
     options.observability ?? createObservability({ minSeverity: config.logLevel });
+  const privateStatePaths = config.inbox?.pokeTokenFile
+    ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
+  try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
+  catch (error) {
+    observability.logger("brain").emit({ severityText: "ERROR", body: (error as Error).message,
+      attributes: { "boot.refusal": (error as Error).name } });
+    throw error;
+  }
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -313,7 +326,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
-  const hostExecution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec,
+  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
@@ -434,6 +447,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
   const host = new WsHost({
+    governedTurns: createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
+      profile: options.workerProfile ?? "governed",
+      maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
+      index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) }),
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,
@@ -836,6 +853,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       scratchPins.close();
       // A keyed reindex still queued finishes before the gate's database closes.
       await keyedReindex.idle();
+      await host.governedTurns?.close();
       activity.close();
       db.close();
     },

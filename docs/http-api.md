@@ -327,7 +327,7 @@ under: `enforced` entries `{ limit, source, value }` and `absent` entries
 ([contract](integration-contract/http.md#worker-resource-limits-additive-1660)).
 `workerHost.governed` (#1648) says whether the `governed` profile can run and
 where the server evaluates the brain's own code: `{ available, hostExecution }`,
-with `reason` (`server_cwd_in_brain`, `database_in_brain` or
+with `reason` (`server_cwd_in_brain`, `database_in_brain`, `private_state_in_brain` or
 `worker_host_unavailable`) and `detail` when unavailable. `hostExecution` is
 `"worker"` while the brain's config, the `brain` CLI and git run only in
 maintenance workers, and `"host"` where no governed turn can have changed the

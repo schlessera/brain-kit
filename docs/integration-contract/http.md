@@ -347,3 +347,21 @@ pruning records it with actor `server`, null session/turn/model/profile, and the
 existing unbound-event retention. A failed event write falls back to the overage
 log; pinned files remain protected. The closed kind/payload specification is in
 [the HTTP reference](../http-api.md#governance-events-additive-1651).
+
+## Governed profile status (additive, 0.42.0, #1649)
+
+`runtime.workerHost.governed` adds optional `profile` (`governed` or `strict`),
+`protectedPaths` (objects with `path`, `mode` and `reason`), `profileFallback`,
+`identity` (`shared_uid`) and `configurationView` (`live` or `startup`). A mode
+is `read_only`, `mask_file`, `mask_directory` or `absent`. These describe the
+current ordinary-turn default; each turn resolves its protections again.
+The existing availability and host-execution fields keep their meaning.
+
+### Operational-state layout refusal (additive, #1649)
+
+The host boundary status reason adds `private_state_in_brain` alongside
+`database_in_brain`, with the same migration detail the boot refusal uses.
+Every hosted profile refuses boot as `OperationalStateInBrainError` when
+`DB_PATH` or private poke-token state resolves inside the brain. The error
+carries the unavailable diagnostic as `status`; no HTTP listener is created.
+The hosting guide documents migration and the retained directory masks.

@@ -43,6 +43,7 @@ export function makeBridge(
   promptLabel?: () => string | undefined,
   applicationPolicy?: BrainApplicationPolicy
 ): BackendBridge {
+  if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
   // for each queued follow-up, and a backend can still emit late frames

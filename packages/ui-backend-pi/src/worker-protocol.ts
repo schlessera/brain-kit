@@ -65,7 +65,7 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready"), sessionId: z.string().uuid(), model: input.optional(),
     thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber }).strict(),
   z.object({ type: z.literal("event"), event: piWorkerEvent }).strict(),
-  z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "bridge", "apply", "readBase", "syncAuth"]),
+  z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock"]),
     toolCallId: text, toolName: text, input }).strict(),
   z.object({ type: z.literal("snapshot"), entries: z.array(transcriptEntry) }).strict(),
   z.object({ type: z.literal("done"), cost: usageNumber, error: text.optional() }).strict(),

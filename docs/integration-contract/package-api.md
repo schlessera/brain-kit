@@ -2919,3 +2919,24 @@ reading the recorded finding/fingerprint and invoking `check`, never by replayin
 stale. Interrupted dispositions are verified against CLI log state and their
 exact due instant. An uncertain inverse remains `check_failed`; it is not
 reapplied. Neither leaving nor disconnecting stops an already confirmed effect.
+
+## Governed hosted workers (additive, 0.42.0, #1649)
+
+Ordinary interactive and voice hosted turns default to the governed writable
+profile. Claude's native write tools and Pi's direct file tools are available
+subject to their existing tool permissions; voice retains its narrower roster.
+`createApp` accepts optional `workerProfile: "governed" | "strict"` to tighten
+ordinary turns. Autonomous turns remain restricted. Server application tools
+keep their approvals and exact-base semantics. Snapshot consumers execute
+configuration from complete read-only startup views with a separate validated
+write path, as ruled on #1649. Startup inputs and publication copies share a
+separate bounded output-staging allowance (256 MiB by default), admitted through
+the worker ledger; exhausted aggregate capacity refuses as `worker_state_busy`
+with Retry. `BRAIN_UI_OUTPUT_STAGING_BYTES` and
+`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` configure it. Invalid values refuse boot;
+oversized starting copies refuse as `worker_state_exceeded`, and writes beyond
+the filesystem allowance fail with `ENOSPC`. Internal launch/request fields remain internal.
+
+Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
+(`WsHost.workerLock`) are internal wiring. They do not extend the supported
+embedder surface of `WsHost`; generated API reports retain that classification.

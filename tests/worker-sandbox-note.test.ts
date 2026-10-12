@@ -48,7 +48,7 @@ afterEach(() => {
 function expectedNote(extra: worker.WorkerNoteLimit[] = []): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
   return worker.workerSandboxNote(worker.prepareWorkerSandbox(brain, { home }),
-    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra] });
+    { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] });
 }
 
 function claudeAppend(): string {

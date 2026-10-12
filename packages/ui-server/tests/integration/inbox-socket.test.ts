@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serializeSigned } from "hono/utils/cookie";
@@ -27,11 +27,13 @@ async function waitFor(predicate: () => boolean, budgetMs = 2000): Promise<boole
   return predicate();
 }
 async function start(path: string) {
+  const brainPath = join(path, "../brain");
+  mkdirSync(brainPath, { recursive: true });
   let starts = 0;
   const backend = makeFakeBackend({ id: "fake", startTurn: async () => { starts++; } });
   const app = await createApp({
     config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash",
-      COOKIE_SECRET: SECRET, HOST: "127.0.0.1", DB_PATH: path, BRAIN_PATH: join(path, ".."),
+      COOKIE_SECRET: SECRET, HOST: "127.0.0.1", DB_PATH: path, BRAIN_PATH: brainPath,
       BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
     observability: createSilentObservability(),
     registry: createStaticBackendRegistry([backend], backend.id),

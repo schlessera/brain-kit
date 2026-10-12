@@ -352,7 +352,9 @@ refuses rather than run git on the host.
 - **Hosted Git sync** keeps a private bare mirror beside `DB_PATH` (a private
   temporary directory for an in-memory database or standalone client).
   Commit, pull, merge, judgment and indexing run without credentials or host
-  network access. They fetch and push over the local file transport; only
+  network access, using complete immutable startup inputs and a separate
+  validated output workspace. Local outputs publish before the next credentialed
+  transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
   root remain read-only. After that worker and all its descendants have
   exited, the host rejects linked storage and object alternates and runs
@@ -387,8 +389,6 @@ run under `strict`, and the brain's code stays on the host only when:
 
 - the server's working directory is inside the brain (`server_cwd_in_brain`;
   start it from a directory outside the brain), or
-- its database is inside the brain (`database_in_brain`; set `DB_PATH`
-  outside it), or
 - the host cannot run the worker boundary at all, or cannot start a
   credential-free maintenance worker with its private network namespace
   (`worker_host_unavailable`). The worker host probe starts outside the brain
@@ -396,6 +396,28 @@ run under `strict`, and the brain's code stays on the host only when:
 
 `GET /api/status` reports this as `runtime.workerHost.governed`, with
 `hostExecution` `"worker"` or `"host"`, and the boot log says it once.
+
+**Operational state must live outside the brain, in every hosted profile.**
+Before opening SQLite, provisioning the private poke token, reconciling turns or
+executing brain code, the server resolves `DB_PATH` and
+`BRAIN_UI_INBOX_POKE_TOKEN_FILE` through symlinks, including existing parents of
+new paths and the derived quarantine sibling. Database, WAL/SHM and private-state aliases through hardlinks or bind mounts inside
+the brain refuse too, including new database paths beneath a mounted state parent.
+Aliases wholly outside remain valid. Masks cover configured directories and
+resolved database, token and quarantine targets. For an in-memory database, private quarantine storage under `TMPDIR`
+(or the system temp directory) is checked too. A database or private state file or directory inside the brain refuses
+boot as `OperationalStateInBrainError`. The same resolver reports
+`database_in_brain` or `private_state_in_brain` with migration guidance on the
+host boundary status surface. The thrown boot error carries that diagnostic as
+`status`, and the boot log records it; a refused server opens no HTTP listener.
+
+Stop the server, move its state directory outside the brain (keep the database,
+WAL/SHM siblings and `brain-ui-quarantine/` together), set `DB_PATH` to the moved
+database, and restart. Keep the poke token in a private directory outside the
+brain, such as `/run`, and update `BRAIN_UI_INBOX_POKE_TOKEN_FILE` if necessary;
+the server provisions a fresh token at boot. Choose a dedicated state directory
+beside the brain, so masking it does not cover brain inputs. There are no strict
+private-state exclusions; the worker masks retain their existing strength.
 
 **Crash recovery.** Before a governed turn's worker launches, the server
 records which protected paths exist (the decision's tier A and B, with
@@ -471,6 +493,39 @@ system directories and installed packages, so this needs a host process that
 listens inside one of them. Hostile content cannot create such a listener. Keep
 host daemons' sockets out of the brain directory on a hosted install.
 
+## Output-staging allowance
+
+Strict, restricted and maintenance configuration consumers use immutable startup
+inputs. Strict persistent areas and maintenance results use private copies,
+validated against the authoritative brain before publication. Each consumer
+reserves a separate **256 MiB** allowance in the same admission ledger as runtime
+state and turn temp. Starting input bytes, publication copies, Git adapter data,
+and filesystem overhead all occupy that one bounded tmpfs. Turn temp is separate.
+
+| Host setting | Default | Meaning |
+| --- | --- | --- |
+| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The total private startup and output staging capacity for one consumer. |
+| `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (768 MiB at defaults) | Aggregate admitted output-staging capacity. |
+
+Both values must be positive multiples of 4096, with the budget at least one
+allowance; invalid values refuse server startup. A consumer unable to reserve
+its whole allowance refuses immediately with `worker_state_busy` and Retry.
+Starting copies must fit before any repository code runs; an oversized copy
+refuses with `worker_state_exceeded`, naming output staging and `ENOSPC`.
+Subsequent writes that fill the filesystem fail with `ENOSPC` (`No space left on
+device`). A strict publication copy normally needs room for two copies of its
+starting contents, plus the turn's changes. Set an allowance and aggregate
+budget appropriate for the complete input tree, including dependencies and
+workspaces. No host-backed overflow fallback exists. The agent's limits note
+states the same resolved allowance.
+
+A trusted helper keeps this private mount alive through publication. The
+launcher uses util-linux `nsenter` with `--user`, `--mount` and
+`--preserve-credentials` to start bubblewrap inside its completed mount namespace;
+bubblewrap still creates the worker's own namespaces, fresh `/proc`, masks and
+private turn temp. Install `nsenter` alongside bubblewrap and permit `setns` in
+the container seccomp profile. No added host capabilities are needed.
+
 ## Running the server in a Docker container
 
 Docker's defaults stop the worker at three separate launcher steps. Each needs
@@ -481,6 +536,7 @@ each was rejected are in the
 
 | Launcher step | Refusal without the option | What the container needs |
 | --- | --- | --- |
+| util-linux namespace entry is installed | `nsenter` is missing or namespace entry fails | util-linux `nsenter` in the image and `setns` allowed in the namespace seccomp profile for bounded staging. |
 | bubblewrap is installed | `bubblewrap is missing` | bubblewrap in the image. 0.9 is eligible. |
 | Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
 | Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |
@@ -491,7 +547,7 @@ Derive the seccomp profile from Docker's default profile for your Docker
 version, adding one rule:
 
 ```sh
-jq '.syscalls += [{"names":["clone","mount","umount2","unshare","pivot_root"],"action":"SCMP_ACT_ALLOW"}]' \
+jq '.syscalls += [{"names":["clone","mount","umount2","unshare","setns","pivot_root"],"action":"SCMP_ACT_ALLOW"}]' \
   default.json > worker-seccomp.json
 docker run --user 1000:1000 \
   --security-opt seccomp=worker-seccomp.json \
@@ -499,7 +555,7 @@ docker run --user 1000:1000 \
 ```
 
 `--security-opt seccomp=unconfined` also passes, but it disables every
-syscall filter rather than five. Do not add `--cap-add SYS_ADMIN` or
+syscall filter rather than the listed namespace calls. Do not add `--cap-add SYS_ADMIN` or
 `--privileged`: neither is needed once seccomp allows these calls, and adding
 `SYS_ADMIN` did not fix the `/proc` step in any measured combination.
 
@@ -757,3 +813,39 @@ do not propagate a JavaScript test preload into arbitrary future worker code;
 the tests prove the named component operations, not runtime or egress containment.
 The test harness keeps workspace output ownership with the existing ancestor
 instead of transferring its writable lock descriptor into the worker bootstrap.
+
+## Governed and strict hosted turns (0.42.0)
+
+Interactive and voice turns default to `governed`: ordinary brain files are
+writable inside the isolated worker. Policy, Git config/hooks, startup code,
+installed dependencies and permission configuration remain protected. Existing
+protected names are read-only, with self-bound ancestors; `.env*` is masked.
+Unsafe linked or mounted protected paths select `strict`, with the cause in the
+agent's note. Autonomous turns keep their restricted envelope.
+
+`createApp({ workerProfile: "strict" })` opts ordinary hosted turns into strict.
+Strict and restricted workers execute configuration from complete immutable
+startup views, including imported helpers and absent names. Strict persistent
+writes use `/tmp/brain-worker-areas/scratch` and
+`/tmp/brain-worker-areas/workspaces`; link their canonical brain destinations.
+Strict persistent writes are staged privately and validated after worker exit.
+Maintenance writes use a separate server-validated output workspace. New
+directory permissions are finalized after child publication. Finalization checks
+the held and visible directory identity and temporary mode (using kernel
+dentry paths if a peer removes ancestor search access), preserves a newer
+peer mode, and processes every pending directory even if one final chmod fails;
+the check and chmod are separate syscalls. The inaccessible-ancestor check
+relies on workers having a separate mount namespace from the host. Worker-controlled unreadable private
+copies are cleaned without following links, and cleanup failure cannot retain
+the writer gate or staging reservation. Curated
+writes retain their authoritative route. A governed turn triggers an incremental
+index refresh after its workers exit, serialized on the server lock.
+
+`runtime.workerHost.governed` states the selected default, resolved protected
+paths, configuration view and shared-uid protection. Per-turn capabilities name
+the actual mounts, fallback cause and limits. Without an identity helper,
+protection is mask-only. Maintenance credentials, egress recording and the
+change journal retain the interim limits stated in the capabilities note.
+Governed peers may see one another's configuration immediately; snapshot
+consumers retain their startup inputs until the next launch. See the
+[governed-worker decision](../decisions/governed-writable-workers.md).

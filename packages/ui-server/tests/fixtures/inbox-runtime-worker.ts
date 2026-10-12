@@ -1,4 +1,4 @@
-import { existsSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createUiDb } from "../../src/db/client.js";
 import { createInboxRuntime } from "../../src/inbox/runtime.js";
@@ -10,9 +10,10 @@ if (mode === "serve") {
   const { createStaticBackendRegistry } = await import("../../src/agent/backend.js");
   const { createRecordingObservability } = await import("../../src/observability/index.js");
   const { makeFakeBackend } = await import("../helpers/fake-backend.js");
+  const brain = join(dirname(path!), "brain"); mkdirSync(brain, { recursive: true });
   const backend = makeFakeBackend({ id: "fixture" });
   const app = await createApp({ config: resolveServerConfig({
-    AUTH_MODE: "password", HOST: "127.0.0.1", DB_PATH: path!, BRAIN_PATH: dirname(path!),
+    AUTH_MODE: "password", HOST: "127.0.0.1", DB_PATH: path!, BRAIN_PATH: brain,
     BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0",
     BRAIN_UI_PASSWORD_HASH: await Bun.password.hash("fixture-password"),
     COOKIE_SECRET: "fixture-cookie-secret-for-inbox-only",

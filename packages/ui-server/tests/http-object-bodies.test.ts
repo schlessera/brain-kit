@@ -61,10 +61,10 @@ beforeAll(async () => {
       const bin = join(root, "node_modules/.bin/brain");
       writeFileSync(bin, `#!${process.execPath}\nimport { appendFileSync, writeFileSync } from "node:fs";
         const args = process.argv.slice(2);
-        appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args) + "\\n");
+        appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/calls.jsonl" : ${JSON.stringify(callsPath)}, JSON.stringify(args) + "\\n");
         if (args.includes("--version")) console.log("99.0.0");
         else if (args[0] === "add") {
-          writeFileSync(${JSON.stringify(contentPath)}, args[args.indexOf("--") + 1]);
+          writeFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/capture.txt" : ${JSON.stringify(contentPath)}, args[args.indexOf("--") + 1]);
           console.log(JSON.stringify({ action: "created", path: "notes/voyage.md", title: "Voyage", type: "note", indexed: true }));
         } else console.log("{}");
       `);

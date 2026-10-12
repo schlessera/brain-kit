@@ -47,7 +47,7 @@ describe("boot probe", () => {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) },
         // #1648: governed cannot run either, and with no turn able to change the brain its code stays on the host.
-        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "host" }, limits: expect.any(Object) });
+        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "host", profile: "strict", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "startup" }, limits: expect.any(Object) });
       const warnings = observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes(FRESH_PROC));
       expect(warnings).toHaveLength(1);
       expect(String(warnings[0]!.body)).toContain("The server keeps running");
@@ -62,7 +62,7 @@ describe("boot probe", () => {
     try {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) },
-        governed: { available: true, hostExecution: "worker" }, limits: expect.any(Object) });
+        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live" }, limits: expect.any(Object) });
     } finally { await t.teardown(); }
   });
 
@@ -124,7 +124,7 @@ describe("Check again", () => {
       const fixed = await t.fetch("/api/status/worker-host", { method: "POST" });
       expect(fixed.status).toBe(200);
       expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) },
-        governed: { available: true, hostExecution: "worker" }, limits: expect.any(Object) });
+        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live" }, limits: expect.any(Object) });
       expect(spy).toHaveBeenCalledTimes(2);
       // A pass is not cached: the next check probes again.
       const broken = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;

@@ -51,14 +51,14 @@ function fixture() {
   git(other, "add", "."); git(other, "commit", "-m", "Watch the tide"); git(other, "push", "origin", "main");
   const helper = `import { appendFileSync, readFileSync } from "node:fs";
 let home; try { home = readFileSync(${JSON.stringify(join(state, "credential"))}, "utf8"); } catch { home = "masked"; }
-appendFileSync(process.cwd() + "/config.sentinel", JSON.stringify({ env: process.env, home }) + "\\n");\n`;
+appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/config.sentinel", JSON.stringify({ env: process.env, home }) + "\\n");\n`;
   writeFileSync(join(state, "credential"), TOKEN, { mode: 0o600 });
   writeFileSync(join(brain, "helper.ts"), helper);
   writeFileSync(join(brain, "brain.config.ts"), `import "./helper.ts";\n` + readFileSync(join(brain, "brain.config.ts"), "utf8"));
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, "notes/harbor.md"), "---\ntitle: Harbor\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n\nPenelope checks the ropes.\n");
   writeFileSync(join(brain, ".gitattributes"), "notes/harbor.md filter=sentinel\n");
-  writeFileSync(join(brain, "filter.conf"), `[filter "sentinel"]\n\tclean = "sh -c 'printf \\\"filter:%s\\\\n\\\" \\\"$BRAIN_UI_SYNC_GITHUB_TOKEN\\\" >> filter.sentinel; cat'"\n\tsmudge = cat\n\trequired = true\n`);
+  writeFileSync(join(brain, "filter.conf"), `[filter "sentinel"]\n\tclean = "sh -c 'printf \\\"filter:%s\\\\n\\\" \\\"$BRAIN_UI_SYNC_GITHUB_TOKEN\\\" >> \"$BRAIN_WORKER_DATA_ROOT/filter.sentinel\"; cat'"\n\tsmudge = cat\n\trequired = true\n`);
   git(brain, "config", "include.path", "../filter.conf");
   mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
   const cli = join(brain, "node_modules/.bin/brain");
@@ -120,6 +120,33 @@ test("full hosted sync commits, pulls and pushes while config and included filte
   } finally { server.stop(true); if (old === undefined) delete process.env.BRAIN_UI_SYNC_GITHUB_TOKEN; else process.env.BRAIN_UI_SYNC_GITHUB_TOKEN = old; }
 }, 120_000);
 
+test("hosted sync retains startup imports while publishing outputs beside a newer governed edit", async () => {
+  const f = fixture();
+  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+  expect(boundary.isolated()).toBe(true);
+  const original = Bun.spawn;
+  let changed = false;
+  const intercept = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+    const encoded = (args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH;
+    if (encoded && !changed) {
+      const launch = JSON.parse(encoded) as { argv: string[] };
+      // Select the real CLI phase, after the startup copy and Git inputs exist.
+      if (launch.argv.includes(join(f.brain, "node_modules/.bin/brain"))) {
+        changed = true;
+        writeFileSync(join(f.brain, "helper.ts"), 'throw new Error("NEWER_GOVERNED_IMPORT");\n');
+      }
+    }
+    return original(...args);
+  }) as typeof Bun.spawn);
+  try {
+    const result = await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync();
+    expect(changed, "SYNC_PEER_EDIT_AT_WORKER_LAUNCH").toBe(true);
+    expect(result.result?.run.status, "SYNC_STARTUP_IMPORT_RETAINED").toBe("complete");
+    expect(readFileSync(join(f.brain, "helper.ts"), "utf8"), "SYNC_NEWER_PEER_INPUT_PRESERVED").toContain("NEWER_GOVERNED_IMPORT");
+    expect(readFileSync(join(f.brain, "notes/sea.md"), "utf8"), "SYNC_VALIDATED_OUTPUT_PUBLISHED").toContain("Telemachus watches the tide.");
+  } finally { intercept.mockRestore(); }
+}, 120_000);
+
 test("credentialed transport mounts no brain, Git config or broad host ancestor, and cannot evaluate the included filter", async () => {
   const f = fixture();
   const mirror = join(f.state, "transport.git"); mkdirSync(mirror); git(mirror, "init", "--bare", "-b", "main");
@@ -154,8 +181,8 @@ test("maintenance cannot write mirror config or hooks; a background writer canno
   const poison = join(f.brain, "poison.sentinel");
   writeFileSync(join(f.brain, "helper.ts"), readFileSync(join(f.brain, "helper.ts"), "utf8") + `
 for (const name of ["config", "HEAD", "hooks/pre-receive"]) {
-  try { require("node:fs").writeFileSync(${JSON.stringify(mirror)} + "/" + name, "poison"); require("node:fs").appendFileSync(${JSON.stringify(poison)}, "WROTE " + name + "\\n"); }
-  catch (error) { require("node:fs").appendFileSync(${JSON.stringify(poison)}, name + ":" + error.code + "\\n"); }
+  try { require("node:fs").writeFileSync(${JSON.stringify(mirror)} + "/" + name, "poison"); require("node:fs").appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/poison.sentinel", "WROTE " + name + "\\n"); }
+  catch (error) { require("node:fs").appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/poison.sentinel", name + ":" + error.code + "\\n"); }
 }
 // The namespace init reaps this descendant when the CLI exits. It cannot
 // race the host's storage validation after runMaintenanceWorker settles.

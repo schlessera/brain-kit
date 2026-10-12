@@ -238,6 +238,7 @@ describe("createApp boot validation", () => {
     HOST: "127.0.0.1",
     AUTH_MODE: "none",
     DB_PATH: ":memory:",
+    BRAIN_PATH: join(tmpdir(), "odysseus-backend-boot-brain"),
     // These boot tests do not exercise pricing; custom env records do not
     // inherit the runner's NODE_ENV=test default that disables discovery.
     BRAIN_UI_PRICING_DISCOVERY: "0",
@@ -356,7 +357,7 @@ describe("createApp boot validation", () => {
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = await createApp({
-      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_PATH: join(tmpdir(), "odysseus-backend-boot-brain"), BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");

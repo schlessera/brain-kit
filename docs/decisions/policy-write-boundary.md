@@ -397,7 +397,7 @@ its policy:
   that may admit fewer workers than the session cap. Both are validated
   (positive whole multiples of 4096 bytes, a budget of at least one allowance,
   a product that is a safe integer; `export function resolveWorkerStateLimits`,
-  `packages/ui-sdk/src/server/worker-state-limits.ts:107-137`); an invalid value
+  `packages/ui-sdk/src/server/worker-state-limits.ts:109-139`); an invalid value
   refuses the boot by name. The reservation is logical admission, not
   allocated RAM.
 - When the budget cannot take another allowance, the turn is **refused
@@ -409,7 +409,7 @@ its policy:
 **Admission.** One ledger per server process, shared by every Claude backend
 instance through a process-global slot, so recreating a backend never forgets
 a running worker (`export function createStateLedger`,
-`packages/ui-sdk/src/server/worker-state-budget.ts:59-99`). Reserve and
+`packages/ui-sdk/src/server/worker-state-budget.ts:63-110`). Reserve and
 release are synchronous; every exit path releases. The supported envelope is
 one server process per budget: a second server process on the same host has
 its own ledger, so the operator splits the host's headroom between them with
@@ -441,13 +441,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:727-768`):
+`packages/ui-sdk/src/server/worker-launcher.ts:913-1018`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:637-661`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:758-783`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -457,7 +457,7 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:36`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:42`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in

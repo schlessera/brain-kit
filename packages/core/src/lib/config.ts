@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "path";
 import { z } from "zod";
 import { geoConfigSchema } from "@schlessera/brain-geo";
 
-import { resolveEnv } from "../config/env.js";
+import { maintenanceConfigRoots, resolveEnv } from "../config/env.js";
 
 import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { SCRATCH_DIR } from "./scratch.js";
@@ -588,6 +588,8 @@ export function formatConfigError(error: z.ZodError): string {
  * when no file exists; throws with a readable message on schema violations.
  */
 export async function loadUserConfig(root: string): Promise<LoadedConfig> {
+  const destination = root;
+  root = configurationRoot(root);
   const tsPath = join(root, "brain.config.ts");
   const jsonPath = join(root, "brain.config.json");
 
@@ -619,5 +621,11 @@ export async function loadUserConfig(root: string): Promise<LoadedConfig> {
     throw new Error(`Invalid ${path}:\n${formatConfigError(parsed.error)}`);
   }
   if (await Bun.file(path).text() !== content) throw new Error("Brain config changed while loading; retry after reviewing it");
-  return { config: parsed.data, path, source, content };
+  return { config: parsed.data, path: destination === root ? path : join(destination, source === "ts" ? "brain.config.ts" : "brain.config.json"), source, content };
+}
+
+/** @internal Maintenance writes are outside the immutable configuration execution view. */
+export function configurationRoot(root: string): string {
+  const roots = maintenanceConfigRoots();
+  return roots.data === root && roots.config ? roots.config : root;
 }

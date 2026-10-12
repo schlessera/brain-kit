@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { lstat, readdir, readFile, stat, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep, posix, dirname } from "node:path";
 import ignore, { type Ignore } from "ignore";
@@ -221,33 +221,18 @@ async function areaSnapshot(rel: string, abs: string, root: string) {
   return { real, ...readAnchoredSnapshot(real, absRoot, rel)! };
 }
 
-interface CachedIgnore {
-  matcher: Ignore;
-  mtime: number;
-}
-const ignoreCache = new Map<string, CachedIgnore>();
-
-async function loadIgnore(root: string): Promise<Ignore> {
-  const gitignore = join(root, ".gitignore");
-  let mtime = 0;
-  try {
-    const s = await stat(gitignore);
-    mtime = s.mtimeMs;
-  } catch {
-    // no .gitignore — empty matcher
-  }
-  const cached = ignoreCache.get(root);
-  if (cached && cached.mtime === mtime) return cached.matcher;
-
+/** The ignore parser consumes only these captured data bytes; it executes no repository code. */
+function loadIgnore(root: string): Ignore {
   const matcher = ignore();
-  if (mtime > 0) {
-    try {
-      const text = await readFile(gitignore, "utf8");
-      matcher.add(text);
-    } catch {}
+  const canonical = realpathSync(root);
+  try {
+    const snapshot = readAnchoredSnapshot(join(canonical, ".gitignore"), canonical, ".gitignore");
+    if (snapshot) matcher.add(Buffer.from(snapshot.bytes).toString("utf8"));
+    return matcher;
+  } catch (error) {
+    if (error instanceof NotFoundError) return matcher;
+    throw error;
   }
-  ignoreCache.set(root, { matcher, mtime });
-  return matcher;
 }
 
 function isHardExcluded(name: string, isDir: boolean): boolean {
@@ -275,6 +260,7 @@ export function isBrowseablePath(rel: string): boolean {
  * Always excludes: .git, node_modules, *.db*. Then applies .gitignore.
  */
 export async function listDirectory(rel: string, root: string): Promise<FileEntry[]> {
+  const matcher = loadIgnore(root);
   const abs = await safeResolve(rel, root);
   let s;
   try {
@@ -284,7 +270,6 @@ export async function listDirectory(rel: string, root: string): Promise<FileEntr
   }
   if (!s.isDirectory()) throw new NotFoundError(rel);
 
-  const matcher = await loadIgnore(root);
   const dirents = await readdir(abs, { withFileTypes: true });
 
   const entries: FileEntry[] = [];

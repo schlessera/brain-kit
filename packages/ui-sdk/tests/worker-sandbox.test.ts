@@ -36,7 +36,7 @@ async function run(brain: string, sandbox: WorkerSandbox, program: string, home:
 
 /** Every area path bound read-write, and whether $HOME is overlaid, read straight from the argv. */
 function mountsIn(argv: string[]) {
-  const binds = argv.flatMap((arg, i) => arg === "--bind" && argv[i + 1] === argv[i + 2] ? [argv[i + 1]!] : []);
+  const binds = argv.flatMap((arg, i) => arg === "--bind" ? [argv[i + 1]!] : []);
   return { binds, overlay: argv.includes("--tmp-overlay"), xdg: argv.includes("XDG_CONFIG_HOME") };
 }
 
@@ -50,7 +50,7 @@ describe("worker sandbox writable areas (#1626)", () => {
         const brain=${JSON.stringify(f.brain)}, policy=${JSON.stringify(f.policy)};
         const attempt=(fn)=>{try{fn();return "ok"}catch(e){return e.code}};
         const out={};
-        for (const [name, dir] of [["scratch", brain+"/.brain/scratch"], ["workspaces", brain+"/workspaces/ithaca"]]) {
+        for (const [name, dir] of [["scratch", "/tmp/brain-worker-areas/scratch"], ["workspaces", "/tmp/brain-worker-areas/workspaces/ithaca"]]) {
           fs.writeFileSync(dir+"/kept.txt","Odysseus: "+name);
           fs.writeFileSync(dir+"/moved.txt","moved");
           out[name]={
@@ -312,8 +312,8 @@ describe("worker sandbox writable areas (#1626)", () => {
       for (const sandbox of variants) {
         const mounts = mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }));
         const note = workerSandboxNote(sandbox);
-        expect(note.includes("`.brain/scratch/` is writable"), "NOTE_SCRATCH").toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
-        expect(note.includes("`workspaces/` is writable"), "NOTE_WORKSPACES").toBe(mounts.binds.includes(join(f.brain, "workspaces")));
+        expect(note.includes("`/tmp/brain-worker-areas/scratch/` is writable"), "NOTE_SCRATCH").toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
+        expect(note.includes("`/tmp/brain-worker-areas/workspaces/` is writable"), "NOTE_WORKSPACES").toBe(mounts.binds.includes(join(f.brain, "workspaces")));
         expect(mounts.overlay, "NOTE_HOME").toBe(false);
         expect(note).toContain("`$HOME` itself is read-only");
         expect(note.includes("XDG_CONFIG_HOME"), "NOTE_XDG").toBe(mounts.xdg);
@@ -366,8 +366,11 @@ describe("the sandbox note's wording (#1654)", () => {
 
       1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
       2. **Persistent areas: kept across turns.**
-         - \`.brain/scratch/\` is writable. Write the file there (\`brain render --scratch\` and \`brain image --scratch\` do), then link its repo-relative path, such as \`.brain/scratch/<name>.pdf\`.
-         - \`workspaces/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.
+         - \`/tmp/brain-worker-areas/scratch/\` is writable. Write the file there, then link its repo-relative destination, such as \`.brain/scratch/<name>.pdf\`.
+         - \`/tmp/brain-worker-areas/workspaces/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.
+      Configuration executes from an immutable startup view, including imported helpers and absent names.
+      Write \`.brain/scratch/\` through \`/tmp/brain-worker-areas/scratch/\`, outside that view; link the repo-relative destination.
+      Write \`workspaces/\` through \`/tmp/brain-worker-areas/workspaces/\`, outside that view; link the repo-relative destination.
       3. **The brain: canonical and versioned.**
 
       Anything the reader should open goes in \`.brain/scratch/\` and is linked from there: a link in your answer must point into the brain or \`.brain/scratch/\`."
@@ -380,7 +383,7 @@ describe("the sandbox note's wording (#1654)", () => {
       { name: "workspaces", rel: "harbour", mount: { writable: false, reason: "harbour/ does not exist", missing: true } },
     ] };
     const note = workerSandboxNote(moved);
-    expect(note, "SCRATCH_PATH").toContain("`.brain/loom/` is writable");
+    expect(note, "SCRATCH_PATH").toContain("Write `.brain/loom/` through `/tmp/brain-worker-areas/scratch/`");
     expect(note, "LINK_RULE_PATH").toContain("a link in your answer must point into the brain or `.brain/loom/`");
     expect(note, "WORKSPACES_PATH").toContain("There is no `harbour/` directory");
     expect(note).not.toContain(".brain/scratch");

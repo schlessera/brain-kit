@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainApi, ApiRequestError } from "../src/lib/api-client.js";
 import { createBrainRoutes } from "../../ui-server/src/routes/brain.js";
+import { createHostBoundary } from "../../ui-server/src/brain/host-boundary.js";
 import type { BrainClient } from "../../ui-server/src/brain/client.js";
 import type { KeytermSettings } from "../../ui-server/src/voice/keyterm-builder.js";
 
@@ -72,14 +73,18 @@ describe("published sync helper through actual routes", () => {
 
   test("transport loss stays incomplete while the real server drains and reserves the root", async () => {
     const root = mkdtempSync(join(tmpdir(), "api-sync-reservation-"));
-    const started = join(root, "started");
-    const release = join(root, "release");
+    const control = mkdtempSync("/var/tmp/odysseus-api-sync-control-");
+    const started = join(control, "started");
+    const release = join(control, "release");
+    writeFileSync(started, "");
     const script = join(root, "fixture.ts");
     writeFileSync(script, `import {existsSync, writeFileSync} from "node:fs";
       writeFileSync(${JSON.stringify(started)}, "yes"); console.log("Working");
       while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
       process.exit(1);`);
+    const boundary = createHostBoundary({ brainPath: root, exec: {} });
     const app = createBrainRoutes({ brainPath: root,
+      boundary: { ...boundary, launch: execution => boundary.launch({ ...execution, writeFiles: [started] }) },
       brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath: root } as KeytermSettings, exec: {} });
     let calls = 0;
@@ -105,7 +110,7 @@ describe("published sync helper through actual routes", () => {
     });
     try {
       await expect(client.brainSync()).rejects.toThrow("incomplete");
-      await until(() => existsSync(started));
+      await until(() => readFileSync(started, "utf8") === "yes");
       const busy = await client.brainSync().catch(error => error);
       expect(busy).toBeInstanceOf(ApiRequestError);
       expect(busy.status).toBe(409);
@@ -122,6 +127,7 @@ describe("published sync helper through actual routes", () => {
       expect(response.status).toBe(200);
       await response.text();
       rmSync(root, { recursive: true, force: true });
+      rmSync(control, { recursive: true, force: true });
     }
   });
 });

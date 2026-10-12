@@ -12,7 +12,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
-  turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
+  outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
@@ -156,7 +156,8 @@ function assembleClaudeSdkTurn(
   const childEnv = envelope?.env ?? turnEnv(profile);
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
-  const sandbox = prepareWorkerSandbox(backend.brainPath, { restricted: Boolean(envelope), home: childEnv.HOME });
+  const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true })
+    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});
@@ -166,7 +167,8 @@ function assembleClaudeSdkTurn(
   // And so is turn temp's, next to the tool that frees it (#1703).
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   const sandboxNote = workerSandboxNote(sandbox, { limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
-    turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined)] });
+    turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
+    outputStagingLimit()] });
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -220,7 +222,7 @@ function assembleClaudeSdkTurn(
     // when no ask-user handler is present.
     disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
-    ] : []), ...(hosted ? ["Write", "Edit", "NotebookEdit"] : [])],
+    ] : []), ...(hosted && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
       req,
       allowedTools: allowed,
@@ -268,7 +270,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits });
+    }, { limits: stateLimits, turnTempLimits }, req.workerLock);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) sdkOptions.hooks = {
     ...sdkOptions.hooks,

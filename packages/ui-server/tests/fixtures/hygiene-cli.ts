@@ -3,7 +3,7 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MIN_BRAIN_CLI_VERSION } from "../../src/brain/client.js";
-const root = process.cwd(), args = process.argv.slice(2);
+const root = process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd(), args = process.argv.slice(2);
 appendFileSync(join(root, "argv.jsonl"), JSON.stringify(args) + "\n");
 // The source CLI has the unreleased pin capability; manifests move at release.
 if (args.includes("--version")) { console.log(MIN_BRAIN_CLI_VERSION); process.exit(0); }
@@ -14,5 +14,5 @@ if (args.includes("resolve") && !args.includes("--dry-run") && mode) {
   process.exit(1);
 }
 const core = resolve(import.meta.dir, "../../../core/src/cli/brain.ts");
-const child = Bun.spawn([process.execPath, core, ...args], { cwd: root, env: { ...process.env, BRAIN_ROOT: root }, stdout: "inherit", stderr: "inherit" });
+const child = Bun.spawn([process.execPath, core, ...args], { cwd: root, env: { ...process.env, BRAIN_ROOT: process.env.BRAIN_ROOT ?? root }, stdout: "inherit", stderr: "inherit" });
 process.exit(await child.exited);

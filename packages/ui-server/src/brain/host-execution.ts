@@ -12,6 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { assertOperationalStateOutsideBrain, type OperationalStateLayout } from "./operational-state.js";
 import { createUiDb } from "../db/client.js";
 import { createHostBoundary, type HostBoundary } from "./host-boundary.js";
 import { assertReconciled, createGovernedManifests, type GovernedManifests, type Reconciliation } from "./governed-manifest.js";
@@ -65,7 +66,8 @@ export interface HostExecution {
 }
 
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
-  requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
+  privateStatePaths?: OperationalStateLayout["privateStatePaths"]; profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
+  assertOperationalStateOutsideBrain(options);
   let gate: WriterGate | null = null;
   let manifests: GovernedManifests | null = null;
   let history = false;
@@ -73,7 +75,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   let quarantineDir: string | undefined;
   const open = (db: Database) => createGovernedManifests(db, { brainPath: options.brainPath,
     quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}) });
-  const boundary = createHostBoundary({ brainPath: options.brainPath, dbPath: options.dbPath,
+  const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.exec ? { exec: options.exec } : {}), ...(options.home ? { home: options.home } : {}),
     ...(options.log ? { log: options.log } : {}), ...(options.requireGate ? { requireGate: true } : {}),
     ...(options.workerHost ? { workerHost: options.workerHost } : {}),

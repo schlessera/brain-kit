@@ -20,8 +20,9 @@ import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 const clean: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const fn of clean.splice(0).reverse()) await fn(); });
 function setup(body = "Odysseus sees [[Eumaeus hut]].", missingTitle = false) {
-  const root = mkdtempSync(join(tmpdir(), "brain-hygiene-review-"));
-  clean.push(() => rmSync(root, { force: true, recursive: true }));
+  const directory = mkdtempSync(join(tmpdir(), "brain-hygiene-review-"));
+  clean.push(() => rmSync(directory, { force: true, recursive: true }));
+  const root = join(directory, "brain"); mkdirSync(root);
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "journeys"));
   // Every workspace dependency except .bin: brainCliCommand prefers
   // node_modules/.bin/brain, which exists only in a built-then-installed
@@ -42,7 +43,7 @@ function setup(body = "Odysseus sees [[Eumaeus hut]].", missingTitle = false) {
     writeFileSync(second, '---\ntitle: Circe palace\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nOdysseus sees [[Aeolus island]].\n');
     utimesSync(second, new Date("2026-07-12"), new Date("2026-07-12"));
   }
-  const db = createUiDb(join(root, "ui.sqlite")); clean.push(() => db.close());
+  const db = createUiDb(join(root, "../ui.sqlite")); clean.push(() => db.close());
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 86400 });
   const brain = createBrainClient({ brainPath: root, exec: {} });
   const review = createHygieneReview(db, { brain });
@@ -87,7 +88,7 @@ for (const status of ["pending", "snoozed"] as const) test(`Actions production c
   const suppressions = f.db.query("SELECT * FROM inbox_suppressions").all();
   expect(suppressions).toHaveLength(1);
   expect(logBytes(f.root)).toEqual(before);
-  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const foreign = createUiDb(join(f.root, "../ui.sqlite")); clean.push(() => foreign.close());
   const restarted = createHygieneReview(foreign, { brain: f.brain });
   expect(restarted.read()).toEqual(retired);
   const calls = f.argv().length;
@@ -317,7 +318,7 @@ for (const status of ["stale", "refused", "check_failed"] as const) test(`${stat
   writeFileSync(join(f.root, "fault.txt"), status);
   await f.review.resolver.resolveAsync(f.principal.id, request(item));
   expect(f.store.getItem(item.id)?.status).toBe("pending"); expect(pending(f)).toHaveLength(1);
-  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const foreign = createUiDb(join(f.root, "../ui.sqlite")); clean.push(() => foreign.close());
   const read = createHygieneReview(foreign, { brain: f.brain }).read();
   expect(read.action?.id).toBe(item.id); expect(read.action?.hygiene?.outcome).toMatchObject({ version: 1, status });
   expect(read.review.fixed).toBe(0);
@@ -465,12 +466,12 @@ test("createApp mounts authenticated review operations and invokes no backend th
   const { createRecordingObservability } = await import("../src/observability/index.js");
   let inference = 0;
   const backend = makeFakeBackend({ id: "fixture", startTurn: async () => { inference++; throw new Error("Inference is forbidden in hygiene review"); } });
-  const app = await createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: join(f.root, "ui.sqlite"), BRAIN_PATH: f.root,
-    BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_INBOX_POKE_TOKEN_FILE: join(f.root, "poke.token") }),
+  const app = await createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: join(f.root, "../ui.sqlite"), BRAIN_PATH: f.root,
+    BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_INBOX_POKE_TOKEN_FILE: join(f.root, "../poke.token") }),
     registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
   clean.push(() => app.close());
   const post = (operation: string) => app.fetch(new Request("http://localhost/api/hygiene/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ operation }) }));
-  const started = await post("start"); expect(started.status).toBe(200);
+  const started = await post("start"); expect(started.status, await started.clone().text()).toBe(200);
   const first = await started.json() as { action: InboxActionItem };
   expect(first.action.status).toBe("pending");
   expect((await post("pause")).status).toBe(200);
@@ -525,7 +526,7 @@ test("same-identity refresh supersedes the old Action with current evidence with
   const restoredDb = createUiDb(restoredPath); clean.push(() => restoredDb.close());
   expect(createHygieneReview(restoredDb, { brain: f.brain }).read().action?.id).toBe(current.id);
   expect((createInboxStore(restoredDb).getItem(old.id) as InboxActionItem | null)?.hygiene?.outcome?.supersededBy).toBe(current.id);
-  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const foreign = createUiDb(join(f.root, "../ui.sqlite")); clean.push(() => foreign.close());
   const restarted = createHygieneReview(foreign, { brain: f.brain });
   const repeated = await Promise.all([restarted.command(f.principal.id, "refresh"), f.review.command(f.principal.id, "refresh")]);
   expect(repeated.map(r => r.action?.id)).toEqual([current.id, current.id]);
@@ -606,7 +607,7 @@ test("simultaneous refreshes across connections admit one replacement and refres
   }
   const path = join(f.root, old.hygiene!.finding.path as string);
   writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
-  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const foreign = createUiDb(join(f.root, "../ui.sqlite")); clean.push(() => foreign.close());
   const second = createHygieneReview(foreign, { brain: f.brain });
   const results = await Promise.allSettled([f.review.command(f.principal.id, "refresh"), second.command(f.principal.id, "refresh")]);
   expect(results.some(r => r.status === "fulfilled")).toBe(true);

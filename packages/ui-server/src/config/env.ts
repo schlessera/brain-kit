@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { hostOutputStagingLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -81,6 +81,7 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input.", default: "unset outside maintenance", required: false },
   { name: "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", required: false, default: "5", description: "Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup." },
   { name: "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", required: false, default: "0", description: "Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup." },
   { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", required: false, default: "0", description: "Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup." },
@@ -193,6 +194,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DB_PATH",
     description:
       "SQLite file for the UI's own database (sessions, passkeys, settings). " +
+      "Must resolve outside the brain; an in-brain operational-state layout refuses boot with migration guidance. " +
       "The server factory defaults to ./brain-ui.db; brain-ui-cron defaults " +
       "to the container path /data/db/brain-ui.db.",
     default: "./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron)",
@@ -208,7 +210,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_INBOX_POKE_TOKEN_FILE",
     description:
-      "Absolute runtime token-file path for the protected internal inbox poke. " +
+      "Absolute runtime token-file path for the protected internal inbox poke; must resolve outside the brain. " +
       "Provision a private directory under /run for this app instance. The server " +
       "atomically writes a new 0600 boot token; unset disables poke authorization. " +
       "Does not enable autonomous dispatch.",
@@ -338,6 +340,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "RAM; invalid values refuse the boot.",
     default: "BRAIN_UI_TURN_TEMP_BYTES × MAX_CONCURRENT_SESSIONS",
     required: false,
+  },
+  {
+    name: "BRAIN_UI_OUTPUT_STAGING_BYTES",
+    description: "Each snapshot consumer's immutable startup inputs and writable output staging share a separate bounded tmpfs, in bytes (a positive multiple of 4096). Writes past it fail with ENOSPC; invalid values refuse boot.",
+    default: "268435456 (256 MiB)", required: false,
+  },
+  {
+    name: "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES",
+    description: "Aggregate output-staging admission in the shared worker ledger, in bytes (a positive multiple of 4096, at least one allowance). Busy admission refuses as worker_state_busy with Retry; invalid values refuse boot.",
+    default: "BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS", required: false,
   },
   {
     name: "BRAIN_UI_TURN_TIMEOUT_MS",
@@ -957,6 +969,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     maxConcurrentSessions,
   });
 
+  hostOutputStagingLimits(env); // Output staging refuses invalid trusted host values at boot (#1649).
+
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
@@ -1203,3 +1217,8 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "inherited variable supported server configuration.",
   },
 ];
+
+/** @internal Trusted application-maintenance output location. */
+export function maintenanceDataRoot(): string | undefined {
+  return process.env.BRAIN_WORKER_DATA_ROOT;
+}

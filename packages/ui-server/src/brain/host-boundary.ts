@@ -16,21 +16,25 @@
  * The boundary is in force when `governed` is available on this host (it is
  * the default profile), and from then on whenever a governed turn has ever
  * run on this brain, a fact kept in the UI database. It is not in force where
- * no governed turn can run: a server whose working directory or database is
+ * no governed turn can run: a server whose working directory is
  * inside the brain, or a host without the worker boundary. There the brain is
  * only ever written through the server's own routes, as before 0.42.
  */
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
   CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, type MaintenanceCommand, type WorkerHostProbe,
 } from "@schlessera/brain-ui-sdk/internal";
-import { killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
+import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
+import { prepareMaintenanceOutput } from "./maintenance-output.js";
+import { operationalStateMasks, operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
+import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
 export type { GovernedUnavailableReason };
@@ -62,6 +66,8 @@ export interface BrainExecution {
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
+  /** @internal Take the contention lock after writer-gate admission, never before it. */
+  lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
 }
 
 export interface ExecutionResult {
@@ -129,17 +135,15 @@ const within = (dir: string, path: string) => path === dir || path.startsWith(`$
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
-export function governedAvailability(input: { brainPath: string; dbPath?: string; workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+export function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {
     return { available: false, reason: "server_cwd_in_brain",
       detail: `the server's working directory ${cwd} is inside the brain, so Bun loaded the brain's bunfig.toml and .env into the server itself; start the server from a directory outside the brain` };
   }
-  if (input.dbPath && input.dbPath !== ":memory:" && within(brain, real(dirname(resolve(input.dbPath))))) {
-    return { available: false, reason: "database_in_brain",
-      detail: "the server's database is inside the brain, where a governed turn could write it; set DB_PATH to a path outside the brain" };
-  }
+  const refusal = operationalStateRefusal(input);
+  if (refusal) return refusal;
   const probe = input.workerHost();
   if (!probe.ok) return { available: false, reason: "worker_host_unavailable", detail: probe.requirement };
   return { available: true };
@@ -163,10 +167,12 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  profile?: "governed" | "strict";
   brainPath: string;
   exec?: ExecWrapperConfig;
   /** The UI database file; its directory is masked from every maintenance worker. */
   dbPath?: string;
+  privateStatePaths?: OperationalStateLayout["privateStatePaths"];
   /** The writer gate, once the database is open. */
   gate?: () => WriterGate | null;
   /** Whether a governed turn has ever started on this brain: the durable record in the UI database. */
@@ -223,6 +229,14 @@ function serverInstallation(): string[] {
   return serverRuntime ??= restrictedReadPaths([MAINTENANCE_ENTRY]);
 }
 
+// Maintenance readers can write derived projections and frozen Git objects
+// into their private outputs. Serialize that lifecycle per canonical brain,
+// including across independently constructed clients; governed peers still
+// use the existing gate and publication revalidation.
+const OUTPUT_LOCK = Symbol.for("@schlessera/brain-ui-server/maintenance-output-lock");
+const outputSlot = globalThis as { [OUTPUT_LOCK]?: KeyedLock };
+const outputLock = outputSlot[OUTPUT_LOCK] ??= createKeyedLock();
+
 export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const brain = real(options.brainPath);
   const exec = options.exec ?? {};
@@ -242,7 +256,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const governed = () => governedAvailability({ brainPath: brain, dbPath: options.dbPath, workerHost });
+  const governed = () => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost });
   // Sticky: a host whose worker boundary a real probe proved could have run a
   // governed turn, so a later failing probe never hands the brain's code back
   // to the host. Only a server that never could run one keeps it there.
@@ -252,7 +266,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     return availability.available || (availability.reason === "worker_host_unavailable" && workerHostProven(brain));
   };
 
-  const maskPaths = options.dbPath && options.dbPath !== ":memory:" ? [dirname(resolve(options.dbPath))] : [];
+  const maskPaths = operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths });
   const workerPath = (env: BrainExecution["env"]) => [join(brain, "node_modules", ".bin"), env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":");
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0]): MaintenanceCommand => {
     const path = workerPath(execution.env);
@@ -314,7 +328,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     brainPath: brain,
     isolated,
     governed,
-    status: () => ({ hostExecution: isolated() ? "worker" : "host", ...governed() }),
+    status: () => {
+      const availability = governed();
+      const protection = resolveWorkerProtection(brain);
+      const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
+      return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
+        protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
+        ...(protection.reason ? { profileFallback: protection.reason } : {}),
+        identity: "shared_uid", configurationView: profile === "governed" ? "live" : "startup" };
+    },
     withGate,
     async run(execution) {
       execution.signal?.throwIfAborted();
@@ -331,11 +353,24 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
       }
       return gated(execution, async () => {
-        if (execution.sync) return runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-        const result = await runMaintenanceWorker({ ...command(execution), stdin: execution.stdin,
-          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-        return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+        if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
+        const run = async () => {
+          const outputs = prepareMaintenanceOutput(brain);
+          try {
+            const launch = command(execution);
+            const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+            const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
+              ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
+            if (!result.killed) {
+              if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
+              else outputs.publish();
+            }
+            return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+          } finally { outputs.cleanup(); }
+        };
+        return outputLock.withLock(brain, () => execution.lock
+          ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
       });
     },
     async launch(execution) {
@@ -346,6 +381,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") };
       }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
+      let releaseOutput: () => void;
+      try { execution.signal?.throwIfAborted(); releaseOutput = await outputLock.acquire(brain, { signal: execution.signal }); }
+      catch (error) { hold?.release(); execution.signal?.throwIfAborted(); throw error; }
       if (execution.sync) {
         try {
           // An abort can arrive while the gate is resolving. Check it before
@@ -366,20 +404,35 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             .finally(() => {
               try { stdout.close(); } finally {
                 try { stderr.close(); } finally {
-                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { hold?.release(); }
+                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { try { releaseOutput(); } finally { hold?.release(); } }
                 }
               }
             });
           return { stdout: stdout.stream, stderr: stderr.stream, exited, get signalCode() { return signalCode; },
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
-        } catch (error) { hold?.release(); throw error; }
+        } catch (error) { try { releaseOutput(); } finally { hold?.release(); } throw error; }
       }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
-      try { execution.signal?.throwIfAborted(); worker = launchMaintenanceWorker(command(execution)); }
-      catch (error) { hold?.release(); throw error; }
+      let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
+      try {
+        execution.signal?.throwIfAborted();
+        outputs = prepareMaintenanceOutput(brain);
+        const launch = command(execution);
+        const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+        execution.signal?.throwIfAborted();
+        worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
+      }
+      catch (error) { try { outputs?.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
-      const exited = worker.exited.finally(() => hold?.release());
+      const exited = worker.exited.then(async code => {
+        if (!signalCode) {
+          if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
+          else outputs!.publish();
+        }
+        return code;
+      })
+        .finally(() => { try { outputs!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };

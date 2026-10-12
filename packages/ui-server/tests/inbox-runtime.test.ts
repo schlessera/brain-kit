@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -217,10 +217,11 @@ describe("inbox drain lifecycle", () => {
 });
 
 async function boot(mode: string, tokenFile: string | null = join(dir, "poke.token")) {
+  const brain = join(dir, "brain"); mkdirSync(brain, { recursive: true });
   const backend = makeFakeBackend({ id: "fixture" });
   const app = await createApp({
     config: resolveServerConfig({ AUTH_MODE: mode, HOST: "0.0.0.0", DB_PATH: join(dir, `app-${apps.length}.db`),
-      BRAIN_PATH: dir, BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0",
+      BRAIN_PATH: brain, BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0",
       BRAIN_UI_DANGEROUSLY_DISABLE_AUTH: "1", TRUST_PROXY: "1",
       BRAIN_UI_PASSWORD_HASH: mode === "password" ? await Bun.password.hash("fixture-password") : undefined,
       COOKIE_SECRET: "fixture-cookie-secret-for-inbox-only", BRAIN_UI_INBOX_POKE_TOKEN_FILE: tokenFile ?? undefined,

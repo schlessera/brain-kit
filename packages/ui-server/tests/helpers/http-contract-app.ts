@@ -13,8 +13,8 @@ import { createRecordingObservability } from "../../src/observability";
 import { makeFakeBackend } from "./fake-backend";
 
 /**
- * Where the fixture CLI records its argv: inside the brain, the one host
- * directory a maintenance worker writes (#1648).
+ * The fixture publishes argv diagnostics through the validated maintenance
+ * output, while its startup input remains frozen.
  */
 export const CLI_LOG = ".brain-fixture-cli.jsonl";
 
@@ -40,7 +40,7 @@ export async function httpContractApp(options: {
   writeFileSync(join(brainPath, "node_modules", ".bin", "brain"),
     `#!${process.execPath}\nimport { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
-appendFileSync(${JSON.stringify(join(brainPath, CLI_LOG))}, JSON.stringify(args) + "\\n");
+if (!args.includes("--version") && args[0] !== "scratch") appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + ${JSON.stringify("/" + CLI_LOG)} : ${JSON.stringify(join(brainPath, CLI_LOG))}, JSON.stringify(args) + "\\n");
 if (args.includes("--version")) console.log(${JSON.stringify(version)});
 else if (args[0] === "search") console.log(JSON.stringify({results:[{path:"notes/arrival.md",title:"Arrival",type:"note",relevance:"high",score:1,snippet:"Odysseus reaches the harbor."}],warnings:["Fixture uses keyless retrieval"]}));
 else if (args[0] === "list") console.log(JSON.stringify([{path:"notes/arrival.md",title:"Arrival",type:"note",status:"active",relevance:"high",tags:null,score:0,snippet:"",summary:null,updated:"2026-09-28"}]));

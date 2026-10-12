@@ -68,7 +68,9 @@ describe("turn temp (#1655, #1703)", () => {
     // outer /tmp, deliberately a tmpfs of exactly the admitted size.
     const program = `import { launchAgentWorker } from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-launcher.ts"))};
       const spawn = Bun.spawn.bind(Bun);
-      Bun.spawn = (_command, options) => spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options);
+      Bun.spawn = (command, options) => options?.env?.BRAIN_WORKER_LAUNCH
+        ? spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options)
+        : spawn(command, options);
       let worker;
       try {
         worker = launchAgentWorker({brainPath:${JSON.stringify(f.brain)},command:['/bin/true'],env:{},turnTempBytes:${ALLOWANCE}});

@@ -12,6 +12,8 @@
  */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 
+import { maintenanceDataRoot } from "../config/env.js";
+
 interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown> }
 interface IndexRequest { op: "index"; root: string }
 
@@ -33,16 +35,18 @@ function readDocument(root: string, path: string): string | null {
 
 async function main(): Promise<unknown> {
   const request = JSON.parse(await Bun.stdin.text()) as PlanRequest | IndexRequest;
+  // Only the trusted launch sets this separate, disposable output root.
+  const root = maintenanceDataRoot() ?? request.root;
   const core = await import("@schlessera/brain/internal");
-  const context = await core.initContext({ root: request.root });
+  const context = await core.initContext({ root });
   const db = core.openDatabase(context.dbPath);
   try {
     if (request.op === "plan-add") {
       const plan = core.prepareIngest(request.input as unknown as Parameters<typeof core.prepareIngest>[0], db,
-        { root: request.root, taxonomy: context.taxonomy, readDocument: path => readDocument(request.root, path) });
+        { root, taxonomy: context.taxonomy, readDocument: path => readDocument(root, path) });
       return { ok: true, plan: { path: plan.path, content: plan.content, baseContent: plan.baseContent, outcome: plan.outcome } };
     }
-    await core.indexAll(db, { root: request.root, taxonomy: context.taxonomy, quiet: true, force: false });
+    await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false });
     return { ok: true };
   } finally { db.close(); }
 }
