@@ -239,6 +239,14 @@ async function openPage(context: BrowserContext, holdPrincipalRead = false): Pro
 async function ask(page: Page, kind: Kind): Promise<string> {
   const composer = page.locator("textarea.bk-composer");
   await composer.fill(kind);
+  // Connected transport can precede the validated draft-profile response.
+  await page.waitForFunction(() => {
+    const send = document.querySelector<HTMLElement>('[role="button"][aria-label="Send"]');
+    const ready = send !== null && send.getAttribute("aria-disabled") !== "true" && send.getClientRects().length > 0;
+    const control = (window as unknown as { __sendControl?: { waiting: boolean } }).__sendControl;
+    if (!ready && control) control.waiting = true;
+    return ready;
+  });
   await composer.press("Enter");
   await page.waitForFunction("window.__answers.cards() === 1");
   return `toolu_${kind}_${sequence}`;
@@ -287,6 +295,63 @@ async function waitForState(page: Page, requestId: string, wanted: string, timeo
 const online = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event("online")));
 
 describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
+  test("a first send waits for actual draft-profile facts, independently of connected transport", async () => {
+    const { context, net } = await newContext();
+    const requested = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    await context.route("**/api/drafts/*/profile", async route => {
+      const response = await route.fetch();
+      requested.resolve();
+      await release.promise;
+      await route.fulfill({ response }).catch(() => {});
+    });
+    let asking: Promise<string> | undefined;
+    try {
+      const page = await openPage(context);
+      await requested.promise;
+      const composer = page.locator("textarea.bk-composer");
+      await composer.fill("ask_user_rank");
+      const unavailable = page.getByRole("button", { name: "Send — unavailable", exact: true });
+      await unavailable.waitFor();
+      expect(await unavailable.isDisabled(), "CONNECTED_WITH_REAL_PROFILE_RESPONSE_HELD").toBe(true);
+      // An actual premature native Enter is correctly refused by the product.
+      await composer.press("Enter");
+      expect(net.frames.filter(frame => frame.dir === "up" && frame.type === "chat_message")).toHaveLength(0);
+      expect(await page.evaluate<number>("window.__answers.cards()")).toBe(0);
+      await page.evaluate(() => {
+        const control = { waiting: false, keyup: false };
+        Object.assign(window, { __sendControl: control });
+        document.addEventListener("keyup", event => { if (event.key === "Enter") control.keyup = true; }, { once: true });
+      });
+      // The response is released only after the helper reaches its readiness
+      // guard or its actual Enter completes. This orders the old lost-send
+      // premise without a sleep or a weaker product gate.
+      asking = ask(page, "ask_user_rank");
+      void asking.catch(() => {});
+      await page.waitForFunction(() => {
+        const control = (window as unknown as { __sendControl: { waiting: boolean; keyup: boolean } }).__sendControl;
+        return control.waiting || control.keyup;
+      });
+      const premature = await page.evaluate(() => {
+        const control = (window as unknown as { __sendControl: { waiting: boolean; keyup: boolean } }).__sendControl;
+        return control.keyup && !control.waiting;
+      });
+      release.resolve();
+      if (premature) {
+        await page.getByRole("button", { name: "Send", exact: true }).waitFor();
+        expect(net.frames.filter(frame => frame.dir === "up" && frame.type === "chat_message"), "SHARED_HELPER_SENT_AFTER_PROFILE_READINESS").toHaveLength(1);
+      }
+      const requestId = await asking;
+      await answer(page, "ask_user_rank");
+      await waitForState(page, requestId, "answered");
+      expect(net.frames.filter(frame => frame.dir === "up" && frame.type === "chat_message")).toHaveLength(1);
+      expect(settlements.get(requestId)).toHaveLength(1);
+      expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS.ask_user_rank);
+    } finally {
+      release.resolve();
+      await context.close();
+      await asking?.catch(() => {});
+    }
+  });
   for (const kind of KINDS) {
     test(`${kind}: a stored principal read completed after hello still permits the first offline queue`, async () => {
       const { context, net } = await newContext();

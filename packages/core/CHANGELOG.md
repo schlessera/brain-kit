@@ -1,5 +1,56 @@
 # @schlessera/brain
 
+## 0.42.0
+
+### Minor Changes
+
+- 5876df6: Restore direct writes for ordinary hosted turns with the governed profile while keeping policy and runtime configuration protected. Strict remains opt-in and autonomous workers retain their restricted permissions. Snapshot consumers run configuration from immutable startup views, with validated maintenance output publication and separate persistent write areas. Report the profile, protected paths and shared-uid limits in host status and the agent context; reconcile and incrementally index governed turns on completion.
+
+  Bound immutable inputs and publication copies in a separate admitted 256 MiB output-staging tmpfs by default, with validated host overrides, Retry on busy admission and ENOSPC on overflow. Capture file-browser ignore bytes without copying unrelated repository data.
+
+  Require the operational database and private server state outside the brain for every hosted profile. Refuse invalid layouts at boot with named migration guidance and matching status diagnostics, preserving the worker masks. Hosts must install util-linux nsenter and allow setns in the namespace seccomp profile for bounded staging.
+
+  Revalidate complete startup inputs, retain native-write path locks through staged publication, preserve peer-created output names, and handle publication refusals without unhandled worker lifecycle rejections.
+
+  Refuse database, WAL/SHM and private-state aliases exposed inside the brain by hardlinks or bind mounts, including new database paths beneath mounted state parents. Preserve valid outside-only aliases and mask resolved database, token and quarantine targets.
+
+  Release staging and writer-gate admission even when private output modes prevent publication. Finalize directory permissions after children, rechecking held/visible identity and temporary mode while retaining peer updates and processing remaining directories after an error. Keep host Git transport free of brain mounts; local sync uses frozen inputs and validated output publication.
+
+  Preserve private turn-temp capacity for in-memory hosts, reject private-state descendant inode aliases, and retain publication parent handles so peer permission changes do not strand unaffected child modes.
+
+- 185803c: Read a strict, versioned governance policy as host data, with a read-only
+  `brain policy check --json` command, content-index exclusion, last-valid
+  fallback, immutable per-turn identity and interactive/voice profile and
+  protected-path selection. Autonomous authority and sibling enforcement remain
+  unchanged. Approved budget and scope defaults resolve without enforcing them.
+  Authoritative agent Markdown and submitted PNG applications share admitted
+  protection, including planned destinations and protected scratch retention.
+
+  The CLI and server share the data-only policy reader through the internal common
+  package, preserving server imports and declarations without the optional core peer.
+
+- 703a922: Preserve scratch files linked from retained conversations across age and size pruning, backfill session pins, and report pinned overage or unavailable pin data. The server requires CLI 0.42.0 for the additive scratch pin input.
+- b8862b3: Give hosted agent turns verified persistent scratch and workspace areas (#1626), now integrated with the 0.42.0 profiles. Governed is the interactive/voice default: ordinary brain files are writable except protected paths, and scratch/workspaces use their canonical destinations. Strict keeps an immutable read-only execution view and writes private copies at `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces`, with validated publication after exit; links use the canonical brain destinations. Scratch is created when missing and refused when redirected by a symlink or not gitignored; an existing workspace remains unavailable when its boundary cannot be verified.
+
+  There is no agent HOME overlay. Host home is read-only and may be masked by the resolved profile; fresh XDG directories live in size-limited turn temp. The generated note states the actual profile, writable paths and output-link rules. CLI read-only refusals name the scratch route, and scratch serving/pruning uses descriptor-safe operations on Linux. Autonomous turns retain their restricted envelope.
+
+### Patch Changes
+
+- 3b408f8: Require brain CLI 0.42.0 or newer before startup. Hygiene review introduced the 0.41.0 prerequisite; this release's additive scratch pin input raises the effective floor to 0.42.0 so every server-invoked command and flag is available. Update the content repository's `@schlessera/brain` pin and lockfile with the server before deploying.
+- 999dbe6: Use the target repository's installed core skills during sync and diagnose foreign core skill links.
+- 46056f6: Count and remove scratch files with invalid UTF-8 names during age, size and explicit cleanup. Preserve raw filename bytes through safe directory-descriptor operations and keep existing lossy string paths in reports.
+- 1283ca4: The note a hosted agent reads before its turn is shorter and states its rules directly (#1654). It opens with the turn's profile (`strict`: the brain is read-only, change it through `write_file`, `edit_file` and the curated tools), lists turn temp, the persistent areas and the brain, and ends with the link rule: anything the reader should open goes in `.brain/scratch/` and is linked from there. Each area is named by the path the worker was actually given. Both backends inject the same text. When a `brain` CLI write hits the read-only brain, the refusal now repeats the note's rule word for word; the `read_only_brain` code and its `tool` field are unchanged.
+- 7a10cdf: Read Linux mount parent topology when checking whether the brain is read-only, so a writable mount over a read-only mount can run CLI writes and hidden descendant mounts cannot override the visible boundary.
+- 4914236: A write into the scratch area no longer deletes its own output when files linked from retained conversations already exceed the 1 GB cap. `brain render`, `brain geo map`, `brain okf export`, `brain image` and the chat UI's scratch mask now protect the files they just wrote during the prune that follows, so a successful report always names files that exist. Later prunes treat that output like any other unlinked file; the seven-day and 1 GB defaults are unchanged and pinned overage is still reported.
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [1283ca4]
+  - @schlessera/brain-common@0.42.0
+  - @schlessera/brain-render-template@0.42.0
+  - @schlessera/brain-geo@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

@@ -1,5 +1,94 @@
 # @schlessera/brain-ui-react
 
+## 0.42.0
+
+### Minor Changes
+
+- 9988109: A chat link or image whose scratch file has been cleared now reads as expired instead of opening a "File not found." error (#1657). The link keeps its words, followed by a muted "expired", and no longer opens anything; an image becomes a small placeholder holding its alt text and the same label. Both carry "expired" in their accessible names. Opening such a file in the viewer shows "This file has expired" rather than an error. Only files under `.brain/scratch/` are checked, with one `HEAD` request on the existing raw files route per file; links elsewhere keep their current not-found behaviour.
+- 857ab01: Enforce per-turn tool-call, wall-time, observed changed-path and write caps through the existing worker lifecycle and shared journal observations. Interactive turns freeze for a finite, once-per-dimension Continue or Stop decision; the free-space floor and true voice remain Stop-only. Retain scoped decisions, interruption/recovery receipts and truthful observation coverage in the existing turn disclosure and expose actual limits in This chat. Independent host deadlines and resource/storage limits remain binding.
+- 6f74aaa: An answer whose turn-temp link was promoted into scratch now shows the link to the copy in the open conversation as soon as the turn has ended, with no reload and no marker (#1698). The server sends the turn's clients a new `message_links` frame (`{ sessionId, turnId, links: [{ from, to }] }`) for each promoted file, and the client rewrites those link destinations in that turn's answer, outside code, exactly as the saved answer was rewritten. A turn with no promotion sends nothing. For backend authors, the `promotion` activity event gains optional `aliases` listing other spellings of a link to the same file.
+- 2151826: Show a dismissible saved-state warning at the existing 75% threshold using the
+  backend's actual admission measurement. Preserve its age, dismissal across
+  reloads, changed-allowance invalidation, quiet history, voice and focus behavior,
+  and the existing reviewed continuation. Add optional result/history observations
+  and provider allowance metadata without changing capacity or admission.
+- 857ab01: Enforce admitted turn, conversation and UTC-day list-price inference budgets using completed response receipts, retained Activity usage and unknown-price token fallback. Share measured limits and once-only warnings with the existing turn disclosure; preserve partial work and reviewed conversation handoff on a named budget stop.
+- f5433b3: Require existing per-use approval for visible outward commands in interactive turns, preserve force-push and voice refusals, and retain irreversible admission receipts in the turn journal. Explicitly disclose opaque HTTPS-script and unavailable outward MCP descriptor coverage.
+- f5433b3: Add validated hosted policy proposals with explicit exact-base approval, retained same-request receipts and read-only policy settings. Voice and autonomous tools and worker policy-write restrictions remain unchanged.
+- c41f173: Each Claude worker now gets its own private, size-limited tmpfs for its runtime state (#1625), so parallel sessions no longer share, and run out of, the host's `/dev/shm`. The allowance is 64 MiB per worker by default (`BRAIN_UI_WORKER_STATE_BYTES`). Before a worker launches, its whole allowance is reserved against a server budget, which defaults to the allowance times `MAX_CONCURRENT_SESSIONS` and can be set with `BRAIN_UI_WORKER_STATE_BUDGET_BYTES`. Invalid values stop the boot with the variable's name. The server copies the conversation in before the runtime starts and copies validated transcripts and memory out after the worker's namespace is gone. Nothing is left behind if the server dies.
+
+  Two new first-party failure classes, both registered in `FIRST_PARTY_FAILURE_CLASSES`, get their own cards. `worker_state_busy`: the budget is held by running conversations; the turn is refused before launch, nothing is sent, and Retry runs it. `worker_state_exceeded`: the turn filled its allowance; it ends as this failure even if the runtime finished its answer, because the rest was not saved. A conversation whose saved state does not fit the allowance stays `session_too_large`; the old 128 MiB bound is gone. Claude workers need bubblewrap 0.7 or later.
+
+  Agent memory written during a turn is now kept (#1626): new or changed `memory/*.md` notes are persisted with the same alias, size and concurrent-change checks as transcripts. A note another conversation changed meanwhile is refused alone and named, and nothing is deleted.
+
+- f5433b3: Add authenticated user history revert and quarantine restoration with raw-byte
+  stale-state checks, journaled Undo, and original-operation receipts. Running
+  turns finish before revert while new turns queue behind it. Existing retained
+  change readers expose single-file actions and one whole-turn review dialog;
+  partial, conflicting and unknown outcomes remain beneath the original turn.
+- 857ab01: Classify retained steering inputs separately from content and approved policy changes. Show their count and first history group through existing diff/revert controls, preserving recorded taint source IDs and shared observation limits.
+- 52cbd1d: Add host-owned raw journal snapshots and private content objects with bounded
+  storage accounting, independent of the brain's Git objects and executable
+  configuration.
+- 56bad96: Recover retained artifact loads with truthful failure states, manual retry, confirmed preview expiry and keyboard focus return.
+- 67a48ca: A server running as root now says so (#1638). Its agent workers run as root too, and although they have no capabilities and a read-only `/proc`, they can still read root-owned files and connect to root-owned and abstract Unix sockets. The server still boots. It logs that warning once at boot, reports it on `GET /api/status` as `runtime.workerHost.rootServer` (typed on `WorkerHostStatus` in `@schlessera/brain-ui-sdk/protocol`), and the app shows a standing notice above the composer that links the hosting guide's section on running the server as a non-root user.
+- 3212c7d: Allow reviewed handoffs to any available profile, including the source conversation's own backend. Every handoff starts a distinct linked conversation. Preselect the source profile when recovering from `session_too_large`, closing the single-backend dead end while preserving review, reference checks, recording and idempotency. This is an additive contract behavior change: the same-backend refusal is removed.
+- 52cbd1d: Add authenticated per-chat governed or strict preferences in the model picker's This chat section. Successful saves affect the next interactive turn, preserve the policy lower bound, and bind first-turn choices through the existing draft identity. Show voice facts read-only and unavailable limits as unknown.
+- 857ab01: Retain explicit shared-window conflict versions and let authenticated users keep a selected observed version or both through the existing history operation, with raw-state checks, numbered exclusive siblings and journaled Undo.
+- 1c20df8: The server now learns at boot whether its host can run agent workers, instead of finding out on every turn (#1632). Boot probes the agent worker boundary (the restricted envelope too while autonomous work is enabled), logs a failure once with its named requirement, and keeps running. `GET /api/status` reports the latest probe as `runtime.workerHost` (typed as `WorkerHostStatus` in `@schlessera/brain-ui-sdk/protocol`), every turn's own probe re-records it, and the new authenticated `POST /api/status/worker-host` re-runs the probe. While the host is unavailable, the app shows a notice above the composer that names the requirement, links the hosting guide's container section and offers "Check again". The composer stays usable. A turn sent anyway is still refused by its own probe, and its failure card now says the server can't run agent turns and shows the requirement, without offering a retry. Every turn still runs the probe: a passing result is never cached.
+- 2b196b3: Every agent worker now runs under resource limits, so one runaway turn cannot exhaust the host (#1660). `prlimit` sets the process, per-process memory (`RLIMIT_DATA`), file size and open file limits inside the worker before the agent starts. Where the server runs alone in a delegated cgroup v2 subtree, such as a systemd unit with `Delegate=yes`, each worker also gets its own cgroup with `memory.max`, `pids.max` and `cpu.max`. The defaults are far above normal use: 4096 tasks, half the memory the server has (physical memory, or a lower cgroup cap above it), 16 GiB per file, 65536 open files and all CPUs but one. `BRAIN_UI_WORKER_LIMITS` overrides them, for example `memory=8GiB,pids=2048,cpu=2`. A host without `prlimit` (util-linux) now refuses agent turns and names that requirement. `GET /api/status` reports each limit as enforced or absent, with the reason, under `runtime.workerHost.limits` (`WorkerLimitsStatus` in `@schlessera/brain-ui-sdk/protocol`). The agent is told the same limits before it starts. A cgroup limit hit is recorded in the run's Activity next to the step that caused it. A limit that ends the worker fails the turn with the new first-party class `worker_resource_limit`, which names the limit. Backends report hits through the new `resource_limit` activity event.
+
+### Patch Changes
+
+- a8fbaa3: Report refused Claude worker-state copy-out as `worker_state_save_refused`, preserving actual turn usage, host cancellation and exhaustion precedence. Show an incomplete-save card with scoped Retry and disclose that retry does not recover unsaved transcript or agent memory.
+- ea12d65: Keep classified answer blocks after reloading a conversation whose temporary
+  artifact links were promoted to persistent scratch. Saved blocks follow the
+  rewritten text and retain correct spans regardless of classification timing.
+- 52cbd1d: Keep keyboard focus on the control a user selects while the Search panel opens.
+- 3212c7d: Scope Claude worker state to the resumed conversation, reserve tmpfs headroom before copying, and offer a reviewed handoff when a session is too large. Automatically archive idle transcripts after 30 days and restore archived history and resumes transparently. Refuse oversized pi sessions before launch with growth headroom and classify snapshot overflow as `session_too_large`. Register `session_too_large` in `FIRST_PARTY_FAILURE_CLASSES`, so a reviewed report keeps the class.
+- acec591: Preserve all first-party failure classes in reviewed failed-turn reports through the shared FIRST_PARTY_FAILURE_CLASSES SDK registry. Unregistered third-party classes still report as unknown. The additive SDK export ships in a minor release (#1619).
+- Updated dependencies [f58ef21]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [857ab01]
+- Updated dependencies [5876df6]
+- Updated dependencies [a8fbaa3]
+- Updated dependencies [bdb1d6d]
+- Updated dependencies [dd3bf90]
+- Updated dependencies [6f74aaa]
+- Updated dependencies [966bed8]
+- Updated dependencies [a948934]
+- Updated dependencies [2151826]
+- Updated dependencies [857ab01]
+- Updated dependencies [857ab01]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [f5433b3]
+- Updated dependencies [c41f173]
+- Updated dependencies [ea12d65]
+- Updated dependencies [f5433b3]
+- Updated dependencies [857ab01]
+- Updated dependencies [08b45c4]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [02d4eb0]
+- Updated dependencies [3070884]
+- Updated dependencies [67a48ca]
+- Updated dependencies [1283ca4]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [3212c7d]
+- Updated dependencies [f5433b3]
+- Updated dependencies [857ab01]
+- Updated dependencies [acec591]
+- Updated dependencies [6377291]
+- Updated dependencies [aa4e0f0]
+- Updated dependencies [1c20df8]
+- Updated dependencies [acec591]
+- Updated dependencies [2b196b3]
+- Updated dependencies [8da5c42]
+- Updated dependencies [b8862b3]
+  - @schlessera/brain-ui-sdk@0.42.0
+  - @schlessera/brain-ui-kit@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

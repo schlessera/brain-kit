@@ -1,5 +1,26 @@
 # @schlessera/brain-module-images
 
+## 0.42.0
+
+### Patch Changes
+
+- 4914236: A write into the scratch area no longer deletes its own output when files linked from retained conversations already exceed the 1 GB cap. `brain render`, `brain geo map`, `brain okf export`, `brain image` and the chat UI's scratch mask now protect the files they just wrote during the prune that follows, so a successful report always names files that exist. Later prunes treat that output like any other unlinked file; the seven-day and 1 GB defaults are unchanged and pinned overage is still reported.
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [3b408f8]
+- Updated dependencies [5876df6]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [999dbe6]
+- Updated dependencies [46056f6]
+- Updated dependencies [703a922]
+- Updated dependencies [1283ca4]
+- Updated dependencies [7a10cdf]
+- Updated dependencies [b8862b3]
+- Updated dependencies [4914236]
+  - @schlessera/brain-common@0.42.0
+  - @schlessera/brain@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

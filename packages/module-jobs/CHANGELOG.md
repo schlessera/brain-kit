@@ -1,5 +1,26 @@
 # @schlessera/brain-module-jobs
 
+## 0.42.0
+
+### Patch Changes
+
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [3b408f8]
+- Updated dependencies [5876df6]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [999dbe6]
+- Updated dependencies [46056f6]
+- Updated dependencies [703a922]
+- Updated dependencies [1283ca4]
+- Updated dependencies [7a10cdf]
+- Updated dependencies [b8862b3]
+- Updated dependencies [4914236]
+  - @schlessera/brain-common@0.42.0
+  - @schlessera/brain@0.42.0
+  - @schlessera/brain-scrape@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

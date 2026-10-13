@@ -1,5 +1,127 @@
 # @schlessera/brain-ui-sdk
 
+## 0.42.0
+
+### Minor Changes
+
+- 52cbd1d: Enforce admitted command deny and confirmation policies in both interactive adapters, recheck approved edits, and retain attributed rule receipts after Activity detail pruning.
+- 8b4fbdc: Give each hosted worker a private, filesystem-limited turn-temp tmpfs,
+  defaulting to 256 MiB, with whole-lifetime aggregate admission shared by both
+  backends. Keep XDG writes inside it and real HOME read-only; retain a directory
+  descriptor so linked deliverables can still be promoted after exit.
+
+  Add the `turn_temp` tool for usage and scoped purge, preserving output-linked
+  files unless named paths explicitly force their removal. Record purge governance
+  events and explain the allowance, 80% warning and out-of-space recovery in the
+  sandbox note. Add host overrides `BRAIN_UI_TURN_TEMP_BYTES` and
+  `BRAIN_UI_TURN_TEMP_BUDGET_BYTES`; unavailable capacity refuses as
+  `worker_state_busy` with Retry.
+
+- 857ab01: Enforce per-turn tool-call, wall-time, observed changed-path and write caps through the existing worker lifecycle and shared journal observations. Interactive turns freeze for a finite, once-per-dimension Continue or Stop decision; the free-space floor and true voice remain Stop-only. Retain scoped decisions, interruption/recovery receipts and truthful observation coverage in the existing turn disclosure and expose actual limits in This chat. Independent host deadlines and resource/storage limits remain binding.
+- 5876df6: Restore direct writes for ordinary hosted turns with the governed profile while keeping policy and runtime configuration protected. Strict remains opt-in and autonomous workers retain their restricted permissions. Snapshot consumers run configuration from immutable startup views, with validated maintenance output publication and separate persistent write areas. Report the profile, protected paths and shared-uid limits in host status and the agent context; reconcile and incrementally index governed turns on completion.
+
+  Bound immutable inputs and publication copies in a separate admitted 256 MiB output-staging tmpfs by default, with validated host overrides, Retry on busy admission and ENOSPC on overflow. Capture file-browser ignore bytes without copying unrelated repository data.
+
+  Require the operational database and private server state outside the brain for every hosted profile. Refuse invalid layouts at boot with named migration guidance and matching status diagnostics, preserving the worker masks. Hosts must install util-linux nsenter and allow setns in the namespace seccomp profile for bounded staging.
+
+  Revalidate complete startup inputs, retain native-write path locks through staged publication, preserve peer-created output names, and handle publication refusals without unhandled worker lifecycle rejections.
+
+  Refuse database, WAL/SHM and private-state aliases exposed inside the brain by hardlinks or bind mounts, including new database paths beneath mounted state parents. Preserve valid outside-only aliases and mask resolved database, token and quarantine targets.
+
+  Release staging and writer-gate admission even when private output modes prevent publication. Finalize directory permissions after children, rechecking held/visible identity and temporary mode while retaining peer updates and processing remaining directories after an error. Keep host Git transport free of brain mounts; local sync uses frozen inputs and validated output publication.
+
+  Preserve private turn-temp capacity for in-memory hosts, reject private-state descendant inode aliases, and retain publication parent handles so peer permission changes do not strand unaffected child modes.
+
+- a8fbaa3: Report refused Claude worker-state copy-out as `worker_state_save_refused`, preserving actual turn usage, host cancellation and exhaustion precedence. Show an incomplete-save card with scoped Retry and disclose that retry does not recover unsaved transcript or agent memory.
+- bdb1d6d: The server no longer runs the brain's own code, the `brain` CLI or git against the brain in a host process wherever a governed turn could have changed it (#1648). Capture planning and the index refresh behind `brain_add`, every server-spawned `brain` command, the streamed sync, cron jobs and git's ignore checks run in a maintenance worker instead: the same bubblewrap launcher, with the brain writable, the host read-only, and `/run`, `/var/lib`, the home directories and the UI database's directory masked. A malicious `brain.config.ts` import, `bunfig.toml` preload, `.env`, git include or symlinked ref therefore runs only inside that sandbox. Work a turn waits for runs without credentials or network and holds the brain's new writer gate shared; credentialed work (sync, reindex, capture, module actions) holds it exclusively and waits for running writers. Boot, and the cron runner before each job, quarantine any protected file a governed turn left behind after an unclean stop, beside the UI database.
+
+  `GET /api/status` gains `runtime.workerHost.governed`: whether the `governed` profile can run, why not (`server_cwd_in_brain`, `database_in_brain`, `worker_host_unavailable`), and whether the brain's code runs in workers or on the host. A server started from inside the brain reports `governed` unavailable. The generated crontab now starts every line with `cd /` and the cron runner gives each job the brain as its working directory; regenerate the crontab on upgrade. The brain's CLI must be installed inside the brain (`node_modules/.bin/brain`), not linked from a home directory. The Claude runtime version probe now runs outside the brain.
+
+- dd3bf90: Route hosted Git sync through a private host mirror. Brain configuration, Git includes, commits and merges run without Git credentials; a separate transport mounts only host-selected storage, checks objects before pushing, and never reads the brain.
+- 6f74aaa: An answer whose turn-temp link was promoted into scratch now shows the link to the copy in the open conversation as soon as the turn has ended, with no reload and no marker (#1698). The server sends the turn's clients a new `message_links` frame (`{ sessionId, turnId, links: [{ from, to }] }`) for each promoted file, and the client rewrites those link destinations in that turn's answer, outside code, exactly as the saved answer was rewritten. A turn with no promotion sends nothing. For backend authors, the `promotion` activity event gains optional `aliases` listing other spellings of a link to the same file.
+- 966bed8: Bound maintenance temporary storage separately from agent turn temp and output staging. Add validated command and aggregate limits, cross-process admission and maintenance-only nested-usernamespace enforcement while preserving the separate Git transport boundary.
+- a948934: Pass freshly written scratch mask paths to the optional host prune hook so the
+  host can retain the output reported by the tool. Produced paths are canonical
+  and brain-relative, independent of the adapter's display path.
+- 2151826: Show a dismissible saved-state warning at the existing 75% threshold using the
+  backend's actual admission measurement. Preserve its age, dismissal across
+  reloads, changed-allowance invalidation, quiet history, voice and focus behavior,
+  and the existing reviewed continuation. Add optional result/history observations
+  and provider allowance metadata without changing capacity or admission.
+- 857ab01: Enforce admitted turn, conversation and UTC-day list-price inference budgets using completed response receipts, retained Activity usage and unknown-price token fallback. Share measured limits and once-only warnings with the existing turn disclosure; preserve partial work and reviewed conversation handoff on a named budget stop.
+- 857ab01: Refuse native file writes when a file's bytes changed since that live session read it. Preserve actual read-version truth, including Claude's cached unchanged-read responses, and keep Pi's observations across ordinary per-turn worker launches. Paths never read by the session remain writable. Read observations are held by the running backend and are not restored after a backend restart.
+- f5433b3: Require existing per-use approval for visible outward commands in interactive turns, preserve force-push and voice refusals, and retain irreversible admission receipts in the turn journal. Explicitly disclose opaque HTTPS-script and unavailable outward MCP descriptor coverage.
+- 185803c: Read a strict, versioned governance policy as host data, with a read-only
+  `brain policy check --json` command, content-index exclusion, last-valid
+  fallback, immutable per-turn identity and interactive/voice profile and
+  protected-path selection. Autonomous authority and sibling enforcement remain
+  unchanged. Approved budget and scope defaults resolve without enforcing them.
+  Authoritative agent Markdown and submitted PNG applications share admitted
+  protection, including planned destinations and protected scratch retention.
+
+  The CLI and server share the data-only policy reader through the internal common
+  package, preserving server imports and declarations without the optional core peer.
+
+- f5433b3: Add validated hosted policy proposals with explicit exact-base approval, retained same-request receipts and read-only policy settings. Voice and autonomous tools and worker policy-write restrictions remain unchanged.
+- c41f173: Each Claude worker now gets its own private, size-limited tmpfs for its runtime state (#1625), so parallel sessions no longer share, and run out of, the host's `/dev/shm`. The allowance is 64 MiB per worker by default (`BRAIN_UI_WORKER_STATE_BYTES`). Before a worker launches, its whole allowance is reserved against a server budget, which defaults to the allowance times `MAX_CONCURRENT_SESSIONS` and can be set with `BRAIN_UI_WORKER_STATE_BUDGET_BYTES`. Invalid values stop the boot with the variable's name. The server copies the conversation in before the runtime starts and copies validated transcripts and memory out after the worker's namespace is gone. Nothing is left behind if the server dies.
+
+  Two new first-party failure classes, both registered in `FIRST_PARTY_FAILURE_CLASSES`, get their own cards. `worker_state_busy`: the budget is held by running conversations; the turn is refused before launch, nothing is sent, and Retry runs it. `worker_state_exceeded`: the turn filled its allowance; it ends as this failure even if the runtime finished its answer, because the rest was not saved. A conversation whose saved state does not fit the allowance stays `session_too_large`; the old 128 MiB bound is gone. Claude workers need bubblewrap 0.7 or later.
+
+  Agent memory written during a turn is now kept (#1626): new or changed `memory/*.md` notes are persisted with the same alias, size and concurrent-change checks as transcripts. A note another conversation changed meanwhile is refused alone and named, and nothing is deleted.
+
+- f5433b3: Add authenticated user history revert and quarantine restoration with raw-byte
+  stale-state checks, journaled Undo, and original-operation receipts. Running
+  turns finish before revert while new turns queue behind it. Existing retained
+  change readers expose single-file actions and one whole-turn review dialog;
+  partial, conflicting and unknown outcomes remain beneath the original turn.
+- 857ab01: Classify retained steering inputs separately from content and approved policy changes. Show their count and first history group through existing diff/revert controls, preserving recorded taint source IDs and shared observation limits.
+- 52cbd1d: Add host-owned raw journal snapshots and private content objects with bounded
+  storage accounting, independent of the brain's Git objects and executable
+  configuration.
+- 02d4eb0: **Breaking (MCP contract):** an unranged `brain_read_base` on a document too large for one tool result (over 40,000 JSON-escaped characters) no longer returns `content`. It returns the base hash, the size and the first page of lines with a paging hint, so the Claude Agent SDK no longer spills the result to a file where the hash cannot be reached. To get the whole text, read the pages in turn with `offset` (and `column`). Documents within the budget still return `content`.
+
+  `brain_read_base` now puts `expectedBaseHash` first and adds `bytes` and `lines`. It also accepts optional `offset`/`limit`/`column` to page through a document; `limit: 0` returns only the hash and size. Every result carries the hash of the whole document, so the write tools' base guard is unchanged.
+
+- 3070884: Add an authenticated host-local roadblock report and the `query_activity` roadblocks scope. Rank retained episodes by frequency and measured token, cost and time waste, preserving unknown coverage, remedy counts and example turns.
+- 67a48ca: A server running as root now says so (#1638). Its agent workers run as root too, and although they have no capabilities and a read-only `/proc`, they can still read root-owned files and connect to root-owned and abstract Unix sockets. The server still boots. It logs that warning once at boot, reports it on `GET /api/status` as `runtime.workerHost.rootServer` (typed on `WorkerHostStatus` in `@schlessera/brain-ui-sdk/protocol`), and the app shows a standing notice above the composer that links the hosting guide's section on running the server as a non-root user.
+- 52cbd1d: Add authenticated per-chat governed or strict preferences in the model picker's This chat section. Successful saves affect the next interactive turn, preserve the policy lower bound, and bind first-turn choices through the existing draft identity. Show voice facts read-only and unavailable limits as unknown.
+- f5433b3: Render the governed worker note from actual admitted journal and user history
+  availability, preserving the resolved protected paths and their reasons.
+  Standalone or incomplete hosts cannot promise restoration, and genuine voice
+  turns retain journal guidance without granting agent revert or Undo authority.
+- 857ab01: Retain explicit shared-window conflict versions and let authenticated users keep a selected observed version or both through the existing history operation, with raw-state checks, numbered exclusive siblings and journaled Undo.
+- acec591: Preserve all first-party failure classes in reviewed failed-turn reports through the shared FIRST_PARTY_FAILURE_CLASSES SDK registry. Unregistered third-party classes still report as unknown. The additive SDK export ships in a minor release (#1619).
+- 6377291: A file the agent links in turn temp (`$BRAIN_WORKER_SCRATCH`, `/tmp` or a write under `$HOME`) no longer becomes a dead link when the turn ends (#1655). Once the worker has exited, the backend copies each linked file into `.brain/scratch/turns/<turnId>/` and the saved answer links the copy, with nothing shown in the chat. The copy follows no symlink, refuses hard-linked files and directories, and is bounded at 128 MiB per file, 256 MiB and 64 files per turn; a refused file keeps its original link. Every copy and refusal is stored as a `promotion` or `promotion_refused` governance event (`GET /api/governance/events`). Turn temp is the worker's private, size-limited `/tmp` tmpfs. The server retains a directory descriptor into that filesystem so linked files can be promoted after the worker exits; this does not use a host-created `/dev/shm` staging directory. For backend authors, `StartTurnRequest.turnId` passes the host's turn id, and `BackendActivityEvent` gains the `promotion` and `promotion_refused` variants.
+- 1c20df8: The server now learns at boot whether its host can run agent workers, instead of finding out on every turn (#1632). Boot probes the agent worker boundary (the restricted envelope too while autonomous work is enabled), logs a failure once with its named requirement, and keeps running. `GET /api/status` reports the latest probe as `runtime.workerHost` (typed as `WorkerHostStatus` in `@schlessera/brain-ui-sdk/protocol`), every turn's own probe re-records it, and the new authenticated `POST /api/status/worker-host` re-runs the probe. While the host is unavailable, the app shows a notice above the composer that names the requirement, links the hosting guide's container section and offers "Check again". The composer stays usable. A turn sent anyway is still refused by its own probe, and its failure card now says the server can't run agent turns and shows the requirement, without offering a retry. Every turn still runs the probe: a passing result is never cached.
+- 2b196b3: Every agent worker now runs under resource limits, so one runaway turn cannot exhaust the host (#1660). `prlimit` sets the process, per-process memory (`RLIMIT_DATA`), file size and open file limits inside the worker before the agent starts. Where the server runs alone in a delegated cgroup v2 subtree, such as a systemd unit with `Delegate=yes`, each worker also gets its own cgroup with `memory.max`, `pids.max` and `cpu.max`. The defaults are far above normal use: 4096 tasks, half the memory the server has (physical memory, or a lower cgroup cap above it), 16 GiB per file, 65536 open files and all CPUs but one. `BRAIN_UI_WORKER_LIMITS` overrides them, for example `memory=8GiB,pids=2048,cpu=2`. A host without `prlimit` (util-linux) now refuses agent turns and names that requirement. `GET /api/status` reports each limit as enforced or absent, with the reason, under `runtime.workerHost.limits` (`WorkerLimitsStatus` in `@schlessera/brain-ui-sdk/protocol`). The agent is told the same limits before it starts. A cgroup limit hit is recorded in the run's Activity next to the step that caused it. A limit that ends the worker fails the turn with the new first-party class `worker_resource_limit`, which names the limit. Backends report hits through the new `resource_limit` activity event.
+- b8862b3: Give hosted agent turns verified persistent scratch and workspace areas (#1626), now integrated with the 0.42.0 profiles. Governed is the interactive/voice default: ordinary brain files are writable except protected paths, and scratch/workspaces use their canonical destinations. Strict keeps an immutable read-only execution view and writes private copies at `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces`, with validated publication after exit; links use the canonical brain destinations. Scratch is created when missing and refused when redirected by a symlink or not gitignored; an existing workspace remains unavailable when its boundary cannot be verified.
+
+  There is no agent HOME overlay. Host home is read-only and may be masked by the resolved profile; fresh XDG directories live in size-limited turn temp. The generated note states the actual profile, writable paths and output-link rules. CLI read-only refusals name the scratch route, and scratch serving/pruning uses descriptor-safe operations on Linux. Autonomous turns retain their restricted envelope.
+
+### Patch Changes
+
+- f58ef21: Anchor Linux mask fallback directory creation, temporary writes, rename and cleanup on held descriptors so scratch directory swaps cannot write or remove outside files. Preserve nested targets, replacement modes and adapter reporting.
+- ea12d65: Keep classified answer blocks after reloading a conversation whose temporary
+  artifact links were promoted to persistent scratch. Saved blocks follow the
+  rewritten text and retain correct spans regardless of classification timing.
+- 08b45c4: Reset catchable signal dispositions before launching agent workers, so shell pipelines handle SIGPIPE quietly and oversized file writes terminate with SIGXFSZ. Worker hosts require GNU coreutils env with --default-signal.
+- 1283ca4: The note a hosted agent reads before its turn is shorter and states its rules directly (#1654). It opens with the turn's profile (`strict`: the brain is read-only, change it through `write_file`, `edit_file` and the curated tools), lists turn temp, the persistent areas and the brain, and ends with the link rule: anything the reader should open goes in `.brain/scratch/` and is linked from there. Each area is named by the path the worker was actually given. Both backends inject the same text. When a `brain` CLI write hits the read-only brain, the refusal now repeats the note's rule word for word; the `read_only_brain` code and its `tool` field are unchanged.
+- 3212c7d: Scope Claude worker state to the resumed conversation, reserve tmpfs headroom before copying, and offer a reviewed handoff when a session is too large. Automatically archive idle transcripts after 30 days and restore archived history and resumes transparently. Refuse oversized pi sessions before launch with growth headroom and classify snapshot overflow as `session_too_large`. Register `session_too_large` in `FIRST_PARTY_FAILURE_CLASSES`, so a reviewed report keeps the class.
+- aa4e0f0: Name the cause when the agent worker host probe fails because the kernel refuses the worker a fresh `/proc`, as it does under Docker's default masked paths. The refusal now says so and names the Docker remedy (`--security-opt systempaths=unconfined`) instead of the generic list of launcher requirements. The launcher's boundary is unchanged.
+- acec591: Show the worker-host refusal prefix and supported-host route exactly once, including failures caught inside the host probe.
+- 8da5c42: When the server runs as root, an agent worker's `/proc` is now read-only. A worker runs as the server's kernel uid without capabilities, but for uid 0 most host-global `/proc` files check only the file mode. A root-run server's worker could therefore write host kernel settings, such as sysctls, through its fresh procfs. Root servers still qualify, and workers of non-root servers are unchanged. Running the server as a non-root user is still recommended.
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [857ab01]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [f5433b3]
+- Updated dependencies [1283ca4]
+- Updated dependencies [52cbd1d]
+  - @schlessera/brain-common@0.42.0
+  - @schlessera/brain-ui-kit@0.42.0
+  - @schlessera/brain-geo@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes
