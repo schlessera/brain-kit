@@ -1,5 +1,7 @@
 # @schlessera/brain-common
 
+## 0.42.1
+
 ## 0.42.0
 
 ### Minor Changes
