@@ -4,7 +4,7 @@
 been cached. Rates are USD per token. `fetchedAt: 0` and source
 `fetchedAt: null` mean no remote fetch occurred; they are not check dates.
 
-## Claude rates checked 2026-10-11
+## Claude rates checked 2026-10-13
 
 Source: [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing),
 with model lifecycle checked against
@@ -22,6 +22,14 @@ the stored values. Cache writes use the five-minute duration.
 | `claude-opus-4-6` | 5 | 25 | 0.50 | 6.25 |
 | `claude-sonnet-4-5` | 3 | 15 | 0.30 | 3.75 |
 | `claude-haiku-4-5` | 1 | 5 | 0.10 | 1.25 |
+| `claude-mythos-5-1` | 10 | 50 | 0.25 | 12.5 |
+| `claude-fable-5` | 10 | 50 | 1 | 12.5 |
+| `claude-mythos-5` | 10 | 50 | 1 | 12.5 |
+| `claude-opus-5` | 5 | 25 | 0.5 | 6.25 |
+| `claude-opus-4-8` | 5 | 25 | 0.5 | 6.25 |
+| `claude-opus-4-7` | 5 | 25 | 0.5 | 6.25 |
+| `claude-opus-4-5` | 5 | 25 | 0.5 | 6.25 |
+| `claude-sonnet-5` | 2 | 10 | 0.2 | 2.5 |
 
 These are base rates, following the
 [cost-tracking decision](../../../docs/decisions/cost-tracking.md#scope-boundaries).
@@ -30,6 +38,10 @@ cost $0.50 input, $2.50 output, $0.05 cache read and $0.625 cache write per
 million tokens. The service has one rate per model and cannot select that
 tier; long-context and one-hour cache tiers remain outside v1. Snapshot
 resolutions always carry `source: "snapshot"` and `estimate: true`.
+
+The snapshot covers every active Claude API ID listed on the lifecycle page.
+The deprecated Sonnet 4.5 entry remains for historical usage; pricing coverage
+does not assert model availability.
 
 Other providers' entries are retained from the previous snapshot; the Claude
 check date does not attest to those rates.

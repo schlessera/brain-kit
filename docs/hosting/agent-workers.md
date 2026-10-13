@@ -1,9 +1,13 @@
 # Agent worker host boundary
 
-The [all-writer decision](../decisions/policy-write-boundary.md) requires a
-read-only authoritative brain and isolated writable scratch before an agent
-writer initializes. The shared TypeScript launcher and per-turn host probe are
-the host-side implementation of that decision (#1035).
+The [all-writer decision](../decisions/policy-write-boundary.md) introduced
+isolated workers before an agent writer initializes (#1035). The later
+[governed-worker decision](../decisions/governed-writable-workers.md) makes
+`governed` the 0.42.0 default for interactive and voice turns: ordinary brain
+files are writable, while the resolved protected paths remain protected.
+`strict` is opt-in and keeps an immutable read-only brain view; autonomous
+turns retain their restricted envelope. The shared launcher and actual host
+probe enforce the selected profile, with no host-execution fallback.
 
 The server checks the actual configured brain before each interactive, voice,
 queued, autonomous and handoff-summary turn. A failed check refuses before
@@ -55,15 +59,19 @@ GNU `env` with this option; a missing or unsupported binary fails the real
 worker probe and refuses agent turns.
 
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
-capabilities, mounts `/` and the canonical brain read-only, and replaces `/proc`
-and `/dev`. When the server runs as root, the worker's whole `/proc` is
-read-only as well (#1629, see [running as root](#running-the-server-as-root)).
+capabilities, mounts the host root read-only, and replaces `/proc` and `/dev`.
+The brain mount follows the resolved profile: governed permits direct writes
+except to protected paths; strict executes from an immutable read-only startup
+view. Restricted autonomous turns keep their existing read-only envelope.
+When the server runs as root, the worker's whole `/proc` is read-only as well (#1629, see [running as root](#running-the-server-as-root)).
 `/tmp` is a private tmpfs of a fixed size, the worker's
 [turn temp](#turn-temp-allowance-and-the-turn_temp-tool), and holds the
 per-turn scratch location, which cannot overlap the brain or its ancestors.
-The brain's own scratch area and its workspace directory are writable binds
-inside the read-only brain; `$HOME` stays read-only, with per-turn XDG
-directories in turn temp; see
+Governed turns use the verified scratch and workspace areas at their canonical
+paths. Strict turns write private area copies through `/tmp/brain-worker-areas/`
+aliases, with validated publication after exit. Host home remains read-only
+and may be hidden by the resolved profile masks; per-turn XDG directories are
+in turn temp. See
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
 Turn temp is sized with bubblewrap's `--size`, so every worker needs
@@ -243,38 +251,48 @@ an oversized session or mid-turn snapshot fails with `session_too_large`.
 ## What a turn can write and where outputs go
 
 An interactive or voice turn has three places a file can be. The
-[writable-areas decision](../decisions/worker-writable-areas.md) records why
-and how each is checked; a separate "governed writable" epic will revise this
-default, and these areas will remain what its strict profile gets.
+[writable-areas decision](../decisions/worker-writable-areas.md) records their
+checks; the [governed-worker decision](../decisions/governed-writable-workers.md)
+sets the shipped 0.42.0 profiles. Governed turns write canonical ordinary brain
+paths directly. Strict turns keep the canonical execution view read-only and
+write verified scratch/workspace copies through the aliases below.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
 | Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
-| Persistent scratch | `.brain/scratch/`, and `workspaces/` for repository clones | Kept across turns; scratch is pruned after 7 days, oldest first past 1 GB | Yes: the only non-brain place to link |
+| Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
-- **The brain** stays read-only. Markdown changes go through the server's
-  validated write and edit tools; a direct write, `git commit` or index
-  command in the brain fails with `Read-only file system`.
-- **`.brain/scratch/`** is created when missing and bound writable when every
+- **The brain** is writable under `governed`, except the resolved protected
+  paths. Native and shell writes are journaled at the documented observation
+  points; the server refreshes the index after the turn. Under `strict`, the
+  execution view stays read-only and ordinary Markdown changes use the server's
+  validated write/edit tools. Direct writes outside its selected area aliases
+  fail. Autonomous turns retain their restricted permissions.
+- **`.brain/scratch/`** is created when missing and made writable when every
   segment is a real directory (no symlink), no mount point sits at or below
   it, and, in a git repository, git ignores it (`brain doctor --fix` adds the
-  line). A scratch name whose file also has a name outside scratch is
+  line). Governed exposes its canonical path; strict exposes a private copy at
+  `/tmp/brain-worker-areas/scratch` and validates publication after exit.
+  A scratch name whose file also has a name outside scratch is
   unlinked before the turn. `brain render --scratch`, `brain image --scratch`
   and `brain scratch prune` work inside a turn, and the reader opens the path
   the command prints. The server never follows a symlink under `.brain/` when
   it serves, previews or lists a scratch path.
-- **`workspaces/`** is bound writable only when it already exists as a real
+- **`workspaces/`** is made writable only when it already exists as a real
   directory in the brain root. Core always excludes it from the index.
-  Creating it outside a hosted turn is the opt-in; the name is fixed. It
+  Creating it outside a hosted turn is the opt-in; the name is fixed. Governed
+  uses its canonical path; strict uses a private copy at
+  `/tmp/brain-worker-areas/workspaces` with validated publication after exit. It
   stays read-only for a turn when it holds a file hard-linked to something
   outside it, sits on or contains a mount point, holds more than 200 000
   entries, or holds a directory the server cannot read (scratch too); the
   agent's note and the server log name the reason. Links wholly
   inside it, such as local clones between workspace repositories, are fine.
-- **`$HOME`** stays the host's and read-only: existing configuration such as
-  `.gitconfig` still reads, and a write there fails with `EROFS`, which the
-  turn records as a roadblock. `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
+- **`$HOME`** is not a writable host escape. The resolved profile may mask its
+  contents; only the selected runtime inputs restored by that layout are
+  available. A write into a read-only home fails and is retained as a roadblock.
+  `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
   `XDG_DATA_HOME` point at per-turn directories under
   `/tmp/brain-worker-home`, which is what headless Chromium needs to start,
   and the agent's note says to point a tool there. There is no per-turn home
@@ -957,8 +975,12 @@ index refresh after its workers exit, serialized on the server lock.
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
 the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials, egress recording and the
-change journal retain the interim limits stated in the capabilities note.
+protection is mask-only. Maintenance credentials and egress retain the interim
+limits stated in the capabilities note. The journal keeps observed canonical
+brain/workspace versions, not every write between observations; external
+persisted Claude auto-memory remains outside that review/revert coverage.
+Native read observations survive ordinary turns on the running backend but
+not a host restart. Those remaining scopes do not change the shipped profiles.
 Governed peers may see one another's configuration immediately; snapshot
 consumers retain their startup inputs until the next launch. See the
 [governed-worker decision](../decisions/governed-writable-workers.md).

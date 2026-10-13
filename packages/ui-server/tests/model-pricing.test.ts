@@ -367,7 +367,7 @@ describe("createModelPricing route-aware resolution", () => {
 
 describe("createModelPricing snapshot fallback", () => {
   // Independently transcribed from Claude's published base/5m-cache prices
-  // on 2026-10-11, in USD per token (not read from the snapshot under test).
+  // on 2026-10-13, in USD per token (not read from the snapshot under test).
   test.each([
     ["claude-fable-5-1", 1e-5, 5e-5, 2.5e-7, 1.25e-5],
     ["claude-opus-5-5", 4e-6, 2e-5, 2e-7, 5e-6],
@@ -375,6 +375,16 @@ describe("createModelPricing snapshot fallback", () => {
     ["claude-haiku-5-5", 1e-7, 5e-7, 1e-8, 1.25e-7],
     ["claude-sonnet-4-6", 3e-6, 1.5e-5, 3e-7, 3.75e-6],
     ["claude-opus-4-6", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+    ["claude-mythos-5-1", 1e-5, 5e-5, 2.5e-7, 1.25e-5],
+    ["claude-fable-5", 1e-5, 5e-5, 1e-6, 1.25e-5],
+    ["claude-mythos-5", 1e-5, 5e-5, 1e-6, 1.25e-5],
+    ["claude-opus-5", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+    ["claude-opus-4-8", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+    ["claude-opus-4-7", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+    ["claude-opus-4-5", 5e-6, 2.5e-5, 5e-7, 6.25e-6],
+    ["claude-sonnet-5", 2e-6, 1e-5, 2e-7, 2.5e-6],
+    ["claude-sonnet-4-5", 3e-6, 1.5e-5, 3e-7, 3.75e-6],
+    ["claude-haiku-4-5", 1e-6, 5e-6, 1e-7, 1.25e-6],
   ] as const)("published Claude base rates for %s resolve offline as estimates", async (
     model, input, output, cacheRead, cacheWrite
   ) => {
