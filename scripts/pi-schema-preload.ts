@@ -22,16 +22,20 @@ const workerPreload = new URL("./pi-schema-worker-preload.ts", import.meta.url).
 plugin({
   name: "measure-pi-schema-and-native-auth",
   setup(build) {
-    build.onLoad({ filter: /\/ui-backend-pi\/src\/(bridge-tools|worker-session)\.ts$/ }, ({ path }) => {
+    build.onLoad({ filter: /\/(ui-backend-pi\/src\/(bridge-tools|worker-session)|ui-server\/src\/ws\/run-session)\.ts$/ }, ({ path }) => {
       let source = readFileSync(path, "utf8");
-      if (path.endsWith("bridge-tools.ts")) {
+      if (path.endsWith("run-session.ts")) {
+        source = `import { measurementHostedPrompt } from ${helper};\n` + source;
+        source = replaceExactly(source, 'prompt: host.budgets && governedHold ? `${prompt}\\n\\n${inferenceBudgetNote(host.budgets.receipt(turn.turnId))}` : prompt,',
+          'prompt: measurementHostedPrompt(prompt, host.budgets && governedHold ? host.budgets.receipt(turn.turnId) : undefined, inferenceBudgetNote),');
+      } else if (path.endsWith("bridge-tools.ts")) {
         source = `import { measurementSchema } from ${helper};\nconst __measurementSchema = measurementSchema(process.env.BRAIN_MEASURE_PI_SCHEMA_FORM);\n` + source;
         source = replaceExactly(source, "parameters: toPiParameters(SHOW_BLOCK_INPUT_SCHEMA)", "parameters: toPiParameters(__measurementSchema)");
         source = replaceExactly(source, "handleShowBlock(SHOW_BLOCK_INPUT_SCHEMA.parse(input))", "handleShowBlock(__measurementSchema.parse(input))");
       } else {
         source = `import { acceptMeasurementFiles, measurementWorkerEnv } from ${receipts};\n` + source;
         source = replaceExactly(source, 'command: [process.execPath,', `command: [process.execPath, "--preload", ${JSON.stringify(workerPreload)},`);
-        source = replaceExactly(source, 'BRAIN_ROOT: backend.brainPath },', 'BRAIN_ROOT: backend.brainPath, ...measurementWorkerEnv() },');
+        source = replaceExactly(source, 'env: workerEnv, sandbox,', 'env: { ...workerEnv, ...measurementWorkerEnv() }, sandbox,');
         source = replaceExactly(source, 'if (msg.event.type === "tool_execution_end") {', 'if (acceptMeasurementFiles(msg.event)) continue;\n        if (msg.event.type === "tool_execution_end") {');
       }
       return { contents: source, loader: "ts" };

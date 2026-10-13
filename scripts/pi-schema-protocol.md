@@ -7,7 +7,13 @@ test provider request acceptance and a parsed handler call. They cannot estimate
 call rate, behavioral equivalence, cache savings or a cost reduction. #336's
 separate 81 fresh Sonnet 5.5 cells supply the Claude behavior evidence.
 
-The prompt is byte-identical to the approved #550 `note-approaches` prompt. All
+The submitted user prompt is byte-identical to the approved #550 `note-approaches` prompt.
+Current hosted turns also append the production budget advisory. Measurement
+instrumentation captures the actual admitted budget receipt and the exact
+user-plus-host composition at the server call site, retains both in the result,
+and requires native request bytes to match that composition exactly. This
+0.42.0 offline harness alignment is not a rerun or requalification of historical
+provider measurements. All
 31 original fictional corpus bytes must match its published manifest and the
 shared #336 complementary corpus review. Forms/options and actual draft-2020-12
 parameters match the #336 schema source, including three `$defs` in each shared

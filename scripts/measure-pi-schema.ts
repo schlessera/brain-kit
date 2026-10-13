@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { createApp } from "../packages/ui-server/src/app.ts";
 import { resolveServerConfig } from "../packages/ui-server/src/config/env.ts";
 import { runOnce, observedRuntimeVersions, assertMeasurableBrainPath } from "./measure-show-block-server.ts";
-import { PI_SCHEMA_PROMPT, PI_SCHEMA_MODEL, measurementForm, stagePiFixtureRuntime } from "./pi-schema-measurement.ts";
+import { PI_SCHEMA_PROMPT, PI_SCHEMA_MODEL, measurementForm, stagePiFixtureRuntime, measurementPromptReceipt } from "./pi-schema-measurement.ts";
 import { assertPiSchemaAcceptance,waitPiSchemaCaptures } from "./pi-schema-capture.ts";
 
 const flag = (name: string) => process.argv[process.argv.indexOf(`--${name}`) + 1];
@@ -40,7 +40,7 @@ try {
   const physicalReceipts = existsSync(receiptsPath) ? JSON.parse(readFileSync(receiptsPath,"utf8")) : [];
   const recoveredOriginalPhysicalRequests=physicalReceipts.filter((receipt:any)=>receipt.provenance?.kind==="recovered-original-physical").length;
   const replay=recoveredOriginalPhysicalRequests?{method:"replay-prefix-continuation",originalServerTurnRemainsFailed:true,sameServerSession:false,unchangedRequestWire:false,recoveredOriginalPhysicalRequests,newExternalRequestAttempts:physicalReceipts.length-recoveredOriginalPhysicalRequests,physicalCountsAndUsageIncludeOriginalOnce:true}:null;
-  const evidence = { replay, provider: "openai-codex", model, form, prompt: PI_SCHEMA_PROMPT, repetitions: 1, versions, physicalReceipts, billing: { route: "included-subscription-only; protected native OAuth, no API fallback", additionalBilledUsd: null, invoiceKnown: false }, record };
+  const evidence = { hostPrompt: measurementPromptReceipt(), replay, provider: "openai-codex", model, form, prompt: PI_SCHEMA_PROMPT, repetitions: 1, versions, physicalReceipts, billing: { route: "included-subscription-only; protected native OAuth, no API fallback", additionalBilledUsd: null, invoiceKnown: false }, record };
   await Bun.write(out, JSON.stringify(evidence, null, 2));
   assertPiSchemaAcceptance(record, physicalReceipts, form);
 } finally {

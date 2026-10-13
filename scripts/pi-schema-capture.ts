@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { zstdDecompressSync } from "node:zlib";
 import { createPiSchemaReplay } from "./pi-schema-replay.ts";
 import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION } from "@schlessera/brain-ui-sdk/server";
-import { measurementSchema, nativeCredential, PI_SCHEMA_REQUEST_LIMIT, PI_SCHEMA_MODEL, PI_SCHEMA_PROMPT } from "./pi-schema-measurement.ts";
+import { measurementSchema, nativeCredential, PI_SCHEMA_REQUEST_LIMIT, PI_SCHEMA_MODEL, PI_SCHEMA_PROMPT, measurementPromptReceipt } from "./pi-schema-measurement.ts";
 
 /** Decode a COPY of the installed provider's body, forward the original bytes. */
 export function decodePiRequest(body: unknown, headers: Headers) {
@@ -66,11 +66,11 @@ export interface PiSchemaReceipt {
   provenance?: {kind:"recovered-original-physical";originalReceiptSha256:string;rawSha256:string;originalObserverError:string|null;localReplayWireSha256:string;differingFields:string[];unchangedRequestWire:boolean;sameServerSession:boolean;originalHeadersComplete:boolean};
 }
 
-export function validatePiSchemaRequest(body: unknown, model: string, expectedParameters: Record<string, unknown>) {
+export function validatePiSchemaRequest(body: unknown, model: string, expectedParameters: Record<string, unknown>, expectedPrompt = PI_SCHEMA_PROMPT) {
   const request = body as { model?: unknown; input?: Array<{role?:unknown;content?:Array<{type?:unknown;text?:unknown}>}>; tools?: Array<{ type?: unknown; name?: unknown; strict?: unknown; description?: unknown; parameters?: unknown }> };
   if (request?.model !== model || !Array.isArray(request.tools)) throw new Error("Exact request model/tools mismatch.");
   const users = request.input?.filter(row=>row.role==="user");
-  if (!users || users.length!==1 || users[0]!.content?.length!==1 || users[0]!.content![0]!.type!=="input_text" || users[0]!.content![0]!.text!==PI_SCHEMA_PROMPT) throw new Error("Actual Codex input differs from the reviewed frozen prompt.");
+  if (!users || users.length!==1 || users[0]!.content?.length!==1 || users[0]!.content![0]!.type!=="input_text" || users[0]!.content![0]!.text!==expectedPrompt) throw new Error("Actual Codex input differs from the exact expected user-plus-host prompt.");
   const tools = request.tools.filter(tool => tool.name === "show_block");
   if (tools.length !== 1 || tools[0]!.type !== "function" || tools[0]!.strict !== null || tools[0]!.description !== SHOW_BLOCK_DESCRIPTION || digest(tools[0]!.parameters) !== digest(expectedParameters)) {
     throw new Error("Actual serialized show_block form differs from frozen non-strict parameters.");
@@ -111,7 +111,7 @@ export function installPiSchemaCapture(delegate: typeof fetch = globalThis.fetch
     const auth = { bearerMatchesNativeAccess: headers.get("authorization") === `Bearer ${credential.access}`, accountHeaderMatchesNativeClaim: headers.get("chatgpt-account-id") === credential.accountId, originator: headers.get("originator") };
     if (!auth.bearerMatchesNativeAccess || !auth.accountHeaderMatchesNativeClaim || auth.originator !== "pi" || headers.has("x-api-key")) throw new Error("Actual Codex subscription headers mismatch.");
     const { body, wireSha256, encoding } = decodePiRequest(init.body, headers);
-    validatePiSchemaRequest(body, model, parameters);
+    validatePiSchemaRequest(body, model, parameters, measurementPromptReceipt().effectivePrompt);
     const prefix=replay?.beforeRequest(body,wireSha256);
     const receipt: PiSchemaReceipt = { sequence: receipts.length + 1, requestedModel: model, form, route: "native-codex-subscription", auth, request: body, wireSha256, encoding, showBlockSchemaSha256: digest(parameters), status: null, headers: {}, terminal: false, eof: false, servedModel: null, usage: null, functionCalls: [], error: null };
     if(prefix){receipt.request=prefix.original.request;receipt.wireSha256=prefix.original.wireSha256;receipt.encoding=prefix.original.encoding;receipt.auth=prefix.original.auth;receipt.provenance=prefix.provenance;}

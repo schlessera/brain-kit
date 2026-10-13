@@ -1,3 +1,4 @@
+import { inferenceBudgetNote } from "../packages/ui-server/src/brain/turn-budgets.ts";
 import { describe, expect, test } from "bun:test";
 import {createHash} from "node:crypto";
 import {createPiSchemaReplay} from "../scripts/pi-schema-replay.ts";
@@ -113,6 +114,8 @@ for (const [form,mode] of [["flat",null],["shared",null],["shared-trimmed",null]
       const nativeSummary=rawDiagnostic==="No native request"?rawDiagnostic:JSON.stringify(JSON.parse(rawDiagnostic).map((row:any)=>({sequence:row.sequence,status:row.status,terminal:row.terminal,eof:row.eof,error:row.error})));
       expect(status, `${await stdout}\n${await stderr}\n${nativeSummary}`).toBe(rejected?1:0);
       const result = JSON.parse(readFileSync(join(scratch, "result.json"), "utf8"));
+      expect(result.hostPrompt.userPrompt, "REVIEWED_USER_PROMPT_UNCHANGED").toBe(PI_SCHEMA_PROMPT);
+      expect(result.hostPrompt.effectivePrompt, "EXACT_ADMITTED_HOST_PROMPT_COMPOSITION").toBe(`${PI_SCHEMA_PROMPT}\n\n${inferenceBudgetNote(result.hostPrompt.budget)}`);
       if (rejected) {
         const requests=JSON.parse(rawDiagnostic);
         expect(requests.length).toBeGreaterThan(0);
