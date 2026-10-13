@@ -1,5 +1,16 @@
 # @schlessera/brain-scrape
 
+## 0.42.0
+
+### Patch Changes
+
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [1283ca4]
+  - @schlessera/brain-common@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

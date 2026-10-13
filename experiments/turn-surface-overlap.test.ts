@@ -4,6 +4,19 @@ import type { SurfaceDecision } from "../scripts/turn-surface-overlap";
 import { observedSkills } from "../scripts/turn-surface-skills";
 import { deferredToolNames } from "../scripts/turn-surface-token-groups";
 
+// Independent inventories from core registrations and the fixture's configured
+// bridge handlers. The installed CLI sends bridge schemas in the first request
+// and keeps the core tools discoverable through deferred tool search.
+const completeBridgeNames = [
+  "ask_user", "ask_user_form", "ask_user_list", "ask_user_rank", "get_current_location",
+  "inbox_add", "inbox_get", "inbox_list", "query_activity", "request_image_mask",
+  "resolve_action", "show_block", "turn_temp",
+].map(name => `mcp__brain-ui__${name}`).sort();
+const completeCoreNames = [
+  "brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list",
+  "brain_read", "brain_search", "brain_update",
+].map(name => `mcp__brain__${name}`).sort();
+
 test("installed CLI spawns before routing settles, then applies MCP load set", async () => {
   let spawned = false;
   let decisionSettled = false;
@@ -63,8 +76,8 @@ test("installed CLI relevance hint follows the unchanged complete skill listing"
     tools: ["mcp__brain-ui__show_block"], skills: ["voyage-plan"] }) });
   const skills = observedSkills(result.request);
   expect(skills).toEqual(baselineSkills);
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(12);
-  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__")).map(tool => tool.name).sort()).toEqual(completeBridgeNames);
+  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__")).sort()).toEqual(completeCoreNames);
   const messages = JSON.stringify(result.request.messages);
   const hint = messages.indexOf("<tool_relevance>");
   expect(hint).toBeGreaterThan(0);
@@ -91,8 +104,8 @@ test("native skill load set keeps rejected names discoverable without their desc
 
 test("router fallback preserves all actual MCP tools and all project skills", async () => {
   const result = await captureSurface({ decision: Promise.resolve({ arm: "hard-prune", routed: false, tools: [], skills: [] }) });
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(12);
-  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__")).map(tool => tool.name).sort()).toEqual(completeBridgeNames);
+  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__")).sort()).toEqual(completeCoreNames);
   expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__")).every(tool => tool.defer_loading !== true)).toBe(true);
   const messages = JSON.stringify(result.request.messages);
   for (const name of ["voyage-plan:", "shipbuilding:", "crew-log:"]) expect(messages).toContain(name);

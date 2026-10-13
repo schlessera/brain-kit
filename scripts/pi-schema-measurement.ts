@@ -15,6 +15,20 @@ export const PI_SCHEMA_ARMS = {
 } as const;
 
 export const PI_SCHEMA_PROMPT = "Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each.";
+/** Capture the actual admission receipt; never replace the reviewed user bytes. */
+export function measurementHostedPrompt(userPrompt: string, budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt | undefined,
+  renderNote: (receipt: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt) => string): string {
+  if (userPrompt !== PI_SCHEMA_PROMPT || !budget) throw new Error("Measurement requires the reviewed user prompt and admitted budget receipt.");
+  const effectivePrompt = `${userPrompt}\n\n${renderNote(budget)}`;
+  process.env.BRAIN_MEASURE_PI_HOST_PROMPT = JSON.stringify({ userPrompt, effectivePrompt, budget: structuredClone(budget) });
+  return effectivePrompt;
+}
+export function measurementPromptReceipt(): { userPrompt: string; effectivePrompt: string; budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt } {
+  const receipt = JSON.parse(process.env.BRAIN_MEASURE_PI_HOST_PROMPT ?? "null");
+  if (!receipt || receipt.userPrompt !== PI_SCHEMA_PROMPT || typeof receipt.effectivePrompt !== "string" || !receipt.budget)
+    throw new Error("Measurement admitted host prompt receipt is missing.");
+  return receipt;
+}
 export const PI_SCHEMA_REQUEST_LIMIT = 5;
 export const PI_SCHEMA_MODEL = "gpt-6.1-sol";
 

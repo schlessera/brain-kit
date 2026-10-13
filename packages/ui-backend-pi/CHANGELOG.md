@@ -1,5 +1,111 @@
 # @schlessera/brain-backend-pi
 
+## 0.42.0
+
+### Minor Changes
+
+- 52cbd1d: Enforce admitted command deny and confirmation policies in both interactive adapters, recheck approved edits, and retain attributed rule receipts after Activity detail pruning.
+- 8b4fbdc: Give each hosted worker a private, filesystem-limited turn-temp tmpfs,
+  defaulting to 256 MiB, with whole-lifetime aggregate admission shared by both
+  backends. Keep XDG writes inside it and real HOME read-only; retain a directory
+  descriptor so linked deliverables can still be promoted after exit.
+
+  Add the `turn_temp` tool for usage and scoped purge, preserving output-linked
+  files unless named paths explicitly force their removal. Record purge governance
+  events and explain the allowance, 80% warning and out-of-space recovery in the
+  sandbox note. Add host overrides `BRAIN_UI_TURN_TEMP_BYTES` and
+  `BRAIN_UI_TURN_TEMP_BUDGET_BYTES`; unavailable capacity refuses as
+  `worker_state_busy` with Retry.
+
+- 857ab01: Enforce per-turn tool-call, wall-time, observed changed-path and write caps through the existing worker lifecycle and shared journal observations. Interactive turns freeze for a finite, once-per-dimension Continue or Stop decision; the free-space floor and true voice remain Stop-only. Retain scoped decisions, interruption/recovery receipts and truthful observation coverage in the existing turn disclosure and expose actual limits in This chat. Independent host deadlines and resource/storage limits remain binding.
+- 5876df6: Restore direct writes for ordinary hosted turns with the governed profile while keeping policy and runtime configuration protected. Strict remains opt-in and autonomous workers retain their restricted permissions. Snapshot consumers run configuration from immutable startup views, with validated maintenance output publication and separate persistent write areas. Report the profile, protected paths and shared-uid limits in host status and the agent context; reconcile and incrementally index governed turns on completion.
+
+  Bound immutable inputs and publication copies in a separate admitted 256 MiB output-staging tmpfs by default, with validated host overrides, Retry on busy admission and ENOSPC on overflow. Capture file-browser ignore bytes without copying unrelated repository data.
+
+  Require the operational database and private server state outside the brain for every hosted profile. Refuse invalid layouts at boot with named migration guidance and matching status diagnostics, preserving the worker masks. Hosts must install util-linux nsenter and allow setns in the namespace seccomp profile for bounded staging.
+
+  Revalidate complete startup inputs, retain native-write path locks through staged publication, preserve peer-created output names, and handle publication refusals without unhandled worker lifecycle rejections.
+
+  Refuse database, WAL/SHM and private-state aliases exposed inside the brain by hardlinks or bind mounts, including new database paths beneath mounted state parents. Preserve valid outside-only aliases and mask resolved database, token and quarantine targets.
+
+  Release staging and writer-gate admission even when private output modes prevent publication. Finalize directory permissions after children, rechecking held/visible identity and temporary mode while retaining peer updates and processing remaining directories after an error. Keep host Git transport free of brain mounts; local sync uses frozen inputs and validated output publication.
+
+  Preserve private turn-temp capacity for in-memory hosts, reject private-state descendant inode aliases, and retain publication parent handles so peer permission changes do not strand unaffected child modes.
+
+- 966bed8: Bound maintenance temporary storage separately from agent turn temp and output staging. Add validated command and aggregate limits, cross-process admission and maintenance-only nested-usernamespace enforcement while preserving the separate Git transport boundary.
+- 2151826: Show a dismissible saved-state warning at the existing 75% threshold using the
+  backend's actual admission measurement. Preserve its age, dismissal across
+  reloads, changed-allowance invalidation, quiet history, voice and focus behavior,
+  and the existing reviewed continuation. Add optional result/history observations
+  and provider allowance metadata without changing capacity or admission.
+- 857ab01: Enforce admitted turn, conversation and UTC-day list-price inference budgets using completed response receipts, retained Activity usage and unknown-price token fallback. Share measured limits and once-only warnings with the existing turn disclosure; preserve partial work and reviewed conversation handoff on a named budget stop.
+- 857ab01: Refuse native file writes when a file's bytes changed since that live session read it. Preserve actual read-version truth, including Claude's cached unchanged-read responses, and keep Pi's observations across ordinary per-turn worker launches. Paths never read by the session remain writable. Read observations are held by the running backend and are not restored after a backend restart.
+- f5433b3: Require existing per-use approval for visible outward commands in interactive turns, preserve force-push and voice refusals, and retain irreversible admission receipts in the turn journal. Explicitly disclose opaque HTTPS-script and unavailable outward MCP descriptor coverage.
+- f5433b3: Add validated hosted policy proposals with explicit exact-base approval, retained same-request receipts and read-only policy settings. Voice and autonomous tools and worker policy-write restrictions remain unchanged.
+- 02d4eb0: **Breaking (MCP contract):** an unranged `brain_read_base` on a document too large for one tool result (over 40,000 JSON-escaped characters) no longer returns `content`. It returns the base hash, the size and the first page of lines with a paging hint, so the Claude Agent SDK no longer spills the result to a file where the hash cannot be reached. To get the whole text, read the pages in turn with `offset` (and `column`). Documents within the budget still return `content`.
+
+  `brain_read_base` now puts `expectedBaseHash` first and adds `bytes` and `lines`. It also accepts optional `offset`/`limit`/`column` to page through a document; `limit: 0` returns only the hash and size. Every result carries the hash of the whole document, so the write tools' base guard is unchanged.
+
+- 6377291: A file the agent links in turn temp (`$BRAIN_WORKER_SCRATCH`, `/tmp` or a write under `$HOME`) no longer becomes a dead link when the turn ends (#1655). Once the worker has exited, the backend copies each linked file into `.brain/scratch/turns/<turnId>/` and the saved answer links the copy, with nothing shown in the chat. The copy follows no symlink, refuses hard-linked files and directories, and is bounded at 128 MiB per file, 256 MiB and 64 files per turn; a refused file keeps its original link. Every copy and refusal is stored as a `promotion` or `promotion_refused` governance event (`GET /api/governance/events`). Turn temp is the worker's private, size-limited `/tmp` tmpfs. The server retains a directory descriptor into that filesystem so linked files can be promoted after the worker exits; this does not use a host-created `/dev/shm` staging directory. For backend authors, `StartTurnRequest.turnId` passes the host's turn id, and `BackendActivityEvent` gains the `promotion` and `promotion_refused` variants.
+- 2b196b3: Every agent worker now runs under resource limits, so one runaway turn cannot exhaust the host (#1660). `prlimit` sets the process, per-process memory (`RLIMIT_DATA`), file size and open file limits inside the worker before the agent starts. Where the server runs alone in a delegated cgroup v2 subtree, such as a systemd unit with `Delegate=yes`, each worker also gets its own cgroup with `memory.max`, `pids.max` and `cpu.max`. The defaults are far above normal use: 4096 tasks, half the memory the server has (physical memory, or a lower cgroup cap above it), 16 GiB per file, 65536 open files and all CPUs but one. `BRAIN_UI_WORKER_LIMITS` overrides them, for example `memory=8GiB,pids=2048,cpu=2`. A host without `prlimit` (util-linux) now refuses agent turns and names that requirement. `GET /api/status` reports each limit as enforced or absent, with the reason, under `runtime.workerHost.limits` (`WorkerLimitsStatus` in `@schlessera/brain-ui-sdk/protocol`). The agent is told the same limits before it starts. A cgroup limit hit is recorded in the run's Activity next to the step that caused it. A limit that ends the worker fails the turn with the new first-party class `worker_resource_limit`, which names the limit. Backends report hits through the new `resource_limit` activity event.
+- b8862b3: Give hosted agent turns verified persistent scratch and workspace areas (#1626), now integrated with the 0.42.0 profiles. Governed is the interactive/voice default: ordinary brain files are writable except protected paths, and scratch/workspaces use their canonical destinations. Strict keeps an immutable read-only execution view and writes private copies at `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces`, with validated publication after exit; links use the canonical brain destinations. Scratch is created when missing and refused when redirected by a symlink or not gitignored; an existing workspace remains unavailable when its boundary cannot be verified.
+
+  There is no agent HOME overlay. Host home is read-only and may be masked by the resolved profile; fresh XDG directories live in size-limited turn temp. The generated note states the actual profile, writable paths and output-link rules. CLI read-only refusals name the scratch route, and scratch serving/pruning uses descriptor-safe operations on Linux. Autonomous turns retain their restricted envelope.
+
+### Patch Changes
+
+- 3212c7d: Scope Claude worker state to the resumed conversation, reserve tmpfs headroom before copying, and offer a reviewed handoff when a session is too large. Automatically archive idle transcripts after 30 days and restore archived history and resumes transparently. Refuse oversized pi sessions before launch with growth headroom and classify snapshot overflow as `session_too_large`. Register `session_too_large` in `FIRST_PARTY_FAILURE_CLASSES`, so a reviewed report keeps the class.
+- acec591: Preserve all first-party failure classes in reviewed failed-turn reports through the shared FIRST_PARTY_FAILURE_CLASSES SDK registry. Unregistered third-party classes still report as unknown. The additive SDK export ships in a minor release (#1619).
+- 5c4ee70: The server now records every roadblock an agent hits in a turn (#1671). This covers tool errors, nonzero shell exits, `EROFS` and `EACCES` refusals, permission and policy denials, budget and scope limits, network refusals and repeated attempts. At turn end, the server groups each turn's failed steps into episodes, for Claude and pi alike. Each episode records the call that finally worked, the time, tokens and cost the detour wasted, and whether better guidance or a new capability would remove it. Episodes are stored as `roadblock` governance events in the session's kept history and read through `GET /api/governance/events`. Nothing is shown to the user. Token and cost waste stay unknown, never zero, for interactive turns until those turns report usage as they run. The pi `bash` tool now ends a long, clipped failing output with its `[exit N]` line too.
+- Updated dependencies [f58ef21]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [8b4fbdc]
+- Updated dependencies [857ab01]
+- Updated dependencies [3b408f8]
+- Updated dependencies [5876df6]
+- Updated dependencies [a8fbaa3]
+- Updated dependencies [bdb1d6d]
+- Updated dependencies [dd3bf90]
+- Updated dependencies [6f74aaa]
+- Updated dependencies [966bed8]
+- Updated dependencies [a948934]
+- Updated dependencies [2151826]
+- Updated dependencies [857ab01]
+- Updated dependencies [857ab01]
+- Updated dependencies [f5433b3]
+- Updated dependencies [185803c]
+- Updated dependencies [f5433b3]
+- Updated dependencies [999dbe6]
+- Updated dependencies [c41f173]
+- Updated dependencies [ea12d65]
+- Updated dependencies [f5433b3]
+- Updated dependencies [857ab01]
+- Updated dependencies [08b45c4]
+- Updated dependencies [46056f6]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [02d4eb0]
+- Updated dependencies [703a922]
+- Updated dependencies [3070884]
+- Updated dependencies [67a48ca]
+- Updated dependencies [1283ca4]
+- Updated dependencies [52cbd1d]
+- Updated dependencies [3212c7d]
+- Updated dependencies [f5433b3]
+- Updated dependencies [857ab01]
+- Updated dependencies [acec591]
+- Updated dependencies [6377291]
+- Updated dependencies [7a10cdf]
+- Updated dependencies [aa4e0f0]
+- Updated dependencies [1c20df8]
+- Updated dependencies [acec591]
+- Updated dependencies [2b196b3]
+- Updated dependencies [8da5c42]
+- Updated dependencies [b8862b3]
+- Updated dependencies [4914236]
+  - @schlessera/brain-ui-sdk@0.42.0
+  - @schlessera/brain-common@0.42.0
+  - @schlessera/brain@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes

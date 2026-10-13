@@ -1,5 +1,11 @@
 # @schlessera/brain-render-puppeteer
 
+## 0.42.0
+
+### Patch Changes
+
+- @schlessera/brain-render-template@0.42.0
+
 ## 0.41.0
 
 ### Minor Changes
