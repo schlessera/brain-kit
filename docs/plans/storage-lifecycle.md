@@ -226,7 +226,7 @@ original bytes. `rev-list --objects --all` still includes its blob and
 bare remote. Ref identities are unchanged by packing. There is no remote push.
 
 The three selected local category deltas after removal sum to a **growth of
-6,344,320 allocated bytes**: attachment -6,000,640, Git +6,340,608, journal
+6,328,320 allocated bytes**: attachment -6,000,640, Git +6,340,608, journal
 +5,988,352. Packing later saves 6,340,608 Git allocated bytes; that is neither
 historical deletion nor guaranteed volume recovery. These figures exclude DB,
 WAL, other files and filesystem metadata. They are `st_blocks * 512` category
