@@ -17,6 +17,7 @@ because the code has become the better answer to "what does this do".
 | [policy-write-boundary.md](policy-write-boundary.md) | U10's measured filesystem boundaries, escape cases and worker/effect-route ruling required before implementation. |
 | [index-query-api.md](index-query-api.md) | Consumer migration using supported query results, approved optional-peer/root-bound context boundaries, reader inventory and safe SQL retirement. |
 | [navigation-recovery.md](navigation-recovery.md) | Measured navigation reach, cold-session evidence and draft races informing the tracker design. |
+| [storage-accounting.md](storage-accounting.md) | Proposed local storage ownership, deduplicated capacity and bounded measurement model, with synthetic evidence. |
 | [voice-conversation.md](voice-conversation.md) | Proposed turn-taking, screen and interruption model; requirements for the later speech-architecture ruling. |
 
 ## What does not live here
