@@ -207,7 +207,6 @@ revert (`git checkout -- . && git clean -fd`), fix the cause, and version again
 
 ```sh
 bun run release        # build, publish, `changeset tag`, publish the template
-git push origin main --follow-tags
 ```
 
 - **Publishing needs interactive npm auth, so it runs from a human's terminal.**
@@ -237,11 +236,45 @@ git push origin main --follow-tags
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
+  Use the unchanged verified publishing checkout, including a detached HEAD or
+  release worktree. Set `release_commit` to the SHA recorded for the published
+  candidate; the checkout must still have that HEAD. Derive only that version's
+  package tags from its manifests and verify each annotated tag targets that
+  commit. Run this block in Bash:
+
+  ```bash
+  set -euo pipefail
+  : "${release_commit:?Set release_commit to the verified published commit SHA}"
+  test "$(git rev-parse 'HEAD^{commit}')" = "$release_commit"
+  release_tag_list=$(bun -e 'import {listPublishablePackages} from "./scripts/publishable-packages.ts";
+    const packages = listPublishablePackages();
+    if (!packages.length || packages.some(p => p.version !== packages[0].version))
+      throw new Error("Release manifests must share one verified version");
+    console.log(packages.map(p => `refs/tags/${p.name}@${p.version}`).join("\n"));')
+  mapfile -t release_tags <<< "$release_tag_list"
+  test "${#release_tags[@]}" -gt 0
+  for release_tag in "${release_tags[@]}"; do
+    test "$(git cat-file -t "$release_tag")" = tag
+    test "$(git rev-parse "${release_tag}^{commit}")" = "$release_commit"
+  done
+  git push --no-follow-tags origin "${release_tags[@]}"
+  for release_tag in "${release_tags[@]}"; do
+    git ls-remote origin "$release_tag" "${release_tag}^{}"
+  done
+  ```
+
+  Compare every remote tag object's SHA with `git rev-parse "$release_tag"`
+  and every peeled `^{}` SHA with `release_commit`; all package tags must
+  match. A missing tag, wrong target or conflicting remote tag stops the
+  handoff. Never push local `main`, use unrestricted `--follow-tags`/`--tags`,
+  or force a tag. A stale-main rejection after publication does not undo npm
+  publication: do not pull, rebase or force to repair it. Verify the published
+  commit and tags, then push only those explicit refs from that checkout.
   GitHub omits tag-push events when more than three tags are pushed together
   ([event limit](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)).
   The public website's Actions workflow also reconciles the latest canonical
   release every 15 minutes; its direct trigger alone cannot observe a bulk
-  `--follow-tags` push. Check the website run/provenance after a release, or
+  package-tag push. Check the website run/provenance after a release, or
   manually dispatch the same workflow to rebuild immediately.
 - **The template repository goes out as the last step of `bun run release`**,
   after the registry has confirmed every package. It has to be last: a clone of
