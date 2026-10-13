@@ -11,6 +11,7 @@
  */
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
@@ -31,7 +32,7 @@ export interface MaintenanceCommand {
   brainPath: string;
   startupView?: WorkerStartupView;
   /** Host-chosen output workspace; never mounted over the configuration view. */
-  output?: { source: string; target: string };
+  output?: { source: string; target: string; storage?: ReturnType<typeof import("./worker-launcher.js").createOutputStagingStorage> };
   /** A server-built Git adapter: immutable config and program inputs, writable metadata. */
   git?: { source: string; target: string; entry: string; binary: string };
   /** Absolute executable and literal arguments, run with the brain as working directory. */
@@ -291,15 +292,18 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
  * ordinary worker host probe does not cover the private network namespace.
  */
 export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain): { ok: true } | { ok: false; requirement: string } {
+  let outputs: ReturnType<typeof prepareWorkerOutput> | undefined;
   try {
-    const result = runMaintenanceWorkerSync({ brainPath, command: ["/bin/sh", "-c", "exit 0"], env: { PATH: "/usr/bin:/bin" },
+    outputs = prepareWorkerOutput(realpathSync(brainPath));
+    const result = runMaintenanceWorkerSync({ brainPath, startupView: outputs.view, output: outputs.output,
+      command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" },
       credentials: false, ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`})` };
   } catch (error) {
     if (error instanceof WorkerStateError) throw error;
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
-  }
+  } finally { outputs?.cleanup(); }
 }
 
 /**

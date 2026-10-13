@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { KeyedLock } from "./keyed-lock.js";
 import { join, resolve } from "node:path";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { createOutputStagingStorage } from "./worker-launcher.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
 
 /** A named writable work area. Configuration executes at the original brain path, read-only. */
@@ -92,12 +93,16 @@ function current(root: string, rel: string): Entry | undefined {
 export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[] } = {}) {
   const view = options.startupView ?? createWorkerStartupView(brain);
   let output: WorkerStartupView;
-  try { output = createWorkerStartupView(view.root, { storage: view.storage }); } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
+  try {
+    const storage = createOutputStagingStorage(undefined, view.root);
+    storage.retain();
+    output = { brain: view.brain, root: `${storage.root}/.`, storage, cleanup() { storage.release(); } };
+  } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
   catch (error) { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } throw error; }
   const publication = {
-    view, output: { source: output.root, target: WORKER_OUTPUT },
+    view, output: { source: output.root, target: WORKER_OUTPUT, storage: output.storage as ReturnType<typeof createOutputStagingStorage> },
     cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } },
     /**
      * All paths and bases are validated before publication. No link supplied

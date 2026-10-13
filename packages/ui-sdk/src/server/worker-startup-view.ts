@@ -1,16 +1,21 @@
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, ftruncateSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
-import { createOutputStagingStorage } from "./worker-launcher.js";
+import { join } from "node:path";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { mib } from "./worker-state-limits.js";
-import { join } from "node:path";
+
+export interface WorkerStartupStorage {
+  readonly root: string;
+  retain(): void;
+  release(): void;
+  readonly cleanupPid?: number;
+}
 
 export interface WorkerStartupView {
   readonly brain: string;
   readonly root: string;
-  readonly storage: ReturnType<typeof createOutputStagingStorage>;
+  readonly storage: WorkerStartupStorage;
   cleanup(): void;
 }
 
@@ -45,10 +50,48 @@ function removePrivateView(owner: string): void {
  * Special nodes are refused rather than copied into a configuration view.
  * A concurrent change refuses this launch, rather than accepting torn input.
  */
-export function createWorkerStartupView(brain: string, options: { omitGit?: boolean; storage?: WorkerStartupView["storage"] } = {}): WorkerStartupView {
+// Literal first-party cleanup only: no imports or code from the brain. The
+// pipe closes even after abrupt server exit, releasing private disk copies.
+const INPUT_CLEANUP = `import os, stat, sys
+sys.stdin.buffer.read()
+flags = os.O_PATH | os.O_NOFOLLOW | os.O_DIRECTORY
+def empty(fd):
+    os.chmod("/proc/self/fd/" + str(fd), 0o700)
+    for name in os.listdir("/proc/self/fd/" + str(fd)):
+        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            child = os.open(name, flags, dir_fd=fd)
+            try: empty(child)
+            finally: os.close(child)
+            os.rmdir(name, dir_fd=fd)
+        else: os.unlink(name, dir_fd=fd)
+try: fd = os.open(sys.argv[1], flags)
+except FileNotFoundError: sys.exit(0)
+try: empty(fd)
+finally: os.close(fd)
+os.rmdir(sys.argv[1])
+`;
+function createStartupInputStorage(): WorkerStartupStorage {
+  const python = Bun.which("python3");
+  if (!python) throw new Error("python3 is required for immutable startup input crash cleanup");
+  const root = mkdtempSync("/tmp/brain-startup-input-");
+  let keeper: ReturnType<typeof Bun.spawn<"pipe", "ignore", "ignore">>;
+  try { keeper = Bun.spawn([python, "-I", "-S", "-c", INPUT_CLEANUP, root], { env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" }); }
+  catch (error) { removePrivateView(root); throw error; }
+  let refs = 0, removed = false;
+  return { root, cleanupPid: keeper.pid,
+    retain() { if (removed) throw new Error("startup input storage is closed"); refs++; },
+    release() { if (removed || --refs > 0) return; removed = true;
+      try { removePrivateView(root); } finally { keeper.stdin.end(); } },
+  };
+}
+
+export function createWorkerStartupView(brain: string, options: { omitGit?: boolean; storage?: WorkerStartupStorage } = {}): WorkerStartupView {
   // /tmp is always masked in every worker; TMPDIR must not put an unmasked
   // alternate copy of the brain (including its secrets) on the host root.
-  const storage = options.storage ?? createOutputStagingStorage();
+  // Complete immutable inputs retain their existing 4 GiB copy guard; they
+  // are not newly staged writes and do not consume the writable allowance.
+  const storage = options.storage ?? createStartupInputStorage();
   storage.retain();
   let owner: string;
   try { owner = mkdtempSync(`${storage.root}/startup-`); } catch (error) { storage.release(); throw error; }
@@ -100,7 +143,7 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
             const count = readSync(input, buffer);
             if (!count) break;
             bytes += count;
-            if (bytes > 4 * 1024 ** 3) throw new Error("startup view exceeds 4 GiB");
+            if (bytes > 4 * 1024 ** 3) throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded, "Immutable startup inputs exceed their existing 4 GiB logical copy bound; nothing ran.");
             // Preserve zero extents as holes. A sparse scratch artifact must
             // not allocate its logical size in the bounded private tmpfs.
             if (!buffer.subarray(0, count).equals(zeros.subarray(0, count))) {
@@ -147,8 +190,7 @@ export function createWorkerStartupView(brain: string, options: { omitGit?: bool
       try { removePrivateView(owner); } finally { storage.release(); } } };
   } catch (error) {
     try { removePrivateView(owner); } finally { storage.release(); }
-    if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
-      `Output staging exceeds its ${mib(storage.allowanceBytes)} allowance (ENOSPC). Starting inputs and publication copies must fit before launch; nothing ran.`);
+    if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded, "Immutable startup input storage is full (ENOSPC); nothing ran. This is separate from the staged-write allowance.");
     throw error;
   } finally { if (fd !== undefined) closeSync(fd); }
 }
