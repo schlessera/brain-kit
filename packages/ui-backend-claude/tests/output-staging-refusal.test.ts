@@ -1,27 +1,31 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createWorkerStartupView, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
+import { prepareWorkerOutput, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
 
-test("Claude records output staging admission refusal as worker_state_busy with Retry", () => {
+test("Claude records output staging admission refusal as worker_state_busy with Retry", async () => {
   const root = mkdtempSync("/tmp/odysseus-claude-staging-");
   const brain = join(root, "brain"); mkdirSync(brain);
   const old = process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES;
   process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES = String(256 * 1024 ** 2);
-  let view: ReturnType<typeof createWorkerStartupView> | undefined;
+  let outputs: ReturnType<typeof prepareWorkerOutput> | undefined;
+  const controller = new AbortController();
+  let worker: ReturnType<typeof createWorkerSpawn> | undefined;
   try {
-    view = createWorkerStartupView(brain);
-    const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: [], readPaths: [process.execPath] });
-    const controller = new AbortController();
-    const worker = createWorkerSpawn(brain, {}, controller.signal, undefined, sandbox);
-    expect(() => worker.spawn({ command: process.execPath, args: ["-e", "console.log('Odysseus')"],
+    mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
+    outputs = prepareWorkerOutput(brain);
+    const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], readPaths: [process.execPath] });
+    worker = createWorkerSpawn(brain, {}, controller.signal, undefined, sandbox);
+    expect(() => worker!.spawn({ command: process.execPath, args: ["-e", "console.log('Odysseus')"],
       env: { HOME: root, CLAUDE_CONFIG_DIR: join(root, "claude") }, signal: controller.signal })).toThrow("Retry");
     expect(worker.failure(), "CLAUDE_OUTPUT_STAGING_REFUSAL_CLASS").toMatchObject({ errorClass: "worker_state_busy" });
     expect(worker.failure()?.message).toContain("output-staging capacity");
     expect(worker.failure()?.message).toContain("Retry");
   } finally {
-    view?.cleanup();
+    controller.abort();
+    await worker?.finish().catch(() => {});
+    outputs?.cleanup();
     if (old === undefined) delete process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES; else process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES = old;
     rmSync(root, { recursive: true, force: true });
   }

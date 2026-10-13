@@ -236,6 +236,10 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5);
+    const fs=require("node:fs"); let refused=false;
+    try {fs.writeFileSync(process.env.BRAIN_ROOT+"/git-adapter/empty-config", "[alias]\\n");}
+    catch(error) {if(error.code!=="ENOENT")throw error;refused=true;}
+    if(!refused)throw new Error("GIT_ADAPTER_HAS_WRITABLE_PUBLICATION_ALIAS");
     await Bun.write(process.env.BRAIN_ROOT+"/raft.md", "Odysseus builds a raft.\\n");
     for(const args of [["add","raft.md"],["show",":raft.md"]]) {const p=Bun.spawnSync(["git",...args],{stdout:"pipe",stderr:"pipe"});if(p.exitCode)throw new Error(p.stderr.toString()); if(args[0]==="show")process.stdout.write(p.stdout);}`;
   const worker = await boundary.launch({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "Git startup proof" });
@@ -250,6 +254,7 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
     expect(await worker.exited, await new Response(worker.stderr).text()).toBe(0);
     expect(output, "GIT_CONFIGURATION_STARTUP_ONLY").toBe("before launch\nOdysseus builds a raft.\n");
     expect(git("show", ":raft.md").stdout.toString()).toBe(output);
+    expect(existsSync(join(brain, "git-adapter")), "SERVER_GIT_ADAPTER_NEVER_PUBLISHED").toBe(false);
     expect(readFileSync(join(brain, "filters/value.txt"), "utf8")).toBe("during launch\n");
   } finally { worker.kill("SIGKILL"); }
 });

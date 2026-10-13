@@ -4,7 +4,7 @@
  *
  * Each worker's runtime state and its `/tmp` are private tmpfs mounts of a
  * fixed allowance, so one worker can never fill another's. Output staging
- * admits immutable inputs and publication copies together against its own budget. Those mounts still
+ * admits writable publication and auxiliary storage against its own budget; immutable inputs are separate. Those mounts still
  * share the host's memory, so before a worker launches it reserves each whole
  * allowance against the server's budget for it. Reserving is logical
  * accounting, not an allocation. Each reservation admits all requested allowances together
@@ -38,7 +38,7 @@ export interface Reservation {
   readonly bytes: number;
   /** The turn-temp allowance this worker was admitted with, fixed for its lifetime; 0 without one. */
   readonly turnTempBytes: number;
-  /** Immutable startup inputs and writable publication storage. */
+  /** Writable publication upper-layer and auxiliary storage; immutable inputs are separate. */
   readonly outputStagingBytes: number;
   /** Idempotent; every exit path calls it. */
   release(): void;

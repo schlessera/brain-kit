@@ -343,7 +343,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   },
   {
     name: "BRAIN_UI_OUTPUT_STAGING_BYTES",
-    description: "Each snapshot consumer's immutable startup inputs and writable output staging share a separate bounded tmpfs, in bytes (a positive multiple of 4096). Writes past it fail with ENOSPC; invalid values refuse boot.",
+    description: "Each snapshot consumer's writable copy-on-write output uses a separate bounded tmpfs, excluding immutable starting inputs, in bytes (a positive multiple of 4096). Writes past it fail with ENOSPC; invalid values refuse boot.",
     default: "268435456 (256 MiB)", required: false,
   },
   {
