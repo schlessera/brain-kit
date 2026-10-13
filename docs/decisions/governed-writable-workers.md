@@ -598,8 +598,15 @@ host-configurable and validated. Its aggregate budget defaults to allowance
 multiplied by the concurrent-session cap, with an explicit override. Admission
 extends the runtime-state/turn-temp ledger; refusal is `worker_state_busy` with
 Retry. Writes over capacity fail with named `ENOSPC`, never by overflowing a
-host-backed directory. Read-only startup-copy occupancy and writable copies
-share this capacity. An oversized starting copy refuses before execution.
+host-backed directory. The allowance bounds newly staged writable bytes, not
+the complete immutable input tree. **2026-10-13 correction (#1778):** the shipped
+0.42.0 implementation charged startup inputs and duplicate baselines too; that
+stronger constraint was not in the linked maintainer ruling and refused
+legitimate large brains before launch. Complete immutable inputs retain the
+existing 4 GiB logical copy guard in separately owned private storage; only
+new/copied-up output bytes and writable filesystem overhead occupy the
+kernel-bounded output upper layer. An input-capacity refusal remains named
+and leaves status available without host fallback.
 The agent's limits list and the hosting guide state the enforcing value.
 Secret links are resolved in worker-visible names while brain components are
 inspected through the held startup copy. Relative links, absolute brain links
@@ -608,12 +615,14 @@ destinations are masked in every separately named maintenance output or strict
 area copy too; a writable copy cannot expose the same bytes through an alias.
 
 Zero-filled extents are copied as sparse holes, preserving every logical byte
-without allocating a sparse artifact's logical length in the tmpfs. The
-capacity bound applies to allocated storage; logical file bytes still meet
-the existing copy and inventory bounds.
+without allocating a sparse artifact's logical length in the immutable input
+snapshot. Copied-up outputs remain charged for their allocated bytes. The
+output capacity bound applies to allocated writable storage; logical file bytes
+still meet the existing copy and inventory bounds. Deleting a lower-only input
+does not release upper-layer write capacity.
 
-The implementation retains a trusted tmpfs mount helper until publication and
-starts the worker's bubblewrap inside that namespace using `nsenter`. Its
+The implementation retains a trusted copy-on-write mount helper until
+publication and starts the worker's bubblewrap inside that namespace using `nsenter`. Its
 starting view is still read-only, its output view still separate, and its own
 fresh namespaces/masks still apply. Fixed parser inputs such as `.gitignore`
 are captured through anchored descriptor reads and parsed as data; they need
@@ -674,7 +683,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:824-824`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:825-825`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1232,7 +1241,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1218`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1234`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;

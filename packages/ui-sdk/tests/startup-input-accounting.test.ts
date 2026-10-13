@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { prepareWorkerOutput, WORKER_OUTPUT } from "../src/server/worker-output.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
-import { createOutputStagingStorage } from "../src/server/worker-launcher.js";
+import { text } from "node:stream/consumers";
+import { createOutputStagingStorage, launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
 import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
 
-test("complete immutable inputs larger than output staging are not staged writes", () => {
+test("complete immutable inputs larger than output staging are not staged writes", async () => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-large-input-"));
   let view: ReturnType<typeof createWorkerStartupView> | undefined;
   try {
@@ -17,6 +18,15 @@ test("complete immutable inputs larger than output staging are not staged writes
     try { for (let i = 0; i < 257; i++) writeSync(fd, chunk); } finally { closeSync(fd); }
     view = createWorkerStartupView(brain);
     expect(view.root).toBeDefined();
+    mkdirSync(join(brain, ".brain", "scratch"), { recursive: true });
+    const worker = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"] }),
+      env: {}, command: ["/bin/sh", "-c", '/usr/bin/head -c1 node_modules/odysseus-input.bin; printf "Penelope strict output" > /tmp/brain-worker-areas/scratch/retained.txt'] });
+    const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
+    try {
+      expect(await worker.exited, (await streams)[1]).toBe(0);
+      expect((await streams)[0]).toBe("a");
+      expect(readFileSync(join(brain, ".brain/scratch/retained.txt"), "utf8"), "STRICT_LARGE_INPUT_RETAINS_ALLOWED_OUTPUT").toBe("Penelope strict output");
+    } finally { worker.kill("SIGKILL"); }
   } finally { view?.cleanup(); rmSync(brain, { recursive: true, force: true }); }
 });
 

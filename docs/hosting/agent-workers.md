@@ -627,35 +627,52 @@ host daemons' sockets out of the brain directory on a hosted install.
 ## Output-staging allowance
 
 Strict, restricted and maintenance configuration consumers use immutable startup
-inputs. Strict persistent areas and maintenance results use private copies,
+inputs. Strict persistent areas and maintenance results use private copy-on-write outputs,
 validated against the authoritative brain before publication. Each consumer
 reserves a separate **256 MiB** allowance in the same admission ledger as runtime
-state and turn temp. Starting input bytes, publication copies, Git adapter data,
-and filesystem overhead all occupy that one bounded tmpfs. Turn temp is separate.
+state and turn temp. Newly created or copied-up output bytes, Git adapter data,
+and writable filesystem overhead occupy that bounded tmpfs. Turn temp is separate.
+Complete immutable input bytes retain their existing 4 GiB logical copy bound
+in a private snapshot in host temporary storage under `/tmp`, outside the
+output allowance. A trusted cleanup
+keeper removes that snapshot even after abrupt server exit.
 
 | Host setting | Default | Meaning |
 | --- | --- | --- |
-| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The total private startup and output staging capacity for one consumer. |
+| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The private writable output capacity for one consumer; immutable input bytes are separate. |
 | `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (768 MiB at defaults) | Aggregate admitted output-staging capacity. |
 
 Both values must be positive multiples of 4096, with the budget at least one
 allowance; invalid values refuse server startup. A consumer unable to reserve
 its whole allowance refuses immediately with `worker_state_busy` and Retry.
-Starting copies must fit before any repository code runs; an oversized copy
-refuses with `worker_state_exceeded`, naming output staging and `ENOSPC`.
-Subsequent writes that fill the filesystem fail with `ENOSPC` (`No space left on
-device`). A strict publication copy normally needs room for two copies of its
-starting contents, plus the turn's changes. Set an allowance and aggregate
-budget appropriate for the complete input tree, including dependencies and
-workspaces. No host-backed overflow fallback exists. The agent's limits note
-states the same resolved allowance.
+Complete starting inputs must fit their own 4 GiB logical copy bound and the
+host's free snapshot storage before repository code runs. A named
+`worker_state_exceeded` refusal reports input capacity separately from output
+staging; boot and status remain available without host execution fallback.
+New output writes that fill the upper filesystem fail with `ENOSPC` (`No space
+left on device`). Copying up a modified existing file consumes its full copied
+bytes. Deleting a lower-only baseline file does not free writable capacity.
+No host-backed output overflow fallback exists. The agent's limits note states
+the same resolved output allowance.
 
-A trusted helper keeps this private mount alive through publication. The
-launcher uses util-linux `nsenter` with `--user`, `--mount` and
-`--preserve-credentials` to start bubblewrap inside its completed mount namespace;
-bubblewrap still creates the worker's own namespaces, fresh `/proc`, masks and
-private turn temp. Install `nsenter` alongside bubblewrap and permit `setns` in
-the container seccomp profile. No added host capabilities are needed.
+A fixed trusted helper uses util-linux `unshare` and `mount` to create a
+copy-on-write overlay with immutable input as its lower layer and upper/work
+on the size-limited tmpfs. This is the separate private publication workspace,
+not a writable mount over the brain's configuration execution path. The
+launcher uses `nsenter --user --mount --preserve-credentials` to start
+bubblewrap inside that completed helper namespace; bubblewrap still creates
+the worker's own namespaces, fresh `/proc`, masks and private turn temp, and
+drops its capabilities. No added host/container capabilities are needed.
+
+The host needs kernel support for overlayfs in an unprivileged user namespace
+with `userxattr`, util-linux `unshare`, `mount` and `nsenter`, and `python3`
+for the isolated literal input-cleanup helper (`-I -S`, no brain imports).
+The maintenance qualification performs a real private output write before
+claiming availability. Missing tools or unsupported mounts produce the existing
+host-requirement refusal; no live-input or host-execution fallback is selected.
+Keep `setns`, namespace creation and mount calls allowed in the namespace
+seccomp profile. Both the private output namespace and immutable input copy
+are released after abrupt server exit.
 
 ## Running the server in a Docker container
 
