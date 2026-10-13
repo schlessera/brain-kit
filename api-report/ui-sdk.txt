@@ -5645,7 +5645,7 @@ signatures (every public export and the types it is made of)
         readonly required: "trusted maintenance Git adapter only";
     }, {
         readonly default: "268435456 (256 MiB)";
-        readonly description: "Immutable starting inputs and private worker outputs share a separate bounded tmpfs; positive page-aligned bytes. Writes past it fail with ENOSPC.";
+        readonly description: "Private worker output upper-layer and auxiliary storage use a separate bounded tmpfs; immutable starting inputs are stored separately. Positive page-aligned bytes; writes past the allowance fail with ENOSPC.";
         readonly name: "BRAIN_UI_OUTPUT_STAGING_BYTES";
         readonly required: false;
     }, {

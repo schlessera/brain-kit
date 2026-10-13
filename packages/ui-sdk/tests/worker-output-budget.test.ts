@@ -56,33 +56,43 @@ test("the shared ledger reserves all three allowances or none and permits Retry"
   retry.release(); expect([ledger.held, ledger.turnTempHeld, ledger.outputStagingHeld, ledger.live]).toEqual([0, 0, 0, 0]);
 });
 
-test("real staging admission refuses a competing snapshot and frees its reservation on cleanup", () => {
+test("real staging admission excludes immutable input and refuses competing writable output until cleanup", () => {
   const old = process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES;
   process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES = String(256 * 1024 ** 2);
   cleanup.push(() => { if (old === undefined) delete process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES; else process.env.BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES = old; });
   const brain = mkdtempSync("/tmp/odysseus-staging-admission-"); cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
   const ledger = processStateLedger(), before = ledger.outputStagingHeld;
   const view = createWorkerStartupView(brain); cleanup.push(view.cleanup);
+  expect(ledger.outputStagingHeld, "IMMUTABLE_INPUT_DOES_NOT_RESERVE_STAGED_WRITES").toBe(before);
+  const outputs = prepareWorkerOutput(brain, { startupView: view }); cleanup.push(outputs.cleanup);
   expect(ledger.outputStagingHeld).toBe(before + 256 * 1024 ** 2);
-  try { createWorkerStartupView(brain); throw new Error("admitted competing snapshot"); }
+  let competing: ReturnType<typeof prepareWorkerOutput> | undefined;
+  try { competing = prepareWorkerOutput(brain, { startupView: view }); throw new Error("admitted competing output"); }
   catch (error) { expect(error).toMatchObject({ errorClass: "worker_state_busy" }); expect((error as Error).message).toContain("Retry"); }
-  view.cleanup(); view.cleanup(); expect(ledger.outputStagingHeld).toBe(before);
-  const retry = createWorkerStartupView(brain); retry.cleanup(); expect(ledger.outputStagingHeld).toBe(before);
+  finally { competing?.cleanup(); }
+  outputs.cleanup(); outputs.cleanup(); expect(ledger.outputStagingHeld).toBe(before);
+  const retry = prepareWorkerOutput(brain, { startupView: view }); retry.cleanup(); expect(ledger.outputStagingHeld).toBe(before);
 });
 
-test("starting bytes and output copies share capacity and failed preparation frees it", () => {
+test("unchanged starting bytes are exempt while output writes remain bounded and cleanup releases admission", () => {
   const old = process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;
   process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = String(1024 ** 2);
   cleanup.push(() => { if (old === undefined) delete process.env.BRAIN_UI_OUTPUT_STAGING_BYTES; else process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = old; });
   const brain = mkdtempSync("/tmp/odysseus-staging-start-"); cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
   writeFileSync(join(brain, "Odysseus.bin"), Buffer.alloc(600 * 1024, 1));
   const ledger = processStateLedger(), before = ledger.outputStagingHeld;
-  expect(() => prepareWorkerOutput(brain), "STARTING_COPIES_CHARGED").toThrow("Output staging exceeds its 1 MiB allowance (ENOSPC)");
+  const outputs = prepareWorkerOutput(brain); cleanup.push(outputs.cleanup);
+  try {
+    expect(readFileSync(join(outputs.output.source, "Odysseus.bin"))).toEqual(Buffer.alloc(600 * 1024, 1));
+    expect(ledger.outputStagingHeld).toBe(before + 1024 ** 2);
+    expect(() => writeFileSync(join(outputs.output.source, "overflow.bin"), Buffer.alloc(2 * 1024 ** 2)), "ONLY_WRITABLE_BYTES_ARE_BOUNDED").toThrow("ENOSPC");
+    expect(readFileSync(join(brain, "Odysseus.bin"))).toEqual(Buffer.alloc(600 * 1024, 1));
+  } finally { outputs.cleanup(); }
   expect(ledger.outputStagingHeld).toBe(before);
   writeFileSync(join(brain, "Odysseus.bin"), "before");
-  const outputs = prepareWorkerOutput(brain);
-  try { writeFileSync(join(outputs.output.source, "Odysseus.bin"), "after"); outputs.publish(); expect(readFileSync(join(brain, "Odysseus.bin"), "utf8")).toBe("after"); }
-  finally { outputs.cleanup(); }
+  const retry = prepareWorkerOutput(brain);
+  try { writeFileSync(join(retry.output.source, "Odysseus.bin"), "after"); retry.publish(); expect(readFileSync(join(brain, "Odysseus.bin"), "utf8")).toBe("after"); }
+  finally { retry.cleanup(); }
   expect(ledger.outputStagingHeld).toBe(before);
 });
 
@@ -90,11 +100,13 @@ test("starting bytes and output copies share capacity and failed preparation fre
 for (const mode of ["streaming", "sync"] as const) test(`${mode} maintenance bootstrap refusal releases staging`, () => {
   const brain = mkdtempSync("/tmp/odysseus-staging-refusal-"); cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
   const ledger = processStateLedger(), before = ledger.outputStagingHeld;
+  const outputs = prepareWorkerOutput(brain); cleanup.push(outputs.cleanup);
   const original = Bun.which;
   const which = spyOn(Bun, "which").mockImplementation((name, options) => name === "nsenter" ? null : original(name, options));
   try {
-    const input = { brainPath: brain, command: ["/bin/true"], env: {}, credentials: false, timeoutMs: 1000 };
+    const input = { brainPath: brain, startupView: outputs.view, output: outputs.output, command: ["/bin/true"], env: {}, credentials: false, timeoutMs: 1000 };
     expect(() => mode === "streaming" ? launchMaintenanceWorker(input) : runMaintenanceWorkerSync(input)).toThrow("nsenter");
-    expect(ledger.outputStagingHeld, "BOOTSTRAP_REFUSAL_RELEASES_STAGING").toBe(before);
-  } finally { which.mockRestore(); }
+    outputs.cleanup();
+    expect(ledger.outputStagingHeld, "BOOTSTRAP_REFUSAL_RELEASES_OWNED_STAGING").toBe(before);
+  } finally { which.mockRestore(); outputs.cleanup(); }
 });
