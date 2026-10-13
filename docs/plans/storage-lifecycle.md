@@ -7,6 +7,10 @@ with the accounting discovery in [#1780](https://github.com/schlessera/brain-kit
 It approves no deletion policy, new retention default or runtime API.
 
 Source inspected at `f2c98da6093c9e1731f061625ba7302f51bf7340`.
+Final lifecycle review also includes `2ea27697850dfffe956f2aa8471a720ea738f2bb`:
+[#1778](https://github.com/schlessera/brain-kit/issues/1778)'s delivered correction
+separates immutable startup inputs from bounded copy-on-write output staging.
+The synthetic measurement below retains its original source/conditions.
 The [governed-worker decision](../decisions/governed-writable-workers.md),
 [writable-area decision](../decisions/worker-writable-areas.md), and
 [all-writer boundary](../decisions/policy-write-boundary.md) bind execution.
@@ -61,6 +65,7 @@ by this spike.
 | Journal collection; ui-server `createTurnJournal` / accounting | Private CAS, journal-owned SQLite pages, manifests, reservations and quarantine/revert evidence. Existing 10 GiB cap / completed-detail retention. | Existing owner collects completed detail oldest-first under cap; active windows, shared refs and reader reservations protect objects. Do not offer a manual “cache clear” that circumvents ownership. | Detail expiry loses Undo; summaries can remain, and no pre-expiry deletion receipt extends retention. Existing cap collection is already approved; **new expiry rules are unresolved**. WAL/checkpoint needs safe headroom and can refuse reader contention. | Measure CAS and owned DB/WAL allocation, not just deleted rows. SQLite free pages may remain allocated. Label expired detail and remaining recovery window honestly. |
 | Operational backups; ui-server export/restore + generated host scheduling/retention, #686 and hosting-template #9 | Full operational DB image and matching staging bytes; separate Git content backup. | Capture consistency checks; restore requires stopped writers, empty targets and matching checksum/recovery marker. Backup retention must preserve an operator-tested compatible recovery point. | At least 24-hour successful capture objective; replacement export has private temporary bytes. Retention policy and remote/provider deletion belong to host configuration, not a package default. | List known age/completeness/size; unknown remote or older artifacts stay unknown. Never delete recovery material to make an export fit. Report local and remote outcomes separately. |
 | Runtime maintenance; SDK owned turn temp vs externally managed logs/images/layers | `turn_temp` only reaches the current worker's private `/tmp`; runtime state is excluded. Host/container caches and other users' data are outside ordinary app authority. | Existing scoped tool skips output-linked paths; named force may override, all+force refused; no-follow/device checks. No approval for this already-authorized scoped tool. No Docker socket or global prune. | Turn temp expires at exit; linked files promote via held descriptor. Purge is not Undo; runtime transcripts/settings/memory are not its targets. | Tool measures tmpfs usage/limit/actual delta and records governance; persistent storage reclamation is a separate metric. Host logs/images/volumes show externally managed/unavailable and generic operator guidance only. |
+| Immutable startup copies and output staging; ui-sdk, delivered #1778 | Private immutable execution inputs and separately bounded writable copy-on-write output. These are neither canonical content nor agent turn temp. | Owning storage references/helpers keep live input and publication material. No storage-UI sweep of host `/tmp` or deletion by guessed prefix. Copy guards and output admission remain distinct. | Inputs can require private host-disk copies up to the existing 4 GiB logical guard; sparse holes preserve logical bytes. Owner cleanup releases copies, including a crash-cleanup helper. Output upper bytes/metadata need their separately admitted allowance. | Measure input-copy disk occupancy, writable upper allocation and canonical post-publication state separately. Removing a lower-only input does not free upper write capacity; whiteout metadata can consume it. No promise that canonical deletion fixes a staging-capacity refusal. |
 
 Source foundations for the matrix:
 
@@ -90,6 +95,11 @@ Source foundations for the matrix:
   (`export function handleTurnTemp`, `packages/ui-sdk/src/server/bridge-tools/turn-temp.ts:19-41`).
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and
   restart behavior; it is not an index rebuild.
+- Startup input ownership is separate from writable staging
+  (`function createStartupInputStorage`, `packages/ui-sdk/src/server/worker-startup-view.ts:74-87`;
+  `export function createWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:89-198`).
+  The staged-write limit states the separation
+  (`export function outputStagingLimit`, `packages/ui-sdk/src/server/worker-state-limits.ts:144-150`).
 
 ## PDF larger than 5 MB: review and execution
 
@@ -152,6 +162,13 @@ destination can differ. Logical admission is not proof that disk allocation
 will succeed. Preflight cannot eliminate ENOSPC races, quotas or concurrent
 writes. Use bounded batches, item/byte/time budgets and cancellation between
 items; no recursive unbounded copy or “delete whatever is oldest” fallback.
+
+Include immutable startup-copy disk headroom separately from the bounded
+copy-on-write output upper. #1778 corrects the former accidental charging of
+the whole input tree to output staging. A lower-only deletion can reduce a
+published canonical tree without releasing upper write capacity, so candidate
+file bytes cannot predict staging-limit relief. Input copy, staged writes,
+turn temp and runtime state keep their own owners and capacity evidence.
 
 At low space, prefer known eligible existing scratch/staging/turn-temp work
 where its owner can safely record the outcome. Packing, archive compression,
