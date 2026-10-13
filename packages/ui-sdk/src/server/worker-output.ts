@@ -96,7 +96,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   try {
     const storage = createOutputStagingStorage(undefined, view.root);
     storage.retain();
-    output = { brain: view.brain, root: `${storage.root}/.`, storage, cleanup() { storage.release(); } };
+    output = { brain: view.brain, root: `${storage.root}/merged`, storage, cleanup() { storage.release(); } };
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }

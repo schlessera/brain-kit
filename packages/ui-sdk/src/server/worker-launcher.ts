@@ -872,7 +872,6 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
   let mount: string;
   try { mount = mkdtempSync("/tmp/brain-output-staging-"); } catch (error) { reservation.release(); throw error; }
   let fd: number | undefined;
-  let mergedFd: number | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
@@ -919,20 +918,18 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
         Bun.sleepSync(1);
       }
     } finally { closeSync(ready); }
-    if (lowerRoot) mergedFd = openSync(`/proc/self/fd/${fd}/merged`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    const owned = mergedFd ?? fd;
+    const owned = fd;
     let refs = 0, closed = false;
     // Only the server reads this descriptor alias. Worker mount sources are
     // resolved inside the keeper namespace, then masked by their own /tmp.
     const root = `/proc/${process.pid}/fd/${owned}`;
     void child.exited.finally(() => pipes!.cleanup());
-    return { root, mount: lowerRoot ? `${mount}/merged` : mount, namespacePid, allowanceBytes: reservation.outputStagingBytes,
+    return { root, mount, namespacePid, allowanceBytes: reservation.outputStagingBytes,
       retain() { if (closed) throw new Error("output staging is closed"); refs++; },
-      release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); if (mergedFd !== undefined) closeSync(fd!); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
+      release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
     };
   } catch (error) {
     child?.kill("SIGKILL");
-    if (mergedFd !== undefined) closeSync(mergedFd);
     if (fd !== undefined) closeSync(fd);
     const detail = pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); rmSync(mount, { recursive: true, force: true }); reservation.release();
