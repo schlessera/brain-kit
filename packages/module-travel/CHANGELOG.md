@@ -1,5 +1,14 @@
 # @schlessera/brain-module-travel
 
+## 0.42.1
+
+### Patch Changes
+
+- @schlessera/brain@0.42.1
+- @schlessera/brain-scrape@0.42.1
+- @schlessera/brain-geo@0.42.1
+- @schlessera/brain-common@0.42.1
+
 ## 0.42.0
 
 ### Patch Changes
