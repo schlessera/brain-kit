@@ -5,7 +5,7 @@
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerStateError, workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import { hostExecution } from "../src/brain/host-boundary";
@@ -213,6 +213,31 @@ describe("a root-run server (#1638)", () => {
     try {
       expect((await workerHostOf(await t.fetch("/api/status")))?.rootServer).toBeUndefined();
       expect(rootWarnings(observability)).toHaveLength(0);
+    } finally { await t.teardown(); }
+  });
+});
+
+describe("maintenance resource refusals (#1778)", () => {
+  test.each(["worker_state_busy", "worker_state_exceeded"] as const)("a named %s maintenance refusal keeps boot and status available without host fallback", async errorClass => {
+    probeAnswers({ ok: true });
+    const detail = errorClass === "worker_state_exceeded"
+      ? "Complete immutable startup inputs exceed available storage; nothing ran."
+      : "Maintenance temporary storage is busy; nothing ran.";
+    maintenanceProbe.mockImplementation(() => { throw new WorkerStateError(errorClass, detail); });
+    const t = await createTestApp();
+    try {
+      expect((await t.fetch("/api/health")).status, "RESOURCE_REFUSAL_DOES_NOT_CRASH_BOOT").toBe(200);
+      const status = await t.fetch("/api/status");
+      expect(status.status, "RESOURCE_REFUSAL_DOES_NOT_CRASH_STATUS").toBe(200);
+      expect((await workerHostOf(status))?.governed, "RESOURCE_REFUSAL_NEVER_SELECTS_HOST_EXECUTION").toMatchObject({
+        available: false, reason: "worker_host_unavailable", detail, hostExecution: "worker",
+      });
+      maintenanceProbe.mockReturnValue({ ok: true });
+      const checked = await t.fetch("/api/status/worker-host", { method: "POST" });
+      expect(checked.status).toBe(200);
+      expect((await checked.json() as WorkerHostStatus).governed, "RESOURCE_REFUSAL_RECOVERS_WITHOUT_CACHED_FAILURE").toMatchObject({
+        available: true, hostExecution: "worker",
+      });
     } finally { await t.teardown(); }
   });
 });

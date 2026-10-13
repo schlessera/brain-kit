@@ -261,7 +261,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // private network namespace and all: governed is unavailable without one.
   // A pass is kept; a failure is asked again after a minute.
   let maintenance: { probe: WorkerHostProbe; at: number } | undefined;
-  let maintenanceBusy = false;
+  let maintenanceResourceRefused = false;
   const maintenanceKey = JSON.stringify([brain, tempDomain ? real(tempDomain.statePath) : null,
     maintenanceTemp.allowanceBytes, maintenanceTemp.budgetBytes]);
   const workerHost = (): WorkerHostProbe => {
@@ -271,14 +271,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       try {
         const checked = passedMaintenanceProbes.get(maintenanceKey)
           ?? hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain);
-        maintenanceBusy = false;
+        maintenanceResourceRefused = false;
         maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
       } catch (error) {
-        if (!(error instanceof WorkerStateError) || error.errorClass !== "worker_state_busy") throw error;
+        if (!(error instanceof WorkerStateError)) throw error;
         // Capacity says nothing about host capability. Do not cache this as a
         // containment failure or select host execution; next admission retries.
-        maintenanceBusy = true;
+        maintenanceResourceRefused = true;
         return { ok: false, requirement: error.message };
       }
     }
@@ -291,7 +291,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const isolated = () => {
     if (options.history?.() === true) return true;
     const availability = governed();
-    return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceBusy || workerHostProven(brain)));
+    return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
   };
 
   const maskPaths = operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths });
