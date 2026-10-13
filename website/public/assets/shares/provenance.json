@@ -1,12 +1,12 @@
 {
   "kind": "production-renderer-exports",
-  "recipeHash": "9b8f5d8d5c6c11251162186c7219e39d83f9c433ea6be308c7b1b1799b88919b",
-  "sourceSha": "cfdb11e7912a413235a1745cf22af314668df1ce",
+  "recipeHash": "02863ee9f999e0139c7d32bfe5a1275954fe39c0756df878a2c145f7b4c4125c",
+  "sourceSha": "f2c98da6093c9e1731f061625ba7302f51bf7340",
   "sourceDirty": true,
   "brainKit": {
     "mode": "workspace",
-    "version": "0.40.0",
-    "sourceSha": "cfdb11e7912a413235a1745cf22af314668df1ce",
+    "version": "0.42.0",
+    "sourceSha": "f2c98da6093c9e1731f061625ba7302f51bf7340",
     "tag": null,
     "registry": {}
   },
@@ -18,1050 +18,1050 @@
       "key": "006354ce9861699aa7f326e59a7435bc77adf494e6ebfa47ef50619c557c7d33",
       "format": "png",
       "title": "antinous.md",
-      "sha256": "20879bb8c374e51ae3198fcf398f8b034a13f2cfe74534dc2a0248613cd9b364",
+      "sha256": "1c369092ce7e5f5fcbcc9878941dae08af0c17dbaab3c9cad092cadb75db8201",
       "bytes": 97508
     },
     "006354ce9861699aa7f326e59a7435bc77adf494e6ebfa47ef50619c557c7d33.pdf": {
       "key": "006354ce9861699aa7f326e59a7435bc77adf494e6ebfa47ef50619c557c7d33",
       "format": "pdf",
       "title": "antinous.md",
-      "sha256": "146fc01bfd63b5fe7d129dc588b16d6c52b6a2a00790b0cb7cc6a2647675a444",
+      "sha256": "274b51556c32ffe64d211a30041f31ea02ac8eab10fac938c8110b55a5fd8e6d",
       "bytes": 27995
     },
     "01b81e0cfd262d831807e8e5c49bae03e6c656eea305ad7881743ee804795ab0.pdf": {
       "key": "01b81e0cfd262d831807e8e5c49bae03e6c656eea305ad7881743ee804795ab0",
       "format": "pdf",
       "title": "name-at-the-stern.md",
-      "sha256": "420438fe20870ef81d21b7793d57c37f61ccf3032d645bb2e5924cc20a7f74e5",
+      "sha256": "28417f37c2f24fa73f97f98f1d5828fb4244d04260abce37494e2ab9e6bef9aa",
       "bytes": 17735
     },
     "01b81e0cfd262d831807e8e5c49bae03e6c656eea305ad7881743ee804795ab0.png": {
       "key": "01b81e0cfd262d831807e8e5c49bae03e6c656eea305ad7881743ee804795ab0",
       "format": "png",
       "title": "name-at-the-stern.md",
-      "sha256": "93edca8eaa0199976cc5092c88d66313a4c380193dc9ee23e9f901e84ee27b55",
+      "sha256": "3bd22fa8a845ef6ffec03f15741dad751535744d07bb00e7ea15a60e7b8464c0",
       "bytes": 62476
     },
     "03a52e0c688ffc6de32fc99fa0fa0502e415f5f2ff80441d444588b350697935.pdf": {
       "key": "03a52e0c688ffc6de32fc99fa0fa0502e415f5f2ff80441d444588b350697935",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "d1b5e621afc7d75bf7f39272e89f75213daabd36cbabce7a286440a9108b033e",
+      "sha256": "fc18b9345db0b30b6e7ec2a0f19530cab715f1874afdb9578ecc65e8ddf26546",
       "bytes": 9560
     },
     "03a52e0c688ffc6de32fc99fa0fa0502e415f5f2ff80441d444588b350697935.png": {
       "key": "03a52e0c688ffc6de32fc99fa0fa0502e415f5f2ff80441d444588b350697935",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "3186914442aaa6d7b2a8302a7d13762969a35aea7dda7d57c005b5c31fe58f56",
+      "sha256": "d28db00ce6b145e06cb8e4d9cd0597ec6cd1eba6e24e063e6f294bad821fa37c",
       "bytes": 27061
     },
     "0bccc29d4ecd58107f3472a5afe7de599c69b22b76045a6e201ce04e03e0da52.pdf": {
       "key": "0bccc29d4ecd58107f3472a5afe7de599c69b22b76045a6e201ce04e03e0da52",
       "format": "pdf",
       "title": "eumaeus.md",
-      "sha256": "67b8d2206ea9a2b091e3aad69497a4c8efc54b2558e85c20e30189d85e02085d",
+      "sha256": "b6de91ad3d0c784d117cabd91f64451a2c16afe8e130e8093bb161c3cdf8f40e",
       "bytes": 27838
     },
     "0bccc29d4ecd58107f3472a5afe7de599c69b22b76045a6e201ce04e03e0da52.png": {
       "key": "0bccc29d4ecd58107f3472a5afe7de599c69b22b76045a6e201ce04e03e0da52",
       "format": "png",
       "title": "eumaeus.md",
-      "sha256": "18d0d4caa7ddd830a44ebd9891e3e6b82cb1a1186ddd816e2bedbdcb77d39f1b",
+      "sha256": "8dd78734229c680e86847cce47a541964d62d18b9b9c302486104b0cd8975c7a",
       "bytes": 93224
     },
     "0fada02c9426854cf793806e3896cfb3775b2ce2db5af8433b804ed2f60eb104.pdf": {
       "key": "0fada02c9426854cf793806e3896cfb3775b2ce2db5af8433b804ed2f60eb104",
       "format": "pdf",
       "title": "raft-preparations.md",
-      "sha256": "d4c7da9f50cf9eccefffdf03be85912ac80a2432fdd8d4d1066d1c127cb5e852",
+      "sha256": "e99d3079900df14b1ef7e41f771205248f92945a4364c6645edbc8dfb99cd15e",
       "bytes": 33691
     },
     "0fada02c9426854cf793806e3896cfb3775b2ce2db5af8433b804ed2f60eb104.png": {
       "key": "0fada02c9426854cf793806e3896cfb3775b2ce2db5af8433b804ed2f60eb104",
       "format": "png",
       "title": "raft-preparations.md",
-      "sha256": "af9a9867215f10c847b165f8029b49ac0baed6f9cafe7b886dc6a3050bf77a43",
+      "sha256": "c998a8890874d9471f0a53139e94c624c74ab8ab70fecb260e80d00949e9f690",
       "bytes": 166381
     },
     "102f6bb25c6854e8276d987f8f2bf2b28babfc92515b5165d8b4c0b6abb88c70.pdf": {
       "key": "102f6bb25c6854e8276d987f8f2bf2b28babfc92515b5165d8b4c0b6abb88c70",
       "format": "pdf",
       "title": "polyphemus.md",
-      "sha256": "4cf595ea2c605456abb8acf497be5657d8a4bfc2ef6e84b383cb60792bb6295f",
+      "sha256": "2b7e5b1513a9a9b989ee40455d2835e6eb54c4875ae18ba338fc441e558f1671",
       "bytes": 28283
     },
     "102f6bb25c6854e8276d987f8f2bf2b28babfc92515b5165d8b4c0b6abb88c70.png": {
       "key": "102f6bb25c6854e8276d987f8f2bf2b28babfc92515b5165d8b4c0b6abb88c70",
       "format": "png",
       "title": "polyphemus.md",
-      "sha256": "6f74e45e1d9483d3a4d247f9db91815248bed4c59b4ca8638fb639593944e237",
+      "sha256": "41239e63eabc5cc6e0d30d10efca0ecf2cd45fe5f83c200d1d0abc9efc0a1b7a",
       "bytes": 97683
     },
     "164518acdcb4a01acb98cf51a8ad96fb17690242e62849445c8badc3bf9b0b4c.pdf": {
       "key": "164518acdcb4a01acb98cf51a8ad96fb17690242e62849445c8badc3bf9b0b4c",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "9b45d5893a9aaf8405c6a578ad5a718910660cf50856ffe2f52f3e7440f4ab59",
+      "sha256": "83fb6231ef8ab55a579dac3e15ce3992e08b85ac83e23738865fc4c575962b80",
       "bytes": 46311
     },
     "164518acdcb4a01acb98cf51a8ad96fb17690242e62849445c8badc3bf9b0b4c.png": {
       "key": "164518acdcb4a01acb98cf51a8ad96fb17690242e62849445c8badc3bf9b0b4c",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "a6b70c63ac65ff6e8025a0e91f2407429f9281f3e7f6ec7cd01ca6c9d71ab2c8",
+      "sha256": "b99208b00f25dc93bca16fa21e80cb539db63a76b479839ace2ec4a1e183c728",
       "bytes": 456374
     },
     "1f5ad513b99a1c5fd035021e026fed89e0de1930a201f913e24db30e2e153296.pdf": {
       "key": "1f5ad513b99a1c5fd035021e026fed89e0de1930a201f913e24db30e2e153296",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "1f9030a761a01f13dae411ca62eae463e86faed5c6c463e1c3bcbd1c7b5af2ff",
+      "sha256": "193c184dbd39573c4b3060fc76282667a0f6bf014b5fdb3a713c02d1c52be0b4",
       "bytes": 39774
     },
     "1f5ad513b99a1c5fd035021e026fed89e0de1930a201f913e24db30e2e153296.png": {
       "key": "1f5ad513b99a1c5fd035021e026fed89e0de1930a201f913e24db30e2e153296",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "a7450279b487a76a57469fb925778a90c83cc2f6f976bd95d2fbf526a67f3410",
+      "sha256": "e05a42623acb1bf83bfc99c049a8fcbdd1b2460abc01701d25de37452bfa268a",
       "bytes": 91753
     },
     "24db8ce8038810f75e06fe6ab279743ab898db1742736e1631df5891460cd5bd.pdf": {
       "key": "24db8ce8038810f75e06fe6ab279743ab898db1742736e1631df5891460cd5bd",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "422762071d77d16cb805e4ff7576dc8b335cfabd5baf3702d283285245588908",
+      "sha256": "2d9f1064d0de5fafb5f70e821009950d4534b8e901db741beb28006f1d3bde31",
       "bytes": 23187
     },
     "24db8ce8038810f75e06fe6ab279743ab898db1742736e1631df5891460cd5bd.png": {
       "key": "24db8ce8038810f75e06fe6ab279743ab898db1742736e1631df5891460cd5bd",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "b87ed05f039dc5d7c6f2083bdefa6be86945b665e9c046668462e8cb3dc74ace",
+      "sha256": "1c03851b488444767ff62fa1700d56c77e47b5714d67a3c6adbbc5183629f775",
       "bytes": 69895
     },
     "2619db1801124ef490f78e512156c9cb619fb0375e21cf3e7149c3b6f5198b49.pdf": {
       "key": "2619db1801124ef490f78e512156c9cb619fb0375e21cf3e7149c3b6f5198b49",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "d450f3b820596da5194ecf7ebe8c511bbeafa636c522118179b629f72bdd3015",
+      "sha256": "3694fdc640c42b9a22aa0c5383abd51e8f66b6da059d042d3ec290093407442c",
       "bytes": 9455
     },
     "2619db1801124ef490f78e512156c9cb619fb0375e21cf3e7149c3b6f5198b49.png": {
       "key": "2619db1801124ef490f78e512156c9cb619fb0375e21cf3e7149c3b6f5198b49",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "1f8d24125e34816bcc91d81777a7802b633b8bb93ab4968182797b7d98f95bc8",
+      "sha256": "fdbc041ed3b0de1e4f7e16e1ea4312baab71abee7a45e2ba7dfb168958460349",
       "bytes": 30792
     },
     "33fed27e3ec9b12eeacfb5887c528656887f77ef9ac35267c1f94e964ab869dd.pdf": {
       "key": "33fed27e3ec9b12eeacfb5887c528656887f77ef9ac35267c1f94e964ab869dd",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "b236632e5ec19b3b5cd964c07a92e3bdcde2247a3d9db44341761892d6d46161",
+      "sha256": "503e48cbcbafeb1c2c527a884ee0591569d162659265f1bafcbb7fb3799556a1",
       "bytes": 10014
     },
     "36b089616b124e7185d75a3763777352ae08f5a31edbeba39137511d0edde9b3.pdf": {
       "key": "36b089616b124e7185d75a3763777352ae08f5a31edbeba39137511d0edde9b3",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "81d19b6207fcf5020b5740ebb7bf4f19aec5548be16bf815cb826f630805d0c8",
+      "sha256": "5a29db0351c0068ea17ae5c89b5bdb5efc37c459881480348fb7511fe3720086",
       "bytes": 30075
     },
     "36eca747782e734556eec8b82207c00c41b7cba497e1bfa518f3b45cd02fa746.pdf": {
       "key": "36eca747782e734556eec8b82207c00c41b7cba497e1bfa518f3b45cd02fa746",
       "format": "pdf",
       "title": "menelaus.md",
-      "sha256": "bb17f88ebb4ac82f35e0388c58576d243a3c12bf94b92fcfd84c70e94906f2fc",
+      "sha256": "1105e9e8e2c5b24b29839a8ec3b1afe3ca695b670261ef48217bfd73f12e1aff",
       "bytes": 27909
     },
     "36b089616b124e7185d75a3763777352ae08f5a31edbeba39137511d0edde9b3.png": {
       "key": "36b089616b124e7185d75a3763777352ae08f5a31edbeba39137511d0edde9b3",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "d9383dc4492f59967f85effad3673330cfeed33ed60f4ccedf6ef8e98a7f00e3",
+      "sha256": "af7b26f80ce532e2ecebe804cce13c755e02a36c456f90377e314d8d8c73bf7b",
       "bytes": 68782
     },
     "3a454e471e0313602d569e1beb7f1bb62441325f514c1e1e4035a8c3820928e9.pdf": {
       "key": "3a454e471e0313602d569e1beb7f1bb62441325f514c1e1e4035a8c3820928e9",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "b03b75979d042b28c106efccda1c858bc05fbb95f1a398643c44974b315521d9",
+      "sha256": "5a0d41cd96e637d78fc3d3704c4ee485a2bf44ec1ae42d9a19423f53faebe942",
       "bytes": 9206
     },
     "36eca747782e734556eec8b82207c00c41b7cba497e1bfa518f3b45cd02fa746.png": {
       "key": "36eca747782e734556eec8b82207c00c41b7cba497e1bfa518f3b45cd02fa746",
       "format": "png",
       "title": "menelaus.md",
-      "sha256": "eb2b5f120330d706d85e11c4ea690eab981efde5779343e5db6a17eb9adbdb7b",
+      "sha256": "f695d95bb120e3b458e91967ba8674daae3168d702ed462a66e25f87e72691d0",
       "bytes": 100573
     },
     "3a55fd40b60da3753c95b729829e9a323e7e33c7e0ba599e957d02e8119b8991.pdf": {
       "key": "3a55fd40b60da3753c95b729829e9a323e7e33c7e0ba599e957d02e8119b8991",
       "format": "pdf",
       "title": "manifest-0012.md",
-      "sha256": "64833b9305140370793f2914754865ca01f2ae7ec85ac13655f817e1da3f7ae0",
+      "sha256": "5db807d4cb7ed7c472a1d9c4dfc7d5139b8558073ffbad9b50604281d7a77459",
       "bytes": 36984
     },
     "3a454e471e0313602d569e1beb7f1bb62441325f514c1e1e4035a8c3820928e9.png": {
       "key": "3a454e471e0313602d569e1beb7f1bb62441325f514c1e1e4035a8c3820928e9",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "8f7385effeae2ff82abcfc174be574dd354990e502e26d218d8584af02b5052c",
+      "sha256": "990e2d4e5895d8eace5f375b15fe0fc780a440960ea786d89fd70adf873ca993",
       "bytes": 23539
     },
     "46369b652b80f13f6a287ed836f90468b205c7f1943a80853a3ab11428a48aa6.pdf": {
       "key": "46369b652b80f13f6a287ed836f90468b205c7f1943a80853a3ab11428a48aa6",
       "format": "pdf",
       "title": "leaving-ogygia.md",
-      "sha256": "80001768c7c6784c793141e9d34d43de4a31d9359c9be20d1ffe8f722a64d2f2",
+      "sha256": "1095ab1ff36e3ad6edd792d8cc76b9c484444011d82c14dcd98e0fc7f0f91007",
       "bytes": 17425
     },
     "3a55fd40b60da3753c95b729829e9a323e7e33c7e0ba599e957d02e8119b8991.png": {
       "key": "3a55fd40b60da3753c95b729829e9a323e7e33c7e0ba599e957d02e8119b8991",
       "format": "png",
       "title": "manifest-0012.md",
-      "sha256": "e458874b5a7373470e629f666a179103a1dbd361c89fbbe25fb82bf0613aad3e",
+      "sha256": "6b24fb63af0ec803175fa4357b939be7e8cdd3da136b66fceaae330e88eca857",
       "bytes": 156407
     },
     "4a752030a6dd586e10d5f26ac985a55a81449c7e762e598f9a900bca6cafdac1.pdf": {
       "key": "4a752030a6dd586e10d5f26ac985a55a81449c7e762e598f9a900bca6cafdac1",
       "format": "pdf",
       "title": "do-not-give-my-name.md",
-      "sha256": "544f182b457569e6af3d4279a04f42a0a27180677a9f6931b94a6bff64a27c69",
+      "sha256": "5232b37fb48f6847ffe50a40d8a2fd2989efce5edcbb69e5396ecdf048b205d6",
       "bytes": 17958
     },
     "46369b652b80f13f6a287ed836f90468b205c7f1943a80853a3ab11428a48aa6.png": {
       "key": "46369b652b80f13f6a287ed836f90468b205c7f1943a80853a3ab11428a48aa6",
       "format": "png",
       "title": "leaving-ogygia.md",
-      "sha256": "4265cacfb3d222cd7393d9f6c487d15babeafa3b9662d4925f2ba0db63e1c667",
+      "sha256": "6210d8475a99c62327c557e1b47ae2dd4df905f28644635d8d52fd6cccee0f7c",
       "bytes": 65944
     },
     "4e93497c1632bc3d86552e3b818f46598f567b8bbeebd5b1afabf81fb02dc2ea.pdf": {
       "key": "4e93497c1632bc3d86552e3b818f46598f567b8bbeebd5b1afabf81fb02dc2ea",
       "format": "pdf",
       "title": "_index.md",
-      "sha256": "3e10d7366fc07f32c4622641359ba205f785df3e1cbf3779234736b65e811f50",
+      "sha256": "7ad1d3bf0a74223ddc3a01702f426af5bfad0b4aadffdee77d0f57aee430e186",
       "bytes": 19326
     },
     "4a752030a6dd586e10d5f26ac985a55a81449c7e762e598f9a900bca6cafdac1.png": {
       "key": "4a752030a6dd586e10d5f26ac985a55a81449c7e762e598f9a900bca6cafdac1",
       "format": "png",
       "title": "do-not-give-my-name.md",
-      "sha256": "8b009a321022518e6cf644233e90016fe37b218fee4d512c1b35823435b3ca5c",
+      "sha256": "5143bb73f4e4166f28e0323ce83fd20acc2b14a7e191badd8133fbf88d4ac80e",
       "bytes": 64879
     },
     "4f4db802d778bc6b9a92df665c3403ed85102b077dcc2f1dabb003d630ead9fc.pdf": {
       "key": "4f4db802d778bc6b9a92df665c3403ed85102b077dcc2f1dabb003d630ead9fc",
       "format": "pdf",
       "title": "_index.md",
-      "sha256": "b71b98935e8474565f41351de6d96fe59c76e045fa83d334c60464db97e23087",
+      "sha256": "345fcbb536e560c56ae88505a5c37755b77039c2a0a8752ee313179c8e85a971",
       "bytes": 19749
     },
     "4e93497c1632bc3d86552e3b818f46598f567b8bbeebd5b1afabf81fb02dc2ea.png": {
       "key": "4e93497c1632bc3d86552e3b818f46598f567b8bbeebd5b1afabf81fb02dc2ea",
       "format": "png",
       "title": "_index.md",
-      "sha256": "07df4171feb007f9621900f6741dcd38c229770e084bcdd967c17b5b2331fb69",
+      "sha256": "b6c49bcf2e20e5070c0d6697cd55d22f9d725db45dedb1635f172394e6d1917f",
       "bytes": 91468
     },
     "4f5fdff6c246b2949bca3a42bfc238a170fe995986eaf006f860977126af1f1c.pdf": {
       "key": "4f5fdff6c246b2949bca3a42bfc238a170fe995986eaf006f860977126af1f1c",
       "format": "pdf",
       "title": "sirens.md",
-      "sha256": "50547e98b1d88b3d1c72efc822d745a2fa14d8c2c00841720e90cc5b20f077a6",
+      "sha256": "9a18ca4bc14a9504cdbc01de0c93420344503cd23eaa2c36eea178faa608389c",
       "bytes": 17647
     },
     "4f4db802d778bc6b9a92df665c3403ed85102b077dcc2f1dabb003d630ead9fc.png": {
       "key": "4f4db802d778bc6b9a92df665c3403ed85102b077dcc2f1dabb003d630ead9fc",
       "format": "png",
       "title": "_index.md",
-      "sha256": "d5f37d4beb85cbe849a2f73d58f00231937b7964a532de07cd5e0fcc0b00a0a6",
+      "sha256": "b63df9454f7e0a8ced798e4fa695ed0b96c7cc985b0472e504f7ef50aa7e5983",
       "bytes": 96033
     },
     "55b5db5baa6cc7d9729e5c0369deaed4de62fb23a9c9308795d4c8d344141182.pdf": {
       "key": "55b5db5baa6cc7d9729e5c0369deaed4de62fb23a9c9308795d4c8d344141182",
       "format": "pdf",
       "title": "day-1043-strait.md",
-      "sha256": "ac59fd7b5c3d3912818e17295e48305e29c4978d76b605636cc61978f9c56a72",
+      "sha256": "2248d36af25a1b0a0f2dfd6cfb97e000ac4b19412b41fe21a5376f7ee7e64ddc",
       "bytes": 18646
     },
     "4f5fdff6c246b2949bca3a42bfc238a170fe995986eaf006f860977126af1f1c.png": {
       "key": "4f5fdff6c246b2949bca3a42bfc238a170fe995986eaf006f860977126af1f1c",
       "format": "png",
       "title": "sirens.md",
-      "sha256": "9fc308b3af324781a9dc93744bf9dc8b3ece77bc1fee765c73304a242d8bde82",
+      "sha256": "b0135997bf617f0c0c1b9b4f874a46b04490877348aa3129f937e6d52e399785",
       "bytes": 54459
     },
     "56d70379cf1390b7159216a426451eeae7a061c009501e58a214496e2f2dfa30.pdf": {
       "key": "56d70379cf1390b7159216a426451eeae7a061c009501e58a214496e2f2dfa30",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "eb34ed4e6341bc750847a715914a4d3cf089ac11bd386915c0038dacd37679bd",
+      "sha256": "ec35a14db71797d1d1387f9098ea5bc7a361fe4e7521c10352f5ca48205997f0",
       "bytes": 18501
     },
     "55b5db5baa6cc7d9729e5c0369deaed4de62fb23a9c9308795d4c8d344141182.png": {
       "key": "55b5db5baa6cc7d9729e5c0369deaed4de62fb23a9c9308795d4c8d344141182",
       "format": "png",
       "title": "day-1043-strait.md",
-      "sha256": "ea7b4887431fcb2b138a05239332208a702f5f065050e5342888766ebe96b6a8",
+      "sha256": "163705e3e6ded152022deb9aea590fb58ec361ffedddb1b329e2eb267c3599c6",
       "bytes": 68017
     },
     "5cc6f0eeb8e80857cee4bd89ea8320cf93f298d2bf20e0c61f7ee4b6bbbea80a.pdf": {
       "key": "5cc6f0eeb8e80857cee4bd89ea8320cf93f298d2bf20e0c61f7ee4b6bbbea80a",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "4551d5f9eac7bba16d9add740875137a36e9933efdff3303b46c9308005486df",
+      "sha256": "461391763624a2ba987c86687528327d173d4c2cd35fdc375cf0f10c620a171e",
       "bytes": 38062
     },
     "56d70379cf1390b7159216a426451eeae7a061c009501e58a214496e2f2dfa30.png": {
       "key": "56d70379cf1390b7159216a426451eeae7a061c009501e58a214496e2f2dfa30",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "56b5975755e1dd3d84dd3701c2113e47c73bb89e49ce914eb275f241d0680bbe",
+      "sha256": "ea168e7b530086d784065813a0b0854fdff50a0c90ccee617c409b67c0569db7",
       "bytes": 72344
     },
     "652c8cda89e9c0c298f6d7ed164bf64b1092ff758e0fdd4ad57c5f81331647b4.pdf": {
       "key": "652c8cda89e9c0c298f6d7ed164bf64b1092ff758e0fdd4ad57c5f81331647b4",
       "format": "pdf",
       "title": "day-2914.md",
-      "sha256": "5fb652beb673d0dbcd97d7ad69a392419aa82b42d3484b910a63785267a4ec45",
+      "sha256": "49ea4b68e3161a38a0676b93e31e071a315fc48968e21b685f0810440a5e7dc9",
       "bytes": 17890
     },
     "5cc6f0eeb8e80857cee4bd89ea8320cf93f298d2bf20e0c61f7ee4b6bbbea80a.png": {
       "key": "5cc6f0eeb8e80857cee4bd89ea8320cf93f298d2bf20e0c61f7ee4b6bbbea80a",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "813c40c61290e72c7852ec2adaa9cf2f21641ec7c17eb97a0e9b1fd9d90e7167",
+      "sha256": "7aa182d0c35b1d97475268b4c0cc2286478542577db38d131142daf69e8022ff",
       "bytes": 212985
     },
     "67493f5f7f24e7956061db7eef5897597f172415cfa2d55d26f3f9a32ad8f315.pdf": {
       "key": "67493f5f7f24e7956061db7eef5897597f172415cfa2d55d26f3f9a32ad8f315",
       "format": "pdf",
       "title": "eurylochus.md",
-      "sha256": "208dfa53ff22770927eea74b71029235c1ac39a8188608d679845178cad5159d",
+      "sha256": "8f7bfa08318baa6326e07390fae95d01ef6a048d2577d83126a779000d33d39e",
       "bytes": 17810
     },
     "652c8cda89e9c0c298f6d7ed164bf64b1092ff758e0fdd4ad57c5f81331647b4.png": {
       "key": "652c8cda89e9c0c298f6d7ed164bf64b1092ff758e0fdd4ad57c5f81331647b4",
       "format": "png",
       "title": "day-2914.md",
-      "sha256": "e3bd7b7d658543967c55387b0959636312d3d325495938fb27c196a788f50fd2",
+      "sha256": "4cdf9155f2c2f4eb2a7e62388543b88ba9e2c9ae5cf5bef1c686773885b149bb",
       "bytes": 49887
     },
     "7505a1a70cbe3cd66031cac0c89382cebc70c09d1598165420fc67c618744468.pdf": {
       "key": "7505a1a70cbe3cd66031cac0c89382cebc70c09d1598165420fc67c618744468",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "5f2b5d17f869776559c66cbfc1e65c3cd3be8d67a6492619c6dbc20a3ed10253",
+      "sha256": "1bce6a5397950c39d1a3ea494fd9fe557a11d6143e7290fa7c012cae9edaae5b",
       "bytes": 23272
     },
     "67493f5f7f24e7956061db7eef5897597f172415cfa2d55d26f3f9a32ad8f315.png": {
       "key": "67493f5f7f24e7956061db7eef5897597f172415cfa2d55d26f3f9a32ad8f315",
       "format": "png",
       "title": "eurylochus.md",
-      "sha256": "2b1e8c06c6913d4b4f830859743cd2e9c01c77835640d7a9dce0f4032af3826d",
+      "sha256": "1db80e4f5f646b21b6f352a6f3675b5bdb6f7855885872afcd3f6bc54bf20eb3",
       "bytes": 64046
     },
     "7b9232e2e773ca601feb7d34444d8dad857b00b3ef5a7e245215b775d5dab521.pdf": {
       "key": "7b9232e2e773ca601feb7d34444d8dad857b00b3ef5a7e245215b775d5dab521",
       "format": "pdf",
       "title": "day-3646-hawk.md",
-      "sha256": "9e400b96fe0592ee4c95ccb29837ad27ffdb71bed9653420c8bcf14b26d63165",
+      "sha256": "b1fe10a6ce439052b044925f4e0c7831206810d1afbdf08d1688bd92b257d9a5",
       "bytes": 16902
     },
     "7505a1a70cbe3cd66031cac0c89382cebc70c09d1598165420fc67c618744468.png": {
       "key": "7505a1a70cbe3cd66031cac0c89382cebc70c09d1598165420fc67c618744468",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "3449a72bf036dc2b99864aeee5d654c1ec39b84a28a90f94268614e1c979da52",
+      "sha256": "f8c0c294289786969f82a0244c1ea8b6b1198c9ebb116c4d0eaabc7ece8a3b1f",
       "bytes": 170652
     },
     "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2.pdf": {
       "key": "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "12ff7ad236c1e5e224717d1299637ea72553abacc1098bd522830750209a0aa5",
+      "sha256": "e7f57560363ec66bf7bc5e777e26fc53c3b348d104333f2fc35918aa66de7ff5",
       "bytes": 17098
     },
     "7b9232e2e773ca601feb7d34444d8dad857b00b3ef5a7e245215b775d5dab521.png": {
       "key": "7b9232e2e773ca601feb7d34444d8dad857b00b3ef5a7e245215b775d5dab521",
       "format": "png",
       "title": "day-3646-hawk.md",
-      "sha256": "a043c247d2657d52e7d40cf547c7250b9a86517973e793aaa1d5d46378c2a404",
+      "sha256": "acb9a1ef68eaea5f84abb435bff3463664e8eaec0442ff4fec7394c8711c126f",
       "bytes": 48912
-    },
-    "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2.png": {
-      "key": "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2",
-      "format": "png",
-      "title": "Shared from Brain",
-      "sha256": "4122cd8769f3f247bae10a7446a15f250279cc6de953d9e4e54cab1017806cea",
-      "bytes": 55368
     },
     "8bb58805bf69084e7f096c56bab9be8fff949e12e6e5eee3c303f3039c9edf94.pdf": {
       "key": "8bb58805bf69084e7f096c56bab9be8fff949e12e6e5eee3c303f3039c9edf94",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "d85935935310f59d452a3a622d2a0961eae5367e82d6b873d753429ebe64dd9a",
+      "sha256": "845f609d382c46496fa9e83e87545e81ee40620777c57f6f649c313edc64df91",
       "bytes": 48956
+    },
+    "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2.png": {
+      "key": "7c50616e2dfd70f7013721da611bc7df4d651002851e3b13a6e444b98bf09cf2",
+      "format": "png",
+      "title": "Shared from Brain",
+      "sha256": "03e080fab3f01015b2ec6b87aa70f4654a35df55e2f60f260efcef2c60f0bfc7",
+      "bytes": 55368
     },
     "8c90c722bc821c484ca08297fab37402231307708ea57a19773cce5c40a44026.pdf": {
       "key": "8c90c722bc821c484ca08297fab37402231307708ea57a19773cce5c40a44026",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "6d3784e7bd517da4ab1aaae74fa4f4c936f26d7701651318ca37037ff6bbb043",
+      "sha256": "e88044d2eddeaf0585f24c95d37aaf10fc431248dc35fdf2e8399e8b4c988eb8",
       "bytes": 9441
     },
     "8bb58805bf69084e7f096c56bab9be8fff949e12e6e5eee3c303f3039c9edf94.png": {
       "key": "8bb58805bf69084e7f096c56bab9be8fff949e12e6e5eee3c303f3039c9edf94",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "d06952a92bcb0ed2cc2f642cd44ef117f23b346cbe9fe03e46cf2e3fa94124f8",
+      "sha256": "71e38552857a78c6c608af71a2a89b492fe4e8c9dfca941c445b519ca6ead4d2",
       "bytes": 99955
-    },
-    "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694.pdf": {
-      "key": "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694",
-      "format": "pdf",
-      "title": "Shared from Brain",
-      "sha256": "a98ea9cd69b289f51f655f2ba9a6bffc99efd5f328b1b1c30b92ef5b63918791",
-      "bytes": 8691
     },
     "8c90c722bc821c484ca08297fab37402231307708ea57a19773cce5c40a44026.png": {
       "key": "8c90c722bc821c484ca08297fab37402231307708ea57a19773cce5c40a44026",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "4e10cbe160e4625d0b49a5f671bb8155b18c157ad56d81d405ff7a360ad5efdd",
+      "sha256": "cab0d0899e10fc8cba19e4044ecd4f04bf689e8c98f56c3e9005778b7fb1c9ed",
       "bytes": 29554
+    },
+    "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694.pdf": {
+      "key": "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694",
+      "format": "pdf",
+      "title": "Shared from Brain",
+      "sha256": "9ef5bba78aeb95a9f5ebe927db6a50f3062b3ed47053fdd996f7f236ca3a329d",
+      "bytes": 8691
     },
     "92da5f26024916e7826c265e6cbda3a508dc085141598325fdb3a234eb3bf3e5.pdf": {
       "key": "92da5f26024916e7826c265e6cbda3a508dc085141598325fdb3a234eb3bf3e5",
       "format": "pdf",
       "title": "argos.md",
-      "sha256": "8d3668d81515c426dd43e634f2aaaeb58fbe72fee9e22d76321c25feec6da8dd",
+      "sha256": "ee925afcad36341477bcfb65122cf06e10cd9996d6a3cdef9b8d4426e268b6fe",
       "bytes": 27397
     },
     "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694.png": {
       "key": "907cea3d8e8f5ffeb70c9f4eee2348c6a57b8da9451c46813fcf92885f6d9694",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "8f2a543738c9dd809555cf463bd4338289510b31e9e0e6140d73a2849ce8c916",
+      "sha256": "db8aaa4fa21c3db1b228f9ac2cd434bf2be0162468b61bdfd395084555f374a7",
       "bytes": 17138
     },
     "9316417fa2616ab976def42180626efcb4ef42f772779f001a21bbc7f4233bc0.pdf": {
       "key": "9316417fa2616ab976def42180626efcb4ef42f772779f001a21bbc7f4233bc0",
       "format": "pdf",
       "title": "current-focus.md",
-      "sha256": "6192b6b81e275d4909555e03bbcc487893ee7f30acfe3f3d30ce014729d7b5a2",
+      "sha256": "c223661b5835e9e8255227419b18bea2da4be51a304c2356627b052d0c1db000",
       "bytes": 17470
     },
     "92da5f26024916e7826c265e6cbda3a508dc085141598325fdb3a234eb3bf3e5.png": {
       "key": "92da5f26024916e7826c265e6cbda3a508dc085141598325fdb3a234eb3bf3e5",
       "format": "png",
       "title": "argos.md",
-      "sha256": "2740fbe900a27ba9c1b0e0f2335ca47ddb3e109547856df7a5e2f82f2d936c60",
+      "sha256": "29e2d0d954dbb069b8e57339d0e4a4a446f437d57289c7f708f40fae137d4472",
       "bytes": 90382
     },
     "9368652d3232734bdf696f5f980090df472c8f55d19aedba0b0b0e10a471bb90.pdf": {
       "key": "9368652d3232734bdf696f5f980090df472c8f55d19aedba0b0b0e10a471bb90",
       "format": "pdf",
       "title": "cattle-of-helios.md",
-      "sha256": "6bb60ea79a29ff8c0a61da0e1ded0342e85d868a2f02a02a5a0213ae2de281e6",
+      "sha256": "3aeb1cffb33a5fa4db225a0b6b16d94467a80f23b59bece43b7445e2ac484f95",
       "bytes": 19285
     },
     "9316417fa2616ab976def42180626efcb4ef42f772779f001a21bbc7f4233bc0.png": {
       "key": "9316417fa2616ab976def42180626efcb4ef42f772779f001a21bbc7f4233bc0",
       "format": "png",
       "title": "current-focus.md",
-      "sha256": "3c28a7a454ad6c4da1980ffa45e9be031d331a113fdbc9fc765423066f472586",
+      "sha256": "71f4d8e5b66d59793c721f0f4bc55cba5df170303c9f4bacc9b6a3f9cbfbe3f1",
       "bytes": 60545
     },
     "972fe8c4268f406e5b881087e680043fb0717b6242a4ecc7f32086b073618ad2.pdf": {
       "key": "972fe8c4268f406e5b881087e680043fb0717b6242a4ecc7f32086b073618ad2",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "ef8cce321f93e284a57cfe6da924887ef8e220e075966d791e7bef5862bb0e5e",
+      "sha256": "3b2dc66515eb2f3cff387ba3288c3efa3628b7714da5e672bb1b4ca835a95eff",
       "bytes": 28456
     },
     "9368652d3232734bdf696f5f980090df472c8f55d19aedba0b0b0e10a471bb90.png": {
       "key": "9368652d3232734bdf696f5f980090df472c8f55d19aedba0b0b0e10a471bb90",
       "format": "png",
       "title": "cattle-of-helios.md",
-      "sha256": "a1e58af2f602006bede337fd65811348d63f8d379c1ac39b96b6d00bb05f7116",
+      "sha256": "c585b11313573d6c58c91cabab2d68f417c2397d5ab9a0f2eed3359388660890",
       "bytes": 104461
     },
     "9888cad889b0ccc7d767118fffb08bd7e2966cf579bf1f5b4d9e4fb99531a0b5.pdf": {
       "key": "9888cad889b0ccc7d767118fffb08bd7e2966cf579bf1f5b4d9e4fb99531a0b5",
       "format": "pdf",
       "title": "departure-plan.md",
-      "sha256": "ede17d6ef4449b3970287495d218bbab6a384dd0b550c50c4286879c6defff77",
+      "sha256": "af51a4944d3b08d2f40c29478c7931d3dbd649e904856d94328fe8a9d7daf18b",
       "bytes": 50406
     },
     "972fe8c4268f406e5b881087e680043fb0717b6242a4ecc7f32086b073618ad2.png": {
       "key": "972fe8c4268f406e5b881087e680043fb0717b6242a4ecc7f32086b073618ad2",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "a5e1134fa9d69653ceb995e4f63fa96593a786a1c0ea6a420416f3fca5b44b3e",
+      "sha256": "89f202c1fa19c38d438cb43c196b8099ca207c91ebb26c69887ea3b10f3a673a",
       "bytes": 185511
     },
     "9a1a9be64f60e21a9be999cb30f4c2dbe5896ea715e723700044ac039ffe6b8d.pdf": {
       "key": "9a1a9be64f60e21a9be999cb30f4c2dbe5896ea715e723700044ac039ffe6b8d",
       "format": "pdf",
       "title": "laertes.md",
-      "sha256": "e931676eab08f3fe237e7ae18a578200a0f633243650f360767713ba05b81f39",
+      "sha256": "221f487528b7c120dc5bc4d757485caee4261357733f17ce34822d39e8a30d62",
       "bytes": 27567
     },
     "9888cad889b0ccc7d767118fffb08bd7e2966cf579bf1f5b4d9e4fb99531a0b5.png": {
       "key": "9888cad889b0ccc7d767118fffb08bd7e2966cf579bf1f5b4d9e4fb99531a0b5",
       "format": "png",
       "title": "departure-plan.md",
-      "sha256": "26ead339e80795ba13d15d6dd1150c74657b2aa97dd91ff4f2e1c4b2ceddc63e",
+      "sha256": "3b9197811820b39b515ba1d85a03b47eadfd85d74423941d86291412c935f8e2",
       "bytes": 282628
     },
     "9a1a9be64f60e21a9be999cb30f4c2dbe5896ea715e723700044ac039ffe6b8d.png": {
       "key": "9a1a9be64f60e21a9be999cb30f4c2dbe5896ea715e723700044ac039ffe6b8d",
       "format": "png",
       "title": "laertes.md",
-      "sha256": "0ad04dece2dd74e9bfa769cd7767b8c3e5624ce35821b0fa2eb061ceb1259354",
+      "sha256": "34b75a4ae9b8537e78b2ea69b177a885be5aca5755875fac8652e3bede3a75e6",
       "bytes": 95013
     },
     "9b361aa55c82334308ceb68ca9aaf14773d7d9a4f4c2a1fd59e8681a267dc7d6.png": {
       "key": "9b361aa55c82334308ceb68ca9aaf14773d7d9a4f4c2a1fd59e8681a267dc7d6",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "815766891d023f8515e04373d2c3c14b8968b9f2578ca7a67c78403914f98e58",
+      "sha256": "a932237ad2c5822acec2101384bd32af58b7660fce760bff5edaa58bf71a8d94",
       "bytes": 34971
     },
     "9d5a85731f2ce910909a7468d396b5b4e4492e865b4b11d326e116adf98ef51e.pdf": {
       "key": "9d5a85731f2ce910909a7468d396b5b4e4492e865b4b11d326e116adf98ef51e",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "4781af9b2cfd862efaf6c34ec4fea95c83f5879c03f648e9695426ede848d4b0",
+      "sha256": "a2e9685dde0209f6f286935174a8c551f493178026d49d92c73a10f89a711f02",
       "bytes": 9321
     },
     "9d5a85731f2ce910909a7468d396b5b4e4492e865b4b11d326e116adf98ef51e.png": {
       "key": "9d5a85731f2ce910909a7468d396b5b4e4492e865b4b11d326e116adf98ef51e",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "7e3d29e679438d99d47a23b5c48e8bc65664d4b4ba025a6050d3a228752ba60d",
+      "sha256": "a09df617553606f461d99008267b97f71482b7ded65639a29cc6fb3423107a40",
       "bytes": 26919
     },
     "9ec089b14072f0fb8c68968c21ee16e1d1fe3ca2f32fff5fbea284e79a39bf5e.pdf": {
       "key": "9ec089b14072f0fb8c68968c21ee16e1d1fe3ca2f32fff5fbea284e79a39bf5e",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "0b4e3b15ff651496ce0e0779b82ead0bb3bc47eef20c2063ed57a3ed6787e087",
+      "sha256": "e63a6aada24f454856a92b4e09b572b6be51af4c290543f3b76d110967464d8a",
       "bytes": 39099
     },
     "9ec089b14072f0fb8c68968c21ee16e1d1fe3ca2f32fff5fbea284e79a39bf5e.png": {
       "key": "9ec089b14072f0fb8c68968c21ee16e1d1fe3ca2f32fff5fbea284e79a39bf5e",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "528c7cd1af8ff85110bf54a4f29dd76968c27e8b858d9f26c1914ddffc8d820e",
+      "sha256": "94261cc0b0be3492b216fa2f2845aa4b05421f62dec77a29c59cf28ec8fb712f",
       "bytes": 88999
     },
     "a0f3ebc9552772f005504462fc8ec8fd53a06ec1c9f51fd04dadd945a8d03a51.pdf": {
       "key": "a0f3ebc9552772f005504462fc8ec8fd53a06ec1c9f51fd04dadd945a8d03a51",
       "format": "pdf",
       "title": "telemachus.md",
-      "sha256": "478de4ac34346fcdf663b2f1ed9e44cce2220a839a7e11063b9183bf56c8f928",
+      "sha256": "3f9b2393a0c6e0ee18021ef13c3324efe3a3016127b1effcde7bf829e62142b1",
       "bytes": 29837
     },
     "a0f3ebc9552772f005504462fc8ec8fd53a06ec1c9f51fd04dadd945a8d03a51.png": {
       "key": "a0f3ebc9552772f005504462fc8ec8fd53a06ec1c9f51fd04dadd945a8d03a51",
       "format": "png",
       "title": "telemachus.md",
-      "sha256": "d250ca8d0d00c2198dc55ef95cfd71dcc0b049ea00dfb3af381d81f43feff5ae",
+      "sha256": "c296ba49085f9ff4e13f6bd3f606f47a7066a8b415819410603a87365ef71025",
       "bytes": 130074
     },
     "a1b947fad73d84c3a750828661a5e3d00210c07cbfa01052c62c1ecc3a4489b7.pdf": {
       "key": "a1b947fad73d84c3a750828661a5e3d00210c07cbfa01052c62c1ecc3a4489b7",
       "format": "pdf",
       "title": "charybdis.md",
-      "sha256": "9fb685115065b45a40e946d54b682f9c46484bd299e28cf6abb66d05f5da6afa",
+      "sha256": "4a8aab5bc9303b8d82a1941b08a0c6afc7b7da3c119c4decfe32a4eee0e89ed3",
       "bytes": 17681
     },
     "a1b947fad73d84c3a750828661a5e3d00210c07cbfa01052c62c1ecc3a4489b7.png": {
       "key": "a1b947fad73d84c3a750828661a5e3d00210c07cbfa01052c62c1ecc3a4489b7",
       "format": "png",
       "title": "charybdis.md",
-      "sha256": "5963310ca3b82188d94b5c17be3b0f47b5348209a3d5e7a87e291cf27283a236",
+      "sha256": "6eb9408e5195f29be2114586cc449c8112a7f541f22ed9491f9b653997caaa7b",
       "bytes": 60900
     },
     "a5730c4ed7bce335194cbba6aa7e4a52025edfa6526bac65b83ffc7c6325f65a.pdf": {
       "key": "a5730c4ed7bce335194cbba6aa7e4a52025edfa6526bac65b83ffc7c6325f65a",
       "format": "pdf",
       "title": "day-1041-sirens.md",
-      "sha256": "07705d764d8970b273d87036ece2c745ded4ff3adbe38aec668122842c32d5d4",
+      "sha256": "25d11b9a52795271a80f9cda0a03a7380dd933d2ec50b6215d283523e9e743f4",
       "bytes": 17898
     },
     "a5730c4ed7bce335194cbba6aa7e4a52025edfa6526bac65b83ffc7c6325f65a.png": {
       "key": "a5730c4ed7bce335194cbba6aa7e4a52025edfa6526bac65b83ffc7c6325f65a",
       "format": "png",
       "title": "day-1041-sirens.md",
-      "sha256": "a6dd1093bd217a48706b8e44771bd9a6cf56b15483035b1eeab13943666d757c",
+      "sha256": "444c649ad0cc985a61b7592875cafdb4f8fd2baa3bc1b5c235af19e4229c22ac",
       "bytes": 63496
     },
     "a6dfe87bddd3337f5ecb85b61a1275f6653860d0d40f9b67ee6869872f6dd33c.pdf": {
       "key": "a6dfe87bddd3337f5ecb85b61a1275f6653860d0d40f9b67ee6869872f6dd33c",
       "format": "pdf",
       "title": "elpenor.md",
-      "sha256": "9b3a5dda7d7ad62584a9fda42f42637bb1e7e54f87a3ba24774fb774f9a50ab8",
+      "sha256": "0654b2b46399aa2fd3d81cf97af741783352cd154d728311414a08f119a64bcd",
       "bytes": 17005
     },
     "a6dfe87bddd3337f5ecb85b61a1275f6653860d0d40f9b67ee6869872f6dd33c.png": {
       "key": "a6dfe87bddd3337f5ecb85b61a1275f6653860d0d40f9b67ee6869872f6dd33c",
       "format": "png",
       "title": "elpenor.md",
-      "sha256": "4f04e1d13d0111e0d5658ed758b9be6f10994b6ba565ec389aa6afbf37e8e7de",
+      "sha256": "63b723caeca964d6269fd4f4bfdf7b91dae16a2b7d129428a17e019e1f24769e",
       "bytes": 45012
     },
     "a7beed4583bce694be6ce6399e9a62d6f72108d80cacf5225300469fb8596708.pdf": {
       "key": "a7beed4583bce694be6ce6399e9a62d6f72108d80cacf5225300469fb8596708",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "c7aa7cbbb6085164344cdda795e0da9b0257ce30c76a367ad4da80ad609c0514",
+      "sha256": "1ff50fc451a64738485cad100906d0374e46254d1b7f00be6d2c9a1ebcf43d60",
       "bytes": 9237
     },
     "a7beed4583bce694be6ce6399e9a62d6f72108d80cacf5225300469fb8596708.png": {
       "key": "a7beed4583bce694be6ce6399e9a62d6f72108d80cacf5225300469fb8596708",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "2b94d95ec0340de617906eee47f5f2b26844eb1ed659c14064e3380c391007c4",
+      "sha256": "e977c761408ddcc6e35f83aed6b5fddd009c1e0b764c4c66bcdae22b8c1f8a96",
       "bytes": 22401
     },
     "a917e4f8a74b71b67052df495180a8abda682ff7518914463834b0c295921eea.pdf": {
       "key": "a917e4f8a74b71b67052df495180a8abda682ff7518914463834b0c295921eea",
       "format": "pdf",
       "title": "teiresias.md",
-      "sha256": "dd51496fc4f185ba36bb8752b94b47c604b5747f8dc99e9cc5789db2dfaa4e3f",
+      "sha256": "88663c615e0572a089013e72670fa8e07457bc8746ff5dfc3c2731b9397757f9",
       "bytes": 27657
     },
     "a917e4f8a74b71b67052df495180a8abda682ff7518914463834b0c295921eea.png": {
       "key": "a917e4f8a74b71b67052df495180a8abda682ff7518914463834b0c295921eea",
       "format": "png",
       "title": "teiresias.md",
-      "sha256": "ec16000c865015e4fcadcf814cf0226c85409d9b77c3e1c1cad29aa59bb5fd5b",
+      "sha256": "db6261678b91cccadb4faabb67dbe3ad24b0ad46620513bd7beaf8580f43879b",
       "bytes": 100697
     },
     "adca7d1aec36b7bbaa497f04bf911ebbba5aa600b5c7dadafbfeeb3624ea2615.pdf": {
       "key": "adca7d1aec36b7bbaa497f04bf911ebbba5aa600b5c7dadafbfeeb3624ea2615",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "b91c4af47c85a076133d1602739905eb9a3f4633e83a39846c755216260f0476",
+      "sha256": "28b5fdf7db441c72b51fc582b23805899bfd8c42852ca2a2bf5d0fabbf00466a",
       "bytes": 9589
     },
     "adca7d1aec36b7bbaa497f04bf911ebbba5aa600b5c7dadafbfeeb3624ea2615.png": {
       "key": "adca7d1aec36b7bbaa497f04bf911ebbba5aa600b5c7dadafbfeeb3624ea2615",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "dab2fd840818fad8a630d5e7969eb23b3e108f406cd6e0703b02c8a0904e7891",
+      "sha256": "bb87a7a4a1dcb9fffeac58dca1b4f89f45e7cce374be6a61814133c969f062f4",
       "bytes": 40703
     },
     "aded2fb1463f08dcca6cfed7044fa08ee72353b593286d4d935f07a608c1e0f7.pdf": {
       "key": "aded2fb1463f08dcca6cfed7044fa08ee72353b593286d4d935f07a608c1e0f7",
       "format": "pdf",
       "title": "estate.md",
-      "sha256": "bcbf2d464ca15050d7cb80ebc9c6a46a7b67ea956c5a3789ddd47f1d01d6cf25",
+      "sha256": "766716f7188b3812f188dadeb72422ea6e4ffd63625b09a97986aace5901e1b3",
       "bytes": 19894
     },
     "aded2fb1463f08dcca6cfed7044fa08ee72353b593286d4d935f07a608c1e0f7.png": {
       "key": "aded2fb1463f08dcca6cfed7044fa08ee72353b593286d4d935f07a608c1e0f7",
       "format": "png",
       "title": "estate.md",
-      "sha256": "0ba3d8f370ea9d952acf64820d36c42f921d978a5f9a773296318aa69edc2dad",
+      "sha256": "f3f4813ed4946e760e7a1fd9faaee9198ddbae8295315344a75553acaa0819ad",
       "bytes": 104219
     },
     "b59b9c789bf0b8a1cc370992bdf2cb6b4f517ed7521c808bce4cdbb56df8258b.pdf": {
       "key": "b59b9c789bf0b8a1cc370992bdf2cb6b4f517ed7521c808bce4cdbb56df8258b",
       "format": "pdf",
       "title": "scylla.md",
-      "sha256": "52bc3b8d7ca2d0261c1339ef8b1155c3a6d94d03a9c781a6f397c7e2886f2260",
+      "sha256": "3e4b0109df7aa9db2d26d39922ebd08ef1de55a718ccdeea04189ffafa25c590",
       "bytes": 17450
     },
     "b59b9c789bf0b8a1cc370992bdf2cb6b4f517ed7521c808bce4cdbb56df8258b.png": {
       "key": "b59b9c789bf0b8a1cc370992bdf2cb6b4f517ed7521c808bce4cdbb56df8258b",
       "format": "png",
       "title": "scylla.md",
-      "sha256": "7b772c95e32042c645aa5d20b763c753874085d33d07f2a749492d22fd93a34e",
+      "sha256": "120d5eb6a6cf4cf87301cddfae1bd56d987ff7d5eb41d729aa6956741bb36d9f",
       "bytes": 52787
     },
     "b9f16360e723dc3d4f7e73026ff521e5d0b0eb332765dc11e568330a99cfa7a9.pdf": {
       "key": "b9f16360e723dc3d4f7e73026ff521e5d0b0eb332765dc11e568330a99cfa7a9",
       "format": "pdf",
       "title": "penelope.md",
-      "sha256": "d87005413f80e4c538c0ec2a32e959bc4ff67eeef8d70a4c6de96f168f34d60d",
+      "sha256": "6062ff11d5839c95fa83746f3ceefbd0706439a2b6b1bdf5f18f41bc57501269",
       "bytes": 29420
     },
     "b9f16360e723dc3d4f7e73026ff521e5d0b0eb332765dc11e568330a99cfa7a9.png": {
       "key": "b9f16360e723dc3d4f7e73026ff521e5d0b0eb332765dc11e568330a99cfa7a9",
       "format": "png",
       "title": "penelope.md",
-      "sha256": "5879a2066a60ab77f37d95c0cd9da4816e0c122a3bf68bfb4a33b9958b15c070",
+      "sha256": "7c2eade30175606c8ddfa5cb825ceaf7b3206ffa95a207f72b2b2b1bbad860be",
       "bytes": 130278
     },
     "bb87b5531cdf9f2869ea3dda48f3801d5b80fb75a8b1c121790145b6d18f7b48.pdf": {
       "key": "bb87b5531cdf9f2869ea3dda48f3801d5b80fb75a8b1c121790145b6d18f7b48",
       "format": "pdf",
       "title": "day-3651-eagle.md",
-      "sha256": "2454090469d7e896a7dd89786e2c8b4d9047b0ec8e70197316b6b2a320042dda",
+      "sha256": "46669cbc2fd92dfdc8000ab83efb87441a0bd8bfbbd88c7ce4de396f520b9d27",
       "bytes": 17331
     },
     "bb87b5531cdf9f2869ea3dda48f3801d5b80fb75a8b1c121790145b6d18f7b48.png": {
       "key": "bb87b5531cdf9f2869ea3dda48f3801d5b80fb75a8b1c121790145b6d18f7b48",
       "format": "png",
       "title": "day-3651-eagle.md",
-      "sha256": "2db563e1ea2ce1a4c8e2355ef573ad158061907ac531430ce520d9f5c4ff899c",
+      "sha256": "e990f7e36a399d8e76949da4633230e13a18c466aedd3df21e2e8ab0914e0e2a",
       "bytes": 64287
     },
     "bde7b45d8138b96a8a6097aa9a2017b450a2eee9a925447ddbacc7dac0689b50.pdf": {
       "key": "bde7b45d8138b96a8a6097aa9a2017b450a2eee9a925447ddbacc7dac0689b50",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "3406a629a4cf9f85f033152f88eb9733343e3f2f3d101cd76df1914b481f6e39",
+      "sha256": "6d1c8fb58b3d979d3961eed0d68eaf424014492adfefca9db0fad7311971c477",
       "bytes": 40505
     },
     "bde7b45d8138b96a8a6097aa9a2017b450a2eee9a925447ddbacc7dac0689b50.png": {
       "key": "bde7b45d8138b96a8a6097aa9a2017b450a2eee9a925447ddbacc7dac0689b50",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "d48c042ef52b557b0deba3be4d0b256dc8a5771f019ab579d0be3dfa48d1570f",
+      "sha256": "53c28c925a107799138e6e155ad85055f61a35f304e9a8072e35f39e1cb7ff68",
       "bytes": 180749
     },
     "bf896af79ac7db7ad7f66118befd30d1f8c9795ad9323706831fdf2e9812b947.pdf": {
       "key": "bf896af79ac7db7ad7f66118befd30d1f8c9795ad9323706831fdf2e9812b947",
       "format": "pdf",
       "title": "return-to-ithaca.md",
-      "sha256": "3b5ca6faa7ce89a98784b62e45954b8b801b54af944c61e6f8d1b86a63300570",
+      "sha256": "b234bd86019533e44077c24c9d359d1f83822f3c40c2e03d390631f8dfe5e6fd",
       "bytes": 39024
     },
     "bf896af79ac7db7ad7f66118befd30d1f8c9795ad9323706831fdf2e9812b947.png": {
       "key": "bf896af79ac7db7ad7f66118befd30d1f8c9795ad9323706831fdf2e9812b947",
       "format": "png",
       "title": "return-to-ithaca.md",
-      "sha256": "b20e795660f315986e4d9359210a9615d5fa49639b03a55449f0101e828b801c",
+      "sha256": "1eec901d0c887a69d314c6e79ad33dd09342da2126bdb908d4a966e8cc26f90f",
       "bytes": 323610
     },
     "c07c233b25be6dc4ae0a4655c59977d3b0311a9ecbc25891cdc156fb8713daa3.pdf": {
       "key": "c07c233b25be6dc4ae0a4655c59977d3b0311a9ecbc25891cdc156fb8713daa3",
       "format": "pdf",
       "title": "scylla-or-charybdis.md",
-      "sha256": "5ef9c7ab609dc28ec24092faf237835dc047449ac1a97867cf6ccadc49d97de4",
+      "sha256": "bc52bc7fbc4a2ae9e4be1d7a8584e937fbf0320520f930a0c5fc51dd220f3add",
       "bytes": 44020
     },
     "c07c233b25be6dc4ae0a4655c59977d3b0311a9ecbc25891cdc156fb8713daa3.png": {
       "key": "c07c233b25be6dc4ae0a4655c59977d3b0311a9ecbc25891cdc156fb8713daa3",
       "format": "png",
       "title": "scylla-or-charybdis.md",
-      "sha256": "39fcba5da642fb54d5e854122c060bac3dbd8bebcd02c39a850c95c6d5e35735",
+      "sha256": "48939cbe7ea8ed196302375c520f4b65b0e45ec9d19f97ef5cf5f00fd705e9e3",
       "bytes": 210038
     },
     "c2b433903e76f6adcefc0c3c1ccd6ba93237dda3567086f397e34bcc4b7ba1c6.pdf": {
       "key": "c2b433903e76f6adcefc0c3c1ccd6ba93237dda3567086f397e34bcc4b7ba1c6",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "ba46954971d369f45f88a541b466bd7dbfc828b3d4f1492347994fd5fb95ac64",
+      "sha256": "ec3df5bbafcf385bfd7520574be62e8d0feeffa496b018f3cab7a60d5184387a",
       "bytes": 36085
     },
     "c2b433903e76f6adcefc0c3c1ccd6ba93237dda3567086f397e34bcc4b7ba1c6.png": {
       "key": "c2b433903e76f6adcefc0c3c1ccd6ba93237dda3567086f397e34bcc4b7ba1c6",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "9721d1d7783777214dc0c7f548e4c5f51294297c5c74bcd55dca5d9f2b256366",
+      "sha256": "3bc17cf0d9e11c823a8c5a8878789fdf23486bb546ca87ff7d2c95f1b63f6cc8",
       "bytes": 182678
     },
     "cbb7e1582024d3f0cbab96cfeabda977448d9e2b3e423f0a863c97656369d9bf.pdf": {
       "key": "cbb7e1582024d3f0cbab96cfeabda977448d9e2b3e423f0a863c97656369d9bf",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "a480912d46562d8edfd1b7b359e54a2fe22746a3b1f69e582ae49c1fa3bd428d",
+      "sha256": "95ed64dc891387cef8b35dabf6aca9a2c9bec502f50559be4f81a1122f4cca8a",
       "bytes": 25336
     },
     "cbb7e1582024d3f0cbab96cfeabda977448d9e2b3e423f0a863c97656369d9bf.png": {
       "key": "cbb7e1582024d3f0cbab96cfeabda977448d9e2b3e423f0a863c97656369d9bf",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "f7be03aa74380612c354170ddb2ee1b6da2ee14fbd5ff6cfbe8986cea453afbe",
+      "sha256": "1b4a3b17bf901d3c815cd9220ee84cb92f6258d198c2d60f6ef0071ed8afd4ec",
       "bytes": 58310
     },
     "cbf7a11b6d93b5fc4b9651fbe7de0c79132303df86fb6ed403f68de08dbcdbed.pdf": {
       "key": "cbf7a11b6d93b5fc4b9651fbe7de0c79132303df86fb6ed403f68de08dbcdbed",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "feddfce72c88534ba1d44a99f0827ce4d551a455c8a1b2f2645e1660605d3339",
+      "sha256": "f4ac3845cbb56756d0e03aa0cb0ecee90c4370af6bc080494e6afb29837c7fde",
       "bytes": 9237
     },
     "cbf7a11b6d93b5fc4b9651fbe7de0c79132303df86fb6ed403f68de08dbcdbed.png": {
       "key": "cbf7a11b6d93b5fc4b9651fbe7de0c79132303df86fb6ed403f68de08dbcdbed",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "ad1e53e267ed4c5747bcdb68fd30f66e3e85379b09ee0167e7f5d56c7390b8ba",
+      "sha256": "3f7eb80ed12d41113b2f371337b7438ed2bd96fab572ae93b0c0c7cd46564ae6",
       "bytes": 23797
     },
     "ce275da608e8d1eec8f248fc67164355a0392573619950be2859259cd837e144.pdf": {
       "key": "ce275da608e8d1eec8f248fc67164355a0392573619950be2859259cd837e144",
       "format": "pdf",
       "title": "day-3652.md",
-      "sha256": "28d8c6dcf19df97f46ebfce4083f095035cca40aa3fe00472d3a5a1e216397f8",
+      "sha256": "5f07122ee56f45ca186b653619daed1f5e1e4fec1ba9cb22eb3dff851a3c7dd8",
       "bytes": 18292
     },
     "ce275da608e8d1eec8f248fc67164355a0392573619950be2859259cd837e144.png": {
       "key": "ce275da608e8d1eec8f248fc67164355a0392573619950be2859259cd837e144",
       "format": "png",
       "title": "day-3652.md",
-      "sha256": "5f218ac435920e18484482d9ee796cec4a039fe0dc89771481cd911188a29039",
+      "sha256": "0e345beeed51f0f9495cd0e0257ce20a8b8ac70c74c4821d2a848ec6331dc55c",
       "bytes": 64064
     },
     "ce539ad0c542c62982e0b383ac3d4896b555bb8915028a878e46b0112975246f.pdf": {
       "key": "ce539ad0c542c62982e0b383ac3d4896b555bb8915028a878e46b0112975246f",
       "format": "pdf",
       "title": "raft.md",
-      "sha256": "ecad80b153ac9af1505bc4e71313b56bdbc5e77a4a9c5770deeeff79a74696c6",
+      "sha256": "685506df0a2a7286f0160f42dd4d29f2eb11545da66eab0db3bfa6f7102c5cea",
       "bytes": 39921
     },
     "ce539ad0c542c62982e0b383ac3d4896b555bb8915028a878e46b0112975246f.png": {
       "key": "ce539ad0c542c62982e0b383ac3d4896b555bb8915028a878e46b0112975246f",
       "format": "png",
       "title": "raft.md",
-      "sha256": "7caeaf99446b6a267ca2c96dca6efba41082026c4fc704d3f559c6ae10cc1e2d",
+      "sha256": "ccb45354550d5fe9f4f0e8f49be2589f59d1d0b19376750c693e00cee8f6f59f",
       "bytes": 192608
     },
     "d2c41b6cc76039741ef0a79423e434f741553dff75a34331029258c107ede059.pdf": {
       "key": "d2c41b6cc76039741ef0a79423e434f741553dff75a34331029258c107ede059",
       "format": "pdf",
       "title": "helios.md",
-      "sha256": "1f05f40719923e1b22dceb701594c8cbc44f210ff81ec75b9611d198cc50d5de",
+      "sha256": "a4f5b6227b1c947de03d42e250472aea55278b91da8e6b4a91ed8d7d7c80b0b7",
       "bytes": 16436
     },
     "d2c41b6cc76039741ef0a79423e434f741553dff75a34331029258c107ede059.png": {
       "key": "d2c41b6cc76039741ef0a79423e434f741553dff75a34331029258c107ede059",
       "format": "png",
       "title": "helios.md",
-      "sha256": "0b556e6a647de973c1aca5d4a8d94f1c18e2afc2d071877fd4d2fcb998e72b2c",
+      "sha256": "c594b3bdbad3f0a98946076fccfd517e352003e6eae27807e6d66cf5c01ffed1",
       "bytes": 46742
     },
     "d417f2d69e24a1768a3a2d464495f8cecf3397102b7e84dd67cff7116b7b4037.pdf": {
       "key": "d417f2d69e24a1768a3a2d464495f8cecf3397102b7e84dd67cff7116b7b4037",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "f3ad2b8d358796a7a73c3ebc5c7414870e47ceaa919f9c224f076782b0709b9f",
+      "sha256": "aaf70860ca37e4b570eb4159ac9ab02c199dcb6fcf0abea2e9efb2ffcdd37adc",
       "bytes": 9557
     },
     "d417f2d69e24a1768a3a2d464495f8cecf3397102b7e84dd67cff7116b7b4037.png": {
       "key": "d417f2d69e24a1768a3a2d464495f8cecf3397102b7e84dd67cff7116b7b4037",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "5432a1cc409f8e3384c91ade94c4e8a849952b3755c75107601e7f7e44c19a20",
+      "sha256": "951c83629729fe38d50c7c32c80520ac4960d09f8e4241669f6ba4579d7cbce8",
       "bytes": 32910
     },
     "d8c811903ea0177afdbb6d87b368d3206f50f7f58b27bebff1418d1703baaeb6.pdf": {
       "key": "d8c811903ea0177afdbb6d87b368d3206f50f7f58b27bebff1418d1703baaeb6",
       "format": "pdf",
       "title": "calypso.md",
-      "sha256": "2da8164b10bc88c27ebf59fe376341cc7b04e383be311972bf606a63956d15f5",
+      "sha256": "a9b37e72d76e5c6cc6ae3fb288bf5063371ba9ced7c7df3bead91945490ca5a8",
       "bytes": 27872
     },
     "d8c811903ea0177afdbb6d87b368d3206f50f7f58b27bebff1418d1703baaeb6.png": {
       "key": "d8c811903ea0177afdbb6d87b368d3206f50f7f58b27bebff1418d1703baaeb6",
       "format": "png",
       "title": "calypso.md",
-      "sha256": "184ac22d617c68fe4c253ceb79c43c603814d2768ec6e3ef9ec5a722c83bd3a8",
+      "sha256": "ef6a14904220345436687cc87d0580cfa3c7b9ccb059c6ddbefcda5a719aebb7",
       "bytes": 100722
     },
     "da0f8da93cc0fd783d65b6bafb58093bfcfd563a683b1ddf8b4af3476eb3ae30.pdf": {
       "key": "da0f8da93cc0fd783d65b6bafb58093bfcfd563a683b1ddf8b4af3476eb3ae30",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "8676156d8c197be6997ba2d43edd13ed715ebb2e716ab1dbebb204722dfcf0aa",
+      "sha256": "85339e75a95d7043c1400263a2c6013596fe8b8897190c45f00ff152f857fead",
       "bytes": 8546
     },
     "da0f8da93cc0fd783d65b6bafb58093bfcfd563a683b1ddf8b4af3476eb3ae30.png": {
       "key": "da0f8da93cc0fd783d65b6bafb58093bfcfd563a683b1ddf8b4af3476eb3ae30",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "5a7959d0aa3677daa622c3c702d1ad61e0e279f7b08a5987c3fa451c5e2a516a",
+      "sha256": "f1f87e0bb1d25b4eaab22357ca50f83abec4e9b4b0b67d2d0a3ad3d8d47e60db",
       "bytes": 16179
     },
     "dac03deb30e5601d8a41bc452c9b19f4b460870d38690a0f17f7cc85ccff6c79.pdf": {
       "key": "dac03deb30e5601d8a41bc452c9b19f4b460870d38690a0f17f7cc85ccff6c79",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "1dfb6ec597d52f48b8008967a158568760b3856c017bdb1fea467b926bde5bc7",
+      "sha256": "893179c54c1020259a9bb69d2e849e5c762f0436a9a5a80dde53ca51a76a787c",
       "bytes": 44087
     },
     "dac03deb30e5601d8a41bc452c9b19f4b460870d38690a0f17f7cc85ccff6c79.png": {
       "key": "dac03deb30e5601d8a41bc452c9b19f4b460870d38690a0f17f7cc85ccff6c79",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "0be37948da3306f8bd331d244b70db5297fdc047e5403b9dc1c75cb7103f1f10",
+      "sha256": "8ca439da4607be786d4facb824f6b1e76218a291281a54ee847d22c1d680bd91",
       "bytes": 226679
     },
     "db49ebb5cd2fa0a2ef3c45dc6df4eea7b69216750ed33beeecaf9ff4db695e77.pdf": {
       "key": "db49ebb5cd2fa0a2ef3c45dc6df4eea7b69216750ed33beeecaf9ff4db695e77",
       "format": "pdf",
       "title": "departure-brief.html",
-      "sha256": "882b1928d865e98371e22c62260f1e2031acc5f775b6fccf1b1054daa2651cf0",
+      "sha256": "d22a839b2680a93c92e3ea51b7805eb1a833c79eac6facfca3f1d3163dd6cdf6",
       "bytes": 39041
     },
     "db49ebb5cd2fa0a2ef3c45dc6df4eea7b69216750ed33beeecaf9ff4db695e77.png": {
       "key": "db49ebb5cd2fa0a2ef3c45dc6df4eea7b69216750ed33beeecaf9ff4db695e77",
       "format": "png",
       "title": "departure-brief.html",
-      "sha256": "f3032d8c64b848b6efc1614f889523f9286753f56fa4d109b7c1035fa7f34dbd",
+      "sha256": "e165a3ff96229211213c2600c8fde88324dd37af223d726ce7822c66b07bd347",
       "bytes": 112381
     },
     "db6dc15351ffd90ef723780077444257e57b1324bcb38924afbc4098eaebf307.pdf": {
       "key": "db6dc15351ffd90ef723780077444257e57b1324bcb38924afbc4098eaebf307",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "0ad11763b6108cb6feff37e109e3401a55a64b6af27c7e3ca76b420c82465d31",
+      "sha256": "095f45d6a3a285df6713736aefa570231bcc01a9ca14d13d6d72e1067edafdf3",
       "bytes": 9318
     },
     "db6dc15351ffd90ef723780077444257e57b1324bcb38924afbc4098eaebf307.png": {
       "key": "db6dc15351ffd90ef723780077444257e57b1324bcb38924afbc4098eaebf307",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "eddd79cc8db695509c96b1e6252f3ceb7b29132e2648617f0a04530764cb032f",
+      "sha256": "77da519f6ec2da986d105f6d96bd67d583c5a8ea4f7d1b8254e3a82a65a7315e",
       "bytes": 24777
     },
     "e19e0e7f9f4b30e4ad6abb5c7c93b2b46411a3e0eef9bbce1b5476e8f347a944.pdf": {
       "key": "e19e0e7f9f4b30e4ad6abb5c7c93b2b46411a3e0eef9bbce1b5476e8f347a944",
       "format": "pdf",
       "title": "nestor.md",
-      "sha256": "73a0825c7be6f5cbf8dee2aab6455e6e80ce9dea100c3cc5c06c61498a3c6e1b",
+      "sha256": "e8cbcf88abbeaaccae4d3d37f5977faf663e16e3095502b5f7d6672ee05839f6",
       "bytes": 27782
     },
     "e19e0e7f9f4b30e4ad6abb5c7c93b2b46411a3e0eef9bbce1b5476e8f347a944.png": {
       "key": "e19e0e7f9f4b30e4ad6abb5c7c93b2b46411a3e0eef9bbce1b5476e8f347a944",
       "format": "png",
       "title": "nestor.md",
-      "sha256": "4d8267986515c647e3a6b333afe98adec134b52ee4ee29240c75b79c1a61c6ea",
+      "sha256": "c8cc5b873881563ee849ba8b2a2d448121c50d37de01e8cc5e7f2384a8d28b42",
       "bytes": 97489
     },
     "e664be7877421c34d1a0e5e7227eba04c9693bc2b3fb3e760d3b8e5a143bec17.pdf": {
       "key": "e664be7877421c34d1a0e5e7227eba04c9693bc2b3fb3e760d3b8e5a143bec17",
       "format": "pdf",
       "title": "poseidon.md",
-      "sha256": "3d7620ebad1b36f364e028120aeb5932885f2fe25595f08f8843c1593cfd5b91",
+      "sha256": "a29f40781a89b2ace8c977746be11160bc6976932d11eec49f7bb772c7c62afb",
       "bytes": 27971
     },
     "e664be7877421c34d1a0e5e7227eba04c9693bc2b3fb3e760d3b8e5a143bec17.png": {
       "key": "e664be7877421c34d1a0e5e7227eba04c9693bc2b3fb3e760d3b8e5a143bec17",
       "format": "png",
       "title": "poseidon.md",
-      "sha256": "2e54007a3c74b0c81844e4920f86152bcc5769023f73d4389d2ce2f2ee05f1f4",
+      "sha256": "c38cb4d2229d3d70099f5f8b04f346a54eadc2e747995d7e9868189dab28e129",
       "bytes": 104918
     },
     "ec7f2238a655f1001ca3cddf73465b2753dac107ea7dcf58ea9d6846e0ab4979.pdf": {
       "key": "ec7f2238a655f1001ca3cddf73465b2753dac107ea7dcf58ea9d6846e0ab4979",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "08e3ef2b447b5abf81289bef0d503e8943fd32511d4d5b66a1caa009943adb51",
+      "sha256": "e20a99b5340e551f4ff6cc4e51bfd9616a6d49379bf15e1d9bc60406a70bc0c0",
       "bytes": 24836
     },
     "ec7f2238a655f1001ca3cddf73465b2753dac107ea7dcf58ea9d6846e0ab4979.png": {
       "key": "ec7f2238a655f1001ca3cddf73465b2753dac107ea7dcf58ea9d6846e0ab4979",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "15061f1c568b654dd16e94ee2a2dfb7401150bc6a45b2ebb02c358c9d5d7a093",
+      "sha256": "2d0110ba3c67728190fde64050977ee2bed35452bd87d6e79934f091693a2946",
       "bytes": 51028
     },
     "f0ab22d84b15d9914508de433cadf943d13c1ac9eb63d3431be3c882c5bcb68c.pdf": {
       "key": "f0ab22d84b15d9914508de433cadf943d13c1ac9eb63d3431be3c882c5bcb68c",
       "format": "pdf",
       "title": "teiresias-forecast.md",
-      "sha256": "9ee538382e2656f65f23cb7a2e6b22612617f1ce71cc32305445abe4aff590b9",
+      "sha256": "cf425abd86d8a8db9c314b7a982be50a37a23a8db4561d9510d7adc05cb55af5",
       "bytes": 17390
     },
     "f0ab22d84b15d9914508de433cadf943d13c1ac9eb63d3431be3c882c5bcb68c.png": {
       "key": "f0ab22d84b15d9914508de433cadf943d13c1ac9eb63d3431be3c882c5bcb68c",
       "format": "png",
       "title": "teiresias-forecast.md",
-      "sha256": "fe8b3846b7a7427a88eb895589d747de87ebdb1bc9140d8a9df7cde291d8182f",
+      "sha256": "a0dd74179591d4c430605956e01158b9732133c2a42da28a626e70f099ab013a",
       "bytes": 57162
     },
     "f0fe415d2bb15f6068a498d3e43975b3a54906fd8268a050db98c39e0684f395.pdf": {
       "key": "f0fe415d2bb15f6068a498d3e43975b3a54906fd8268a050db98c39e0684f395",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "3d3bae2fd0d1aabb0211008e60bd381c06bd74eec7d4ad0ff836087718cf594a",
+      "sha256": "59851b928b547a9ddf76b6e60835fca004aa20c8a0f3034f91c9fe3d023b688f",
       "bytes": 9561
     },
     "f0fe415d2bb15f6068a498d3e43975b3a54906fd8268a050db98c39e0684f395.png": {
       "key": "f0fe415d2bb15f6068a498d3e43975b3a54906fd8268a050db98c39e0684f395",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "e268a0f64410b521f6610b6c2fb261137a9847fa65689402fcfbded7f3e03d76",
+      "sha256": "5f8913eafcf8d05e447475f9df1976fe44f6e40f4972d75e077be9fb15f05c44",
       "bytes": 28444
     },
     "f68f8c203d7d167bc717cfae7df43fe9ffa2e016d9649c4ce73b24841bb212d4.pdf": {
       "key": "f68f8c203d7d167bc717cfae7df43fe9ffa2e016d9649c4ce73b24841bb212d4",
       "format": "pdf",
       "title": "athena.md",
-      "sha256": "f769198a001f779283d687c6601f200629032256655474a1545bdecf97ce6c38",
+      "sha256": "18161995246a0905933ca46f0edf4b6162b8650565a4f6310805d7a62efc1c4a",
       "bytes": 27928
     },
     "f68f8c203d7d167bc717cfae7df43fe9ffa2e016d9649c4ce73b24841bb212d4.png": {
       "key": "f68f8c203d7d167bc717cfae7df43fe9ffa2e016d9649c4ce73b24841bb212d4",
       "format": "png",
       "title": "athena.md",
-      "sha256": "35c5f64f102141f12e5cc2e9da32233dfe23fdb1e699cb7099250f5475a92217",
+      "sha256": "ed6b4a3900c57f3cb3dcdbf4a27677ccd27a1d726dae249cda4e4757d48ceab9",
       "bytes": 97740
     },
     "f8093e43a4b804125ee787303ffbaa4fb7d958c5904c65224724dcaf5d0ff104.pdf": {
       "key": "f8093e43a4b804125ee787303ffbaa4fb7d958c5904c65224724dcaf5d0ff104",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "8cbeecaf9d26b821d7cb0e869a6ef08d9c852a20918352d089b3920544b14b91",
+      "sha256": "1b31a7c9fb905c1eee48133a0661b6b8b4ff43517fee70c5a732a989218e4159",
       "bytes": 9873
     },
     "f8093e43a4b804125ee787303ffbaa4fb7d958c5904c65224724dcaf5d0ff104.png": {
       "key": "f8093e43a4b804125ee787303ffbaa4fb7d958c5904c65224724dcaf5d0ff104",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "85f0cbe7a59760f2f6656e195d038f23453fdfae38a86f0f8d729f1c384d6014",
+      "sha256": "7e2647768999696a5a4be0c0c9ade9702d95735e1d37cd5b89f14ec890a5c806",
       "bytes": 36362
     },
     "f935a0a4a9e0dceab009fedbc0b3239867178451a8e629e9c54e743d743542cd.pdf": {
       "key": "f935a0a4a9e0dceab009fedbc0b3239867178451a8e629e9c54e743d743542cd",
       "format": "pdf",
       "title": "_index.md",
-      "sha256": "2a4f44247a17ec4b8062d5cd18a74fce85930362a9c701d9f5af057c84fe34b6",
+      "sha256": "31721b829d92ac901f86bd26173ae3f57c52e282834d5111fd55795576a011b3",
       "bytes": 19867
     },
     "f935a0a4a9e0dceab009fedbc0b3239867178451a8e629e9c54e743d743542cd.png": {
       "key": "f935a0a4a9e0dceab009fedbc0b3239867178451a8e629e9c54e743d743542cd",
       "format": "png",
       "title": "_index.md",
-      "sha256": "de26db66f069ead7b4620b56473e2ead86ab2fd2d600adbdf97723929d71276b",
+      "sha256": "3e84ed782075942d0f27ccd2b8c569c686ee829bea1f116f5c1bfe0e2051c59f",
       "bytes": 86723
     },
     "faba306fd6a2f18c658c913068f4813065f77eb52a54006ff1b36c354731f0bc.pdf": {
       "key": "faba306fd6a2f18c658c913068f4813065f77eb52a54006ff1b36c354731f0bc",
       "format": "pdf",
       "title": "Shared from Brain",
-      "sha256": "e2d9dedc45cb2440159cd423ebe3becee700323d34f07e00b2d472ad9f730b06",
+      "sha256": "4381f5a198cb23c407dd137c7f2be07c46417366d56e515d892ecc6548d883a7",
       "bytes": 30078
     },
     "faba306fd6a2f18c658c913068f4813065f77eb52a54006ff1b36c354731f0bc.png": {
       "key": "faba306fd6a2f18c658c913068f4813065f77eb52a54006ff1b36c354731f0bc",
       "format": "png",
       "title": "Shared from Brain",
-      "sha256": "f5305eb86879881de2c6189311af25c111951105b35ee0fb05f84e411e693df3",
+      "sha256": "4896055f298a51e14f3c840f04decd6f590c9ec50c2108ee358f528dcac5034d",
       "bytes": 87118
     },
     "fbae3100afc4deb7ae39152989b59b99dd82c94fd835ba9eaa4eb7fe51fe0ef6.pdf": {
       "key": "fbae3100afc4deb7ae39152989b59b99dd82c94fd835ba9eaa4eb7fe51fe0ef6",
       "format": "pdf",
       "title": "circe.md",
-      "sha256": "62f29cacaf6ec55351adb3447e4ba69d0a02ae613ee10e37f4feca97e35e1360",
+      "sha256": "889884e1ce69d4beb177276306bb915ba79c2d1201d995768eb3b030bf65010a",
       "bytes": 27818
     },
     "fbae3100afc4deb7ae39152989b59b99dd82c94fd835ba9eaa4eb7fe51fe0ef6.png": {
       "key": "fbae3100afc4deb7ae39152989b59b99dd82c94fd835ba9eaa4eb7fe51fe0ef6",
       "format": "png",
       "title": "circe.md",
-      "sha256": "ba47c413ae303ac8e82087dad09df20e9734db7cec1719212e56229fd11a9ef9",
+      "sha256": "1e2e6660994ab772d782219748d4d912e708098a031cd7e5bda9edb81872eed4",
       "bytes": 100857
     }
   }
