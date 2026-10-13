@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, openSync, writeSync, closeSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { prepareWorkerOutput, WORKER_OUTPUT } from "../src/server/worker-output.js";
+import { prepareWorkerOutput } from "../src/server/worker-output.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { text } from "node:stream/consumers";
 import { createOutputStagingStorage, launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
