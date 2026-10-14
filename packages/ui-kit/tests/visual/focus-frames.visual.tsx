@@ -119,6 +119,15 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
         }
       }
       await commands.focusCapture('[data-focus-inventory]', `${theme}-${width}-${name}`);
+      if (name === "locked-model") {
+        await userEvent.hover(el);
+        await commands.buttonPointer("down");
+        try {
+          expect(el.matches(":active"), "native locked-model press premise").toBe(true);
+          expect(getComputedStyle(el).transform, "locked-model control keeps its pressed translation").toBe("matrix(1, 0, 0, 1, 0, 1)");
+          expect(getComputedStyle(el).filter, "locked-model control keeps its pressed brightness").toBe("brightness(0.94)");
+        } finally { await commands.buttonPointer("up"); }
+      }
     }
     expect(document.documentElement.scrollWidth, "no viewport overflow").toBeLessThanOrEqual(width);
   });

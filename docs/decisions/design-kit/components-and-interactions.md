@@ -1153,8 +1153,9 @@ grouped rows; scroll bodies inherit only the bottom corners when a header sits
 above them. The recording disclosure follows the tray's top corners while
 expanded and all four while collapsed. Controls in unpadded clipping strips
 and wrapped suggestions use `bk-control-inset`; a Surface with less than 4px
-of padding insets its child control and field indicators. The locked-model action uses the full-width row rule
-inside its scroll panel. Padded controls retain their outside indicator.
+of padding insets its child control and field indicators. The locked-model
+action insets its existing control indicator inside its scroll panel, retaining
+its hover and pressed treatment. Padded controls retain their outside indicator.
 
 These are geometry corrections, with no new component props, keyboard policy,
 focus suppression or overflow relaxation. Browser proof checks actual ink
