@@ -2505,7 +2505,7 @@
         }
       ],
       "helperCoverage": [],
-      "scopeReferences": [],
+      "scopeReferences": [1942],
       "enclosingDeclarations": [
         {
           "kind": "function",
@@ -2513,7 +2513,8 @@
           "name": "rejectsAfter"
         }
       ],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "observationLimit": "Frozen source uses native known-bad fixture deadlines. The corrected callback receipt retains a shared candidate group; no per-site count follows from that group. #1942 owns the separate private-clock counterexamples, not this historical native receipt."
     },
     {
       "index": 15,
@@ -2597,7 +2598,8 @@
           "name": "timingOut"
         }
       ],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "observationLimit": "The timingOut normal caller remains native; it is outside the fixed-deadline counterexample conversion in #1942. Corrected callback registrations have shared source candidates, so their group count is not this site count."
     },
     {
       "index": 17,
@@ -2629,7 +2631,7 @@
         }
       ],
       "helperCoverage": [],
-      "scopeReferences": [],
+      "scopeReferences": [1942],
       "enclosingDeclarations": [
         {
           "kind": "function",
@@ -2642,7 +2644,8 @@
           "name": "`a runner on a fixed ${ms}ms deadline of its own fails a timeout case`"
         }
       ],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "observationLimit": "Frozen source uses native known-bad fixture deadlines. The corrected callback receipt retains a shared candidate group; no per-site count follows from that group. #1942 owns the separate private-clock counterexamples, not this historical native receipt."
     },
     {
       "index": 18,
@@ -5063,7 +5066,7 @@
       "nominalOperationalFloorMs": null,
       "chosenAdditionalMarginMs": null,
       "causalGroup": 10,
-      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "runtimeClassification": "native timer group observed; individual source allocation established by disjoint actual delay arguments and reviewed callers",
       "receiptCoverage": [
         {
           "receiptCatalogIndex": 50,
@@ -5087,7 +5090,16 @@
           "name": "drive"
         }
       ],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "sourceDerivedTimerAllocation": {
+        "registrations": 2,
+        "callbacks": 2,
+        "requestedDelaysMs": {
+          "180": 2
+        },
+        "basis": "The six unchanged cases call drive(host,180), drive(host,0,900), or drive(host). Only beforeInput at45:64 can request180; only afterInput at48:38 can request900 or0. Actual grouped telemetry records2x180,2x900,16x0 with one callback each. These are allocated actual group records, not additional calls or elapsed time. Raw sourceCandidates remain unchanged.",
+        "scope": "All six selected ui-kit-visual cases at frozen04a; observation point remains captured afterAll."
+      }
     },
     {
       "index": 87,
@@ -5103,7 +5115,7 @@
       "nominalOperationalFloorMs": null,
       "chosenAdditionalMarginMs": null,
       "causalGroup": 10,
-      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "runtimeClassification": "native timer group observed; individual source allocation established by disjoint actual delay arguments and reviewed callers",
       "receiptCoverage": [
         {
           "receiptCatalogIndex": 50,
@@ -5127,7 +5139,17 @@
           "name": "drive"
         }
       ],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "sourceDerivedTimerAllocation": {
+        "registrations": 18,
+        "callbacks": 18,
+        "requestedDelaysMs": {
+          "900": 2,
+          "0": 16
+        },
+        "basis": "The six unchanged cases call drive(host,180), drive(host,0,900), or drive(host). Only beforeInput at45:64 can request180; only afterInput at48:38 can request900 or0. Actual grouped telemetry records2x180,2x900,16x0 with one callback each. These are allocated actual group records, not additional calls or elapsed time. Raw sourceCandidates remain unchanged.",
+        "scope": "All six selected ui-kit-visual cases at frozen04a; observation point remains captured afterAll."
+      }
     },
     {
       "index": 88,
@@ -8850,7 +8872,14 @@
       "helperCoverage": [],
       "scopeReferences": [],
       "enclosingDeclarations": [],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "sourceControlFlowInference": {
+        "completedInvocations": 3,
+        "directlyObservedTimerCount": null,
+        "accumulatedLeafElapsedMs": null,
+        "basis": "Three unconditional awaited captureUnassigned calls in two passing #1852 candidate cases (optional unassigned deletion twice, paused administrative clear once), and the unchanged helper awaits exactly one 100 ms promise each time. This is source/control-flow inference, not timer telemetry. The actual observer did not wrap work(page, ...) or bundled captureUnassigned.",
+        "limit": "The 100 ms changed-account preparation remains separate from subsequent 1100 ms real audio accumulation. No native minimum, margin or replacement proof follows."
+      }
     },
     {
       "index": 194,
@@ -8873,7 +8902,16 @@
       "helperCoverage": [],
       "scopeReferences": [],
       "enclosingDeclarations": [],
-      "sourceContextKinds": ["executable timer/cadence call"]
+      "sourceContextKinds": ["executable timer/cadence call"],
+      "laterGuaranteeEvidence": {
+        "source": "884d9cad35e0be9126c41beeb3f3f5a7a63d04ec",
+        "url": "https://github.com/schlessera/brain-kit/actions/runs/38638401326/job/116107668465",
+        "nativeDrainCaseBodyMs": 1644.95,
+        "isolatedParentCaseBodyMs": 108127.44,
+        "timerRegistrations": null,
+        "timerClearAgesMs": null,
+        "scope": "Later-source native drain guarantee, not a frozen04a leaf attribution receipt. Helper and contract files are unchanged from 04a through 58f. The scripted FakeSocket/FakeRecorder conformance path remains distinct from native audio, stopped tracks, graceful finish and no-turn assertions. A passing case does not count the 2000 ms rejection watchdog or its callback lifecycle."
+      }
     },
     {
       "index": 195,
@@ -30993,7 +31031,7 @@
   "helperReferenceIndex": [
     {
       "helper": "packages/geo/tests/fixtures/admission-worker.ts",
-      "literalReferenceCandidates": ["packages/geo/tests/io.test.ts:207:    const worker=fileURLToPath(new URL(\"./fixtures/admission-worker.ts\",import.meta.url));", "packages/ui-server/tests/schedule-admission.test.ts:13:const worker = join(import.meta.dir, \"fixtures/schedule-admission-worker.ts\");"],
+      "literalReferenceCandidates": ["packages/geo/tests/io.test.ts:207:    const worker=fileURLToPath(new URL(\"./fixtures/admission-worker.ts\",import.meta.url));"],
       "limit": "Source reference index, not executed caller census; comments and indirect imports require source review."
     },
     {

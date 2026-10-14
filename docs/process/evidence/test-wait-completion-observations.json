@@ -8945,7 +8945,7 @@
           "clearAgeRangeMs": [2086.600187, 2086.600187]
         }
       ],
-      "sourceLabelCorrection": "Raw observer label29:30 was a transcription error; unique original setInterval expression is28:30. Raw receipt and instrumented bytes are preserved, counts/ages unchanged.",
+      "sourceLabelCorrection": "Raw observer label 29:30 was a transcription error; unique original setInterval expression is 28:30. Raw receipt and instrumented bytes are preserved, counts/ages unchanged.",
       "namespaceProof": {
         "uid": 1000,
         "netNamespace": "net:[4026532663]",
