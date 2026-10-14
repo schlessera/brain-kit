@@ -76,9 +76,9 @@ exceptions. Unmeasured means no saving is claimed.
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
-| `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Executed samples distinguish condition completion and fixed windows. Capture requires actual chunk commits; a deletion window needs writer completion plus all relevant delayed callbacks before removal. |
+| `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Unmeasured. Await actual chunk commits for capture; a deletion window needs writer completion plus all delayed callbacks before it can be removed. |
 | `auth-expiry-runtime.test.ts`, 400 ms entrances and 1800 ms post-restore observation | Login entrance settling vs no delayed navigation/restored-state observation | Unmeasured; no common shortened timeout is selected. |
-| `parallel-sessions-runtime.test.ts`, 300–1000 ms observations and polling | No-send/security windows, native pointer holds, host-stop drains, readiness and socket completion | Executed samples attribute each role separately. A physical gesture hold and a host transport drain are not renderer settling; preserve their actual boundaries and the later forbidden-effect assertions. |
+| `parallel-sessions-runtime.test.ts`, 300–1000 ms observations and polling | Mixed no-send/security windows, pointer holds, readiness and socket completion | Unmeasured. Preserve the distinct pointer/auth/backend assertions; source literals are not summed. |
 | Render/store suites' 0–30 ms ticks | Event-loop or React-effect drain; some are delayed negative checks | No large-duration claim. Prefer actual effects/receipts where available, preserving later forbidden work. |
 | Native worker fixtures with 60000/120000 ms sleep, shell hold loops | Hold until cancellation, not a mandatory full wait | Count actual child lifetime; assert termination/exit and retain independent native witnesses. |
 | `experiments/measurement-results.test.ts` | 1 ms byte-wise stdout chunk spacing and 10 ms post-write observation; 5000/500 ms child watchdogs | Experiment-only; watchdogs are maxima. No product-proof migration or measured saving. |
@@ -169,6 +169,12 @@ maximum RSS describe the timed command's process tree; maximum RSS is not the
 sum of simultaneous process memory. These samples are attribution, not savings.
 
 Several distinctions matter when interpreting the data:
+
+- Association samples distinguish actual condition completion from native media
+  capture and late-writer/deletion windows. Parallel-session samples distinguish
+  physical pointer holds and host-stop transport drains from renderer settling,
+  readiness and no-send/security observations. These measurements do not justify
+  removing the later forbidden-effect assertions.
 
 - Renderer phase-budget outcomes overlap fixture delays and each other. Their
   accumulated completion time can exceed test-body wall time. None of the
