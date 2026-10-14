@@ -44,7 +44,7 @@ export function AskOtherField(p: {
           p.onSubmit?.(event.currentTarget.value);
         }}
       />
-      <span style={hint} aria-hidden="true">⏎</span>
+      <span className="bk-keyboard-hint" style={hint} aria-hidden="true">⏎</span>
     </div>
   );
 }

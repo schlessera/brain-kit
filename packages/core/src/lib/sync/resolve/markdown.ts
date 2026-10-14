@@ -404,7 +404,7 @@ export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
   if (length > 0) {
     let parsed: unknown;
     try {
-      parsed = parseFrontmatter(raw).data;
+      parsed = parseFrontmatter(raw, { dataOnly: true }).data;
     } catch (e) {
       throw new UnparseableError(`${side}: frontmatter is not valid YAML (${(e as Error).message.split("\n")[0]})`);
     }

@@ -34,7 +34,7 @@ import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
 
-type Role = "helper" | "serializer" | "cache-probe";
+type Role = "helper" | "serializer" | "cache-probe" | "engine-probe";
 
 /** The only files that may load gray-matter, and why each one may. */
 export const ALLOWED: ReadonlyArray<{ pattern: RegExp; role: Role; reason: string }> = [
@@ -53,6 +53,11 @@ export const ALLOWED: ReadonlyArray<{ pattern: RegExp; role: Role; reason: strin
     pattern: /^packages\/common\/tests\/frontmatter-parse\.test\.ts$/,
     role: "cache-probe",
     reason: "seeds and reads gray-matter's cache to prove parseFrontmatter neither reads nor grows it",
+  },
+  {
+    pattern: /^tests\/helpers\/frontmatter-engine-sentinel\.ts$/,
+    role: "engine-probe",
+    reason: "replaces executable engines with inert sentinels and restores descriptors; never parses input",
   },
 ];
 
@@ -122,17 +127,17 @@ export function scanSource(file: string, text: string): Finding[] {
         if (clause?.name) bindings.add(clause.name.text);
         const named = clause?.namedBindings;
         if (named && ts.isNamespaceImport(named)) bindings.add(named.name.text);
-        if (named && ts.isNamedImports(named) && allowed.role !== "cache-probe") {
+        if (named && ts.isNamedImports(named) && !["cache-probe", "engine-probe"].includes(allowed.role)) {
           record(node, 2, "named import from gray-matter — use its default export, called with a literal options object");
         }
-      } else if (allowed.role !== "cache-probe") {
+      } else if (!["cache-probe", "engine-probe"].includes(allowed.role)) {
         record(node, 2, "gray-matter loaded other than by a default import — the binding cannot be checked");
       }
     }
     ts.forEachChild(node, visitLoads);
   };
   visitLoads(source);
-  if (!allowed || allowed.role === "cache-probe" || bindings.size === 0) return findings;
+  if (!allowed || ["cache-probe", "engine-probe"].includes(allowed.role) || bindings.size === 0) return findings;
 
   // Rule 2: every reference to the binding is a literal-options call or a type.
   const hasLiteral = (args: ts.NodeArray<ts.Expression>, index: number) =>

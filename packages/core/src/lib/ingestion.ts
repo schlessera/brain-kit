@@ -209,7 +209,7 @@ export function prepareIngest(
     const raw = ctx.readDocument ? ctx.readDocument(classification.path) :
       (existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : null);
     if (raw !== null) {
-      const parsed = parseFrontmatter(raw);
+      const parsed = parseFrontmatter(raw, { dataOnly: true });
       if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
         // Only `updated` changes in the frontmatter; its other bytes stay as written.
         const section = `## ${today()} Update\n\n${content.trim()}`;

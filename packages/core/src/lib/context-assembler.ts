@@ -137,7 +137,7 @@ function readMarkdownContent(root: string, relativePath: string): { body: string
   try {
     const fullPath = resolve(root, relativePath);
     const raw = readFileSync(fullPath, "utf-8");
-    const { content, data } = parseFrontmatter(raw);
+    const { content, data } = parseFrontmatter(raw, { dataOnly: true });
     // The summary opens a line of the output, so it must not open a block.
     const summary = typeof data.summary === "string" && data.summary.trim() ? blockSafe(data.summary) : null;
     // Leading blank lines and trailing whitespace go; the first line's
