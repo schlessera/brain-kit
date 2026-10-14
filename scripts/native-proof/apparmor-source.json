@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/moby/profiles",
+  "revision": "4b8214fc4971e06172938a1f1554ccff6647ee80",
+  "file": "apparmor/template.go",
+  "rendering": {
+    "{{if .Abi}}abi <{{.Abi}}>,\n{{- end}}": "abi <abi/3.0>,",
+    "{{range $value := .Imports}}\n{{$value}}\n{{- end}}": "#include <tunables/global>",
+    "{{- range $value := .InnerImports}}\n  {{$value}}\n{{- end}}{{if .InnerImports}}\n{{end}}": "  #include <abstractions/base>",
+    "{{.Name}}": "\"brain-kit-native-proof\"",
+    "{{.PeerName}}": "\"brain-kit-native-proof\"",
+    "{{.DaemonProfile}}": "unconfined"
+  },
+  "changes": [
+    "Replace deny mount with mount allowance",
+    "Add pivot_root allowance"
+  ],
+  "license": "Apache-2.0"
+}

@@ -10,6 +10,10 @@ if [ "${1:-}" = "--native" ]; then
   sudo modprobe loop
   sudo modprobe btrfs
   docker build --file scripts/native-proof/Dockerfile --tag brain-kit-native-runtime:1 scripts/native-proof
+  if [[ "$(docker info --format '{{json .SecurityOptions}}')" == *"name=apparmor"* ]]; then
+    sudo apt-get install --yes apparmor
+    sudo apparmor_parser --replace --warn scripts/native-proof/apparmor.profile
+  fi
 fi
 # Ubuntu's AppArmor userns knob prevents the offline namespace harness. This
 # runner is disposable; tests still run with their own network isolation.

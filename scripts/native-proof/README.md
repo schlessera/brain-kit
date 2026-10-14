@@ -23,3 +23,11 @@ The default-deny action and every other upstream rule remain unchanged.
 `systempaths=unconfined` permits a new procfs in the worker's namespace; it does
 not disable seccomp. These fixture controls follow the namespace requirements
 documented in `docs/hosting/agent-workers.md`.
+
+When Docker reports AppArmor support, runtime setup must load the separately
+named `brain-kit-native-proof` profile; loading or using it unsuccessfully fails
+the proof. `apparmor-source.json` pins its Moby template. Its only policy changes
+permit mounts and `pivot_root`; all other upstream restrictions remain. It does
+not replace the daemon default. The same Moby license applies. A host without
+AppArmor records that absence explicitly and provides no enforced AppArmor
+qualification.

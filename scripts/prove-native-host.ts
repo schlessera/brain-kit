@@ -1,5 +1,5 @@
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
-import { mkdtempSync, mkdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
@@ -14,10 +14,16 @@ if (import.meta.main) {
     const artifact = mkdtempSync(join(output, "run-"));
     const image = Bun.spawnSync(["docker", "image", "inspect", NATIVE_PROOF_IMAGE], { stdout: "ignore", stderr: "pipe" });
     if (image.exitCode !== 0) throw Error("Native proof image is absent; prepare scripts/native-proof/Dockerfile before entering offline runtime.");
+    const security = Bun.spawnSync(["docker", "info", "--format", "{{json .SecurityOptions}}"], { stdout: "pipe", stderr: "pipe" });
+    if (security.exitCode !== 0) throw Error("Cannot inspect Docker runtime security prerequisites.");
+    const apparmor = (JSON.parse(new TextDecoder().decode(security.stdout)) as string[]).some(value => value.startsWith("name=apparmor"));
+    writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ apparmor, profile: apparmor ? "brain-kit-native-proof" : null }));
+    if (!apparmor) console.log("AppArmor unavailable: this runtime provides no enforced AppArmor qualification.");
     const lease = join(root, "tmp", "workspace-operation"); mkdirSync(lease, { recursive: true, mode: 0o700 });
     const args = ["docker", "run", "--rm", "--pull=never", "--network=none",
       "--cap-drop=ALL", ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
       "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
+      ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),
       "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
       "--mount", `type=bind,source=${artifact},target=/proof`,
       "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,
