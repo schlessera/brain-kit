@@ -68,3 +68,5 @@ export type { NativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
 export { WORKER_AREA_ROOT } from "./server/worker-sandbox.js";
+export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
+export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
