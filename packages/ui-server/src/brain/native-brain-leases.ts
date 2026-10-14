@@ -11,7 +11,11 @@ type Lease = { id: string; kind: "checkpoint" | "stage"; checkpoint_uuid: string
 
 export async function createNativeBrainLeaseManager(raw: Client, options: {
   statePath: string; brainPath: string; fsid: string; brainUuid: string;
-}) {
+}): Promise<{
+  client: Client;
+  recoverDeadOwners(): Promise<{ released: string[]; retainedLive: number; retainedUnverifiable: number; unknown: string[] }>;
+  close(): Promise<void>;
+}> {
   if (!isAbsolute(options.statePath) || options.statePath.includes("\0") || options.statePath.split("/").includes(".."))
     throw Error("Native root leases require one fixed absolute persistent state path.");
   const brain = realpathSync(options.brainPath), parent = dirname(options.statePath);
