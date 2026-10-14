@@ -5,11 +5,11 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  createApp,
   createRecordingObservability,
   createStaticBackendRegistry,
   resolveServerConfig,
 } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../../packages/ui-server/tests/helpers/native-app-fixture.ts";
 import type {
   AgentBackend,
   StartTurnRequest,
