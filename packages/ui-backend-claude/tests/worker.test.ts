@@ -104,3 +104,31 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
       originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a throwing worker-start callback kills and drains its real child before releasing state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-start-"));
+  const brain = join(root, "brain"), saved = join(root, "config"), home = join(root, "home");
+  mkdirSync(brain); mkdirSync(saved); mkdirSync(home); writeFileSync(join(saved, "settings.json"), "{}");
+  const ledger = createStateLedger(), exits: unknown[] = [], errors: string[] = [];
+  let worker: import("@schlessera/brain-ui-sdk/internal").LaunchedWorker | undefined;
+  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined,
+    { ledger, limits, turnTempLimits: { allowanceBytes: 1024 * 1024, budgetBytes: 1024 * 1024 } }, undefined,
+    started => { worker = started; throw Error("Odysseus scope freezer refused"); });
+  try {
+    const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "while :; do sleep 1; done"],
+      env: { CLAUDE_CONFIG_DIR: saved, HOME: home }, signal: new AbortController().signal } as never);
+    child.on("error", error => errors.push(error.message)); child.on("exit", (code, signal) => exits.push([code, signal]));
+    child.stdout.resume(); child.stdin.end();
+    await expect(spawner.finish()).rejects.toThrow("scope freezer refused");
+    expect(worker, "WORKER_START_CALLBACK_REACHED_REAL_CHILD").toBeDefined();
+    await worker!.exited;
+    expect(existsSync(`/proc/${worker!.pid}`), "WORKER_START_FAILURE_DRAINS_BEFORE_RELEASE").toBe(false);
+    expect(ledger.live, "WORKER_START_FAILURE_RELEASES_RESERVATION").toBe(0);
+    expect(errors).toEqual(["Odysseus scope freezer refused"]);
+    expect(exits).toEqual([[null, "SIGKILL"]]);
+  } finally {
+    worker?.kill("SIGKILL"); await worker?.exited.catch(() => {}); await spawner.finish().catch(() => {});
+    rmSync(root, { recursive: true, force: true });
+  }
+});

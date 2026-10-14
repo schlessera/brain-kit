@@ -161,7 +161,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); state.release(); throw error; }
-      workerStarted?.(worker);
+      let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
       const turnTemp = worker.turnTemp;
@@ -169,6 +169,11 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       liveConfigurationRoot = worker.configurationRoot;
       liveFileObserver = worker.observeFile;
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
+      let exitEmitted = false;
+      const emitExit = (code: number | null) => {
+        if (exitEmitted) return;
+        exitEmitted = true; emitter.emit("exit", killed ? null : code, signalCode);
+      };
       let tail = "", noSpace = false;
       worker.stderr.setEncoding("utf8");
       worker.stderr.on("data", (data: string) => {
@@ -195,6 +200,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         await drained;
         exitCode = code;
         signal.removeEventListener("abort", abort);
+        if (startFailure !== undefined) throw startFailure;
         check();
         // Also record exhaustion in server diagnostics.
         if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) console.error(`Claude worker runtime state: ${failure.message}`);
@@ -213,8 +219,11 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           console.error("Claude worker runtime-state copy-out refused:", error);
         } finally { if (promoter?.records.length) promotion!.report(promoter.records); }
         if (code !== 0 && !killed && tail.trim()) console.error(`Claude worker exited ${code}: ${tail.trim()}`);
-        emitter.emit("exit", killed ? null : code, signalCode);
-      }).catch(error => { emitter.emit("error", error); throw error; })
+        emitExit(code);
+      }).catch(error => {
+        try { emitter.emit("error", error); } finally { emitExit(exitCode ?? 1); }
+        throw error;
+      })
         .finally(() => {
           checks.delete(check);
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
@@ -223,6 +232,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       completions.push(done);
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
+      try { workerStarted?.(worker); }
+      catch (error) { startFailure = error ?? new Error("Worker start callback failed."); kill("SIGKILL"); }
       return { stdin: worker.stdin, stdout: worker.stdout, get killed() { return killed; },
         get exitCode() { return exitCode; }, get signalCode() { return signalCode; }, kill,
         on: emitter.on.bind(emitter), once: emitter.once.bind(emitter), off: emitter.off.bind(emitter) } as SpawnedProcess;
