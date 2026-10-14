@@ -796,3 +796,16 @@ describe("runSession follow-up queue boundaries", () => {
     host.coordinator.reset();
   });
 });
+
+
+test("finalization does not invent an idle session for an unnamed backend turn", async () => {
+  let starts = 0;
+  const backend = makeFakeBackend({ id: "unnamed-fixture", startTurn: async () => { starts++; } });
+  const { host, sent } = setupHost(backend);
+  try {
+    await runSession(host, { text: "Unnamed watch", attachments: [] });
+    expect(starts).toBe(1);
+    expect(sent.filter(frame => frame.type === "status" && frame.status === "idle"), "UNNAMED_TURN_HAS_NO_FINAL_IDLE").toHaveLength(0);
+    expect(sent.some(frame => "sessionId" in frame && frame.sessionId !== undefined)).toBe(false);
+  } finally { host.close(); }
+});

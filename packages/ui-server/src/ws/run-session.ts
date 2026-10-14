@@ -723,6 +723,9 @@ async function runRetainedSession(
         // only after native preparation and host cleanup have settled.
         if (cancelledAdmission) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
           detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
+        // A backend result can precede asynchronous journal finalization.
+        // Recovery now reads the committed terminal, before a successor starts.
+        else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });
