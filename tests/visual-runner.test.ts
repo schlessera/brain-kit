@@ -115,3 +115,25 @@ for (const args of [
     expect(result.calls).toEqual([]);
   });
 }
+
+for (const inside of [true, false]) {
+  test(`${inside ? "inside" : "local"} forwards focused file filters and preserves failing exit`, async () => {
+    const result = await invoke([
+      ...(inside ? ["--inside"] : []), "--project=storybook", "--project=storybook-light",
+      "--filter=Composer.stories", "--filter=ComposerRow.stories",
+    ], 7);
+    expect(result.code).toBe(7);
+    expect(result.calls.at(-1)!.args).toEqual([
+      "run", "--project=storybook", "--project=storybook-light", "--browser.fileParallelism=false",
+      "Composer.stories", "ComposerRow.stories",
+    ]);
+  });
+}
+for (const filter of ["--filter", "--filter=", "--filter=--passWithNoTests"]) {
+  test(`rejects empty or option-like file filter: ${filter}`, async () => {
+    const result = await invoke([filter]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("use --filter=<nonempty file path fragment>");
+    expect(result.calls).toEqual([]);
+  });
+}

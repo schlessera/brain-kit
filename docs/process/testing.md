@@ -68,6 +68,24 @@ inspecting CI on a PR live in the `work-issue` skill's
   smallest collaborator that proves the behavior; borrowing a real adapter
   for a helper's test couples that assertion to unrelated adapter changes.
 
+## Light and dark parity
+
+Storybook is the central owner of reusable light/dark layout and interaction
+parity: run the same meaningful geometry, focus, input and action assertions in
+both projects, with the accessibility gate enabled in each. Include actual
+consumer compositions and their shipped styles where kit-only fixtures cannot
+cover the painted result. The [coverage map](theme-parity.md) names the cases,
+assertions, explicit theme overrides and remaining runtime boundaries.
+
+Choose runtime dimensions by independent failure mode. Repeating a scenario
+in another theme requires a named theme-sensitive defect or integration
+boundary and a narrow reproducing case. Legitimate examples are theme
+persistence/switching/first paint, theme-specific styling or contrast, and a
+consumer stylesheet boundary not already covered centrally. Reconnection,
+persistence or auth alone does not justify a theme multiplier. Before reducing
+one, map every assertion to retained runtime or central coverage; preserve
+unique behavior, security, responsive and native-browser proof.
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes

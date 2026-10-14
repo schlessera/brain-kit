@@ -32,6 +32,7 @@
  *   node scripts/visual.mjs                    # all ten kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
  *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
+ *   node scripts/visual.mjs --filter=Composer.stories --project=storybook # focused file
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
@@ -56,6 +57,11 @@ const argv = process.argv.slice(2);
 const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArgs = argv.filter((a) => a.startsWith("--project="));
+const filters = argv.filter((arg) => arg.startsWith("--filter=")).map((arg) => arg.slice("--filter=".length));
+if (argv.includes("--filter") || filters.some((filter) => !filter.trim() || filter.startsWith("-"))) {
+  console.error("use --filter=<nonempty file path fragment>; repeat for multiple files");
+  process.exit(1);
+}
 const shardArg = argv.find((a) => a.startsWith("--shard="));
 const schedulingArgs = argv.filter((a) => a.startsWith("--browser.fileParallelism"));
 if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.fileParallelism=(true|false)$/.test(a))) {
@@ -92,6 +98,7 @@ if (inside) {
   const args = ["run", ...projects.map((project) => `--project=${project}`), schedulingArg];
   if (update) args.push("--update");
   if (shardArg) args.push(shardArg);
+  args.push(...filters);
   process.exit(run(process.execPath, [vitest, ...args], { cwd: resolve(REPO, KIT) }));
 }
 

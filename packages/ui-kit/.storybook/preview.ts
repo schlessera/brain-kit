@@ -1,3 +1,4 @@
+import { expect } from "storybook/test";
 import addonA11y from "@storybook/addon-a11y";
 import addonThemes, { withThemeByDataAttribute } from "@storybook/addon-themes";
 import { definePreview } from "@storybook/react-vite";
@@ -28,6 +29,18 @@ export default definePreview({
       attributeName: "data-theme",
     }),
   ],
+  // The runner supplies an independent expected project theme. Story-level
+  // globals (notably InPrint) and addon overrides remain explicit exceptions.
+  afterEach: async ({ globals, storyGlobals, parameters }) => {
+    const projectTheme = document.documentElement.dataset.expectedStoryTheme;
+    if (!projectTheme) return; // Interactive Storybook has no project matrix.
+    const globalTheme = storyGlobals.theme ?? projectTheme;
+    const paintedTheme = parameters.themes?.themeOverride ?? globalTheme;
+    await expect(globals.theme, "story uses the intended project or explicit theme").toBe(globalTheme);
+    await expect(document.documentElement.dataset.theme, "theme decorator painted the intended theme").toBe(paintedTheme);
+    await expect(getComputedStyle(document.documentElement).colorScheme, "native token color-scheme follows the theme")
+      .toBe(paintedTheme === "print" ? "light" : paintedTheme);
+  },
   parameters: {
     // THE GATE. D17 is closed here.
     //
