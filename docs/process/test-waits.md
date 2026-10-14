@@ -334,3 +334,89 @@ stories run in both Storybook theme projects. Chromium's
 input-orchestration exclusion and the 800 ms mutation that fails the cap.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
+
+## Native fixtures, renderer effects and experiment transports
+
+The [native observation sample](evidence/test-wait-native-observations.json)
+retains a separate frozen `04a659593379a0c8da9c049fa649124d6fd54f70` identity.
+It records 103 command observations across 101 files, plus four unmodified
+selected location controls. Ninety-nine observed commands passed and four failed;
+the failed outcomes and repeated subsets remain explicit. Its render cases use happy-dom and real React effect processing; its native
+cases exercise their existing child processes, filesystem, sockets and worker
+boundaries. None launched Chromium. Experiment commands select three files,
+after a separate build and copy installation of the same lock; they are not a
+complete experiment-tier or release receipt. The data records exact commands,
+file hashes, original observed expressions, case outcomes and resource use.
+
+Each command ran inside the shared benchmark lock and an explicit user/network
+namespace. The wrapper retained the ordinary user identity, enabled loopback
+and dropped setup capabilities before timing Bun. One selected inbox control
+also provided a namespace-local dummy interface at a reserved benchmark address:
+no external link, gateway or default route was present, and all capability sets
+were recorded as zero. This lets its original non-loopback bind/refusal oracle
+run without giving the child external connectivity. The earlier loopback-only
+run failed four fixture prerequisites; that is a harness mismatch, preserved
+separately from the four-case passing control.
+
+Four unsuccessful full-file commands remain in the sample. The other three
+encountered the checkout-location-sensitive fixture oracles tracked in
+[#1931](https://github.com/schlessera/brain-kit/issues/1931). Separate selected
+controls use identical source in a non-temporary checkout. The host-boundary
+case had already proved absence of the host sentinel; its failing text oracle
+confused a same-spelled file in worker-private temporary storage with refusal
+of a host path. Passing changed-environment controls neither repair temporary
+checkout support nor turn an earlier full-file failure green. Passing siblings,
+failed cases, repeated controls and unexecuted paths remain distinguishable.
+
+The observations separate several temporal contracts:
+
+- The native boot-probe suite keeps thirteen real process-deadline cases. Its
+  existing lower oracle is 4950 ms for a 5000 ms deadline, with a 1500 ms
+  settlement margin for loaded scheduling. The eight-second fixture holds do
+  not run to completion. These bounds explain the present 66.73 second command;
+  they do not prove that five seconds of wall time is necessary to test every
+  deadline branch. A clock replacement still needs actual registered callbacks,
+  real process termination, ineffective-killer behavior and cleanup witnesses.
+- Seven stale-write watchdogs requested 20000 ms; none fired, and all seven were
+  cleared after roughly 329–357 ms. A supplemental HTTP observation recorded
+  four 3000 ms watchdogs, also cleared without firing. These registration-to-clear
+  ages are lifecycle measurements, not awaited sleeps. The server-import
+  watchdog likewise cleared without firing. A losing race alone would not have
+  established whether its callback ran later; these records actually observe
+  the local native timer handles.
+- Native worker publication retained its 1 ms interval during the 16 MiB copy.
+  It observed 65 callbacks before clearing the original handle after 72.851 ms.
+  The oracle concerns actual destination publication during IO, not elapsed
+  waiting for a chosen duration. This copied-manager fixture does not qualify a
+  real Btrfs installation. Imported timers and embedded worker holds outside
+  the observer remain unmeasured.
+- Geo fixtures retain native pacing, cross-process lock behavior and deliberate
+  provider latency. The stalled-operation races completed after approximately
+  507 ms and 5023 ms; those are observed winners, unlike the unrelated losing
+  watchdogs. The explicit 1 ms byte spacing, 10 ms post-write observation and
+  150 ms late-EOF schedule in experiment children are fixture scheduling, not
+  successful waiting for their larger kill deadlines. Child callback counts
+  remain unmeasured where adding telemetry would change the transport oracle.
+- Isolated renderer files preserve both the outer harness and embedded child
+  suite. The outer case already contains child execution; child case counts,
+  operation spans and reported body timings are separate. React `act`, helper
+  completion and their inner timer turns can overlap. Neither two effect turns
+  nor a stable DOM state establishes that a later forbidden effect is drained.
+
+`reportedCaseBodyMs` sums only timings emitted for the recorded cases, including
+failed cases when Bun reports their timing. Missing timings remain null. The
+observations include zero-execution sites; they are not zero-cost claims about
+imported or child work. Native timer callback ages and clear ages are distinct
+from accumulated awaited durations. Source restoration and unchanged original
+await/expectation expressions protect the existing test oracles, but temporary
+observer overhead and shared-host load were not controlled. These are attribution
+receipts, not before/after speedups or a replacement for required hosted proof.
+
+Minimum-window review still follows the rule above: name the forbidden effect,
+its real opportunities to occur, and a minimum justified observation window with
+its operational basis and chosen margin. The source can establish a relative
+ordering or an existing tolerance without establishing the smallest reliable
+native duration. Native cancellation, publication and stdout ownership must
+remain proven even when a registered host timer can advance logically. Missing
+callback counts or imported-operation spans require their own scoped evidence;
+expense alone is not an exception or a reason to move proof to endurance.

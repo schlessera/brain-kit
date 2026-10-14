@@ -5,6 +5,7 @@ import type {
   GraphMaintenanceResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
+import { discoveryFingerprint, discoveryRootIdentity } from "../lib/discovery-layout.js";
 import { buildQuery, mergeSubgraphs } from "../lib/graph-helpers.js";
 
 export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
@@ -91,6 +92,8 @@ export interface GraphState {
   discoveryColorBy: DiscoveryColorBy;
   maintenanceFilters: MaintenanceFilters;
 
+  /** Once-per-changed-scene status identity, cleared by selection/scene changes. */
+  layoutNotice: number | null;
   selectedId: number | null;
   hoveredId: number | null;
 
@@ -141,6 +144,7 @@ export function createGraphStore(env: StoreEnvironment) {
    * toggled quickly, and an older /meta response landing last would restore a
    * stale computedAt — which is the key every scene-cache lookup hangs off.
    */
+  let noticeSequence = 0;
   let disposed = false;
   let sceneRequestToken = 0;
   let metaRequestToken = 0;
@@ -221,6 +225,19 @@ export function createGraphStore(env: StoreEnvironment) {
     }
   }
 
+  function sceneResult(data: GraphSubgraphResponse): Partial<GraphState> {
+    const current = store.getState();
+    const rootChanged = current.mode === "discovery" && current.subgraph !== null &&
+      discoveryRootIdentity(current.subgraph.nodes) !== discoveryRootIdentity(data.nodes);
+    const selectedId = current.mode === "discovery"
+      ? !rootChanged && data.nodes.some(n => n.id === current.selectedId) ? current.selectedId : null
+      : current.selectedId;
+    const changed = current.mode === "discovery" && current.subgraph !== null &&
+      discoveryFingerprint(current.subgraph) !== discoveryFingerprint(data);
+    return { subgraph: data, findings: null, dataState: "done", selectedId,
+      layoutNotice: changed && selectedId !== null ? ++noticeSequence : null };
+  }
+
   const store = createStore<GraphState>((set, get) => ({
     /**
      * Clusters, not Local.
@@ -253,25 +270,26 @@ export function createGraphStore(env: StoreEnvironment) {
     clustersSizeBy: "degree",
     discoveryColorBy: "distance",
     maintenanceFilters: { orphans: true, unreachable: true, broken: true, stale: true },
+    layoutNotice: null,
     selectedId: null,
     hoveredId: null,
 
     setMode: (mode) => {
       if (mode === get().mode) return;
       const error = graphServerUnavailable(get()) ? get().error : null;
-      set({ mode, subgraph: null, findings: null, dataState: "idle", error, selectedId: null, hoveredId: null, sceneQuery: "" });
+      set({ mode, subgraph: null, findings: null, dataState: "idle", error, layoutNotice: null, selectedId: null, hoveredId: null, sceneQuery: "" });
       void get().fetchScene();
     },
     setLocalParams: (params) => {
-      set((s) => ({ local: { ...s.local, ...params }, selectedId: null }));
+      set((s) => ({ local: { ...s.local, ...params }, selectedId: null, layoutNotice: null }));
       if (get().mode === "local") void get().fetchScene();
     },
     setDiscoveryParams: (params) => {
-      set((s) => ({ discovery: { ...s.discovery, ...params }, selectedId: null }));
+      set((s) => ({ discovery: { ...s.discovery, ...params }, subgraph: s.mode === "discovery" ? null : s.subgraph, selectedId: null, layoutNotice: null }));
       if (get().mode === "discovery") void get().fetchScene();
     },
     setClustersParams: (params) => {
-      set((s) => ({ clusters: { ...s.clusters, ...params }, selectedId: null }));
+      set((s) => ({ clusters: { ...s.clusters, ...params }, selectedId: null, layoutNotice: null }));
       if (get().mode === "clusters") void get().fetchScene();
     },
     setMaintenanceParams: (params) => {
@@ -283,7 +301,7 @@ export function createGraphStore(env: StoreEnvironment) {
     setMaintenanceFilters: (filters) =>
       set((s) => ({ maintenanceFilters: { ...s.maintenanceFilters, ...filters } })),
     setSceneQuery: (q) => set({ sceneQuery: q }),
-    select: (id) => set({ selectedId: id }),
+    select: (id) => set(s => ({ selectedId: id, layoutNotice: s.selectedId === id ? s.layoutNotice : null })),
     hover: (id) => set({ hoveredId: id }),
 
     fetchMeta: async (force) => {
@@ -303,7 +321,7 @@ export function createGraphStore(env: StoreEnvironment) {
         if (error.reason === "core_unavailable" || error.kind === "unsupported") {
           ++sceneRequestToken;
           sceneCache.clear();
-          set({ meta: null, subgraph: null, findings: null, dataState: "idle" });
+          set({ meta: null, subgraph: null, findings: null, dataState: "idle", layoutNotice: null });
         }
         set({ metaState: "error", error });
       }
@@ -317,7 +335,7 @@ export function createGraphStore(env: StoreEnvironment) {
       const req = sceneRequest(state);
       if (!req) {
         // Local mode without a center: nothing to fetch, the page shows the picker.
-        set({ subgraph: null, findings: null, dataState: "idle", error: null });
+        set({ subgraph: null, findings: null, dataState: "idle", error: null, layoutNotice: null });
         return;
       }
       const cacheKey = `${req.endpoint}?${req.query}|${state.meta?.computedAt ?? ""}`;
@@ -326,7 +344,7 @@ export function createGraphStore(env: StoreEnvironment) {
         if (state.mode === "maintenance") {
           set({ findings: cached as GraphMaintenanceResponse, subgraph: null, dataState: "done", error: null });
         } else {
-          set({ subgraph: cached as GraphSubgraphResponse, findings: null, dataState: "done", error: null });
+          set({ ...sceneResult(cached as GraphSubgraphResponse), error: null });
         }
         return;
       }
@@ -344,7 +362,7 @@ export function createGraphStore(env: StoreEnvironment) {
         if (requestedMode === "maintenance") {
           set({ findings: data as GraphMaintenanceResponse, subgraph: null, dataState: "done" });
         } else {
-          set({ subgraph: data as GraphSubgraphResponse, findings: null, dataState: "done" });
+          set(sceneResult(data as GraphSubgraphResponse));
         }
       } catch (err) {
         if (token !== sceneRequestToken) return;
@@ -353,7 +371,7 @@ export function createGraphStore(env: StoreEnvironment) {
           sceneCache.clear();
           set({ subgraph: null, findings: null });
         }
-        set({ dataState: "error", error });
+        set({ dataState: "error", error, layoutNotice: null });
       }
     },
 
@@ -386,6 +404,7 @@ export function createGraphStore(env: StoreEnvironment) {
         findings: null,
         dataState: "idle",
         error: null,
+        layoutNotice: null,
         selectedId: null,
         hoveredId: null,
         sceneQuery: "",
