@@ -239,7 +239,7 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
         const ownerErrors = new Response(deadOwner.stderr).text();
         try {
           await until(() => existsSync(join(ownerDirectory, "acquired.json")) || ownerExited, 10000);
-          if (ownerExited) throw Error(`NATIVE_OWNER_MUST_BE_ALIVE_FOR_SIGKILL: ${await ownerErrors}`);
+          if (ownerExited) expect(Number(ownerExited), `NATIVE_OWNER_MUST_BE_ALIVE_FOR_SIGKILL: ${await ownerErrors}`).toBe(0);
         }
         finally { deadOwner.kill("SIGKILL"); await deadOwner.exited; writeFileSync(join(ARTIFACTS, "native-owner-errors.txt"), await ownerErrors); }
         const saved = JSON.parse(readFileSync(join(ownerDirectory, "acquired.json"), "utf8"));
