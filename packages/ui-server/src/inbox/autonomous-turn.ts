@@ -18,7 +18,8 @@ import { acquireInboxRunLifetime } from "./lifetime.js";
 import { WorkerHostError, prepareNativeWorkerStartupView, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
-import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type ApplicationPlanner } from "../brain/application.js";
+import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
 
@@ -53,6 +54,7 @@ export interface AutonomousTurnInput {
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
   /** Owned host manager; restricted workers still require immutable native inputs. */
   nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
+  applicationPlanner?: ApplicationPlanner;
   /** Authoritative brain; standalone callers default to their working directory. */
   brainPath?: string;
   db: Database;
@@ -237,6 +239,7 @@ async function executeAutonomousTurn(
     // The server owns this policy: nothing is auto-allowed, so every
     // application reaches `approve`, whatever the backend would allow.
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
+      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
       isAuthorized: current,
       approve: async (proposal, destructive) => {
@@ -280,6 +283,11 @@ async function executeAutonomousTurn(
     }
     return { runId: input.turnId, outcome, escalated, yielded };
   } catch (error) {
+    if (!revoked && !failed && controller.signal.aborted && error === controller.signal.reason) {
+      outcome = "cancelled";
+      emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: "Autonomous turn cancelled before worker startup." });
+      return { runId: input.turnId, outcome, escalated, yielded };
+    }
     outcome = "error";
     emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: error instanceof Error ? error.message : String(error) });
     throw error;

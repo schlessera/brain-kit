@@ -330,7 +330,14 @@ async function runRetainedSession(
 
       // Before transcript/source/failure recording or any runtime initialization.
       // Every queued interactive or voice turn repeats the actual host check.
-      try { requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime); }
+      try {
+        requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime);
+        // Pi turn-runner declares no voice tool posture. Keep this early
+        // admission refusal aligned with that direct-consumer guard if Pi
+        // gains a voice posture, before any native maintenance workers start.
+        if (backend.id === "pi" && work?.posture === "voice")
+          throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
+      }
       catch (error) {
         emitTurnError(host, turn, error);
         work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });

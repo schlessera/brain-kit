@@ -47,6 +47,17 @@ function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undef
 }
 const permission = { toolUseId: "tool", toolName: "write", input: { path: "notes/harbor.md" } };
 
+test("pre-aborted autonomous native admission settles cancelled without starting the backend", async () => {
+  let started = 0; const f = setup(async () => { started++; });
+  const controller = new AbortController(); controller.abort(new Error("Odysseus cancelled"));
+  try {
+    expect(await runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, signal: controller.signal }),
+      "AUTONOMOUS_PREABORT_NATIVE_ADMISSION_IS_CANCELLED").toMatchObject({ outcome: "cancelled" });
+    expect(started).toBe(0);
+    expect(f.db.query("SELECT outcome FROM activity_spans WHERE parent_span_id IS NULL").get()).toEqual({ outcome: "cancelled" });
+  } finally { f.db.close(); }
+});
+
 test("autonomous backend receives an owned immutable input until it drains", async () => {
   const entered = Promise.withResolvers<void>(), finish = Promise.withResolvers<void>();
   let inputRoot: string | undefined;
@@ -79,9 +90,10 @@ for (const reason of ["cancel", "revoke"] as const) test(`autonomous admission r
   try {
     await entered.promise;
     if (reason === "cancel") controller.abort(); else revokePrincipal(f.db, f.principal.id, Date.now());
-    resume.resolve(); const failure = await running.then(() => undefined, error => error);
+    resume.resolve(); const settled = await running.then(result => ({ result }), error => ({ error }));
     expect(started, "AUTONOMOUS_NATIVE_ADMISSION_RECHECKS_AUTHORITY").toBe(0);
-    expect(failure).toBeDefined();
+    if (reason === "cancel") expect(settled, "AUTONOMOUS_NATIVE_CANCEL_SETTLES_CANCELLED").toMatchObject({ result: { outcome: "cancelled" } });
+    else expect(settled).toHaveProperty("error");
     expect(cleaned, "AUTONOMOUS_CANCELLED_NATIVE_OWNER_RELEASED").toBe(true);
   } finally { resume.resolve(); await running.catch(() => {}); acquire.mockRestore(); f.db.close(); }
 });

@@ -368,7 +368,7 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:355` →
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:362` →
 `drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:701-735`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
