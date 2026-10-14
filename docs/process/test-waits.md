@@ -206,3 +206,88 @@ DOM frame alone does not establish either. Scope's independent writer/observer
 opportunities have a different, explicit native rationale in its proof document.
 Execution ownership follows [required proof](testing.md#required-proof-for-a-pr);
 an expensive negative window is not automatically an endurance scenario.
+
+
+## Default-test observations with native network isolation
+
+The [additional default-test sample](evidence/test-wait-default-observations.json)
+records frozen source `04a659593379a0c8da9c049fa649124d6fd54f70`: 70 complete
+files and five selected enrichment cases, plus a separate imported-await
+observation of the already measured scrape client. These are 72 runs across
+71 files. The first set passed 1009 cases and 5337 expectations; the imported
+observation repeats 28 cases and 70 expectations. They are neither unique
+repository-wide assertion counts nor a savings comparison. Each run retains
+its file hashes, command, actual wait sites, case identities and resource data.
+
+These commands used the existing preload and doubles inside an explicit user
+and network namespace. The wrapper enabled only loopback, verified that no
+routes existed, and timed the test after namespace setup and lock acquisition.
+Early samples mapped namespace uid 0 to the ordinary host user. Later samples
+retained uid 1000 and dropped setup capabilities before running Bun; each record
+names its actual profile. No browser launched. Render samples use happy-dom and retain real React effect
+processing with scripted transports; they make no Chromium paint or geometry
+claim. Real SQLite/filesystem work,
+scripted provider streams, local HTTP where used, native FIFO IO, and the
+writer-gate dead-process fixture retain their respective boundaries. This environment does not amend the
+earlier direct observations' isolation limitations or replace hosted proof.
+
+`reportedBodyMs` sums only case timings emitted by Bun. A case with no emitted
+timing has `bodyMs: null`; it is not assigned zero. Observation counts include
+zero-execution source sites. Case indexes map the executed callback ordinal to
+the runner's full case name; parameterized source-name patterns are retained.
+Helper spans may overlap their leaf waits. For example, enrichment has six
+measured helper spans containing 60 native event-loop turns, not 66 independent
+turns. Concurrent fixture requests can likewise accumulate more elapsed time
+than their shared test body.
+
+The samples establish several useful distinctions:
+
+- A scrape client's injected pacing clock did not control its imported HTTP
+  retry sleep. The separate imported observation measured four native retry
+  waits totaling 1462.284 ms and six controlled pacing completions totaling
+  0.062 ms, with no observed default native pacing wait. Retry jitter was not
+  pinned between attribution samples; their 2.31 and 1.58 second file durations
+  do not measure a speedup. [The retry-clock scope](https://github.com/schlessera/brain-kit/issues/1918)
+  preserves that distinction.
+- Authentication and pricing race observations completed promptly despite
+  100–500 ms watchdog branches. Those watchdogs did not win the measured races;
+  callback execution later in the file was not counted. Session recovery did
+  await its actual 3000 ms production deadline: 3001.349 ms observed, rather
+  than the losing test watchdog's 6000 ms. [The recovery-clock scope](https://github.com/schlessera/brain-kit/issues/1922)
+  retains concurrent probe ownership and unfinished-read reuse.
+- A native FIFO test completed its readable-pipe race in 8.292 ms while 272
+  other pipes remained idle. The 5000 ms watchdog did not win. Pi autonomous
+  yield instead races work against cancellation without a timeout branch; its
+  three completed races are operation spans, not watchdog budgets.
+- The track-draft 5 ms delay separates wall-clock timestamps before reopening
+  and adding to a queue. It does not observe a forbidden asynchronous action.
+  Store helpers using `setTimeout(..., 0)` are native timer turns, even where an
+  older source comment calls them microtask hops.
+- A journal-copy test uses a native 1 ms interval as an event-loop responsiveness
+  witness while copying 8 MiB. It observed 42 callbacks before the first copy
+  completed and 80 before clearing the interval; three file-operation spans
+  totaled 154.447 ms. It never sleeps for a chosen capture duration. Delivering
+  fake callbacks after a blocking copy would not prove that other sessions
+  could run during the IO. The requirement is at least one real callback before
+  completion, not a universal minimum elapsed copy time.
+
+Some relative horizons have a concrete source basis without establishing a
+need for wall-clock time. The writer-gate's four 60 ms windows observe locking
+and cancellation over its configured 10 ms polling interval; the revert-gate's
+10 ms observation covers configured 1 ms polling. Inbox unsubscribe retains a
+150 ms no-scan observation after cancelling a 100 ms foreign-write poller.
+These native opportunities and existing margins identify what a replacement
+must preserve. They do not prove that the margins are minimal or that controlled
+registration/callback delivery would be insufficient.
+
+The data leaves those replacement and minimum-window questions explicit. Test
+file counters alone do not enumerate imported timers or embedded child work;
+a source line with zero observed execution is not a proof of zero repository
+cost. For example, the Claude held-result test reports about 3000 ms of body
+time matching its imported acknowledgement grace, while the separately
+observed 500 ms watchdog race completed promptly. Its imported timer
+registrations and callbacks remain outside this sample. One nested authentication wait remains uninstrumented to preserve the
+original enclosing await expression. Browser media, native fixture lifetimes,
+independent process observations and experiment readers require their own
+attribution. Higher measurement cost is not itself a reason to exempt them from
+the rule or move them out of required proof.
