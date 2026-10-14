@@ -16,7 +16,10 @@ export function installFixtureNativeStartupViews(): void {
 
 /** Standalone fixture subprocesses restore on shutdown; never imported by product code. */
 export function replaceNativeStartupAcquisitionForFixture(): () => void {
-  if (references++ === 0) {
+  references++;
+  // Another suite may restore every Bun spy while an app fixture is alive.
+  // Each explicit acquisition re-establishes its test-only boundary.
+  {
     outputAcquisition = spyOn(output, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
     acquisition = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async (brain, _manager, signal) => {
       signal?.throwIfAborted(); return createFixtureWorkerStartupView(brain);
