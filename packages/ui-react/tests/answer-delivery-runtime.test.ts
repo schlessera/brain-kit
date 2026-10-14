@@ -353,31 +353,42 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await asking?.catch(() => {});
     }
   });
-  for (const kind of KINDS) {
-    test(`${kind}: a stored principal read completed after hello still permits the first offline queue`, async () => {
-      const { context, net } = await newContext();
-      try {
-        const page = await openPage(context, true);
-        await page.waitForFunction("window.__answers.principalReadWaiting()");
-        expect(await page.evaluate("window.__answers.storedPrincipal()")).toBeNull();
-        const requestId = await ask(page, kind);
-        await page.evaluate("window.__answers.finishPrincipalRead()");
-        net.mode = "refuse";
-        net.cut();
-        await page.waitForFunction("!window.__answers.connected()");
-        await answer(page, kind);
-        await waitForState(page, requestId, "queued");
-        expect(settlements.get(requestId)).toEqual([]);
-        net.mode = "pass";
-        await online(page);
-        await waitForState(page, requestId, "answered");
-        expect(settlements.get(requestId)).toHaveLength(1);
-        expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS[kind]);
-      } finally {
-        await context.close();
-      }
-    });
+  // The hello/restore race is kind-independent. The manager keeps all four
+  // kinds x empty/stale reads; native online/reload adapters remain below.
+  test("ask_user: a stored principal read completed after hello still permits the first offline queue", async () => {
+    const { context, net } = await newContext();
+    try {
+      const page = await openPage(context, true);
+      await page.waitForFunction("window.__answers.principalReadWaiting()");
+      expect(await page.evaluate("window.__answers.storedPrincipal()")).toBeNull();
+      const requestId = await ask(page, "ask_user");
+      await page.evaluate("window.__answers.finishPrincipalRead()");
+      net.mode = "refuse";
+      net.cut();
+      await page.waitForFunction("!window.__answers.connected()");
+      await answer(page, "ask_user");
+      // Observe either completed admission outcome so a broken real hello
+      // hookup fails on queue authority instead of exhausting the queued wait.
+      await page.waitForFunction((id) => {
+        const state = (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id]?.state;
+        return state === "queued" || state === "notSaved";
+      }, requestId);
+      expect(await page.evaluate((id) =>
+        (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id]?.state,
+      requestId), "REAL_HELLO_PRESERVES_OFFLINE_QUEUE_AUTHORITY").toBe("queued");
+      await waitForState(page, requestId, "queued");
+      expect(settlements.get(requestId)).toEqual([]);
+      net.mode = "pass";
+      await online(page);
+      await waitForState(page, requestId, "answered");
+      expect(settlements.get(requestId)).toHaveLength(1);
+      expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS.ask_user);
+    } finally {
+      await context.close();
+    }
+  });
 
+  for (const kind of KINDS) {
     test(`${kind}: online, the card says Answered only after the host's receipt, and the backend gets it once`, async () => {
       const { context } = await newContext();
       try {
