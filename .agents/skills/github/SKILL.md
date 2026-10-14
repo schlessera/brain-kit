@@ -47,15 +47,20 @@ work spanning both goes through a brain-kit issue that links each. When one side
 issue links: a public issue never names, labels or links a private one, and
 never restates a private deployment detail to save the reader a click.
 
-Before creating or editing an issue in any public repository, run its body
+Before creating or editing an issue or posting a comment in any public repository, run its body
 through the same gate the tree is held to:
 
 ```sh
 bun -e 'import {scanText} from "./scripts/check-leakage.ts";
   const t = await Bun.file(process.argv[1]).text();
-  const f = scanText("body", t);
+  const f = scanText("body", t, { allowUploadImages: true });
   console.log(f.length ? f : "clean");' /tmp/issue-body.md
 ```
+
+The upload-image exception applies only to issue and comment bodies: full
+HTTPS image URLs on the approved uploads host under `/gh/` may pass. Text
+outside those URLs is still scanned. Never enable it for repository files;
+`scanTree`, the CLI gate and CI retain the strict tree rule.
 
 A hit means the text names a person, a client or a piece of personal
 infrastructure. Rewrite it; do not weaken the gate.

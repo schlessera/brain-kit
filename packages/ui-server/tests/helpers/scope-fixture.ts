@@ -29,6 +29,6 @@ export function scopeFixture(overrides: { max_tool_calls?: number; max_files_cha
       command: ["/bin/sh", "-c", command], env: { PATH: "/usr/bin:/bin" } });
     child.stdout.resume(); child.stderr.resume(); child.stdin.end(); scope.workerStarted("voyage", child); return child;
   }
-  return { root, brain, db, journal, scope, begin, receipt, message, worker, policy, get stopped() { return stopped; }, disconnect() { connected = false; }, reconnect() { connected = true; },
+  return { root, brain, db, native, journal, scope, begin, receipt, message, worker, policy, get stopped() { return stopped; }, disconnect() { connected = false; }, reconnect() { connected = true; },
     async close() { scope.close(); await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
