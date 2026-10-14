@@ -119,7 +119,7 @@ function typed(value: unknown, open: Set<object> = new Set()): unknown {
 
 function parseData(text: string): Record<string, unknown> | null {
   try {
-    return parseFrontmatter(text).data as Record<string, unknown>;
+    return parseFrontmatter(text, { dataOnly: true }).data as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -306,7 +306,7 @@ export function updateDocument(raw: string, updates: Record<string, FrontmatterV
     const length = frontmatterLength(edited);
     return edited.slice(0, length) + appendTo(edited.slice(length));
   }
-  const parsed = parseFrontmatter(raw);
+  const parsed = parseFrontmatter(raw, { dataOnly: true });
   const data: Record<string, unknown> = { ...parsed.data };
   for (const [key, value] of Object.entries(updates)) {
     if (value === null) delete data[key];

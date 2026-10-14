@@ -64,7 +64,7 @@ export function parseMarkdownFiles(
     let data: Record<string, any>;
     let content: string;
     try {
-      const front = parseFrontmatter(raw);
+      const front = parseFrontmatter(raw, { dataOnly: true });
       data = front.data;
       content = front.content;
     } catch {

@@ -14,8 +14,14 @@
 
 import matter from "gray-matter";
 
-/** The options gray-matter accepts; all of them pass through unchanged. */
-export interface FrontmatterParseOptions extends matter.GrayMatterOption<string, FrontmatterParseOptions> {}
+/** gray-matter options plus the first-party YAML/data-only boundary. */
+export interface FrontmatterParseOptions extends matter.GrayMatterOption<string, FrontmatterParseOptions> {
+  /** Refuse non-YAML selection before any engine dispatch. Custom YAML engines remain supported. */
+  dataOnly?: boolean;
+  /** Aliases accepted by gray-matter defaults but absent from its published types. */
+  delims?: string | string[];
+  lang?: string;
+}
 
 /** A parsed document: `data`, `content`, `matter`, `isEmpty` and the rest. */
 export type ParsedFrontmatter = matter.GrayMatterFile<string>;
@@ -26,5 +32,22 @@ export type ParsedFrontmatter = matter.GrayMatterFile<string>;
  * global cache is neither read nor written.
  */
 export function parseFrontmatter(input: string, options?: FrontmatterParseOptions): ParsedFrontmatter {
-  return matter(input, { ...options });
+  const { dataOnly, ...parserOptions } = options ?? {};
+  if (dataOnly) assertYamlLanguage(input, parserOptions);
+  return matter(input, { ...parserOptions });
+}
+
+/** Mirror gray-matter 4.0.3's selection, including BOM, delimiter aliases and no-newline input. */
+function assertYamlLanguage(input: string, options: FrontmatterParseOptions): void {
+  const delimiters = options.delims || options.delimiters || "---";
+  const open = Array.isArray(delimiters) ? delimiters[0]! : delimiters;
+  const text = input.replace(/^\uFEFF/, "");
+  // Four dashes (or the corresponding repeated custom delimiter) are ordinary prose.
+  if (!text.startsWith(open) || text.charAt(open.length) === open.slice(-1)) return;
+  const rest = text.slice(open.length);
+  // language() uses slice(0, -1) when there is no newline. Preserve that edge too.
+  const declared = rest.slice(0, rest.search(/\r?\n/)).trim();
+  const language = declared || (options.language || options.lang || "yaml").toLowerCase();
+  if (!/^(yaml|yml)$/i.test(language))
+    throw new Error(`Unsupported frontmatter language ${JSON.stringify(language)}; use YAML data only`);
 }
