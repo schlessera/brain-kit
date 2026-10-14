@@ -1,6 +1,5 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { createHostExecution } from "../src/brain/host-execution.js";
-import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,8 +12,8 @@ import { createPolicyProposals, type PolicyProposalTurn } from "../src/brain/pol
 import { createGovernancePolicyReader } from "../src/brain/governance-policy.js";
 const original = "---\nschema_version: 1\nprofiles:\n  interactive: governed\n---\nOdysseus reviews the policy.\n";
 const proposed = original.replace("interactive: governed", "interactive: strict").replace("reviews", "approves");
-const cleanup: Array<() => void> = [];
-afterEach(() => { for (const fn of cleanup.splice(0).reverse()) fn(); });
+const cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 function fixture(patch: Partial<Parameters<typeof createPolicyProposals>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), "policy-proposal-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "context/policies"), { recursive: true }); const path = join(root, "context/policies/governance.md"); writeFileSync(path, original);
@@ -88,29 +87,26 @@ for (const alias of ["symlink", "hardlink", "ancestor"] as const) test(`policy p
   f.answer(true); expect((await pending).state).toBe("refused"); expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toHaveLength(0);
 });
 
-test("the concrete journal records user/policy bytes and the next actual admission/journal captures the new policy hash", async () => {
+test("the concrete journal records user/policy bytes and the next journal admission captures the new policy hash", async () => {
   let journal!: ReturnType<typeof createTurnJournal>;
   const f = fixture({ observeUserPolicy: (id, write) => journal.observeUserPolicy(id, write) });
   const objects = mkdtempSync(join(tmpdir(), "policy-journal-state-")); cleanup.push(() => rmSync(objects, { recursive: true, force: true }));
-  journal = createTurnJournal(f.db, { brainPath: f.root, dbPath: ":memory:", objectsRoot: objects }); cleanup.push(() => journal.close());
+  const native = createNativeJournalFixture(f.root, objects); cleanup.push(() => native.close());
+  journal = createTurnJournal(f.db, { nativeManager: native.manager, brainPath: f.root, dbPath: ":memory:", objectsRoot: objects }); cleanup.push(() => journal.close());
   f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
   f.turn.sessionId = () => "ithaca";
-  const execution = createHostExecution({ brainPath: f.root, dbPath: ":memory:", profile: "governed" }); execution.attach(f.db);
-  const turns = createGovernedTurns({ brainPath: f.root, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
-  const initial = turns.facts();
-  journal.begin("policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: initial.policy.hash }, error => { throw error; });
+  const reader = createGovernancePolicyReader(f.root), initial = reader.load();
+  await journal.begin("policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: initial.hash }, error => { throw error; });
   const pending = f.service.propose(f.turn, "policy-1", input); f.answer(true); const result = await pending; expect(result.state).toBe("updated");
-  journal.finish("policy-turn");
+  await journal.finish("policy-turn");
   const details = journal.details("ithaca", "policy-turn")!, change = details.changes.find(change => change.path === "context/policies/governance.md")!;
   expect(change).toMatchObject({ actor: "user", class: "policy" });
   expect(journal.version("ithaca", "policy-turn", change.sequence, "before")!.bytes(1024).toString()).toBe(original);
   expect(journal.version("ithaca", "policy-turn", change.sequence, "after")!.bytes(1024).toString()).toBe(proposed);
-  const next = await turns.begin("next-policy-turn", new AbortController().signal);
-  try {
-    expect(next.policy.hash).toBe(result.proposedHash); expect(next.policy.policy.profiles.interactive).toBe("strict");
-    journal.begin("next-policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "strict", policyHash: next.policy.hash }, error => { throw error; });
-    expect(journal.summary("next-policy-turn").policyHash).toBe(result.proposedHash); journal.finish("next-policy-turn");
-  } finally { next.end(); await turns.close(); }
+  const next = reader.load();
+  expect(next.hash).toBe(result.proposedHash); expect(next.policy.profiles.interactive).toBe("strict");
+    await journal.begin("next-policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "strict", policyHash: next.hash }, error => { throw error; });
+    expect(journal.summary("next-policy-turn").policyHash).toBe(result.proposedHash); await journal.finish("next-policy-turn");
 });
 
 test("a host restart/lost recorder cannot reactivate pending or uncertain policy execution", async () => {

@@ -1,3 +1,6 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
 import { Hono } from "hono";
 import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
@@ -32,7 +35,7 @@ function fixture() {
   const db = createUiDb(dbPath); cleanup.push(() => db.close());
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const notices: string[] = [];
-  const turns = createGovernedTurns({ brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: message => notices.push(message),
+  const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: message => notices.push(message),
     recordPolicy: (turnId, origin, profile, policy) => db.query("INSERT INTO turn_governance_policy (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1) });
   return { brain, path, write, db, execution, notices, turns };
@@ -45,7 +48,7 @@ test.each(["interactive", "voice"] as const)("%s policy selection enters an actu
   const hold = await f.turns.begin(`turn-${origin}`, new AbortController().signal, origin);
   try {
     expect(hold.sandbox.profile, "POLICY_ACTUAL_STRICT_ADMISSION").toBe("strict");
-    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: {}, command: ["/bin/sh", "-c",
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: hold.startupView, sandbox: hold.sandbox, env: {}, command: ["/bin/sh", "-c",
       'if printf attack > harbor.md; then exit 41; fi; printf STRICT_POLICY_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(worker.exitCode, worker.stderr.toString()).toBe(0);
     expect(worker.stdout.toString()).toBe("STRICT_POLICY_WRITE_REFUSED");
@@ -57,15 +60,15 @@ test.each(["interactive", "voice"] as const)("%s policy selection enters an actu
     expect(Object.isFrozen(hold.policy.policy.profiles)).toBe(true);
     const row = f.db.query("SELECT policy_hash, origin, profile FROM turn_governance_policy WHERE turn_id = ?").get(`turn-${origin}`);
     expect(row).toEqual({ policy_hash: originalHash, origin, profile: "strict" });
-  } finally { hold.end(); }
+  } finally { await hold.end(); }
 });
 
 test("invalid edits retain the last actual policy/hash and record the validation notice; invalid-first uses defaults", async () => {
   const f = fixture(); f.write("unknown: true");
   const initial = await f.turns.begin("invalid-first", new AbortController().signal);
-  expect(initial.policy.hash).toBeNull(); expect(initial.policy.source).toBe("default"); expect(initial.policy.errors.join(" ")).toContain("unknown"); initial.end();
+  expect(initial.policy.hash).toBeNull(); expect(initial.policy.source).toBe("default"); expect(initial.policy.errors.join(" ")).toContain("unknown"); await initial.end();
   f.write("profiles: { interactive: strict }");
-  const valid = await f.turns.begin("valid", new AbortController().signal); const hash = valid.policy.hash; valid.end();
+  const valid = await f.turns.begin("valid", new AbortController().signal); const hash = valid.policy.hash; await valid.end();
   for (const [index, yaml] of ["unknown: true", "release: [.git/config]", "profiles: { voice: restricted }"].entries()) {
     f.write(yaml);
     const invalid = await f.turns.begin(`invalid-${index}`, new AbortController().signal);
@@ -73,7 +76,7 @@ test("invalid edits retain the last actual policy/hash and record the validation
     expect(invalid.policy.hash).toBe(hash); expect(invalid.policy.source).toBe("last_valid");
     expect(invalid.policy.errors.length).toBeGreaterThan(0);
     const row = f.db.query("SELECT policy_hash, errors FROM turn_governance_policy WHERE turn_id = ?").get(`invalid-${index}`) as { policy_hash: string | null; errors: string };
-    expect(row.policy_hash).toEqual(hash); expect(JSON.parse(row.errors).length).toBeGreaterThan(0); invalid.end();
+    expect(row.policy_hash).toEqual(hash); expect(JSON.parse(row.errors).length).toBeGreaterThan(0); await invalid.end();
   }
   expect(f.notices.filter(value => value.includes("Governance policy invalid")).length).toBe(4);
 });
@@ -85,14 +88,14 @@ test("policy additions and exact tier B release reach real governed mounts and m
   const hold = await f.turns.begin("governed-protection", new AbortController().signal);
   try {
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
-    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: {}, command: ["/bin/sh", "-c",
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: hold.startupView, sandbox: hold.sandbox, env: {}, command: ["/bin/sh", "-c",
       'if printf attack > me/identity.md; then exit 41; fi; printf released > .claude/settings.json || exit 42; if printf attack > context/policies/governance.md; then exit 43; fi; printf POLICY_PROTECTION_APPLIED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(worker.exitCode, worker.stderr.toString()).toBe(0); expect(worker.stdout.toString()).toBe("POLICY_PROTECTION_APPLIED");
     expect(readFileSync(join(f.brain, "me/identity.md"), "utf8")).toBe("Odysseus.\n");
     expect(readFileSync(join(f.brain, ".claude/settings.json"), "utf8")).toBe("released");
     const row = f.db.query("SELECT manifest FROM governed_turn_manifests WHERE turn_id = ?").get("governed-protection") as { manifest: string };
     expect(JSON.parse(row.manifest).protected).toContain("me/identity.md"); expect(JSON.parse(row.manifest).protected).not.toContain(".claude/settings.json");
-  } finally { hold.end(); }
+  } finally { await hold.end(); }
 });
 
 test("a known missing file selects defaults; the reader never invents autonomous authority", () => {
@@ -106,7 +109,7 @@ test.each(["interactive", "voice", "dictation"] as const)("real session routing 
   let actualProfile: string | undefined;
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
     actualProfile = request.workerSandbox?.profile;
-    const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
+    const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: request.workerStartupView, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
       'if printf fixture > harbor.md; then printf writable; else printf readonly; fi'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     expect(child.stdout.toString(), "POLICY_ROUTED_ORIGIN_RUNTIME").toBe(origin === "voice" ? "readonly" : "writable");

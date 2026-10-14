@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import { BrainUiClient, type LivenessEvent, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
-import { createApp } from "../../src/app";
+import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { createRecordingObservability } from "../../src/observability/index";
 import { resolveServerConfig } from "../../src/config/env";
 import { createStaticBackendRegistry } from "../../src/agent/backend";

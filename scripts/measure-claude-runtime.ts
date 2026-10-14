@@ -43,6 +43,7 @@ import type {
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 
 import { createClaudeBackend, defineProfiles, MEASURED_RUNTIME } from "../packages/ui-backend-claude/src/index";
 
@@ -927,18 +928,22 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
   });
+  const worker = createMeasurementWorkerFixture(sc.cwd, sc.home);
   try {
     const backend = createClaudeBackend({
+      maintenance: worker.maintenance,
       brainPath: sc.cwd,
       profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin" }]),
       log: () => {},
     });
     await backend.startTurn({
+      ...worker.request,
       prompt: "Run the planned tool call.",
       signal: new AbortController().signal,
       bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "probe" }) },
     });
   } finally {
+    worker.cleanup();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
     Object.assign(process.env, saved);
   }

@@ -158,15 +158,20 @@ function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readon
 }
 
 export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
+  if (host.closing) throw new Error("The host is shutting down; no new turn was started.");
   const releaseAuthorization = initial.authorization.retain();
+  const task = runRetainedSession(host, initial);
+  host.turnTasks.add(task);
   try {
-    await runRetainedSession(host, initial);
+    await task;
   } finally {
     // Every early exit (cancelled while routing, revoked) lands here; a work
     // item that ran has settled already and ignores this.
-    initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
-    releaseAuthorization();
-    initial.handoffHooks?.onSettled();
+    try { initial.work?.settle("cancelled", { reason: "The session ended before this request ran" }); }
+    finally {
+      try { releaseAuthorization(); }
+      finally { try { initial.handoffHooks?.onSettled(); } finally { host.turnTasks.delete(task); } }
+    }
   }
 }
 
@@ -211,7 +216,10 @@ async function runRetainedSession(
     }
   }
 
-  if (starting.cancelled) return;
+  if (starting.cancelled || host.closing) {
+    for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+    return;
+  }
   if (!initial.authorization.valid) {
     if (initial.sessionId) coordinator.dropStartingQueue(initial.sessionId, starting, REVOKED_REASON);
     else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
@@ -322,7 +330,14 @@ async function runRetainedSession(
 
       // Before transcript/source/failure recording or any runtime initialization.
       // Every queued interactive or voice turn repeats the actual host check.
-      try { requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime); }
+      try {
+        requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime);
+        // Pi turn-runner declares no voice tool posture. Keep this early
+        // admission refusal aligned with that direct-consumer guard if Pi
+        // gains a voice posture, before any native maintenance workers start.
+        if (backend.id === "pi" && work?.posture === "voice")
+          throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
+      }
       catch (error) {
         emitTurnError(host, turn, error);
         work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });
@@ -415,19 +430,6 @@ async function runRetainedSession(
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
       // A follow-up the backend refused had its source recorded when it was
       // first handed over (#1063).
-      if (resumeId && !current.refusedFollowUp) recordSource(resumeId);
-      // Locally answered commands the agent has not seen yet ride on this
-      // prompt (#582), taken here, past the last await, so an exchange is
-      // only marked carried by a prompt that is actually handed over. The
-      // source above is recorded for the user's text alone, which is what
-      // replay matches once the context is stripped again.
-      const drafted = draftExchanges;
-      draftExchanges = [];
-      const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
-        ...drafted,
-        ...(current.refusedFollowUp?.exchanges ?? []),
-        ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
-      ]);
       turn.retryRequest = {
         type: "chat_message", text, attachments,
         ...(files?.length ? { files: files.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
@@ -436,10 +438,9 @@ async function runRetainedSession(
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         ...(requestId ? { requestId } : {}),
       };
-      turn.retryPrompt = prompt;
       turn.isManualRetry = initial.isRetry === true && turn.turnId === firstTurnId;
       const startedAt = Date.now();
-      // Handed to the backend now: recovery reads this request as running.
+      // Host admission has started: recovery reads this request as running.
       turn.startedAt = startedAt;
       if (turn.revision !== undefined && resumeId) {
         host.catalog.dispatchWork?.(resumeId, turn.revision, turn.turnId, backend.id, startedAt);
@@ -460,6 +461,10 @@ async function runRetainedSession(
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
       let scopeStopReason: string | undefined;
+      turn.backendStarted = false;
+      let enteredBackend = false;
+      let cancelledAdmission = false;
+      let revokedAdmission = false;
       try {
         if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
           || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
@@ -479,7 +484,7 @@ async function runRetainedSession(
             observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,source:governedHold.policy.hash ? "policy":"default"}}); } catch {throw new BudgetUnavailable();}
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         if (governedHold && host.journal) {
-          host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
+          await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
             actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
           error => {
@@ -488,8 +493,9 @@ async function runRetainedSession(
             journalFailure = error;
             abortController.abort(error);
             coordinator.drainPendingForTurn(turn, error.message);
-          });
+          }, abortController.signal);
         }
+        abortController.signal.throwIfAborted();
         const scopeTurnId = turn.turnId;
         if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
           origin, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
@@ -502,6 +508,25 @@ async function runRetainedSession(
             host.sendToClients(frame); work?.observe(frame);
             abortController.abort(new Error(reason)); coordinator.drainPendingForTurn(turn, reason);
           } });
+        abortController.signal.throwIfAborted();
+        // Native admission awaits can outlive principal revocation or expiry.
+        // Refuse this request without cancelling another principal's queue.
+        host.expireAuthorizationContexts();
+        if (!turn.authorization.valid) { revokedAdmission = true; throw new Error(REVOKED_REASON); }
+        if (resumeId && !current.refusedFollowUp) recordSource(resumeId);
+        // Locally answered commands the agent has not seen yet ride on this
+        // prompt (#582), taken here, past the last await, so an exchange is
+        // only marked carried by a prompt that is actually handed over. The
+        // source above is recorded for the user's text alone, which is what
+        // replay matches once the context is stripped again.
+        const drafted = draftExchanges;
+        draftExchanges = [];
+        const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
+          ...drafted,
+          ...(current.refusedFollowUp?.exchanges ?? []),
+          ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
+        ]);
+        turn.retryPrompt = prompt;
         const bridge = makeBridge(
           host,
           turn,
@@ -577,7 +602,10 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: "strict",
           });
         }
+        enteredBackend = true;
+        turn.backendStarted = true;
         await backend.startTurn({
+          ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
             ...governedHold.sandbox.noteFacts,
@@ -605,9 +633,10 @@ async function runRetainedSession(
           // turn never gets here, so that turn keeps its posture.
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
+        turn.backendStarted = false;
         // Final observation is part of this host outcome, after worker writes
         // stop and before its Activity terminal, quarantine or gate release.
-        host.journal?.finish(turn.turnId);
+        await host.journal?.finish(turn.turnId);
         if (budgetFailure) throw budgetFailure;
         if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
@@ -651,24 +680,26 @@ async function runRetainedSession(
               source:governedHold?.policy.hash ? "policy":"default",stage:"admission"}});
         }
         if (terminal instanceof BudgetUnavailable) recorder?.recordBudgetStop(terminal.message,"budget_unavailable");
-        if (!scopeStopReason || budgetFailure || journalFailure) emitTurnError(host, turn, terminal);
+        cancelledAdmission = !enteredBackend && (turn.cancelled || revokedAdmission) && !budgetFailure && !journalFailure && !scopeStopReason;
+        turn.backendStarted = false;
+        if (!cancelledAdmission && (!scopeStopReason || budgetFailure || journalFailure)) emitTurnError(host, turn, terminal);
         recorder?.finish(
-          budgetFailure ? "error" : turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
+          budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
         // A host timeout is host-terminal like a cancel: its late result is
         // never narrated (the work keeps the reason).
-        workOutcome = budgetFailure ? "error" : turn.cancelled || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
+        workOutcome = budgetFailure ? "error" : turn.cancelled || revokedAdmission || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
         workReason = !turn.cancelled && !budgetFailure && !journalFailure && abortController.signal.aborted
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
         try {
           // Observe after backend writers stop, before quarantine and gate release.
-          host.journal?.finish(turn.turnId);
+          await host.journal?.finish(turn.turnId);
         } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
         host.scope?.finish(turn.turnId);
         try {
-          const reconciled = governedHold?.end();
+          const reconciled = await governedHold?.end();
           for (const item of reconciled?.quarantined ?? []) {
             const info = lstatSync(item.to);
             host.activity?.governance?.({ kind: "quarantine", payload: { path: item.path,
@@ -686,7 +717,12 @@ async function runRetainedSession(
         host.budgets?.end(turn.turnId);
         turn.revision = undefined;
         turn.startedAt = undefined;
+        turn.backendStarted = false;
         await failureRecording.finish(turn.sessionId);
+        // No backend existed to publish its usual cancelled status. Send it
+        // only after native preparation and host cleanup have settled.
+        if (cancelledAdmission) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
+          detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });
@@ -988,12 +1024,12 @@ export async function handleChatMessage(
     // joins a running turn, and nothing joins a running host-work turn: each
     // needs its own turn identity to correlate its result (and keep its own
     // posture), and a follow-up would merge two requests (#957).
-    // Only into a turn the backend already holds, too: `startedAt` is set as
+    // Only into a turn the backend already holds, too: `backendStarted` is set as
     // the turn is handed to startTurn and cleared once that returns. Before
-    // then the slot is still resolving billing and the failure snapshot,
+    // then the slot is still resolving billing, failure history or native storage,
     // a resumed or dequeued turn included, and the backend has no turn to
     // inject into, so the message queues as the next turn instead (#1063).
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.startedAt !== undefined && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.backendStarted === true && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.

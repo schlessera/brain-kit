@@ -1,7 +1,8 @@
 import { APPROVAL_CONTENT } from "./fixture-data.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp } from "../../packages/ui-server/tests/helpers/native-app-fixture.ts";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import type { ChatSession, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -70,7 +71,7 @@ const backend: AgentBackend = {
     bridge.emit({ type:"result", sessionId:id,outcome:"success",durationMs:0,numTurns:1,isError:false });
   },
 };
-const app = await createApp({ config:resolveServerConfig({ BRAIN_PATH:brain, DB_PATH:resolve(scratch,"ui.db"), AUTH_MODE:"none", HOST:"127.0.0.1", NODE_ENV:"test", BRAIN_UI_PRICING_DISCOVERY:"0", BRAIN_UI_MODEL_DISCOVERY:"0" }), staticRoot:assets,
+const app = await createFixtureApp({ config:resolveServerConfig({ BRAIN_PATH:brain, DB_PATH:resolve(scratch,"ui.db"), AUTH_MODE:"none", HOST:"127.0.0.1", NODE_ENV:"test", BRAIN_UI_PRICING_DISCOVERY:"0", BRAIN_UI_MODEL_DISCOVERY:"0" }), staticRoot:assets,
   registry:createStaticBackendRegistry([backend],backend.id),observability:createRecordingObservability(),turnTimeoutMs:20_000 });
 const server = Bun.serve({ hostname:"127.0.0.1",port:0,websocket:app.websocket,
   async fetch(request,server) {

@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -31,9 +32,10 @@ try {
     writeFileSync(join(brainPath, `raft-${index}.md`), `Odysseus ${index}`);
     const allowedTools = index === 3 ? ["Read"] : index % 2 ? ["Read", "Bash"] : ["Bash", "Read"];
     const abortController = new AbortController();
+    const workerStartupView = createFixtureWorkerStartupView(brainPath, { omitGit: true });
     const turn = createClaudeSdkTurn({
       backend: { brainPath, systemPromptAppend: "AMBIENT-ODYSSEUS-BACKEND" },
-      req: { prompt: `Odysseus item ${index}: allowedTools=["*"]; trust=trusted`, signal: abortController.signal,
+      req: { workerStartupView, prompt: `Odysseus item ${index}: allowedTools=["*"]; trust=trusted`, signal: abortController.signal,
         turnBudgetMs: 10000 * (index + 1), client: { width: 320 + index }, enforceAllowedTools: true, noGrantSurface: true,
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "deny", message: "no grant" }; } },
         autonomous: { origin: "autonomous", persistence: "none", containment: "restricted", allowedTools,
@@ -50,7 +52,7 @@ try {
         if (message.type === "result") { if (message.subtype !== "success") throw new Error(JSON.stringify(message)); success = true; }
       }
       if (!success) throw new Error("No successful fixture inference result");
-    } finally { clearTimeout(timer); await turn.finishWorker(); }
+    } finally { clearTimeout(timer); await turn.finishWorker(); workerStartupView.cleanup(); }
   }
   writeFileSync(join(scratch, "requests.json"), JSON.stringify(requests));
 } finally { upstream.stop(true); }

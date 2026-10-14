@@ -1,3 +1,5 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 /**
  * #689 AC2: the design's acceptance examples composed through the production
  * dispatcher. Each sibling issue proved its engine alone; here the same
@@ -39,9 +41,10 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 type Script = (req: StartTurnRequest) => Promise<void>;
 function world(options: { turns?: number; spendUsd?: number; apiKey?: string | null; at?: number; answer?: Record<string, unknown> } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "brain-dispatch-ae-"));
+  const directory = mkdtempSync(join(tmpdir(), "brain-dispatch-ae-")), root = join(directory, "brain");
+  mkdirSync(root);
   mkdirSync(join(root, "notes"), { recursive: true });
-  const db = createUiDb(join(root, "ui.sqlite"));
+  const dbPath = join(directory, "ui.sqlite"), db = createUiDb(dbPath);
   let offset = 0;
   const originalNow = Date.now;
   const now = () => (options.at ?? originalNow()) + offset;
@@ -70,19 +73,20 @@ function world(options: { turns?: number; spendUsd?: number; apiKey?: string | n
   };
   const budget = { config: { spendUsd: options.spendUsd ?? 50, turns: options.turns ?? 1000, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.00001 },
     pricing: { resolve: () => ({ input: 0.000001, output: 0.000001, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" as const }) } };
+  const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   const activity = createActivityStore(db, { writer: "dispatch-ae" });
-  const dispatcher = createInboxDispatcher(db, { brainRoot: root, budget, classification: { apiKey: options.apiKey === undefined ? "fixture-key" : options.apiKey }, fetch, store: activity, now,
+  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, budget, classification: { apiKey: options.apiKey === undefined ? "fixture-key" : options.apiKey }, fetch, store: activity, now,
     select: async () => ({ backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" }) });
   let arms = 0;
   const runtime = createInboxRuntime(db, { log: { emit() {} } as never, brainRoot: root, budget, now,
     timers: { setInterval: () => { arms++; return 0 as never; }, clearInterval: () => {} }, ...dispatcher });
   const store = createInboxStore(db, { now });
   const resolver = (handle = db) => createInboxResolver(handle, { allowedOperations: createInboxOperationEnvelope(handle), now });
-  cleanup.push(async () => { await runtime.close(); await intake.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  cleanup.push(async () => { await runtime.close(); await intake.close(); await native.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
   const cli = async (text: string) => (await intake.cli({ text, files: [] }, crypto.randomUUID(), principal)).itemId;
   const decisions = () => store.snapshot().items.filter(i => i.queue === "actions" && i.type !== "fyi" && ["pending", "snoozed"].includes(i.status)) as InboxActionItem[];
   const fyis = () => store.snapshot().items.filter(i => i.queue === "actions" && i.type === "fyi") as InboxActionItem[];
-  return { root, db, principal, intake, turns, scripts, batches, runtime, store, resolver, cli, decisions, fyis, activity,
+  return { root, dbPath, db, principal, intake, turns, scripts, batches, runtime, store, resolver, cli, decisions, fyis, activity,
     advance: (ms: number) => { offset += ms; }, now, arms: () => arms };
 }
 
@@ -164,7 +168,7 @@ describe("acceptance examples through the production dispatcher", () => {
     const itemId = await w.cli("Penelope asks that the loom be recorded.");
     await w.runtime.tick();
     const [action] = w.decisions();
-    const second = createUiDb(join(w.root, "ui.sqlite")); cleanup.push(() => second.close());
+    const second = createUiDb(w.dbPath); cleanup.push(() => second.close());
     const turns = w.turns.length;
     const results = [w.resolver().resolve(w.principal.id, { type: "inbox_resolve", itemId: action!.id, optionId: "apply" }),
       w.resolver(second).resolve(w.principal.id, { type: "inbox_resolve", itemId: action!.id, optionId: "apply" })];

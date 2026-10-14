@@ -1,3 +1,4 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,19 +13,20 @@ function fixture(capBytes?: number) {
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, ".gitignore"), "ignored.txt\n");
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
-  const db = createUiDb(path), journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
+  const native = createNativeJournalFixture(brain, root);
+  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
-  return { root, brain, db, journal, begin, close() { journal.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
-test("the retained journal reads exact before/after versions and ignored listings after the turn ends", () => {
+test("the retained journal reads exact before/after versions and ignored listings after the turn ends", async () => {
   const f = fixture();
   try {
-    f.begin("odysseus");
+    await f.begin("odysseus");
     writeFileSync(join(f.brain, "notes", "odysseus.md"), "# Ithaca\r\nReturn by sea.\r\n");
     writeFileSync(join(f.brain, "notes", "athena.md"), "# Athena\n");
     writeFileSync(join(f.brain, "ignored.txt"), "ignored change");
-    f.journal.finish("odysseus");
+    await f.journal.finish("odysseus");
     const details = f.journal.details("ithaca", "odysseus")!;
     expect(details.summary).toMatchObject({ state: "complete", changedFiles: 3, costUsd: null, profile: "governed" });
     const note = details.changes.find(change => change.path === "notes/odysseus.md")!;
@@ -32,19 +34,19 @@ test("the retained journal reads exact before/after versions and ignored listing
     expect(f.journal.version("ithaca", "odysseus", note.sequence, "after")!.bytes(1024)).toEqual(Buffer.from("# Ithaca\r\nReturn by sea.\r\n"));
     expect(details.changes.find(change => change.path === "ignored.txt")?.after).toMatchObject({ ignored: true, bytes: 14 });
     expect(f.journal.details("other-session", "odysseus")).toBeNull();
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
 test("inline preview enforces the approved raw byte and line boundaries and never coerces binary content", async () => {
   const f = fixture();
   try {
-    f.begin("odysseus");
+    await f.begin("odysseus");
     writeFileSync(join(f.brain, "large.txt"), "A".repeat(256 * 1024 + 1));
     writeFileSync(join(f.brain, "boundary.txt"), "B".repeat(256 * 1024));
     writeFileSync(join(f.brain, "lines.txt"), Array.from({ length: 5001 }, () => "Ithaca").join("\n"));
     writeFileSync(join(f.brain, "line-boundary.txt"), Array.from({ length: 5000 }, () => "Athena").join("\n"));
     writeFileSync(join(f.brain, "binary.bin"), Buffer.from([0, 1, 2, 255]));
-    f.journal.finish("odysseus");
+    await f.journal.finish("odysseus");
     const routes = createJournalRoutes({ journal: f.journal });
     const details = f.journal.details("ithaca", "odysseus")!;
     for (const [path, expected] of [["large.txt", { inline: false, reason: "size" }], ["boundary.txt", { inline: true }], ["lines.txt", { inline: false, reason: "lines" }], ["line-boundary.txt", { inline: true }], ["binary.bin", { inline: false, reason: "binary_or_unavailable" }]] as const) {
@@ -52,63 +54,128 @@ test("inline preview enforces the approved raw byte and line boundaries and neve
       const response = await routes.request(`/sessions/ithaca/turns/odysseus/journal/${change.sequence}/preview`);
       expect(response.status).toBe(200); expect(await response.json(), `JOURNAL_INLINE_BOUNDARY_${path}`).toMatchObject(expected);
     }
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("capacity refuses an initial snapshot before a worker and stops a running turn without claiming complete reversibility", () => {
+test("native admission refuses unavailable storage and changed-version capacity stops work without copying the baseline", async () => {
   const f = fixture(1024 * 1024);
   try {
     writeFileSync(join(f.brain, "too-large.txt"), Buffer.alloc(2 * 1024 * 1024, 65));
-    expect(() => f.begin("refused")).toThrow("initial snapshot incomplete");
-    expect(f.journal.summary("refused").state).toBe("partial");
-    rmSync(join(f.brain, "too-large.txt"));
+    f.native.failNextCheckpoint(Error("native capacity fixture"));
+    await expect(f.begin("refused")).rejects.toThrow("native capacity fixture");
+    expect(f.journal.summary("refused").state).toBe("unknown");
     const stopped: Error[] = [];
-    f.journal.begin("running", { sessionId: "ithaca", actor: "voice", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
+    await f.journal.begin("running", { sessionId: "ithaca", actor: "voice", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
+    expect(f.db.query("SELECT count(*) AS n FROM turn_journal_objects").get(), "NATIVE_BASELINE_RETAINS_NO_UNCHANGED_CONTENT").toEqual({ n: 0 });
     writeFileSync(join(f.brain, "too-large.txt"), Buffer.alloc(2 * 1024 * 1024, 66));
-    f.journal.finish("running");
+    await expect(f.journal.finish("running")).rejects.toThrow();
     expect(stopped.length, "JOURNAL_OVERFLOW_STOPS_TURN").toBeGreaterThan(0);
-    expect(f.journal.details("ithaca", "running")).toMatchObject({ summary: { state: "partial", actor: "voice" }, missing: [{ path: "too-large.txt", reason: "journal_capacity" }] });
+    expect(f.journal.details("ithaca", "running")).toMatchObject({ summary: { state: "partial", actor: "voice" }, missing: [{ path: ".", reason: "journal_capacity" }] });
     expect(Bun.file(join(f.brain, "too-large.txt")).size, "JOURNAL_PARTIAL_WORK_REMAINS").toBe(2 * 1024 * 1024);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("a refused manifest on the same live journal ends admission and releases initial-only pins before the next small turn", () => {
+test("failed policy admission ends its journal row and leaves no raw baseline pins before the next turn", async () => {
   const f = fixture(512 * 1024);
   try {
-    // A concrete SQLite write failure after the raw baseline objects were pinned.
-    f.db.exec("CREATE TRIGGER refuse_manifest BEFORE INSERT ON turn_journal_manifests BEGIN SELECT RAISE(ABORT,'fixture manifest unavailable'); END");
-    expect(() => f.begin("refused-manifest")).toThrow("initial snapshot could not be recorded");
-    f.journal.finish("refused-manifest");
+    // Concrete disk input failure after durable admission row: ignore policy is a directory.
+    rmSync(join(f.brain, ".gitignore")); mkdirSync(join(f.brain, ".gitignore"));
+    await expect(f.begin("refused-manifest")).rejects.toThrow("native journal admission could not be prepared");
+    await f.journal.finish("refused-manifest");
     expect(f.db.query("SELECT ended_at FROM turn_journal_turns WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_ADMISSION_ENDED").toMatchObject({ ended_at: expect.any(Number) });
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_BASELINE_PINS_RELEASED").toEqual({ n: 0 });
-    f.db.exec("DROP TRIGGER refuse_manifest");
-    f.begin("small-next"); f.journal.finish("small-next");
+    rmSync(join(f.brain, ".gitignore"), { recursive: true }); writeFileSync(join(f.brain, ".gitignore"), "ignored.txt\n");
+    await f.begin("small-next"); await f.journal.finish("small-next");
     expect(f.journal.summary("small-next").state, "JOURNAL_SAME_PROCESS_NEXT_TURN_RECOVERS").toBe("complete");
-  } finally { f.close(); }
+  } finally { await f.close(); }
+});
+
+test("a delayed observation holds authority synchronously until its complete serialized barrier", async () => {
+  const f = fixture();
+  let resume!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  try {
+    await f.begin("delayed");
+    const delta = f.native.manager.delta;
+    f.native.manager.delta = async (...args) => { entered(); await blocked; return delta(...args); };
+    const observation = f.journal.observe();
+    expect(f.journal.isHeld(), "JOURNAL_AUTHORITY_HELD_BEFORE_ASYNC_YIELD").toBe(true);
+    await started;
+    let idle = false; const waiting = f.journal.idle().then(() => { idle = true; });
+    await Promise.resolve(); expect(idle, "JOURNAL_IDLE_WAITS_COMPLETE_NATIVE_BARRIER").toBe(false);
+    resume(); await observation; await waiting;
+    expect(f.journal.isHeld()).toBe(false); expect(idle).toBe(true);
+    f.native.manager.delta = delta;
+    await f.journal.finish("delayed");
+  } finally { resume(); await f.close(); }
+});
+
+test("cancellation while native admission awaits cannot create an active late turn", async () => {
+  const f = fixture(), cancellation = new AbortController();
+  let resume!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  const checkpoint = f.native.manager.checkpoint;
+  f.native.manager.checkpoint = async (...args) => { entered(); await blocked; return checkpoint(...args); };
+  try {
+    const pending = f.journal.begin("cancelled", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}, cancellation.signal);
+    void pending.catch(() => {});
+    await started; cancellation.abort(Error("Odysseus cancelled admission")); resume();
+    await expect(pending).rejects.toThrow("Odysseus cancelled admission");
+    expect(f.journal.summary("cancelled").state, "JOURNAL_CANCELLED_ADMISSION_NEVER_RECORDING").toBe("unknown");
+    expect(f.journal.isHeld()).toBe(false);
+    f.native.manager.checkpoint = checkpoint;
+    await f.begin("next"); await f.journal.finish("next");
+    expect(f.journal.summary("next").state).toBe("complete");
+  } finally { resume(); await f.close(); }
+});
+
+test("cancelling an overlapping admission resumes a healthy peer after its shared observation", async () => {
+  const f = fixture(), cancellation = new AbortController();
+  let resume!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  const delta = f.native.manager.delta, completed: boolean[] = [];
+  let paused = false;
+  try {
+    await f.begin("healthy-peer");
+    f.journal.onObservation(() => {}, { before() { paused = true; }, after(ok) { completed.push(ok); if (ok) paused = false; } });
+    f.native.manager.delta = async (...args) => { entered(); await blocked; return delta(...args); };
+    const pending = f.journal.begin("cancelled-peer", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}, cancellation.signal);
+    void pending.catch(() => {});
+    await started; expect(paused).toBe(true);
+    cancellation.abort(Error("Odysseus cancelled overlapping admission")); resume();
+    await expect(pending).rejects.toThrow("cancelled overlapping admission");
+    expect(completed, "CANCELLED_ADMISSION_PRESERVES_HEALTHY_PEER_HOLD").toEqual([true]);
+    expect(paused).toBe(false);
+    expect(f.journal.summary("cancelled-peer").state).toBe("unknown");
+    f.native.manager.delta = delta;
+    writeFileSync(join(f.brain, "notes", "odysseus.md"), "The original turn continues.\n");
+    await f.journal.finish("healthy-peer");
+    expect(f.journal.summary("healthy-peer")).toMatchObject({ state: "complete", changedFiles: 1 });
+  } finally { resume(); f.native.manager.delta = delta; await f.close(); }
 });
 
 test("a retained raw stream pins its object until the reader ends", async () => {
   const f = fixture();
   try {
-    f.begin("odysseus"); writeFileSync(join(f.brain, "notes", "odysseus.md"), "Athena\n"); f.journal.finish("odysseus");
+    await f.begin("odysseus"); writeFileSync(join(f.brain, "notes", "odysseus.md"), "Athena\n"); await f.journal.finish("odysseus");
     const change = f.journal.details("ithaca", "odysseus")!.changes[0]!;
     const stream = f.journal.version("ithaca", "odysseus", change.sequence, "before")!.stream();
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='read'").get()).toEqual({ n: 1 });
     expect(await new Response(stream.body).text()).toBe("# Ithaca\r\n");
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='read'").get()).toEqual({ n: 0 });
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("overlapping writable windows both preserve observed shared and disjoint versions with shared attribution", () => {
+test("overlapping writable windows both preserve observed shared and disjoint versions with shared attribution", async () => {
   const f = fixture();
   try {
-    f.begin("odysseus"); f.begin("athena");
+    await f.begin("odysseus"); await f.begin("athena");
     writeFileSync(join(f.brain, "notes", "odysseus.md"), "Shared return plan");
     writeFileSync(join(f.brain, "notes", "athena.md"), "Athena's observed advice");
-    f.journal.observe();
+    await f.journal.observe();
     writeFileSync(join(f.brain, "notes", "odysseus.md"), "Overwritten between observations");
     writeFileSync(join(f.brain, "notes", "odysseus.md"), "Next observed return plan");
-    f.journal.finish("odysseus"); f.journal.finish("athena");
+    await f.journal.finish("odysseus"); await f.journal.finish("athena");
     for (const [id, other] of [["odysseus", "athena"], ["athena", "odysseus"]]) {
       const details = f.journal.details("ithaca", id!)!;
       expect(details.summary.sharedAttribution).toBe(true);
@@ -117,40 +184,40 @@ test("overlapping writable windows both preserve observed shared and disjoint ve
       expect(versions).toEqual(["Shared return plan", "Next observed return plan"]);
       expect(versions).not.toContain("Overwritten between observations");
     }
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("a complete no-change turn has a known zero change count and unknown price; missing history remains unknown", () => {
+test("a complete no-change turn has a known zero change count and unknown price; missing history remains unknown", async () => {
   const f = fixture();
   try {
-    f.begin("odysseus"); f.journal.finish("odysseus");
+    await f.begin("odysseus"); await f.journal.finish("odysseus");
     expect(f.journal.summary("odysseus")).toMatchObject({ state: "complete", changedFiles: 0, costUsd: null });
     expect(f.journal.summary("unrecorded")).toMatchObject({ state: "unknown", changedFiles: null, costUsd: null });
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("approved policy writes retain user attribution in the original active windows and cannot revive a completed turn", () => {
+test("approved policy writes retain user attribution in the original active windows and cannot revive a completed turn", async () => {
   const f = fixture();
   try {
     mkdirSync(join(f.brain, "context/policies"), { recursive: true });
     const policy = join(f.brain, "context/policies/governance.md");
     writeFileSync(policy, "Athena's original policy\n");
-    f.begin("odysseus"); f.begin("athena");
-    f.journal.observeUserPolicy("odysseus", () => writeFileSync(policy, "Odysseus approves the policy\n"));
+    await f.begin("odysseus"); await f.begin("athena");
+    await f.journal.observeUserPolicy("odysseus", () => writeFileSync(policy, "Odysseus approves the policy\n"));
     for (const id of ["odysseus", "athena"]) {
       const change = f.journal.details("ithaca", id)!.changes.find(change => change.path === "context/policies/governance.md")!;
       expect(change, "JOURNAL_APPROVED_POLICY_ATTRIBUTION").toMatchObject({ class: "policy", actor: "user" });
       expect(change.overlappingTurnIds).toHaveLength(1);
       expect(f.journal.version("ithaca", id, change.sequence, "before")!.bytes(1024).toString()).toBe("Athena's original policy\n");
     }
-    f.journal.finish("odysseus"); f.journal.finish("athena");
+    await f.journal.finish("odysseus"); await f.journal.finish("athena");
     let executed = false;
-    expect(() => f.journal.observeUserPolicy("odysseus", () => { executed = true; })).toThrow("active complete observation window");
+    await expect(f.journal.observeUserPolicy("odysseus", () => { executed = true; })).rejects.toThrow("active complete observation window");
     expect(executed, "JOURNAL_COMPLETED_TURN_NEVER_REVIVED").toBe(false);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("actual journal classifies steering and local transitive configuration separately from content and policy", () => {
+test("actual journal classifies steering and local transitive configuration separately from content and policy", async () => {
   const f = fixture();
   try {
     for (const path of [".claude/skills/voyage", ".claude", "config", "hooks", "context/scheduled-tasks", "context/policies"]) mkdirSync(join(f.brain, path), { recursive: true });
@@ -165,47 +232,47 @@ test("actual journal classifies steering and local transitive configuration sepa
       "context/policies/governance.md": "Original policy\n",
     };
     for (const [path, bytes] of Object.entries(inputs)) writeFileSync(join(f.brain, path), bytes);
-    f.begin("steering");
+    await f.begin("steering");
     for (const [path, bytes] of Object.entries(inputs)) if (path !== "context/policies/governance.md") writeFileSync(join(f.brain, path), bytes + "\n");
     writeFileSync(join(f.brain, "notes/a.md"), "Odysseus returns.\n");
-    f.journal.observeUserPolicy("steering", () => writeFileSync(join(f.brain, "context/policies/governance.md"), "Approved policy\n"));
-    f.journal.finish("steering");
+    await f.journal.observeUserPolicy("steering", () => writeFileSync(join(f.brain, "context/policies/governance.md"), "Approved policy\n"));
+    await f.journal.finish("steering");
     const details = f.journal.details("ithaca", "steering")!;
     for (const path of Object.keys(inputs).filter(path => path !== "context/policies/governance.md")) expect(details.changes.find(change => change.path === path)?.class, `STEERING_ACTUAL_INPUT_${path}`).toBe("steering");
     expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
     expect(details.changes.find(change => change.path === "context/policies/governance.md")).toMatchObject({ class: "policy", actor: "user" });
     expect(details.summary.steeringFiles, "STEERING_COUNT_EXCLUDES_POLICY").toBe(9);
     expect(queryGovernanceEvents(f.db, { turnId: "steering", kinds: ["steering_change"], limit: 100 })).toHaveLength(9);
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("steering retains only taint recorded before observation, including sticky session evidence and overlap", () => {
+test("steering retains only taint recorded before observation, including sticky session evidence and overlap", async () => {
   const f = fixture();
   try {
     f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
     writeFileSync(join(f.brain, "AGENTS.md"), "Original instructions\n");
-    f.begin("untainted"); writeFileSync(join(f.brain, "AGENTS.md"), "First instructions\n"); f.journal.finish("untainted");
+    await f.begin("untainted"); writeFileSync(join(f.brain, "AGENTS.md"), "First instructions\n"); await f.journal.finish("untainted");
     const source = recordGovernanceEvent(f.db, { kind: "taint", sessionId: "ithaca", turnId: "prior-turn", actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } });
-    f.begin("odysseus"); f.begin("athena"); writeFileSync(join(f.brain, "AGENTS.md"), "Shared instructions\n"); f.journal.finish("odysseus"); f.journal.finish("athena");
+    await f.begin("odysseus"); await f.begin("athena"); writeFileSync(join(f.brain, "AGENTS.md"), "Shared instructions\n"); await f.journal.finish("odysseus"); await f.journal.finish("athena");
     expect(f.journal.details("ithaca", "untainted")!.changes[0], "STEERING_NO_RETROACTIVE_TAINT").not.toHaveProperty("tainted");
     for (const id of ["odysseus", "athena"]) {
       const change = f.journal.details("ithaca", id)!.changes.find(change => change.path === "AGENTS.md")!;
       expect(change, "STEERING_REAL_TAINT_SOURCE").toMatchObject({ class: "steering", tainted: true, taintSourceEventId: source.id });
       expect(change.overlappingTurnIds).toHaveLength(1);
     }
-  } finally { f.close(); }
+  } finally { await f.close(); }
 });
 
-test("opaque configuration input limitations survive replay without executing code or fabricating a steering dependency", () => {
+test("opaque configuration input limitations survive replay without executing code or fabricating a steering dependency", async () => {
   const f = fixture();
   try {
     writeFileSync(join(f.brain, "brain.config.ts"), 'import("./" + selectRoute() + ".json"); throw new Error("no host evaluation");\n');
-    f.begin("opaque-config"); writeFileSync(join(f.brain, "notes/a.md"), "Odysseus keeps the route.\n"); f.journal.finish("opaque-config");
-    const replay = createTurnJournal(f.db, { brainPath: f.brain, dbPath: join(f.root, "ui.db"), objectsRoot: join(f.root, "objects") });
+    await f.begin("opaque-config"); writeFileSync(join(f.brain, "notes/a.md"), "Odysseus keeps the route.\n"); await f.journal.finish("opaque-config");
+    const replay = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: join(f.root, "ui.db"), objectsRoot: join(f.root, "objects") });
     try {
       const details = replay.details("ithaca", "opaque-config")!;
       expect(details.missing, "STEERING_OPAQUE_INPUT_HONEST_REPLAY").toContainEqual({ path: "brain.config.ts", reason: "configuration_inputs_not_fully_identified" });
       expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
-    } finally { replay.close(); }
-  } finally { f.close(); }
+    } finally { await replay.close(); }
+  } finally { await f.close(); }
 });

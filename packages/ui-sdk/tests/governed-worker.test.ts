@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, linkSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher.js";
-import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { workerSandboxNote } from "../src/server/worker-sandbox.js";
 import { resolveWorkerProtection } from "../src/server/worker-protection.js";
 import { protectedPaths } from "../src/server/protected-paths.js";

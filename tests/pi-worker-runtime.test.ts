@@ -103,13 +103,15 @@ describe("ordinary pi isolated worker", () => {
     expect(r.resumedHistory.filter((m: any) => m.role === "user").map((m: any) => m.content)).toEqual(["Odysseus worker proof", "Continue sailing"]);
     expect(r.running).toEqual([]);
   });
-  test("an already cancelled turn awaits worker exit without starting inference", async () => {
+  test("an already cancelled turn starts neither a worker nor inference", async () => {
     const r = await probe("pre-aborted");
     policyUnchanged(r);
     expect(r.calls).toBe(0);
-    expect(r.hostPids).toHaveLength(1);
+    expect(r.hostPids, "PI_PREABORT_NO_WORKER").toHaveLength(0);
     expect(r.running).toEqual([]);
-    expect(r.frames.at(-1).outcome).toBe("cancelled");
+    expect(r.sessions, "PI_PREABORT_NO_SESSION").toEqual([]);
+    // The shared backend contract uses a bare terminal when no identity was acquired.
+    expect(r.frames.at(-1)).toMatchObject({ type: "error", code: "agent_error", message: "The turn was cancelled before a session was acquired." });
   });
   test("aborting a tool kills the worker and its nested process tree and retains honest history", async () => {
     const r = await probe("cancel");

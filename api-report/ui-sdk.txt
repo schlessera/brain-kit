@@ -857,6 +857,12 @@ export "./internal" (./src/internal.ts)
   type MaintenanceHost
   type MaintenanceResult
   type MaintenanceWorker
+  NATIVE_MANAGER_MAX_DELTA_BYTES
+  NATIVE_MANAGER_OPERATION_TIMEOUT_MS
+  type NativeBrainDeltaCandidate
+  NativeBrainDeltaError
+  NativeBrainManagerError
+  type NativeBrainRootIdentity
   type NativeFileVersion
   NativeFileVersions
   OUTPUT_STAGING_BUDGET_ENV
@@ -873,6 +879,7 @@ export "./internal" (./src/internal.ts)
   PROTECTED_TIER_A
   PROTECTED_TIER_B
   type PrepareWorkerSandboxOptions
+  type PreparedWorkerOutput
   type QuestionObservation
   type Reservation
   type RestrictedEnvelope
@@ -921,6 +928,7 @@ export "./internal" (./src/internal.ts)
   type WorkerMount
   type WorkerNoteFacts
   type WorkerNoteLimit
+  type WorkerOutputStorage
   type WorkerOutwardRule
   type WorkerProfile
   WorkerResourceLimitError
@@ -942,6 +950,7 @@ export "./internal" (./src/internal.ts)
   claudeReportedMaskPath
   compileWorkerCommandPolicy
   createLimitTracker
+  createNativeBrainManagerClient
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
@@ -971,14 +980,18 @@ export "./internal" (./src/internal.ts)
   observeOutwardPlan
   outputStagingLimit
   outwardTarget
+  parseNativeBrainDelta
   parseWorkerStateBytes
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareNativeWorkerOutput
+  prepareNativeWorkerStartupView
   prepareOutwardPlan
   prepareWorkerOutput
   prepareWorkerSandbox
   probeMaintenanceWorker
+  probeNativeMaintenanceWorker
   probeWorkerHost
   processStateLedger
   protectedPaths
@@ -994,6 +1007,7 @@ export "./internal" (./src/internal.ts)
   resolveWorkerProtection
   resolveWorkerStateLimits
   restrictedReadPaths
+  retainWorkerStartupView
   runMaintenanceWorker
   runMaintenanceWorkerSync
   startInferenceRelay

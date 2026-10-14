@@ -204,7 +204,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
-        run: bash scripts/ci-runtime-setup.sh
+        run: bash scripts/ci-runtime-setup.sh --native
       - name: Complete runtime proof
         run: bun scripts/ci-proof.ts runtime
       - name: Proof receipts and failure diagnostics
@@ -213,6 +213,7 @@ jobs:
         with:
           name: runtime-proof
           path: |
+            tmp/native-host-proof/
             tmp/proof-checkout.json
             tmp/unit-report.xml
             tmp/unit-timings.json

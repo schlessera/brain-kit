@@ -1,3 +1,7 @@
+import { createFixtureWorkerStartupView } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../../packages/ui-server/tests/helpers/fixture-native-startup.js";
+const restoreNativeInputs = replaceNativeStartupAcquisitionForFixture();
+process.on("exit", restoreNativeInputs);
 /**
  * Real Claude worker spawns, each with its private size-limited runtime-state
  * tmpfs (#1625). The caller runs this in a private mount namespace with
@@ -35,13 +39,14 @@ const failureOf = (worker: { failure(): { errorClass: string } | undefined }) =>
 
 /** One worker turn: a shell standing in for the runtime, with the runtime's own `--resume` argv. */
 function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?: WorkerStateLimits) {
+  const view = createFixtureWorkerStartupView(brain);
   const worker = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, undefined, undefined, undefined,
-    { limits, ...(turnTempLimits ? { turnTempLimits } : {}) });
+    { limits, ...(turnTempLimits ? { turnTempLimits } : {}) }, undefined, undefined, view);
   let child: SpawnedProcess | undefined, refused: string | undefined;
   try {
     child = worker.spawn({ command: "/bin/sh", args: ["-c", script, "sh", ...(resume ? [`--resume=${resume}`] : [])],
       cwd: brain, env: { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: config }, signal: new AbortController().signal });
-  } catch (error) { refused = error instanceof Error ? error.message : String(error); }
+  } catch (error) { view.cleanup(); refused = error instanceof Error ? error.message : String(error); }
   let out = "";
   const exited = new Promise<{ code: number | null; signal: string | null }>(done => {
     if (!child) return done({ code: null, signal: null });
@@ -55,7 +60,7 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
     child.stdout.on("end", done); child.stdout.on("close", done);
   });
   return { worker, refused,
-    async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); return { exit, out: out.trim(), failure: failureOf(worker) }; } };
+    async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); await view.cleanup(); return { exit, out: out.trim(), failure: failureOf(worker) }; } };
 }
 const append = (id: string, line: string) => `printf '%s\\n' '${line}' >> "$CLAUDE_CONFIG_DIR/projects/${projectName}/${id}.jsonl" && sleep 1`;
 const tail = (id: string) => readFileSync(join(project, `${id}.jsonl`), "utf8").trimEnd().split("\n").at(-1);

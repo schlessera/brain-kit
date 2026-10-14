@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createRecordingObservability } from "../src/observability/index";

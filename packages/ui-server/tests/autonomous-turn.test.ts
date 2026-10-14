@@ -1,6 +1,11 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
+const nativeCleanup: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); });
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentBackend, BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
@@ -17,8 +22,13 @@ import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { handleChatMessage } from "../src/ws/run-session.js";
 import { testAuthorization } from "./helpers/principal.js";
+import * as nativeStartup from "../../ui-sdk/src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 
 function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undefined = true, options: { dbPath?: string; api?: boolean } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-autonomous-input-")), brainPath = join(root, "brain"); mkdirSync(brainPath);
+  const native = createNativeJournalFixture(brainPath, root);
+  nativeCleanup.push(async () => { await native.close(); rmSync(root, { recursive: true, force: true }); });
   const db = createUiDb(options.dbPath ?? ":memory:");
   const store = createActivityStore(db, { writer: "autonomous-test" });
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
@@ -33,9 +43,60 @@ function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undef
   const budget = createInboxBudget(db, { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => ({ input: 0.003, output: 0.003, cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" }) } });
   budget.claim("odysseus", { runId: input.turnId, principalId: principal.id, model: "fixture", billingMode: options.api ? "api" : "subscription", purpose: "execute",
     ...(options.api ? { maximumTokens: { inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } } : {}) }, now + 600_000);
-  return { db, store, principal, backend, input, budget };
+  return { db, store, principal, backend, input, budget, brainPath, nativeManager: native.client };
 }
 const permission = { toolUseId: "tool", toolName: "write", input: { path: "notes/harbor.md" } };
+
+test("pre-aborted autonomous native admission settles cancelled without starting the backend", async () => {
+  let started = 0; const f = setup(async () => { started++; });
+  const controller = new AbortController(); controller.abort(new Error("Odysseus cancelled"));
+  try {
+    expect(await runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, signal: controller.signal }),
+      "AUTONOMOUS_PREABORT_NATIVE_ADMISSION_IS_CANCELLED").toMatchObject({ outcome: "cancelled" });
+    expect(started).toBe(0);
+    expect(f.db.query("SELECT outcome FROM activity_spans WHERE parent_span_id IS NULL").get()).toEqual({ outcome: "cancelled" });
+  } finally { f.db.close(); }
+});
+
+test("autonomous backend receives an owned immutable input until it drains", async () => {
+  const entered = Promise.withResolvers<void>(), finish = Promise.withResolvers<void>();
+  let inputRoot: string | undefined;
+  const f = setup(async request => {
+    inputRoot = request.workerStartupView?.root;
+    entered.resolve(); await finish.promise;
+    request.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  });
+  const running = runAutonomousTurn({ ...f, checkpoint() {} }, f.input);
+  try {
+    await entered.promise;
+    expect(inputRoot, "AUTONOMOUS_NATIVE_INPUT_BEFORE_BACKEND").toBeDefined();
+    expect(existsSync(inputRoot!)).toBe(true);
+    finish.resolve(); expect((await running).outcome).toBe("success");
+    expect(existsSync(inputRoot!), "AUTONOMOUS_NATIVE_INPUT_RELEASED_AFTER_BACKEND").toBe(false);
+  } finally { finish.resolve(); await running.catch(() => {}); f.db.close(); }
+});
+
+for (const reason of ["cancel", "revoke"] as const) test(`autonomous admission rechecks ${reason} after delayed native input`, async () => {
+  const entered = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+  const controller = new AbortController(); let started = 0, cleaned = false;
+  const f = setup(async () => { started++; });
+  const acquire = spyOn(nativeStartup, "prepareNativeWorkerStartupView").mockImplementation(async brain => {
+    entered.resolve(); await resume.promise;
+    const view = createFixtureWorkerStartupView(brain);
+    return { ...view, async cleanup() { view.cleanup(); cleaned = true; } };
+  });
+  const running = runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, signal: controller.signal });
+  void running.catch(() => {});
+  try {
+    await entered.promise;
+    if (reason === "cancel") controller.abort(); else revokePrincipal(f.db, f.principal.id, Date.now());
+    resume.resolve(); const settled = await running.then(result => ({ result }), error => ({ error }));
+    expect(started, "AUTONOMOUS_NATIVE_ADMISSION_RECHECKS_AUTHORITY").toBe(0);
+    if (reason === "cancel") expect(settled, "AUTONOMOUS_NATIVE_CANCEL_SETTLES_CANCELLED").toMatchObject({ result: { outcome: "cancelled" } });
+    else expect(settled).toHaveProperty("error");
+    expect(cleaned, "AUTONOMOUS_CANCELLED_NATIVE_OWNER_RELEASED").toBe(true);
+  } finally { resume.resolve(); await running.catch(() => {}); acquire.mockRestore(); f.db.close(); }
+});
 
 describe("server-selected autonomous turn", () => {
   test("two active autonomous turns stop further claims while the real interactive dispatch still starts", async () => {
@@ -58,6 +119,7 @@ describe("server-selected autonomous turn", () => {
       catalog: createSessionCatalog(() => f.db), maxConcurrentSessions: () => 1 });
     host.clients.add(ws, f.principal.id);
     try {
+      while (starts < 2) await Bun.sleep(0);
       expect(starts).toBe(2);
       expect(f.budget.claim("telemachus", { runId: "run-3", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000)).toBeNull();
       expect(store.getItem("telemachus")).toMatchObject({ status: "ready", attempts: 0 });

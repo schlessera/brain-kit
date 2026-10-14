@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainApi, ApiRequestError } from "../src/lib/api-client.js";
 import { createBrainRoutes } from "../../ui-server/src/routes/brain.js";
-import { createHostBoundary } from "../../ui-server/src/brain/host-boundary.js";
+import { createFixtureHostBoundary as createHostBoundary } from "../../ui-server/tests/helpers/native-host-fixture.js";
 import type { BrainClient } from "../../ui-server/src/brain/client.js";
 import type { KeytermSettings } from "../../ui-server/src/voice/keyterm-builder.js";
 
@@ -51,7 +51,7 @@ describe("published sync helper through actual routes", () => {
       brainPath: root,
       brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath: root } as KeytermSettings,
-      exec: {},
+      exec: {}, boundary: createHostBoundary({ brainPath: root, exec: {} }),
     });
     const records: string[] = [];
     const client = createBrainApi(() => "/api", async (url, init) => {

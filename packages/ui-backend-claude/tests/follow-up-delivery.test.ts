@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A message sent while a Claude turn runs reaches the model inside that turn
@@ -280,7 +281,8 @@ async function runScenario(scenario: Scenario): Promise<Observed> {
     while (Date.now() < deadline && !observed.sdk.some(isQueued)) await Bun.sleep(25);
   };
 
-  const turn = backend.startTurn({ prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge });
+  const workerStartupView = createFixtureWorkerStartupView(brainPath);
+  const turn = backend.startTurn({ workerStartupView, prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge });
   if (scenario.sendDuring === "tool") {
     await cardOpened;
     await sendFollowUp();
@@ -292,7 +294,7 @@ async function runScenario(scenario: Scenario): Promise<Observed> {
     await sendFollowUp();
     releaseFinal();
   }
-  await turn;
+  try { await turn; } finally { workerStartupView.cleanup(); }
   observed.history = await backend.getHistory(sessionId!);
   return observed;
 }

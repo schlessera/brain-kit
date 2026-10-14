@@ -29,7 +29,18 @@ function heldBackend() {
     id: "fixture",
     async startTurn(req) {
       starts.push(req);
-      await new Promise<void>((resolve) => releases.push(resolve));
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const release = () => {
+          if (settled) return; settled = true;
+          req.signal.removeEventListener("abort", release);
+          const index = releases.indexOf(release); if (index !== -1) releases.splice(index, 1);
+          resolve();
+        };
+        releases.push(release); req.signal.addEventListener("abort", release, { once: true });
+        if (req.signal.aborted) release();
+      });
+      if (req.signal.aborted) return;
       const sessionId = req.sessionId ?? `voyage-${++sessions}`;
       req.bridge.emit({ type: "session_info", sessionId, isNew: !req.sessionId });
       req.bridge.emit({ type: "result", sessionId, durationMs: 1, numTurns: 1, isError: false });
@@ -163,7 +174,9 @@ test("a queued follow-up consumes its session's draft when queued; another sessi
   h.send({ type: "chat_message", sessionId: "voyage-1", text: "Elsewhere", requestId: "r-3", draftRef: { draftId: "draft-b", revision: 1 } });
   // voyage-1's own draft, sent at its current revision.
   h.send({ type: "chat_message", sessionId: "voyage-1", text: "Then the Sirens", requestId: "r-4", draftRef: { draftId: "draft-a", revision: 1 } });
-  await h.until(() => h.frames.filter((f) => f.type === "status" && f.status === "queued").length === 2, "both queued");
+  await h.until(() => ["r-3", "r-4"].every(requestId => h.frames.some(f => f.type === "status" && f.status === "queued" && f.requestId === requestId)), "both named requests queued");
+  expect(h.frames.filter(f => f.type === "status" && f.status === "queued" && ["r-3", "r-4"].includes(f.requestId ?? ""))
+    .map(f => (f as Extract<ServerMessage, { type: "status" }>).requestId).sort(), "DRAFT_QUEUE_CORRELATES_EXACT_ACCEPTED_REQUESTS").toEqual(["r-3", "r-4"]);
   expect((await h.call("/api/drafts/draft-a")).status).toBe(410);
   expect(await (await h.call("/api/drafts/draft-b")).json()).toMatchObject({ revision: 1, sessionId: "voyage-2" });
   h.held.release();

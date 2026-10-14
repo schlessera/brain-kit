@@ -1,3 +1,6 @@
+import { createFixtureMaintenanceHost } from "../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { installFixtureNativeStartupViews } from "../packages/ui-server/tests/helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
 /**
  * The sandbox note is one text, generated once per worker from its resolved
  * sandbox, and both backends hand the agent exactly that text (#1654). The
@@ -23,6 +26,7 @@ import { sendPipe } from "../packages/ui-backend-pi/src/worker-protocol.js";
 
 const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false, turnTemp: true };
 let root: string, brain: string, home: string;
+let maintenance: ReturnType<typeof createFixtureMaintenanceHost>;
 const restore: Array<() => void> = [];
 
 beforeEach(() => {
@@ -33,6 +37,7 @@ beforeEach(() => {
   mkdirSync(join(brain, ".brain/scratch"), { recursive: true }); mkdirSync(join(brain, "workspaces")); mkdirSync(home);
   writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
   writeFileSync(join(brain, "ithaca.md"), "# Ithaca\n");
+  maintenance = createFixtureMaintenanceHost(brain);
   for (const [key, value] of [["HOME", home], ["PI_CODING_AGENT_DIR", join(root, "agent")]] as const) {
     const previous = process.env[key];
     process.env[key] = value;
@@ -41,19 +46,21 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const undo of restore.splice(0)) undo();
+  maintenance.cleanup();
   rmSync(root, { recursive: true, force: true });
 });
 
 /** The note for this brain and home, from the generator itself. */
 function expectedNote(extra: worker.WorkerNoteLimit[] = [], sandbox?: worker.WorkerSandbox): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
-  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { home });
+  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { home, maintenance });
   return [worker.workerSandboxNote(resolved,
     { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] }),
     worker.workerCommandPolicyNote(resolved.commandPolicy, []), worker.workerOutwardNote()].filter(Boolean).join("\n\n");
 }
 
 function claudeAppend(sandbox?: worker.WorkerSandbox): string {
+  sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
   const { options } = createClaudeSdkTurn({
     backend: { brainPath: brain } as never,
     req: { ...(sandbox ? { workerSandbox: sandbox } : {}), prompt: "Return to Ithaca", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
@@ -69,6 +76,7 @@ function claudeAppend(sandbox?: worker.WorkerSandbox): string {
 
 /** The note pi's server side sends its worker, captured at the launch it would have made. */
 async function piInitNote(sandbox?: worker.WorkerSandbox): Promise<string> {
+  sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
   let received: { sandboxNote?: string } | undefined;
   const stops: Array<() => void> = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
@@ -89,7 +97,7 @@ async function piInitNote(sandbox?: worker.WorkerSandbox): Promise<string> {
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });
-    await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps, ...(sandbox ? { workerSandbox: sandbox } : {}) });
+    await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps, workerStartupView: maintenance.startupView, ...(sandbox ? { workerSandbox: sandbox } : {}) });
     expect(launch).toHaveBeenCalledTimes(1);
   } finally {
     for (const stop of stops) stop();
@@ -142,7 +150,7 @@ test("a read-only refusal from the brain CLI repeats the note's rules", () => {
 
 
 test("governed notes reflect admitted host history and exactly the resolved protection, identically in Claude and pi", async () => {
-  const sandbox = { ...worker.prepareWorkerSandbox(brain, { home }), profile: "governed" as const,
+  const sandbox = { ...worker.prepareWorkerSandbox(brain, { home, maintenance }), profile: "governed" as const,
     protection: { paths: [{ rel: "context/policies", reason: "governance rules", mode: "read_only" as const }], ancestors: [] },
     noteFacts: { history: { journal: true, userRevert: true } } };
   const note = worker.workerSandboxNote(sandbox);

@@ -1,3 +1,5 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -23,7 +25,7 @@ import { createPushSender } from "../src/activity/push-sender.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { isCompletedAutonomousToolCall, type AgentBackend, type InboxActionItem, type InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
@@ -186,7 +188,7 @@ test("populated image restores all logical tables, staging, principals and settl
 test("restored resolution replay mints no second follow-up and a fixture dispatch cannot repeat a completed write", async () => {
   const f = await world();
   expect(f.store.exportState().inbox_completed_tool_calls).toHaveLength(1);
-  const snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(target, "ui.sqlite");
+  const snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(directory(), "ui.sqlite");
   await restoreInboxSnapshot(snapshot, path, target, AT);
   const db = connect(path), store = createInboxStore(db), resolved = f.records.get("resolved")!;
   const resolver = createInboxResolver(db, { allowedOperations: () => [operation] });
@@ -205,7 +207,8 @@ test("restored resolution replay mints no second follow-up and a fixture dispatc
   const at = AT + 60_000;
   const budget = createInboxBudget(db, { config, pricing, now: () => at });
   expect(budget.claim(id, { runId: "restored-run", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "retry" }, at + 600_000)).not.toBeNull();
-  await runAutonomousTurn({ db, store: createActivityStore(db), backend, checkpoint() {} }, { turnId: "restored-run", principalId: f.principal.id, prompt: "Inspect the recovered harbor", billingMode: "subscription", allowedTools: ["write"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
+  const native = createNativeAppFixture(target); cleanup.push(native.close);
+  await runAutonomousTurn({ brainPath: target, nativeManager: createNativeBrainManagerClient(native.nativeBrain), db, store: createActivityStore(db), backend, checkpoint() {} }, { turnId: "restored-run", principalId: f.principal.id, prompt: "Inspect the recovered harbor", billingMode: "subscription", allowedTools: ["write"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   expect(starts).toBe(1); expect(writes).toBe(0); expect(existsSync(join(target, "duplicate-effect.md"))).toBe(false);
   expect(store.exportState().inbox_resolutions).toHaveLength(1);
 });

@@ -1,7 +1,8 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, WORKER_SCRATCH, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
+import { prepareWorkerSandbox, WORKER_SCRATCH, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempTool, createTurnTempPressureHook } from "../packages/ui-backend-claude/src/turn-temp-tool";
 import { createSessionResources } from "../packages/ui-backend-pi/src/session-resources";
 import { createBrainAccess } from "../packages/ui-backend-pi/src/brain-access";

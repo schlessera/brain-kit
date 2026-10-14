@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { WorkerStateError, workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
+import * as nativeLeases from "../src/brain/native-brain-leases.js";
 import { hostExecution } from "../src/brain/host-boundary";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { INBOX_DISPATCH_FIXTURE } from "../src/inbox/dispatch-fixture";
@@ -33,12 +34,16 @@ function runAs(uid: number, euid = uid) {
   for (const spy of uids) spy.mockRestore();
   uids = [spyOn(process, "getuid").mockReturnValue(uid), spyOn(process, "geteuid").mockReturnValue(euid)];
 }
+let nativeOwnership: ReturnType<typeof spyOn<typeof nativeLeases, "createNativeBrainLeaseManager">>;
 let maintenanceProbe: ReturnType<typeof spyOn<typeof hostExecution, "maintenanceProbe">>;
 // This file characterizes status/uid observations with synthetic OS identity.
 // Do not apply that identity to a real filesystem admission; actual native
 // maintenance qualification and busy recovery are proved in runtime tests.
-beforeEach(() => { runAs(1000); maintenanceProbe = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: true }); });
-afterEach(() => maintenanceProbe.mockRestore());
+beforeEach(() => {
+  nativeOwnership = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async client => ({ client,
+    async recoverDeadOwners() { return { released: [], retainedLive: 0, retainedUnverifiable: 0, unknown: [] }; }, async close() {} }));
+  runAs(1000); maintenanceProbe = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: true }); });
+afterEach(() => { maintenanceProbe.mockRestore(); nativeOwnership.mockRestore(); });
 afterEach(() => { for (const spy of uids) spy.mockRestore(); uids = []; });
 
 describe("boot probe", () => {
@@ -53,7 +58,7 @@ describe("boot probe", () => {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) },
         // #1648: governed cannot run either, and with no turn able to change the brain its code stays on the host.
-        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "host", profile: "strict", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "startup" }, limits: expect.any(Object) });
+        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "worker", profile: "strict", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "startup" }, limits: expect.any(Object) });
       const warnings = observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes(FRESH_PROC));
       expect(warnings).toHaveLength(1);
       expect(String(warnings[0]!.body)).toContain("The server keeps running");

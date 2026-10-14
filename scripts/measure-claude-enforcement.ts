@@ -13,6 +13,7 @@ import { resetRtkProbe } from "../packages/ui-sdk/src/server/rtk.js";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 import { resultText, scriptedModel } from "./measure-claude-runtime";
+import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 
 const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
 const { query } = await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk");
@@ -63,6 +64,7 @@ try {
       let matchingHooks: string[] = [];
       const controller = new AbortController();
       const deadline = setTimeout(() => controller.abort(), 20_000);
+      const worker = createMeasurementWorkerFixture(cwd, home);
       try {
         const observedQuery: typeof query = (params) => {
           const options = params.options!;
@@ -105,14 +107,15 @@ try {
         const profile: InferenceProfile = { id: "probe", label: "Probe", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
           buildEnv: () => ({ ...CLEARED_API_CREDENTIALS, ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
-        const backend = createClaudeBackend({ brainPath: cwd, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
-        await backend.startTurn({ prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: scenario !== "manual-default",
+        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
+        await backend.startTurn({ ...worker.request, prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: scenario !== "manual-default",
           bridge: { emit: () => {}, requestPermission: async (request) => {
             requests.push(request);
             return arm === "approved" ? { behavior: "allow", updatedInput: request.input } : { behavior: "deny", message: denial };
           } } });
       } catch (e) { error = e instanceof Error ? e.message : String(e); }
       finally {
+        worker.cleanup();
         clearTimeout(deadline);
         for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
         Object.assign(process.env, saved);

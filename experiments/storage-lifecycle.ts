@@ -1,3 +1,4 @@
+import { createNativeJournalFixture } from "../packages/ui-server/tests/helpers/native-journal-fixture.js";
 /** Manual, offline #1781 measurement. Only generated temporary stores are mutated. */
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
@@ -33,6 +34,7 @@ const selected = join(brain, "attachments", "voyage.pdf"), changed = join(brain,
 const dbPath = join(root, "ui.sqlite");
 let db: ReturnType<typeof createUiDb> | undefined;
 let journal: ReturnType<typeof createTurnJournal> | undefined;
+const native = createNativeJournalFixture(brain,root);
 try {
   writeFileSync(selected, pdf); writeFileSync(changed, pdf);
   writeFileSync(join(brain, "voyage.md"), "# Odysseus\n[Voyage](attachments/voyage.pdf)\n");
@@ -43,8 +45,8 @@ try {
   git(root, "clone", "--bare", "--no-hardlinks", brain, remote);
   const blob = git(brain, "rev-parse", "HEAD:attachments/voyage.pdf");
   db = createUiDb(dbPath);
-  journal = createTurnJournal(db, { brainPath: brain, dbPath, objectsRoot: objects });
-  journal.begin("voyage-removal", { sessionId: "odysseus", actor: "user", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: objects });
+  await journal.begin("voyage-removal", { sessionId: "odysseus", actor: "user", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   const snapshot = () => ({ pdfCount: [selected, changed].filter(existsSync).length,
     pdfBytes: [selected, changed].filter(existsSync).reduce((sum, p) => sum + lstatSync(p).size, 0),
     attachmentAllocated: allocated(join(brain, "attachments")), gitAllocated: allocated(join(brain, ".git")),
@@ -54,7 +56,7 @@ try {
   const changedSincePreview = hash(await Bun.file(changed).bytes()) !== previewHash;
   assert(changedSincePreview);
   // This demonstrates byte lifecycle, not a supported storage-removal API.
-  rmSync(selected); journal.finish("voyage-removal");
+  rmSync(selected); await journal.finish("voyage-removal");
   git(brain, "add", "attachments"); git(brain, "commit", "-m", "Odysseus removes one working-tree attachment");
   const afterRemoval = snapshot();
   const removal = journal.details("odysseus", "voyage-removal")!.changes.find(c => c.path === "attachments/voyage.pdf")!;
@@ -71,6 +73,7 @@ try {
   assert.equal(afterPacking.remoteAllocated, before.remoteAllocated);
   console.log(JSON.stringify({ bun: Bun.version, git: git(root, "--version"), date: "2026-07-12",
     before, afterRemoval, afterPacking, packed, changedSincePreview,
+    checkpointFixture: "test-only copied roots; no native Btrfs performance claim",
     journalBeforeBytes: retained.length, reachableBlobBytes: pdf.length,
     remoteChanged: false, referenceStillPresent: (await Bun.file(join(brain, "voyage.md")).text()).includes("attachments/voyage.pdf") }, null, 2));
-} finally { journal?.close(); db?.close(); rmSync(root, { recursive: true, force: true }); }
+} finally { await journal?.close(); await native.close(); db?.close(); rmSync(root, { recursive: true, force: true }); }

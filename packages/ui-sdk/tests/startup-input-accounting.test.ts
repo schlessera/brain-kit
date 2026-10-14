@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, openSync, writeSync, closeSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { prepareWorkerOutput } from "../src/server/worker-output.js";
+import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { text } from "node:stream/consumers";
 import { createOutputStagingStorage, launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
-import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 
 test("complete immutable inputs larger than output staging are not staged writes", async () => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-large-input-"));
@@ -16,10 +16,10 @@ test("complete immutable inputs larger than output staging are not staged writes
     const fd = openSync(join(brain, "node_modules", "odysseus-input.bin"), "wx");
     const chunk = Buffer.alloc(1024 * 1024, 0x61);
     try { for (let i = 0; i < 257; i++) writeSync(fd, chunk); } finally { closeSync(fd); }
+    mkdirSync(join(brain, ".brain", "scratch"), { recursive: true });
     view = createWorkerStartupView(brain);
     expect(view.root).toBeDefined();
-    mkdirSync(join(brain, ".brain", "scratch"), { recursive: true });
-    const worker = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"] }),
+    const worker = launchAgentWorker({ brainPath: brain, startupView: view, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], maintenance: { startupView: view } }),
       env: {}, command: ["/bin/sh", "-c", '/usr/bin/head -c1 node_modules/odysseus-input.bin; printf "Penelope strict output" > /tmp/brain-worker-areas/scratch/retained.txt'] });
     const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
     try {
@@ -77,9 +77,9 @@ test("copy-on-write output admission is separate from immutable input leases and
 test("abrupt server exit releases its immutable input copy and copy-on-write keeper", async () => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-server-lifetime-"));
   writeFileSync(join(brain, "helper.txt"), "Odysseus retained input");
-  const startupModule = new URL("../src/server/worker-startup-view.ts", import.meta.url).pathname;
+  const startupModule = new URL("./helpers/worker-startup-view-fixture.ts", import.meta.url).pathname;
   const stagingModule = new URL("../src/server/worker-launcher.ts", import.meta.url).pathname;
-  const source = `import {createWorkerStartupView} from ${JSON.stringify(startupModule)};
+  const source = `import {createFixtureWorkerStartupView as createWorkerStartupView} from ${JSON.stringify(startupModule)};
 import {createOutputStagingStorage} from ${JSON.stringify(stagingModule)};
 const view=createWorkerStartupView(${JSON.stringify(brain)});
 const storage=createOutputStagingStorage({allowanceBytes:4194304,budgetBytes:4194304},view.root);storage.retain();

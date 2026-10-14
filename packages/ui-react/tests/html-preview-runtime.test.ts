@@ -15,7 +15,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { generateSignedCookie } from "hono/cookie";
 import { chromium, type Browser, type BrowserContext, type Frame, type Page } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { createPrincipal } from "../../ui-server/src/db/principals.ts";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.ts";
 

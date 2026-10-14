@@ -44,7 +44,10 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
   async function acquire(
     req: StartTurnRequest
   ): Promise<{ entry: SessionEntry; isNew: boolean }> {
+    req.signal.throwIfAborted();
     const env: SessionEnv = {
+      workerSignal: req.signal,
+      ...(req.workerStartupView ? { workerStartupView: req.workerStartupView } : {}),
       ...(req.workerStarted ? { workerStarted: req.workerStarted } : {}),
       ...(req.workerSandbox ? { workerSandbox: req.workerSandbox } : {}),
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
@@ -63,6 +66,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       }
       // Not resident — reopen the transcript from disk.
       const opened = await runtime.openSession(req.sessionId, env);
+      if (req.signal.aborted) { disposeSession(opened.session); req.signal.throwIfAborted(); }
       // A concurrent turn for the same id may have registered it while we opened.
       const raced = sessions.get(req.sessionId);
       if (raced) {
@@ -78,6 +82,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
     }
 
     const created = await runtime.newSession(req.profileId, env);
+    if (req.signal.aborted) { disposeSession(created.session); req.signal.throwIfAborted(); }
     if (req.autonomous) return { entry: { ...created, running: true, ephemeral: true }, isNew: true };
     const existing = sessions.get(created.session.sessionId);
     if (existing) {

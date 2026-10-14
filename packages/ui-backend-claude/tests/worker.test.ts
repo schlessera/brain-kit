@@ -7,6 +7,8 @@ import { createClaudeBackend } from "../src/backend.js";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
 import { createClaudeWorkerState } from "../src/worker-state.js";
 import { createStateLedger } from "../src/worker-state-budget.js";
+import { createFixtureWorkerStartupView, prepareFixtureNativeWorkerOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import * as nativeOutput from "../../ui-sdk/src/server/worker-native-output.js";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 
 test("a failed host probe refuses before the SDK query/spawn is called", async () => {
@@ -80,10 +82,13 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
   const turnId = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", session = "33333333-3333-4333-8333-333333333333";
   const project = `projects/${realpathSync(brain).replace(/[^a-zA-Z0-9]/g, "-")}`;
   const records: unknown[] = [];
+  mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
+  const view = createFixtureWorkerStartupView(brain);
+  const outputSpy = spyOn(nativeOutput, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
   try {
-    const sandbox = prepareWorkerSandbox(brain, { home });
+    const sandbox = prepareWorkerSandbox(brain, { home, maintenance: { startupView: view } });
     const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined,
-      { turnId, report: found => records.push(...found), log: () => {} });
+      { turnId, report: found => records.push(...found), log: () => {} }, {}, undefined, undefined, view);
     const program = `import * as fs from "node:fs";
       fs.writeFileSync(process.env.BRAIN_WORKER_SCRATCH + "/report.pdf", "Odysseus: the voyage report.");
       const dir = process.env.CLAUDE_CONFIG_DIR + "/${project}";
@@ -93,7 +98,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
     const child = spawner.spawn({ command: process.execPath, args: ["-e", program], env: { CLAUDE_CONFIG_DIR: saved, HOME: home },
       signal: new AbortController().signal } as never);
     child.stdin.end();
-    const code = await new Promise(done => child.once("exit", done));
+    const code = await new Promise((done, reject) => { child.once("exit", done); child.once("error", reject); });
     await spawner.finish();
     expect(code).toBe(0);
     const destination = `.brain/scratch/turns/${turnId}/report.pdf`;
@@ -102,5 +107,33 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
     expect(transcript.message.content[0].text).toBe(`The report: [voyage](${destination}).`);
     expect(records).toEqual([{ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
       originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination }]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { await view.cleanup(); outputSpy.mockRestore(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a throwing worker-start callback kills and drains its real child before releasing state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-start-"));
+  const brain = join(root, "brain"), saved = join(root, "config"), home = join(root, "home");
+  mkdirSync(brain); mkdirSync(saved); mkdirSync(home); writeFileSync(join(saved, "settings.json"), "{}");
+  const ledger = createStateLedger(), exits: unknown[] = [], errors: string[] = [];
+  let worker: import("@schlessera/brain-ui-sdk/internal").LaunchedWorker | undefined;
+  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined,
+    { ledger, limits, turnTempLimits: { allowanceBytes: 1024 * 1024, budgetBytes: 1024 * 1024 } }, undefined,
+    started => { worker = started as import("@schlessera/brain-ui-sdk/internal").LaunchedWorker; throw Error("Odysseus scope freezer refused"); });
+  try {
+    const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "while :; do sleep 1; done"],
+      env: { CLAUDE_CONFIG_DIR: saved, HOME: home }, signal: new AbortController().signal } as never);
+    child.on("error", error => errors.push(error.message)); child.on("exit", (code, signal) => exits.push([code, signal]));
+    child.stdout.resume(); child.stdin.end();
+    await expect(spawner.finish()).rejects.toThrow("scope freezer refused");
+    expect(worker, "WORKER_START_CALLBACK_REACHED_REAL_CHILD").toBeDefined();
+    await worker!.exited;
+    expect(existsSync(`/proc/${worker!.pid}`), "WORKER_START_FAILURE_DRAINS_BEFORE_RELEASE").toBe(false);
+    expect(ledger.live, "WORKER_START_FAILURE_RELEASES_RESERVATION").toBe(0);
+    expect(errors).toEqual(["Odysseus scope freezer refused"]);
+    expect(exits).toEqual([[null, "SIGKILL"]]);
+  } finally {
+    worker?.kill("SIGKILL"); await worker?.exited.catch(() => {}); await spawner.finish().catch(() => {});
+    rmSync(root, { recursive: true, force: true });
+  }
 });

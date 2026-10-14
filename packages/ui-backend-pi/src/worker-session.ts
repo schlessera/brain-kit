@@ -9,7 +9,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger,
+import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -33,6 +33,7 @@ function grantedReadBasePath(granted: string): string | undefined {
 }
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
+  env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
   const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
@@ -65,6 +66,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const done = Promise.withResolvers<void>();
   // A rejection before prompt has no waiter yet; still retain it for prompt.
   void done.promise.catch(() => {});
+  void ready.promise.catch(() => {});
   const agentFiles: Record<string, string> = {};
   const agentDir = piSessionDirectory(backend.brainPath, getAgentDir());
   // A restricted autonomous turn copies no native state into the worker: no
@@ -74,7 +76,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerLock, workerStarted, ...workerSessionEnv } = env;
+  const { workerSandbox, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
@@ -98,6 +100,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   let child: ReturnType<typeof launchAgentWorker>;
+  let launchedChild: ReturnType<typeof launchAgentWorker> | undefined;
+  let preparedOutput: PreparedWorkerOutput | undefined;
   let sandboxNote: string;
   let sandbox: WorkerSandbox;
   // The worker's private /tmp, through the descriptor the server holds, so
@@ -117,14 +121,37 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
+    if (workerStartupView && sandbox.profile !== "governed" && sandbox.areas.some(area => area.mount.writable)) {
+      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), signal: workerSignal });
+    }
+    workerSignal?.throwIfAborted();
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
+      ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
+    launchedChild = child;
     turnTemp = child.turnTemp;
     turnContext.configurationRoot = child.configurationRoot;
     workerStarted?.(child);
-  } catch (error) { envelope?.relay.stop(); reservation.release(); throw error; }
+  } catch (error) {
+    // A post-launch callback can fail before the ordinary lifecycle handlers
+    // exist. Stop and drain this owned child before deleting its native stage.
+    const cleanupErrors: unknown[] = [];
+    const attempt = async (cleanup: () => unknown | Promise<unknown>) => { try { await cleanup(); } catch (failure) { cleanupErrors.push(failure); } };
+    if (launchedChild) {
+      await attempt(() => launchedChild!.kill("SIGKILL"));
+      await attempt(() => launchedChild!.exited);
+      await attempt(() => launchedChild!.turnTemp?.close());
+    }
+    await attempt(() => preparedOutput?.cleanup());
+    await attempt(() => envelope?.relay.stop());
+    await attempt(() => reservation.release());
+    if (cleanupErrors.length) {
+      try { backend.log?.("warn", `Pi startup cleanup retained failures after its original refusal: ${cleanupErrors.map(String).join("; ")}`); } catch { /* Reporting cannot replace the startup error. */ }
+    }
+    throw error;
+  }
   const held = reservation;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
   const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };
@@ -455,11 +482,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }).catch(fail);
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
+  const abortInitialization = () => fail(workerSignal?.reason ?? new DOMException("Pi worker initialization cancelled", "AbortError"));
+  workerSignal?.addEventListener("abort", abortInitialization, { once: true });
   try {
+    workerSignal?.throwIfAborted();
     send({ ...init, sandboxNote });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }
+  finally { workerSignal?.removeEventListener("abort", abortInitialization); }
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
     sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },

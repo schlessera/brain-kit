@@ -1,3 +1,5 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { replaceNativeStartupAcquisitionForFixture } from "../helpers/fixture-native-startup.js";
 import type { AgentBackend, InboxActionItem, InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -7,7 +9,7 @@ import { runAutonomousTurn } from "../../src/inbox/autonomous-turn.js";
 import { escalateInbox } from "../../src/inbox/escalate.js";
 
 const [path, fixture, ready, mode] = process.argv.slice(2);
-const input = JSON.parse(readFileSync(fixture!, "utf8")) as { principalId: string; action: InboxActionItem; operation: InboxOperation; stagingId: string };
+const input = JSON.parse(readFileSync(fixture!, "utf8")) as { principalId: string; action: InboxActionItem; operation: InboxOperation; stagingId: string; brainPath: string; nativeBrain: Parameters<typeof createNativeBrainManagerClient>[0] };
 const db = createUiDb(path!), activity = createActivityStore(db, { writer: "unwind-fixture" });
 const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
   req.bridge.activity!({ kind: "autonomous_identity", runtimeSessionId: "ephemeral", backendId: "fixture" });
@@ -32,7 +34,9 @@ const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true,
   await new Promise<void>(() => {});
 } };
 
-await runAutonomousTurn({ db, store: activity, backend, checkpoint: escalation => {
-  escalateInbox(db, { itemId: "share", expectedVersion: 2, escalation, action: input.action, allowedOperations: [input.operation] });
-} }, { turnId: "run", principalId: input.principalId, prompt: "Inspect Odysseus's harbor", billingMode: "api", allowedTools: ["read"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
-db.close();
+const restore = replaceNativeStartupAcquisitionForFixture();
+try {
+  await runAutonomousTurn({ brainPath: input.brainPath, nativeManager: createNativeBrainManagerClient(input.nativeBrain), db, store: activity, backend, checkpoint: escalation => {
+    escalateInbox(db, { itemId: "share", expectedVersion: 2, escalation, action: input.action, allowedOperations: [input.operation] });
+  } }, { turnId: "run", principalId: input.principalId, prompt: "Inspect Odysseus's harbor", billingMode: "api", allowedTools: ["read"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
+} finally { restore(); db.close(); }

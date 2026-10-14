@@ -13,7 +13,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker } from "../../packages/ui-sdk/src/server/worker-launcher";
+import { launchFixtureAgentWorker as launchAgentWorker } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { formatLimit, workerLimitsPlan } from "../../packages/ui-sdk/src/server/worker-limits";
 
 const [root, claude, chromium] = process.argv.slice(2) as [string, string, string | undefined];

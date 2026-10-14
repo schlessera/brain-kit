@@ -103,7 +103,7 @@ test("an actual writer crash after object publication keeps bytes charged and re
     const root=process.argv[1],db=createUiDb(root+"/ui.db"),ledger=createJournalAccounting(db,root+"/ui.db");
     const objects=createJournalObjects(root+"/objects",{reserve(bytes,hash){const real=ledger.reserve(bytes,hash);return {...real,finish(){throw new Error("Fixture interruption after publication")}}}});
     writeFileSync(root+"/source","Ithaca");
-    try{objects.putFile(openSync(root+"/source","r"),6)}catch(error){if(!String(error).includes("Fixture interruption"))throw error}
+    try{await objects.putFileAsync(openSync(root+"/source","r"),6)}catch(error){if(!String(error).includes("Fixture interruption"))throw error}
     writeFileSync(root+"/committed","yes");
     process.kill(process.pid,"SIGKILL");
   `;

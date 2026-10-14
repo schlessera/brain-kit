@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Disposable fictional project. No SDK query or provider transport. */
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,8 +79,9 @@ export async function fixtureTurn(root: string, prompt: string, posture: "normal
     getLocation: never, requestMask: never, queryActivity: never,
     inboxList: never, inboxGet: never, inboxAdd: never, resolveAction: never, ...control?.bridge };
   const abortController = new AbortController();
+  const startupView = createFixtureWorkerStartupView(root);
   const req: StartTurnRequest = {
-    prompt, attachments, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",
+    workerStartupView: startupView, prompt, attachments, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",
     enforceAllowedTools: posture !== "normal", signal: abortController.signal,
     ...(posture === "autonomous" ? { autonomous: { origin: "autonomous" as const, persistence: "none" as const, allowedTools: ["Read"], systemPromptAppend: "Use only the server-authorized tools." } } : {}),
   };
@@ -100,6 +102,7 @@ export async function fixtureTurn(root: string, prompt: string, posture: "normal
     await peer.client.close(); await server.instance.close();
     const original = turn.options.mcpServers?.["brain-ui"];
     if (original?.type === "sdk") await original.instance.close();
+    await turn.finishWorker(); await inventoryTurn.finishWorker(); startupView.cleanup();
   } };
 }
 

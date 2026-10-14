@@ -1,3 +1,4 @@
+import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 /**
  * A mask beside an image in the scratch area (#310) lands in scratch too,
  * and is held to its rules: git must exclude the directory, a symlinked
@@ -22,11 +23,11 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
 import {
-  assertScratchMask,
+  assertScratchMask as productionAssertScratchMask,
   claudeMaskFilename,
   claudeReportedMaskPath,
   handleRequestImageMask,
-  writeScratchMask,
+  writeScratchMask as productionWriteScratchMask,
 } from "../src/server/bridge-tools/mask";
 import type { BackendBridge } from "../src/server/backend";
 
@@ -59,12 +60,14 @@ function bridgeWith(pruned: number[]): BackendBridge {
   } as unknown as BackendBridge;
 }
 
-const mask = (imagePath: string, bridge: BackendBridge = bridgeWith([])) =>
-  handleRequestImageMask(
+const mask = async (imagePath: string, bridge: BackendBridge = bridgeWith([])) => {
+  const maintenance = createFixtureMaintenanceHost(root);
+  try { return await handleRequestImageMask(
     { imagePath, instruction: "the sky" },
     bridge,
-    { brainPath: root, maskFilename: claudeMaskFilename, reportMaskPath: claudeReportedMaskPath }
-  );
+    { brainPath: root, maskFilename: claudeMaskFilename, reportMaskPath: claudeReportedMaskPath, maintenance }
+  ); } finally { maintenance.cleanup(); }
+};
 
 describe("request_image_mask into scratch", () => {
   test("nested scratch targets retain bytes, exact replacement mode, reporting and one prune", async () => {
@@ -227,3 +230,14 @@ describe("request_image_mask into scratch", () => {
     expect(() => assertScratchMask(rootReal, `${SCRATCH}/draft-mask.png`, target)).toThrow(/not gitignored/);
   });
 });
+
+function assertScratchMask(...args: Parameters<typeof productionAssertScratchMask>) {
+  const maintenance = createFixtureMaintenanceHost(args[0]);
+  try { return productionAssertScratchMask(args[0], args[1], args[2], maintenance); }
+  finally { maintenance.cleanup(); }
+}
+function writeScratchMask(...args: Parameters<typeof productionWriteScratchMask>) {
+  const maintenance = createFixtureMaintenanceHost(args[0]);
+  try { return productionWriteScratchMask(args[0], args[1], args[2], maintenance); }
+  finally { maintenance.cleanup(); }
+}

@@ -23,14 +23,14 @@ function unsupported() {
   probe = spyOn(workerHostBoundary, "probe").mockReturnValue({ ok: false, requirement: "unprivileged user namespaces are disabled" });
 }
 
-function setup() {
+function setup(backendId = "claude", governedTurns?: ConstructorParameters<typeof WsHost>[0]["governedTurns"]) {
   const db = createUiDb(":memory:");
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const authorization = testAuthorization(principal.id);
   const store = createActivityStore(db, { writer: "worker-host-test" });
   const runtime = createRuntimeStatus();
   let starts = 0;
-  const backend = makeFakeBackend({ id: "claude", capabilities: { autonomous: true, restrictedAutonomous: true },
+  const backend = makeFakeBackend({ id: backendId, capabilities: { autonomous: true, restrictedAutonomous: true },
     histories: { source: [{ role: "user", content: "Odysseus fixture", toolCalls: [] }] }, startTurn: async request => {
     starts++;
     request.bridge.emit({ type: "session_info", sessionId: "should-never-exist", isNew: true });
@@ -38,7 +38,7 @@ function setup() {
   const catalog = createSessionCatalog(() => db);
   const frames: ServerMessage[] = [];
   const ws = { send: (data: string) => { frames.push(JSON.parse(data)); } };
-  const host = new WsHost({ brainPath: process.cwd(), registry: createStaticBackendRegistry([backend], backend.id), catalog,
+  const host = new WsHost({ brainPath: process.cwd(), registry: createStaticBackendRegistry([backend], backend.id), catalog, governedTurns,
     activity: { store, stream: { pump() {} } as never, runtime } });
   host.clients.add(ws, principal.id);
   return { db, principal, authorization, store, runtime, backend, catalog, frames, ws, host, starts: () => starts,
@@ -61,6 +61,19 @@ function recordedRefusal(f: ReturnType<typeof setup>, mode: "ordinary" | "restri
 }
 
 describe("pre-initialization worker host gate", () => {
+  test("Pi voice refusal precedes native maintenance admission while retaining the host gate", async () => {
+    let admissions = 0;
+    const f = setup("pi", { async begin() { admissions++; throw new Error("native admission must not start"); } } as never);
+    probe = spyOn(workerHostBoundary, "probe").mockReturnValue({ ok: true });
+    try {
+      await runSession(f.host, { authorization: f.authorization, text: "Odysseus voice", attachments: [],
+        work: { posture: "voice", started() {}, settle() {} } as never });
+      expect(admissions, "PI_VOICE_REFUSAL_PRECEDES_NATIVE_WORKERS").toBe(0);
+      noRuntime(f); expect(probe).toHaveBeenCalledTimes(1);
+      expect(f.frames).toContainEqual(expect.objectContaining({ type: "error", code: "BACKEND_REQUEST_ERROR",
+        message: expect.stringContaining("pi backend declares no voice tool posture") }));
+    } finally { f.cleanup(); }
+  });
   test("an exception in the host probe keeps the same visible supported-host refusal", async () => {
     const f = setup();
     probe = spyOn(workerHostBoundary, "probe").mockImplementation(() => { throw new Error("unprivileged user namespaces are disabled"); });

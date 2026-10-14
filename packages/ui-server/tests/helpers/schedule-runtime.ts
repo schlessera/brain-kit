@@ -4,6 +4,8 @@
  * fake clock. Shared by the in-process tests and the crash workers.
  */
 import type { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentBackend, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 
 import { createActivityStore } from "../../src/activity/store.js";
@@ -11,6 +13,10 @@ import { createInboxRuntime } from "../../src/inbox/runtime.js";
 import { createScheduleAdmission, type AdmissionTimers } from "../../src/schedules/admission.js";
 import { createScheduleService, type ExecutionPolicy } from "../../src/schedules/service.js";
 import { POLICY } from "./schedule-fixture.js";
+import { createNativeJournalFixture } from "./native-journal-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "./fixture-native-startup.js";
+import { createHostBoundary } from "../../src/brain/host-boundary.js";
+import { boundaryPlanner } from "../../src/brain/application.js";
 
 export type Script = (request: StartTurnRequest, attempt: number) => Promise<void>;
 
@@ -60,12 +66,17 @@ export function scheduleRuntime(db: Database, options: {
   pricingRoute?: "openrouter" | "direct";
 }) {
   const now = () => options.clock.now;
+  const state = mkdtempSync(join(dirname(options.root), "native-schedule-fixture-"));
+  const native = createNativeJournalFixture(options.root, state);
+  const restore = replaceNativeStartupAcquisitionForFixture();
   const service = createScheduleService(db, { brainRoot: options.root, now, executionPolicy: options.policy ?? (() => POLICY),
     gitIgnored: () => false, dispatchAvailable: () => true });
   const { backend, calls } = scriptedBackend(options.script);
   const activity = createActivityStore(db, { writer: "schedule-runtime-test" });
   const admission = createScheduleAdmission(db, {
-    service, backend, now, store: activity, timers: options.timers ?? manualTimers().timers,
+    service, backend, now, store: activity, nativeManager: native.client, brainPath: options.root,
+    applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: options.root, nativeManager: native.client })),
+    timers: options.timers ?? manualTimers().timers,
     operation: () => ({ model: "fixture", billingMode: "subscription", ...(options.pricingRoute ? { pricingRoute: options.pricingRoute } : {}) }),
     allowedTools: options.allowedTools ?? ((definition) => definition.scope.tools.map((tool) => tool.name)),
   });
@@ -78,5 +89,12 @@ export function scheduleRuntime(db: Database, options: {
     // The hook runs after the Queue claim committed and before the start transaction.
     dispatch: async (item, signal) => { await options.afterClaim?.(); return admission.dispatch(item, signal); },
   });
-  return { service, admission, runtime, backend, calls, activity };
+  let closing: Promise<void> | undefined;
+  return { service, admission, runtime, backend, calls, activity,
+    close() { return closing ??= (async () => {
+      try { await runtime.close(); } finally {
+        try { await native.close(); } finally { restore(); rmSync(state, { recursive: true, force: true }); }
+      }
+    })(); },
+  };
 }

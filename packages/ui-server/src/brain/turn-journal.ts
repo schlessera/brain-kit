@@ -3,13 +3,16 @@ import type { Database } from "bun:sqlite";
 import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
-import { createJournalWalker, type JournalSnapshot, type JournalSnapshotEntry } from "./journal-snapshot.js";
+import type { JournalSnapshotEntry } from "./journal-snapshot.js";
+import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
+import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
-import { journalSteeringInputs } from "./journal-steering.js";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
+  ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
 type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
@@ -20,6 +23,7 @@ const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(ent
 
 export function createTurnJournal(db: Database, options: {
   brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
+  nativeManager: NativeJournalManager;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
 }) {
   const now = options.now ?? Date.now;
@@ -29,13 +33,55 @@ export function createTurnJournal(db: Database, options: {
   for (const row of db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[]) {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
-  const active = new Map<string, { walker: ReturnType<typeof createJournalWalker>; previous: JournalSnapshot; stop: (error: Error) => void; sequence: number }>();
+  const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number }>();
+  const capture = createNativeJournalCapture(options.nativeManager, async (source, bytes) => {
+    const hash = await retainAsync(() => objects.putFileAsync(source, bytes));
+    // Pin the shared observation before another admission can collect objects.
+    retain(() => accounting.write(() => {
+      for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
+    }));
+    return hash;
+  });
+  let tail: Promise<unknown> = Promise.resolve();
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const work = tail.then(operation);
+    tail = work.catch(() => {});
+    return work;
+  }
+  async function retainAsync<T>(operation: () => Promise<T>): Promise<T> {
+    for (;;) {
+      try { return await operation(); }
+      catch (error) { if (!(error instanceof JournalCapacityError) || !collectOne()) throw error; }
+    }
+  }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
   const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
   let scopeTimer: ReturnType<typeof setInterval> | undefined;
+  let holds = 0;
+  let observationFailures = 0;
+  function held<T>(operation: () => Promise<T>, admission = false): Promise<T> {
+    // Backend event emission is synchronous: establish the hold before yielding
+    // or queueing so a provider cannot launch another tool past this boundary.
+    const holders = [...periodicObservers];
+    holds++;
+    let acquired = 0;
+    try { for (const holder of holders) { acquired++; holder.before(); } }
+    catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false); return Promise.reject(error); }
+    return serialize(async () => {
+      let completed = false;
+      const failedBefore = observationFailures;
+      try { const result = await operation(); completed = true; return result; }
+      finally {
+        // A cancelled/refused new admission made no worker writes. Existing
+        // participants resume when their shared observation itself succeeded.
+        const safe = completed || admission && observationFailures === failedBefore;
+        holds--; for (const holder of holders) holder.after(safe);
+      }
+    });
+  }
   function fail(turnId: string, error: unknown) {
     const reason = error instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
     failures.set(turnId, reason);
@@ -112,30 +158,28 @@ export function createTurnJournal(db: Database, options: {
     if (entry?.hash) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
   }
 
-  function observe(userPolicy: boolean = false): void {
+  async function observe(userPolicy: boolean = false): Promise<void> {
     releaseReads();
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
-    const missing = new Map<string, { path: string; reason: string }[]>();
-    const snapshots: JournalSnapshot[] = [];
-    for (const [turnId, turn] of active) {
-      const snapshot = turn.walker.observe();
-      snapshots.push(turn.previous, snapshot);
-      const before = new Map(turn.previous.entries.map(entry => [entry.path, entry]));
-      const after = new Map(snapshot.entries.map(entry => [entry.path, entry]));
-      const uncertain = new Set(snapshot.missing.map(entry => entry.path));
-      for (const path of new Set([...before.keys(), ...after.keys()])) {
-        if ([...uncertain].some(parent => path === parent || path.startsWith(`${parent}/`))) continue;
-        if (identity(before.get(path)) === identity(after.get(path))) continue;
-        const item = { path, scope: after.get(path)?.scope ?? before.get(path)?.scope ?? "", before: version(before.get(path)), after: version(after.get(path)) };
-        changed.set(JSON.stringify(item), item);
+    const stopActive = (error: unknown) => {
+      for (const [id, turn] of active) {
+        // One failed notification must not leave another participant running.
+        try { fail(id, error); } catch { /* Existing partial slot remains authoritative. */ }
+        try { turn.stop(error instanceof Error ? error : new Error(String(error))); } catch { /* Continue stopping every participant. */ }
       }
-      turn.previous = snapshot;
-      if (snapshot.missing.length) missing.set(turnId, snapshot.missing);
-    }
-    const steering = journalSteeringInputs(snapshots, objects.read);
-    for (const [turnId, turn] of active) {
-      try {
+    };
+    let observation: Awaited<ReturnType<typeof capture.observe>>;
+    try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy]))); }
+    catch (error) { observationFailures++; const failure = storageError(error); stopActive(failure); throw failure; }
+    try {
+      for (const changes of observation.changes.values()) for (const item of changes) {
+        if (identity(item.before) === identity(item.after)) continue;
+        const value = { path: item.path, scope: item.after?.scope ?? item.before?.scope ?? "", before: version(item.before), after: version(item.after) };
+        changed.set(JSON.stringify(value), value);
+      }
+      const steering = observation.steering;
+      for (const [turnId, turn] of active) {
         const metadata = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
         const taint = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
           .get(turnId, metadata.session_id, metadata.session_id) as { id: number } | null;
@@ -165,19 +209,22 @@ export function createTurnJournal(db: Database, options: {
               .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
-          const failures = missing.get(turnId) ?? [];
-          if (failures.length) db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify(failures), turnId);
         }));
-        if (missing.has(turnId)) turn.stop(missing.get(turnId)!.some(item => item.reason === "journal_capacity")
-          ? new JournalCapacityError() : new JournalStorageUnavailable("some observed paths could not be retained"));
-      } catch (error) { fail(turnId, error); turn.stop(error instanceof Error ? error : new Error(String(error))); throw error; }
-      publish(turnId);
-      const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
+        publish(turnId);
+        const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
         coalesce(sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND
           (json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash') OR json_extract(after_json,'$.ignored')=1)
           THEN json_extract(after_json,'$.bytes') ELSE 0 END),0) AS observedBytes
         FROM turn_journal_changes WHERE turn_id=?`).get(turnId) as { changedPaths: number; observedBytes: number };
-      for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
+      }
+      await observation.commit();
+    } catch (error) {
+      observationFailures++;
+      const failure = storageError(error);
+      stopActive(failure);
+      await observation.abort().catch(() => {});
+      throw failure;
     }
   }
   return {
@@ -186,44 +233,28 @@ export function createTurnJournal(db: Database, options: {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void) {
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal) { return held(async () => {
+      signal?.throwIfAborted();
+      try { await capture.initialize(signal); }
+      catch (error) { if (signal?.aborted) throw error; throw storageError(error); }
       for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
-      observe();
+      await observe();
+      signal?.throwIfAborted();
       const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
       for (const row of expired) expire(row.turn_id, true);
       retain(() => accounting.write(() => {
         db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL")
           .run(turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now());
       }));
-      const captureObjects = { has: objects.has, putFile(fd: number, bytes: number) {
-        const hash = retain(() => objects.putFile(fd, bytes));
-        retain(() => accounting.write(() => db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash)));
-        return hash;
-      } };
       try {
-      const walker = createJournalWalker(options.brainPath, captureObjects, metadata.coveredPaths);
-      let snapshot: JournalSnapshot;
-      snapshot = walker.begin();
-      if (snapshot.missing.length) {
-        const message = `initial snapshot incomplete (${snapshot.missing.map(item => `${item.path}: ${item.reason}`).join(", ")})`;
-        throw snapshot.missing.some(item => item.reason === "journal_capacity") ? new JournalCapacityError(message) : new JournalStorageUnavailable(message);
-      }
-      retain(() => accounting.write(() => {
-        db.query("INSERT INTO turn_journal_manifests VALUES (?,?)").run(turnId, JSON.stringify(snapshot));
-        for (const entry of snapshot.entries) pin(turnId, version(entry));
-      }));
-      active.set(turnId, { walker, previous: snapshot, stop, sequence: 0 }); publish(turnId);
+      const policy = await capture.policy(metadata.coveredPaths);
+      signal?.throwIfAborted();
+      active.set(turnId, { policy, stop, sequence: 0 }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          let completed = false;
-          try {
-            for (const observer of periodicObservers) observer.before();
-            observe(); completed = true;
-          } catch (error) {
+          void held(() => observe()).catch(error => {
             for (const [id, turn] of active) { fail(id, error); turn.stop(error instanceof Error ? error : new Error(String(error))); }
-          } finally {
-            for (const observer of periodicObservers) observer.after(completed);
-          }
+          });
         }, 15_000);
         scopeTimer.unref?.();
       }
@@ -233,26 +264,28 @@ export function createTurnJournal(db: Database, options: {
         try { finalizeRefusedAdmission(turnId); } catch { /* finish/next admission retries without reviving the worker. */ }
         publish(turnId);
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
-          ? error : new JournalStorageUnavailable("initial snapshot could not be recorded");
+          ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
       }
-    },
+    }, true); },
     bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
-    observe(): void { observe(); },
+    observe(): Promise<void> { return held(() => observe()); },
+    isHeld(): boolean { return holds > 0; },
+    async idle(): Promise<void> { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     /** @internal Only the authenticated history service selects generated sibling coverage. */
     coverPaths(turnId: string, paths: readonly string[]): void {
       const turn=active.get(turnId); if(!turn)throw new JournalStorageUnavailable("history coverage requires an active observation window");
-      turn.walker.cover(paths);
+      turn.policy.cover(paths);
     },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
-    observeUserPolicy(turnId: string, approvedWrite: () => void): void {
+    observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void> { return held(async () => {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");
-      observe();
+      await observe();
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
-      try { approvedWrite(); } finally { observe(true); }
-    },
-    finish(turnId: string) {
+      try { approvedWrite(); } finally { await observe(true); }
+    }); },
+    finish(turnId: string) { return held(async () => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) finalizeRefusedAdmission(turnId); return; }
-      try { observe(); }
+      try { await observe(); }
       finally {
         active.delete(turnId);
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
@@ -264,7 +297,7 @@ export function createTurnJournal(db: Database, options: {
         });
         collectObjects(); publish(turnId);
       }
-    },
+    }); },
     /** All operation metadata uses the journal's existing physical allocation owner. */
     writeOperation<T>(write: () => T): T { return accounting.write(write); },
     reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]) {
@@ -315,7 +348,7 @@ export function createTurnJournal(db: Database, options: {
         try { return objects.stream(selected.hash!, release); } catch (error) { release(); throw error; }
       } };
     },
-    close() { clearInterval(scopeTimer); objects.close(); },
+    async close() { clearInterval(scopeTimer); try { await tail; await capture.close(); } finally { objects.close(); } },
   };
 }
 

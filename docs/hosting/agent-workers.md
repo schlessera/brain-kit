@@ -689,7 +689,7 @@ each was rejected are in the
 | Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
 | Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |
 | Mount the worker's fresh `/proc` | "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths; in Docker, run the container with --security-opt systempaths=unconfined" | `--security-opt systempaths=unconfined`. Inside a user namespace the kernel mounts a new procfs only when the parent `/proc` has no covered paths, and Docker covers several by default. No other option fixes this step. |
-| (AppArmor hosts) mounts inside the namespace | Not measured. Docker's `docker-default` profile contains `deny mount`. | `--security-opt apparmor=unconfined`, or an AppArmor profile that allows the worker's mounts. |
+| (AppArmor hosts) namespace setup | Docker's default profile denies mounts and the quota write used by maintenance's `--disable-userns`. | `--security-opt apparmor=unconfined`, or a derived profile that permits the worker's mounts, `pivot_root` and namespace-local quota setup at `/proc/sys/user/max_user_namespaces`. |
 
 Derive the seccomp profile from Docker's default profile for your Docker
 version, adding one rule:
@@ -769,6 +769,16 @@ logs a warning once at boot, `/api/status` keeps it as
 and the app shows a standing notice above the composer that links this
 section. The warning names what a root-run worker keeps: it can read
 root-owned files and connect to root-owned and abstract Unix sockets.
+
+Native storage accepts the server's fixed UID/GID, including UID 0 under this
+same warning (`validateNativeBrainManagerConfig`,
+`packages/ui-sdk/src/server/native-brain-manager.ts:60-81`). This does not give
+the worker capabilities or remove its masks, filesystem filter or read-only
+root `/proc`. The host still has to qualify for user namespaces. Since Linux
+5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
+namespace setup boundary; see the
+[Linux user-namespace mapping rules](https://man7.org/linux/man-pages/man7/user_namespaces.7.html).
+An unqualified root context remains a named worker-host refusal.
 
 ## Resource limits
 

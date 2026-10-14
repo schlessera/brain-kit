@@ -467,6 +467,8 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Host-prepared native immutable input owner; non-governed workers retain one reference per child. */
+  workerStartupView?: import("./worker-startup-view.js").WorkerStartupView;
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
   workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "resume" | "kill" | "exited">) => void;
   /** @internal Host-resolved filesystem view, never a client or model grant. */

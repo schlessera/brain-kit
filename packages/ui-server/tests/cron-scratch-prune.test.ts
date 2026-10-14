@@ -10,8 +10,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createApp } from "../src/app";
-import { createBrainClient } from "../src/brain/client";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
+import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import {

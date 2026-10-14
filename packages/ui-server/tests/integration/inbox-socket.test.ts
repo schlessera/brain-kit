@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serializeSigned } from "hono/utils/cookie";
 import { BrainUiClient, type InboxActionItem, type InboxItem, type InboxThread, type InboxView, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
-import { createApp } from "../../src/app.js";
+import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { createUiDb } from "../../src/db/client.js";
 import { createInboxStore } from "../../src/inbox/store.js";
 import { createPrincipal, revokePrincipal } from "../../src/db/principals.js";

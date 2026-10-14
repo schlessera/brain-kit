@@ -1,3 +1,4 @@
+import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createBrainTools, toolLockFromKeyed } from "../../ui-backend-pi/src/tools.js";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access.js";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context.js";
-import { createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
+import { boundaryPlanner, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
 import { openDatabase } from "@schlessera/brain/internal";
 
 let root: string;
@@ -30,7 +31,7 @@ async function adapter(kind: "claude" | "pi", voice = false) {
   const backend = kind === "claude" ? createClaudeBackend({ brainPath: root }) : createPiBackend({ brainPath: root, loadExtensions: false });
   const policy = backend.brainApplicationPolicy!({ ...(voice ? { posture: "voice", enforceAllowedTools: true, noGrantSurface: true } : {}) });
   const approvals: unknown[] = []; const receipts: BrainApplicationResult[] = [];
-  const apply = createBrainApplication({ root, principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
+  const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })), principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
     isAuthorized: () => true, approve: async (input) => { approvals.push(input); return !voice; }, record: r => receipts.push(r) });
   const bridge: BackendBridge = { emit: () => {}, requestPermission: async () => { throw new Error("Duplicate runtime approval"); },
     applyBrain: input => apply({ principalId: "odysseus", turnId: "hosted-turn", input }),

@@ -7,7 +7,7 @@ import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInboxPokeAuth } from "../src/routes/internal.js";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";

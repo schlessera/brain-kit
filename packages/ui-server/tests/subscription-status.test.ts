@@ -29,7 +29,8 @@ import {
   parseMintedAt,
   type SubscriptionStatus,
 } from "../src/agent/subscription";
-import { createApp, type BrainUiApp } from "../src/app";
+import { type BrainUiApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import { resolveAmbientPrincipal } from "../src/db/principals";

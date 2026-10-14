@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * With `CLAUDE_CODE_PATH` unset, a turn runs the Agent SDK's built-in Claude
  * Code binary (#213, docs/decisions/claude-code-runtime.md, "The decision").
@@ -108,7 +109,9 @@ async function productionTurn(brainPath: string): Promise<BackendActivityEvent[]
     requestPermission: async () => ({ behavior: "deny", message: "test" }),
     activity: (event) => activity.push(event),
   };
-  await backend.startTurn({ prompt: "Reply with the single word ok.", signal: new AbortController().signal, bridge });
+  const workerStartupView = createFixtureWorkerStartupView(brainPath);
+  try { await backend.startTurn({ workerStartupView, prompt: "Reply with the single word ok.", signal: new AbortController().signal, bridge }); }
+  finally { workerStartupView.cleanup(); }
   return activity;
 }
 

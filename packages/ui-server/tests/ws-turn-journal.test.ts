@@ -1,3 +1,6 @@
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,7 +46,8 @@ test("host admission, tool completion and terminal observation produce scoped re
     bridge.emit({ type: "result", sessionId: "sess-ithaca", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
   } });
   const password = "the bow only Odysseus can string";
-  const app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
+  const native = createNativeJournalFixture(brain,root), broker = native.serve();
+  const app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "password", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
   try {
     const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus journal", ttlSeconds: 60 });
     const handlers = createWsHandlers(app.wsHost, principal), sent: string[] = [], ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
@@ -52,6 +56,7 @@ test("host admission, tool completion and terminal observation produce scoped re
     const frames = () => sent.flatMap(text => { const parsed = parseServerMessage(text); if (!parsed.ok) throw new Error(parsed.error); return [parsed.message]; });
     const wait = async (check: () => boolean) => { const until = Date.now() + 5000; while (!check()) { if (Date.now() > until) throw new Error(JSON.stringify(frames())); await Bun.sleep(5); } };
     await wait(() => frames().some(frame => frame?.type === "tool_result"));
+    await wait(() => frames().some(frame => frame.type === "turn_journal" && (frame.journal.changedFiles ?? 0) > 0));
     const toolReceipt = frames().findLast(frame => frame.type === "turn_journal");
     expect(toolReceipt?.type === "turn_journal" ? toolReceipt.journal.changedFiles : null, "JOURNAL_TOOL_COMPLETION_RECEIPT").toBeGreaterThan(0);
     expect(called, "JOURNAL_ADMISSION_PRECEDES_BACKEND").toBe(1);
@@ -83,7 +88,7 @@ test("host admission, tool completion and terminal observation produce scoped re
     const raw = await app.fetch(new Request(`http://localhost${endpoint}/${note.sequence}/before`, { headers }));
     expect(raw.status).toBe(200); expect(await raw.text()).toBe("Ithaca\r\n");
     expect(await readFile(resolve(brain, "notes/journal.md"), "utf8")).toBe("Penelope\r\n");
-  } finally { release(); await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { release(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
 
 test("a real mid-turn journal capacity stop emits the named failure and an error terminal rather than timeout", async () => {
@@ -96,9 +101,10 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
   } });
   const registry = createStaticBackendRegistry([backend], backend.id);
-  const app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: dbPath, HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry, observability: createRecordingObservability() });
+  const native = createNativeJournalFixture(brain,root), broker = native.serve();
+  const app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: dbPath, HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry, observability: createRecordingObservability() });
   let host: WsHost;
-  const journal = createTurnJournal(app.db, { brainPath: brain, dbPath, objectsRoot: resolve(root, "ui.db.journal"), capBytes: 1024 * 1024,
+  const journal = createTurnJournal(app.db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: resolve(root, "ui.db.journal"), capBytes: 1024 * 1024,
     changed(turnId, sessionId, summary) { host.sendToClients({ type: "turn_journal", sessionId, turnId, journal: summary }); } });
   host = new WsHost({ brainPath: brain, registry, catalog: app.wsHost.catalog, governedTurns: app.wsHost.governedTurns, activity: app.wsHost.activity ?? undefined, journal });
   try {
@@ -115,5 +121,5 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     expect(journal.details("sess-ithaca", failure.turnId)?.summary.state).toBe("partial");
     expect(app.db.query("SELECT outcome FROM activity_run_rollups WHERE run_id=?").get(failure.turnId), "JOURNAL_OVERFLOW_ACTIVITY_ERROR").toEqual({ outcome: "error" });
     expect(Bun.file(resolve(brain, "notes/partial.txt")).size).toBe(2 * 1024 * 1024);
-  } finally { host.close(); journal.close(); await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

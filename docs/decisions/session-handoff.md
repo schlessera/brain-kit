@@ -160,7 +160,7 @@ its distinct retry treatment. Nothing archives, purges or automatically sends.
 The notice's presentation and actions are (`StateRoomNotice`,
 `packages/ui-react/src/components/chat/state-room-notice.tsx:22-100`); the host
 keeps the measurement and first quiet event (`if (msg.type === "result") {`,
-`packages/ui-server/src/ws/bridge.ts:189-199`).
+`packages/ui-server/src/ws/bridge.ts:198-208`).
 
 ### Historical state directories remain untouched
 
@@ -179,7 +179,7 @@ cleanup or normal cleanup. Runtime proof observes actual filesystem creation
 calls without listing a real installation, retains owned unknown-state fixtures,
 and checks admission release after both successful and failed runtime starts
 (`STATE_ROOM_NO_NEW_LEGACY_HOST_DIRECTORY`,
-`packages/ui-backend-claude/tests/state-room-warning.test.ts:54-56`). Capacity,
+`packages/ui-backend-claude/tests/state-room-warning.test.ts:56-58`). Capacity,
 saved-state authority and the private-mount lifecycle remain unchanged.
 
 ## Known limits

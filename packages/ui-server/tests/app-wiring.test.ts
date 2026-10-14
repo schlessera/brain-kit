@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import {
   createConsoleLoggerProvider,
   createObservability,
@@ -70,8 +70,11 @@ afterAll(() => {
 });
 
 const app = async () => await createApp();
-const get = async (path: string, headers?: Record<string, string>) =>
-  (await app()).fetch(new Request(`http://localhost${path}`, { headers }));
+const get = async (path: string, headers?: Record<string, string>) => {
+  const instance = await app();
+  try { return await instance.fetch(new Request(`http://localhost${path}`, { headers })); }
+  finally { await instance.close(); }
+};
 
 describe("app wiring — auth guard ordering", () => {
   test("/api/health is public and carries no version/SHA", async () => {
@@ -613,7 +616,7 @@ describe("app wiring — request logging", () => {
         PROXY_AUTH_HEADER: "x-forwarded-user",
         HOST: "127.0.0.1",
         DB_PATH: ":memory:",
-        BRAIN_PATH: join(tmpdir(), `app-wiring-proxy-brain-${process.pid}`),
+        BRAIN_PATH: process.env.BRAIN_PATH,
         BRAIN_UI_MODEL_DISCOVERY: "0",
         BRAIN_UI_PRICING_DISCOVERY: "0",
       }),
@@ -656,7 +659,7 @@ describe("app wiring — request logging", () => {
         PROXY_AUTH_HEADER: "x-forwarded-user",
         HOST: "127.0.0.1",
         DB_PATH: ":memory:",
-        BRAIN_PATH: join(tmpdir(), `app-wiring-proxy-log-brain-${process.pid}`),
+        BRAIN_PATH: process.env.BRAIN_PATH,
         BRAIN_UI_MODEL_DISCOVERY: "0",
         BRAIN_UI_PRICING_DISCOVERY: "0",
       }),

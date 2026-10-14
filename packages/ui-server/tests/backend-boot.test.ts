@@ -8,7 +8,7 @@
  * the boot-time guarantee and runs descriptor-owned profile validation before
  * health can report ready; backend construction remains lazy.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,9 +18,12 @@ import {
   createStaticBackendRegistry,
   loadBackendModule,
 } from "../src/agent/backend";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
+
+const bootBrain = mkdtempSync(join(tmpdir(), "odysseus-backend-boot-brain-"));
+afterAll(() => rmSync(bootBrain, { recursive: true, force: true }));
 
 const agent = (backend: string | null) =>
   resolveServerConfig(backend === null ? {} : { AGENT_BACKEND: backend }).agent;
@@ -238,7 +241,7 @@ describe("createApp boot validation", () => {
     HOST: "127.0.0.1",
     AUTH_MODE: "none",
     DB_PATH: ":memory:",
-    BRAIN_PATH: join(tmpdir(), "odysseus-backend-boot-brain"),
+    BRAIN_PATH: bootBrain,
     // These boot tests do not exercise pricing; custom env records do not
     // inherit the runner's NODE_ENV=test default that disables discovery.
     BRAIN_UI_PRICING_DISCOVERY: "0",
@@ -357,7 +360,7 @@ describe("createApp boot validation", () => {
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = await createApp({
-      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_PATH: join(tmpdir(), "odysseus-backend-boot-brain"), BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_PATH: bootBrain, BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");

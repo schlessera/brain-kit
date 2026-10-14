@@ -1,3 +1,4 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 /**
  * Worker resource limits (#1660): the real launcher, real bubblewrap, real
  * prlimit. Each fixture runs inside a worker and is observed from outside.
@@ -5,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, workerCommand, WorkerHostError } from "../src/server/worker-launcher";
+import { workerCommand, WorkerHostError } from "../src/server/worker-launcher";
 import {
   cgroupMemoryCeiling, defaultWorkerLimits, effectiveRlimits, parseWorkerLimits, PRLIMIT_REQUIREMENT, prlimitArgs, ROOT_NPROC_REASON,
   workerLimitsPlan, workerLimitsStatus, workerNoteLimits, type WorkerLimitsPlan,

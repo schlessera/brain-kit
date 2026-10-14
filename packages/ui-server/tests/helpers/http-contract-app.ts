@@ -1,3 +1,4 @@
+import { createNativeAppFixture } from "./native-app-fixture.js";
 import { spyOn } from "bun:test";
 import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -50,11 +51,12 @@ else if (args[0] === "add") console.log(JSON.stringify({action:"created",path:"n
 else if (args[0] === "sync") console.log("Fixture sync complete");
 `,
     { mode: 0o755 });
+  const native = createNativeAppFixture(brainPath);
   const config = resolveServerConfig({
     AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: brainPath,
     BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", VOICE_PROVIDER: "webspeech",
     BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS: "https://inference.example",
-    ...options.env,
+    ...options.env, ...native.env,
   });
   const observability = createRecordingObservability();
   const backend = makeFakeBackend({ id: "fixture",
@@ -87,6 +89,7 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
     // synchronous schedule Git query; no budget or worker guard is replaced.
     await app.wsHost.scratchPrune?.();
   } catch (error) {
+    await native.close();
     rmSync(root, { recursive: true, force: true });
     throw error;
   } finally {
@@ -94,6 +97,7 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
   }
   if (!mounted) {
     await app.close();
+    await native.close();
     rmSync(root, { recursive: true, force: true });
     throw new Error("createApp did not mount any real routers");
   }
@@ -103,7 +107,7 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
     fetch: (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, "http://localhost"), init)),
     async close() {
       try { await app.close(); }
-      finally { rmSync(root, { recursive: true, force: true }); }
+      finally { await native.close(); rmSync(root, { recursive: true, force: true }); }
     },
   };
 }

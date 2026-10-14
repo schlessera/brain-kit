@@ -67,7 +67,7 @@ Source anchors, checked against the reviewed commit:
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:251-277`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:252-287`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:107-113`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
@@ -82,7 +82,7 @@ Source anchors, checked against the reviewed commit:
   decisions distinguish the independent configured limits and mounts. Delivered
   #1703 adds scoped turn-temp usage/purge and promotion protection; those
   measurements do not include the separate runtime-state tmpfs.
-- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:26-38`)
+- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-48`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
 - K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:231-246`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its

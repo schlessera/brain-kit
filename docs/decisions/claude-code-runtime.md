@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:480-480`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1041`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:504-504`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1070`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:497`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -62,7 +62,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:363`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:381`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -210,7 +210,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:308-313`).
+  `packages/ui-server/src/app.ts:326-331`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the

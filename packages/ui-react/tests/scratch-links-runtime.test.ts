@@ -6,7 +6,8 @@ import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 import { runCli } from "../../core/tests/cli-harness.ts";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.ts";

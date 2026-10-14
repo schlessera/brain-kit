@@ -209,8 +209,10 @@ export interface RunningTurn {
    * between turns never claims one.
    */
   revision?: number;
-  /** When the CURRENT turn was handed to the backend; unset until then and after it ends. */
+  /** When host admission started for the CURRENT turn; cleared after it ends. */
   startedAt?: number;
+  /** True only while the backend owns this turn; preparation cannot accept live injection. */
+  backendStarted?: boolean;
   /** Principal responsible for the CURRENT turn in this session slot. */
   principalId: string;
   authorization: AuthorizationContext;

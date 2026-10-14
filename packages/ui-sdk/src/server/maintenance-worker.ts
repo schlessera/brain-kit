@@ -12,6 +12,7 @@
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
+import { prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
@@ -32,7 +33,7 @@ export interface MaintenanceCommand {
   brainPath: string;
   startupView?: WorkerStartupView;
   /** Host-chosen output workspace; never mounted over the configuration view. */
-  output?: { source: string; target: string; storage?: ReturnType<typeof import("./worker-launcher.js").createOutputStagingStorage> };
+  output?: { source: string; target: string; storage?: WorkerOutputStorage };
   /** A server-built Git adapter: immutable config and program inputs, writable metadata. */
   git?: { source: string; target: string; entry: string; binary: string };
   /** Absolute executable and literal arguments, run with the brain as working directory. */
@@ -61,6 +62,8 @@ export interface MaintenanceCommand {
 
 /** Trusted helper configuration shared by hosted startup and short Git checks. */
 export interface MaintenanceHost {
+  /** @internal A host-prepared immutable input lease, acquired before a synchronous reader. */
+  startupView?: WorkerStartupView;
   tempLimits?: WorkerStateLimits;
   tempDomain?: MaintenanceTempDomain;
   maskPaths?: readonly string[];
@@ -250,6 +253,22 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   }
 }
 
+/** Native writable qualification prepares asynchronously and awaits ownership cleanup. */
+export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits: WorkerStateLimits | undefined, tempDomain: MaintenanceTempDomain | undefined, startupView: WorkerStartupView, signal?: AbortSignal): Promise<{ ok: true } | { ok: false; requirement: string }> {
+  let outputs: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
+  try {
+    outputs = await prepareNativeWorkerOutput(realpathSync(brainPath), { startupView, signal });
+    const result = await runMaintenanceWorker({ brainPath, startupView: outputs.view, output: { ...outputs.output, target: "/tmp/brain-maintenance-output" },
+      command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), signal, timeoutMs: 5_000 });
+    if (result.exitCode === 0) return { ok: true };
+    return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0,300) || `exit ${result.exitCode}`})` };
+  } catch (error) {
+    if (signal?.aborted || error instanceof WorkerStateError) throw error;
+    return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
+  } finally { await outputs?.cleanup(); }
+}
+
 const EMPTY_REPOSITORY = "/tmp/brain-empty-repository";
 
 /**
@@ -291,10 +310,10 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
  * private network namespace) starts on this host for this brain. The
  * ordinary worker host probe does not cover the private network namespace.
  */
-export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain): { ok: true } | { ok: false; requirement: string } {
+export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain, startupView?: WorkerStartupView): { ok: true } | { ok: false; requirement: string } {
   let outputs: ReturnType<typeof prepareWorkerOutput> | undefined;
   try {
-    outputs = prepareWorkerOutput(realpathSync(brainPath));
+    outputs = prepareWorkerOutput(realpathSync(brainPath), { startupView });
     const result = runMaintenanceWorkerSync({ brainPath, startupView: outputs.view, output: outputs.output,
       command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" },
       credentials: false, ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });

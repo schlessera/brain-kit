@@ -29,7 +29,8 @@ export interface InboxDispatchSelection {
   maximumTokens?: InboxBudgetOperation["maximumTokens"];
 }
 
-export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log"> {
+export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "applicationPlanner"> {
+  nativeManager?: AutonomousTurnDeps["nativeManager"];
   brainRoot: string;
   /** Resolved once per pass; null refuses agent-tier claims for that pass. */
   select(): Promise<InboxDispatchSelection | null>;
@@ -193,8 +194,8 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
     let result: Awaited<ReturnType<typeof runAutonomousTurn>> | null = null;
     try {
       const { prompt, append } = await context(item, approved);
-      result = await runAutonomousTurn({ db, backend: chosen.backend, brainPath: deps.brainRoot, store: deps.store, runtime: deps.runtime,
-        onWrite: deps.onWrite, log: deps.log,
+      result = await runAutonomousTurn({ db, backend: chosen.backend, brainPath: deps.brainRoot, nativeManager: deps.nativeManager, store: deps.store, runtime: deps.runtime,
+        onWrite: deps.onWrite, log: deps.log, applicationPlanner: deps.applicationPlanner,
         checkpoint: (escalation) => {
           const current = store.getItem(item.id)!;
           const { action, allowed } = decision(item, backendId, escalation);

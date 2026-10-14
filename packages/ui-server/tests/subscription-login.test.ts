@@ -15,7 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { SubscriptionStatus } from "../src/agent/subscription";
-import { createApp, type BrainUiApp } from "../src/app";
+import { type BrainUiApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { resolveAmbientPrincipal } from "../src/db/principals";
 import type { WSContext } from "../src/ws/clients";

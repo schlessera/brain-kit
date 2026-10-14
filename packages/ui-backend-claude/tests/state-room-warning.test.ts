@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Actual keyless namespace, admission copy and result; only the provider stream is a fixture. */
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
@@ -46,10 +47,11 @@ test(`${percent}% resumed state${voice ? " voice" : ""}${failedStart ? " failed 
     return Object.assign(stream, { initializationResult: async () => ({ account: { tokenSource: "none", apiProvider: "firstParty" } }) });
   }) as unknown as typeof query;
   try {
+    const workerStartupView = createFixtureWorkerStartupView(brain);
     const backend = createClaudeBackend({ brainPath: brain, queryFn, workerState: { allowanceBytes: allowance, budgetBytes: allowance } });
-    await backend.startTurn({ sessionId: SESSION, prompt: "Return to Ithaca", signal: new AbortController().signal,
+    try { await backend.startTurn({ workerStartupView, sessionId: SESSION, prompt: "Return to Ithaca", signal: new AbortController().signal,
       ...(voice ? { posture: "voice", enforceAllowedTools: true, noGrantSurface: true, allowedTools: ["Read"] } : {}),
-      bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "allow" }) } }).catch(error => { if (!failedStart) throw error; });
+      bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "allow" }) } }).catch(error => { if (!failedStart) throw error; }); } finally { workerStartupView.cleanup(); }
     expect(await exited, "actual worker exit is not assumed").toBe(failedStart ? 127 : 0);
     expect(created.mock.calls.some(([prefix]) => String(prefix).includes("brain-claude-state-")), "STATE_ROOM_NO_NEW_LEGACY_HOST_DIRECTORY").toBe(false);
     expect(directories.mock.calls.some(([path]) => String(path).includes("brain-claude-state-")), "STATE_ROOM_NO_NEW_LEGACY_HOST_DIRECTORY").toBe(false);

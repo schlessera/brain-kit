@@ -7,10 +7,14 @@ import { join, resolve } from "node:path";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "../packages/core/tests/cli-harness";
 import { createBrainClient } from "../packages/ui-server/src/brain/client";
 import { createBrainRoutes } from "../packages/ui-server/src/routes/brain";
+import { createHostBoundary } from "../packages/ui-server/src/brain/host-boundary.js";
+import { createNativeAppFixture } from "../packages/ui-server/tests/helpers/native-app-fixture.js";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 
 let root: string;
 let client: Client;
 let app: Hono;
+let native: ReturnType<typeof createNativeAppFixture> | undefined;
 const paths = ["notes/nullable-untagged.md", "notes/nullable-tagged.md"];
 
 function assertTags(rows: Array<Record<string, unknown>>) {
@@ -42,8 +46,10 @@ beforeAll(async () => {
   await client.connect(new StdioClientTransport({
     command: process.execPath, args: [BRAIN_BIN, "mcp"], env: keylessEnv(root),
   }));
+  native = createNativeAppFixture(root);
+  const boundary = createHostBoundary({ brainPath: root, nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
   app = new Hono().route("/api", createBrainRoutes({
-    brain: createBrainClient({ brainPath: root }), brainPath: root,
+    brain: createBrainClient({ brainPath: root, boundary }), brainPath: root,
     keyterms: { brainPath: root, cacheDir: root, limit: 10 },
     exec: {},
   }));
@@ -51,6 +57,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await client?.close();
+  await native?.close();
   if (root) cleanup(root);
 });
 

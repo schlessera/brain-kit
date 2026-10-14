@@ -77,7 +77,7 @@ interface Turn {
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const c of cleanups.splice(0).reverse()) c(); });
 
-function world(options: { db?: Database; principalValid?: () => boolean } = {}) {
+function world(options: { db?: Database; principalValid?: () => boolean; governedTurns?: import("../src/brain/governed-turn.js").GovernedTurns } = {}) {
   const db = options.db ?? createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "recovery-test" });
   const stream = createActivityStream(store);
@@ -120,6 +120,7 @@ function world(options: { db?: Database; principalValid?: () => boolean } = {}) 
     registry: createStaticBackendRegistry([backend], backend.id),
     catalog: createSessionCatalog(() => db),
     activity: { store, stream },
+    governedTurns: options.governedTurns,
     isPrincipalValid: options.principalValid ?? (() => true),
   });
   const principal: Principal = testPrincipal();
@@ -554,4 +555,37 @@ describe("turn linkage", () => {
     ]);
     expect(history.every((m) => m.turnId === undefined)).toBe(true);
   });
+});
+
+
+test("cancelling native admission settles both clients without starting a backend", async () => {
+  let entered = false, cleaned = false;
+  const w = world({ governedTurns: {
+    async begin(_turn, signal) {
+      entered = true;
+      try {
+        await new Promise<never>((_resolve, reject) => {
+          const abort = () => reject(signal.reason);
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
+        });
+      } finally { await Bun.sleep(10); cleaned = true; }
+      throw new Error("unreachable admission");
+    },
+    facts() { throw new Error("No policy facts are needed before admission completes"); },
+    refresh() {}, async close() {},
+  } });
+  const other: ServerMessage[] = [];
+  w.host.clients.add({ send: data => other.push(JSON.parse(data)) }, w.principal.id);
+  await w.chat("Plot the next course", { requestId: "cancel-native-admission" });
+  await until(() => entered);
+  await w.send({ type: "cancel" });
+  await w.idle();
+  expect(cleaned, "NATIVE_ADMISSION_CLEANUP_SETTLED").toBe(true);
+  expect(w.turns, "CANCELLED_NATIVE_ADMISSION_NEVER_STARTS_BACKEND").toHaveLength(0);
+  for (const frames of [w.frames, other]) {
+    expect(frames.some(frame => frame.type === "status" && frame.status === "cancelled" && frame.requestId === "cancel-native-admission"),
+      "CANCELLED_NATIVE_ADMISSION_SETTLES_CLIENT").toBe(true);
+    expect(frames.filter(frame => frame.type === "error")).toEqual([]);
+  }
 });

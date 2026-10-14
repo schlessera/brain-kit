@@ -58,7 +58,7 @@ test("a real agent worker indexes a brain in its writable tmpfs over the readonl
     console.log(JSON.stringify({witness:fs.readFileSync(brain+"/witness.md","utf8"),
       exit:result.exitCode,stdout:result.stdout.toString(),stderr:result.stderr.toString(),database:fs.existsSync(brain+"/brain.db"),
       mounts:fs.readFileSync("/proc/self/mountinfo","utf8").split("\\n").filter(line=>line.split(" ")[4]==="/tmp")}));`;
-  const launch = `const {launchAgentWorker}=await import(${JSON.stringify(resolve("packages/ui-sdk/src/server/worker-launcher.ts"))});
+  const launch = `const {launchFixtureAgentWorker:launchAgentWorker}=await import(${JSON.stringify(resolve("packages/ui-sdk/tests/helpers/worker-startup-view-fixture.ts"))});
     const worker=launchAgentWorker({brainPath:${JSON.stringify(root)},env:{},command:${JSON.stringify([process.execPath, "--config=/dev/null", "--no-env-file", "-e", program])}});
     try {const [out,err,exit]=await Promise.all([new Response(worker.stdout).text(),new Response(worker.stderr).text(),worker.exited]);
       process.stdout.write(out);process.stderr.write(err);process.exitCode=exit;}finally{worker.turnTemp?.close();}`;

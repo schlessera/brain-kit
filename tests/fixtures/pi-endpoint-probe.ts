@@ -1,3 +1,4 @@
+import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Real pi adapter in a network namespace; observe destinations without rewriting them. */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -96,7 +97,7 @@ async function turn(adapter: AgentBackend, autonomous = false, sessionId?: strin
   const emitted: ServerMessage[] = [];
   frames.push(emitted);
   try {
-    await adapter.startTurn({ prompt: "Nonempty fixture prompt for Odysseus.", profileId: "fixture", sessionId,
+    await startFixtureTurn(adapter, brainPath, { prompt: "Nonempty fixture prompt for Odysseus.", profileId: "fixture", sessionId,
       signal: AbortSignal.timeout(10_000),
       ...(autonomous ? { enforceAllowedTools: true, noGrantSurface: true,
         autonomous: { origin: "autonomous" as const, persistence: "none" as const, allowedTools: [], systemPromptAppend: "Fixture task." } } : {}),

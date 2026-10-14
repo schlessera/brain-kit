@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serializeSigned } from "hono/utils/cookie";
-import { createApp } from "../../src/app.js";
+import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../../src/config/env.js";
 import { createStaticBackendRegistry } from "../../src/agent/backend.js";
 import { createSilentObservability } from "../../src/observability/index.js";
