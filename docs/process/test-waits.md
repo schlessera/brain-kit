@@ -564,3 +564,24 @@ minimum of 1,500 ms or justify subtracting 800 ms to invent a safety margin.
 The browser retains ownership of native persistence, transport and host
 consumption. A smaller window still requires source-specific equivalence evidence
 for those producers, and the execution-domain requirements remain in force.
+
+## Native runner and late-navigation boundaries
+
+The [runner observations](evidence/test-wait-agent-runner-observations.json)
+retain the original native contract suite. Its outer case passes all three
+assertions requiring 24 passing child cases. Five normally exiting stand-ins
+registered no 20 ms polls: their release-file condition was already true. Eight
+other stand-ins registered actual 30-second hang ceilings. Their snapshots stop
+at registration, before native termination, so neither cancellation ages nor
+final callback counts are inferred. The 11.85-second command is not 240 seconds
+of accumulated sleep. The observer preserves native handles and protocol output;
+ordinary diagnostic file writes add disclosed overhead without new authority.
+
+The [politeness boundary observations](evidence/test-wait-politeness-boundaries.json)
+retain two native Chrome cases and their 820 ms and 1,300 ms no-late-request
+windows. Their handlers finished before awaited page closure, while the delayed
+robots fetch completed after closure in the first case. Those are distinct
+boundaries; neither awaited closure nor fetch completion proves that all browser
+network work has drained. The two cases passed 11 assertions in 3.15 seconds of
+command time. No target-destruction observation, mutation, minimum duration or
+equivalent replacement was established, and neither window was shortened.

@@ -28,6 +28,16 @@
       "file": "packages/ui-react/tests/draft-client.test.ts",
       "source": "4db852bb7482877d2e72eb3d23078bdd591023cf",
       "sha256": "4518f2a7c29345b4b5fed7a2cf378232049d0e4732c5bc88541d217f453446b3"
+    },
+    {
+      "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c"
+    },
+    {
+      "file": "bun.lock",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
     }
   ],
   "candidateTestSha256": "589f05b9b2d479e07a305bdde84c6b33190745cda313891604e608bb51ea6061",
@@ -42,7 +52,56 @@
     "isolation": "Existing explicit harness enables loopback only, verifies no external routes, preserves ordinary uid, and drops inherited/ambient/bounding capabilities before GNU time and the unchanged test wrapper. Native cases require Chrome and include their mandatory build. Existing preload remains active.",
     "serialization": "All commands serialize on the shared benchmark lock; GNU time starts inside that lock. Shared host load is uncontrolled.",
     "observerLimit": "Native baseline/mutant add synchronous console observations and request-response logging, which can add overhead. Restored native control is uninstrumented. Separate page time origins are not compared.",
-    "unitLimit": "Existing registered-clock harness controls actual timer registrations and advances real pending IO between boundaries; storage is null and the host is a test double."
+    "unitLimit": "Existing registered-clock harness controls actual timer registrations and advances real pending IO between boundaries; storage is null and the host is a test double.",
+    "runtimeMetadata": {
+      "bun": "1.4.2 (744846f84), recorded by each test command",
+      "chrome": "Google Chrome 140.0.7339.127",
+      "chromeVersionBasis": "Installed executable selected by the unchanged runtime candidate order, inspected after the runs; the run itself did not log browser.version().",
+      "platform": {
+        "system": "Linux",
+        "release": "6.18.33.2-microsoft-standard-WSL2",
+        "architecture": "x86_64"
+      },
+      "resources": "Per-run command wall, user/system CPU seconds and process-family peak RSS are GNU time observations, not reserved host capacity. No exclusive CPU allocation; other shared-host load uncontrolled.",
+      "sourceIdentity": [
+        {
+          "file": "packages/ui-react/src/lib/draft-client.ts",
+          "historicalSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "candidateBaseSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "restoredWorkingFileSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+        },
+        {
+          "file": "packages/ui-react/src/stores/draft-state.ts",
+          "historicalSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "candidateBaseSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "restoredWorkingFileSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+        },
+        {
+          "file": "packages/ui-react/tests/draft-runtime.test.ts",
+          "historicalSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "candidateBaseSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "restoredWorkingFileSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84"
+        },
+        {
+          "file": "packages/ui-react/src/lib/local-work.ts",
+          "historicalSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+          "candidateBaseSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+          "restoredWorkingFileSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+        },
+        {
+          "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+          "historicalSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "candidateBaseSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "restoredWorkingFileSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c"
+        },
+        {
+          "file": "bun.lock",
+          "historicalSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+          "candidateBaseSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+          "restoredWorkingFileSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+        }
+      ]
+    }
   },
   "mutation": {
     "original": "const text = d.text === consumedText ? \"\" : d.text;",
@@ -775,6 +834,11 @@
       "receipt": "native-mutation/ast-proof.log",
       "sha256": "5c0f855f208ea6ebb7f9e31ca4859d74dabca44bea952d8a7b08ffef77238359",
       "bytes": 70
+    },
+    {
+      "receipt": "runtime-metadata.json",
+      "sha256": "2b96fa689daab790e739fac2ec4774aa2ed678a5933189f932a1b126c9cfedbf",
+      "bytes": 2819
     }
   ],
   "exploratoryIterations": {
