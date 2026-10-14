@@ -211,10 +211,10 @@ an expensive negative window is not automatically an endurance scenario.
 ## Default-test observations with native network isolation
 
 The [additional default-test sample](evidence/test-wait-default-observations.json)
-records frozen source `04a659593379a0c8da9c049fa649124d6fd54f70`: 66 complete
+records frozen source `04a659593379a0c8da9c049fa649124d6fd54f70`: 70 complete
 files and five selected enrichment cases, plus a separate imported-await
-observation of the already measured scrape client. These are 68 runs across
-67 files. The first set passed 932 cases and 4942 expectations; the imported
+observation of the already measured scrape client. These are 72 runs across
+71 files. The first set passed 1009 cases and 5337 expectations; the imported
 observation repeats 28 cases and 70 expectations. They are neither unique
 repository-wide assertion counts nor a savings comparison. Each run retains
 its file hashes, command, actual wait sites, case identities and resource data.
@@ -224,7 +224,9 @@ and network namespace. The wrapper enabled only loopback, verified that no
 routes existed, and timed the test after namespace setup and lock acquisition.
 Early samples mapped namespace uid 0 to the ordinary host user. Later samples
 retained uid 1000 and dropped setup capabilities before running Bun; each record
-names its actual profile. No browser launched. Real SQLite/filesystem work,
+names its actual profile. No browser launched. Render samples use happy-dom and retain real React effect
+processing with scripted transports; they make no Chromium paint or geometry
+claim. Real SQLite/filesystem work,
 scripted provider streams, local HTTP where used, native FIFO IO, and the
 writer-gate dead-process fixture retain their respective boundaries. This environment does not amend the
 earlier direct observations' isolation limitations or replace hosted proof.
