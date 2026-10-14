@@ -598,7 +598,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
               queueMicrotask(() => frames.push({ dir: "down", type: frame.type, probeId: frame.probeId, at: Date.now() }));
             });
           }
-          override send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+          override send(data: Parameters<WebSocket["send"]>[0]) {
             if (typeof data === "string") {
               const frame = JSON.parse(data);
               frames.push({ dir: "up", type: frame.type, probeId: frame.probeId, at: Date.now() });
@@ -625,7 +625,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       // microtask alone does not establish arbitrary async-handler completion.
       // Bun-side polling exits on the event (5s is only a failure cap).
       const nativeWait = { polls: 0, waitedMs: 0 };
-      const observed = async (predicate: (frames: Awaited<ReturnType<typeof frames>>) => boolean) => {
+      const observed = async (predicate: (observedFrames: Awaited<ReturnType<typeof frames>>) => boolean) => {
         const deadline = Date.now() + 5_000;
         while (!predicate(await frames())) {
           if (Date.now() >= deadline) throw new Error("Liveness native event did not complete");
@@ -664,7 +664,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       expect(net.connections, "BROWSER_RESPONSE_AT_BOUNDARY").toBe(2);
       await observed(fs => fs.filter(f => f.dir === "up" && f.type === "session_resume").length > resumes &&
         fs.filter(f => f.dir === "down" && f.type === "session_history").length > historiesBefore);
-      expect(await page.evaluate("window.__answers.connected()")).toBe(true);
+      expect(await page.evaluate<boolean>("window.__answers.connected()")).toBe(true);
       expect(settlements.get(requestId)).toHaveLength(1);
       console.log("[measure] liveness", JSON.stringify({ controlledMs: 35_000, ...nativeWait,
         guarantees: "native greeting, correlated pong and session resync" }));
