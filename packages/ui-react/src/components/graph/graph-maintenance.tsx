@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { TextButton } from "@schlessera/brain-ui-kit";
 import type {
   GraphNodePayload,
   GraphSubgraphResponse,
@@ -44,6 +45,8 @@ export function MaintenanceBody() {
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
   const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const [listOpen, setListOpen] = useState(false);
   // The four lenses: the kit's `--bk-canvas-lens-*`, resolved for the scheme
   // in force, so the list's headings and the canvas agree in both themes.
   const lens = useGraphTheme().palette.lens;
@@ -70,11 +73,11 @@ export function MaintenanceBody() {
 
   // Canvas → list: keep the selected row in view.
   useEffect(() => {
-    if (selectedId === null) return;
+    if (!listOpen || selectedId === null) return;
     listRef.current
       ?.querySelector(`[data-node-id="${selectedId}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [selectedId]);
+  }, [selectedId, listOpen, findings, filters, dataState]);
 
   if (dataState === "error") {
     return (
@@ -100,93 +103,112 @@ export function MaintenanceBody() {
     scene.nodes.length + (filters.broken ? findings.brokenLinks.length : 0);
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
-      {/* Canvas pane */}
-      <div className="relative h-56 shrink-0 border-b border-border md:h-auto md:flex-1 md:border-b-0 md:border-r">
-        {scene.nodes.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-xs text-muted-foreground">
-            {totalShown === 0
-              ? "Nothing to show — this brain is clean."
-              : "Only broken links match — they live in the list."}
-          </div>
-        ) : (
-          <Suspense fallback={<CenteredSpinner />}>
-            <GraphCanvas
-              data={scene.subgraph}
-              layout="radial"
-              selectedId={selectedId}
-              hoveredId={hoveredId}
-              matchIds={matchIds}
-              nodeColor={(node) =>
-                lens[(node as FindingNode).finding ?? "stale"]
-              }
-              onSelect={select}
-              onHover={hover}
-            />
-          </Suspense>
-        )}
-        <GraphControls />
-        {selectedNode && <NodePopover node={selectedNode} />}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 justify-end border-b border-border px-3">
+        <TextButton
+          label={listOpen ? "Hide maintenance tasks" : "Show maintenance tasks"}
+          tone="meta"
+          iconEnd={listOpen ? "expand" : "collapse"}
+          expanded={listOpen}
+          controls={listId}
+          onClick={() => setListOpen((open) => !open)}
+        />
       </div>
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        {/* Canvas pane */}
+        <div
+          className={cn(
+            "relative min-h-0 min-w-0 md:h-auto md:flex-1",
+            listOpen ? "h-56 shrink-0 border-b border-border md:border-b-0 md:border-r" : "flex-1"
+          )}
+        >
+          {scene.nodes.length === 0 ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-xs text-muted-foreground">
+              {totalShown === 0
+                ? "Nothing to show — this brain is clean."
+                : "Only broken links match — they live in the list."}
+            </div>
+          ) : (
+            <Suspense fallback={<CenteredSpinner />}>
+              <GraphCanvas
+                data={scene.subgraph}
+                layout="radial"
+                selectedId={selectedId}
+                hoveredId={hoveredId}
+                matchIds={matchIds}
+                nodeColor={(node) =>
+                  lens[(node as FindingNode).finding ?? "stale"]
+                }
+                onSelect={select}
+                onHover={hover}
+              />
+            </Suspense>
+          )}
+          <GraphControls />
+          {selectedNode && <NodePopover node={selectedNode} />}
+        </div>
 
-      {/* Findings list pane */}
-      <div
-        ref={listRef}
-        className="flex-1 overflow-y-auto px-4 py-4 md:w-96 md:flex-none md:px-5"
-      >
-        <div className="flex flex-col gap-5 pb-16">
-          {filters.orphans && (
-            <FindingSection
-              title={`Orphans (${findings.orphans.length})`}
-              hint="No links in or out."
-              color={lens.orphan}
-              nodes={findings.orphans}
-              selectedId={selectedId}
-              onSelect={select}
-              onOpen={openNote}
-            />
-          )}
-          {filters.unreachable && (
-            <FindingSection
-              title={`Unreachable from root (${findings.unreachable.length})`}
-              hint="No link path from the graph root reaches these."
-              color={lens.unreachable}
-              nodes={findings.unreachable}
-              selectedId={selectedId}
-              onSelect={select}
-              onOpen={openNote}
-            />
-          )}
-          {filters.broken && (
-            <section>
-              <SectionHeading
-                title={`Broken links (${findings.brokenLinks.length})`}
-                hint="Wiki links whose target resolves to nothing."
-                color={lens.broken}
+        {/* Findings list pane */}
+        <div
+          ref={listRef}
+          id={listId}
+          hidden={!listOpen}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:w-96 md:flex-none md:px-5"
+        >
+          <div className="flex flex-col gap-5 pb-16">
+            {filters.orphans && (
+              <FindingSection
+                title={`Orphans (${findings.orphans.length})`}
+                hint="No links in or out."
+                color={lens.orphan}
+                nodes={findings.orphans}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpen={openNote}
               />
-              <FindingRows
-                empty={findings.brokenLinks.length === 0}
-                rows={findings.brokenLinks.map((b, i) => ({
-                  key: `b${i}`,
-                  title: `[[${b.target}]]`,
-                  sub: `in ${b.sourcePath}`,
-                  onClick: () => openNote(b.sourcePath),
-                }))}
+            )}
+            {filters.unreachable && (
+              <FindingSection
+                title={`Unreachable from root (${findings.unreachable.length})`}
+                hint="No link path from the graph root reaches these."
+                color={lens.unreachable}
+                nodes={findings.unreachable}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpen={openNote}
               />
-            </section>
-          )}
-          {filters.stale && (
-            <FindingSection
-              title={`Stale notes (${findings.stale.length})`}
-              hint={`Untouched for over ${findings.staleDays} days.`}
-              color={lens.stale}
-              nodes={findings.stale}
-              subOf={(n) => `${(n as GraphNodePayload & { updated: string }).updated} · ${n.path}`}
-              selectedId={selectedId}
-              onSelect={select}
-              onOpen={openNote}
-            />
-          )}
+            )}
+            {filters.broken && (
+              <section>
+                <SectionHeading
+                  title={`Broken links (${findings.brokenLinks.length})`}
+                  hint="Wiki links whose target resolves to nothing."
+                  color={lens.broken}
+                />
+                <FindingRows
+                  empty={findings.brokenLinks.length === 0}
+                  rows={findings.brokenLinks.map((b, i) => ({
+                    key: `b${i}`,
+                    title: `[[${b.target}]]`,
+                    sub: `in ${b.sourcePath}`,
+                    onClick: () => openNote(b.sourcePath),
+                  }))}
+                />
+              </section>
+            )}
+            {filters.stale && (
+              <FindingSection
+                title={`Stale notes (${findings.stale.length})`}
+                hint={`Untouched for over ${findings.staleDays} days.`}
+                color={lens.stale}
+                nodes={findings.stale}
+                subOf={(n) => `${(n as GraphNodePayload & { updated: string }).updated} · ${n.path}`}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpen={openNote}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -628,6 +628,16 @@ restored closed requests remain read-only. Decisions use the current shared
 request state, so a duplicate view cannot send another reply, and keyboard
 focus moves to a different pending request or the composer.
 
+## Maintenance graph tasks
+
+The Maintenance graph starts with its findings list collapsed. Use **Show
+maintenance tasks** to inspect enabled orphan, unreachable, broken-link and
+stale-note findings, and **Hide maintenance tasks** to give the graph more
+space. The choice lasts while the view is mounted, including data refreshes
+and filter changes. Selecting a graph node does not reopen the list; an
+expanded list follows the selected node. Broken-link rows still open the
+source note.
+
 ## Knowledge graph availability
 
 When the server cannot load its optional core peer, every graph mode shows
