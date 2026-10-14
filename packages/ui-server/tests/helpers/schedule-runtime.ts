@@ -75,7 +75,7 @@ export function scheduleRuntime(db: Database, options: {
   const activity = createActivityStore(db, { writer: "schedule-runtime-test" });
   const admission = createScheduleAdmission(db, {
     service, backend, now, store: activity, nativeManager: native.client, brainPath: options.root,
-    applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: options.root, nativeManager: native.client })),
+    applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: options.root, dbPath: join(state, "ui.db"), nativeManager: native.client })),
     timers: options.timers ?? manualTimers().timers,
     operation: () => ({ model: "fixture", billingMode: "subscription", ...(options.pricingRoute ? { pricingRoute: options.pricingRoute } : {}) }),
     allowedTools: options.allowedTools ?? ((definition) => definition.scope.tools.map((tool) => tool.name)),
