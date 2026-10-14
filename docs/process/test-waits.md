@@ -452,7 +452,7 @@ Several boundaries explain why elapsed cost alone cannot select an optimization:
 - The retained HTML 1,500 ms windows follow acknowledged native actions and the
   established #1108/#1119 proof scope. Expected escapes await their actual hits
   independently. These are retained operational windows, not a measured physical
-  minimum. The raw-route 500 ms marker check has its own load boundary.
+  minimum. The raw-route marker check uses its own native load boundary.
 - Continuity's 500 ms windows guard delayed focus, save, queue, history and IME
   effects after their named acknowledgements. Two native frames or a completed
   animation do not establish that all later forbidden work is drained.
@@ -595,9 +595,13 @@ The three commands cost 157.12 seconds, including each mandatory fixture build;
 the 1,340.94 ms baseline and 571.14 ms passing candidate bodies are single
 samples, so their difference is not wholly attributable to removing 500 ms.
 
-This is source-specific equivalence evidence, not a delivered optimization or
-full hosted qualification. It establishes no equivalence for the separate
-1,500 ms acknowledged native escape windows or continuity's delayed effects.
+The raw-route test now uses that explicit native load boundary and omits its
+500 ms wait and bookkeeping. The marker changes synchronously before the first
+await in its fixture script, so this boundary retains the original opportunity
+to detect broken CSP. The immutable experiment remains tied to its historical
+source; current-head qualification is recorded separately with the change.
+This establishes no equivalence for the separate 1,500 ms acknowledged native
+escape windows or continuity's delayed effects.
 The remaining native observation windows still need their forbidden effect,
 actual opportunities, minimum justified duration and chosen margin. Condition
 samplers, unexpired deadlines and killed fixture lifetimes have different roles;
