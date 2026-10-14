@@ -1,11 +1,18 @@
 # Offline native hosted regression
 
 `bun scripts/prove-native-host.ts` runs the real app, Unix native manager and
-isolated shell workers against a separately owned 4 GiB Btrfs loop filesystem.
+both Claude and Pi workers sequentially against a separately owned 4 GiB Btrfs
+loop filesystem. Each backend must complete cleanup before the next begins.
+Use `--backend=claude` or `--backend=pi` for a focused run.
 Run `bash scripts/ci-runtime-setup.sh --native` to prepare the image and kernel
 prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
+
+Claude substitutes only its query transport; Pi uses its actual SDK session and
+Bash tool through a keyless loopback Anthropic SSE transport. Neither replaces
+the worker, native storage, journal or admission path. The proof checks real
+first/warm writes, Stop, admission cancellation, reconnect and owned cleanup.
 
 The fixture refuses an existing loop1790, creates an exclusive fully allocated
 backing, and verifies its device/inode/minor before format and cleanup. Its

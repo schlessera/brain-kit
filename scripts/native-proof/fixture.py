@@ -1,6 +1,9 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
 import fcntl, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
+BACKEND = sys.argv[1] if len(sys.argv) == 2 else "claude"
+if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
+os.environ["BRAIN_NATIVE_PROOF_BACKEND"] = BACKEND
 ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")

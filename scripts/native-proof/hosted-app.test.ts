@@ -7,6 +7,8 @@ import { Database } from "bun:sqlite";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
+const BACKEND = process.env.BRAIN_NATIVE_PROOF_BACKEND ?? "claude";
+if (!["claude","pi"].includes(BACKEND)) throw Error("Unknown native backend proof selection");
 const recordedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n")); } return child; }) as typeof Bun.spawn;
 afterAll(() => { Bun.spawn = recordedSpawn; });
@@ -17,7 +19,7 @@ async function until(check: () => boolean, deadlineMs = 20000) {
   const end = performance.now() + deadlineMs;
   while (!check()) { if (performance.now() > end) throw Error("Probe wait deadline exceeded"); await sleep(10); }
 }
-test("native hosted first/warm admission, health, WebSocket, Stop and cancellation", async () => {
+test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
   mkdirSync(ARTIFACTS, { recursive: true });
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
   const brain = "/brain-fixture/brain";
@@ -51,7 +53,7 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
     appUid: 1000, appGid: 1000, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
     capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   const permissions = Bun.spawnSync(["chown", "-R", "1000:1000", dir, brain]); expect(permissions.exitCode).toBe(0);
-  const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket], {
+  const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe"
   });
@@ -151,10 +153,11 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
       expect(result.recovery?.latest?.state, "FIRST_AND_WARM_DURABLE_TERMINAL_RECOVERY").toBe("terminal");
       expect(result.recovery?.latest?.requestId, "FIRST_AND_WARM_RECOVERY_MATCHES_REQUEST").toBe(requestId);
       expect(result.recovery?.latest?.outcome, "FIRST_AND_WARM_SUCCESSFUL_RECOVERY").toBe("success");
+      expect(existsSync(join(brain, `notes/worker-${result.phase === "first" ? 1 : 2}.md`)), "REAL_ISOLATED_WORKER_WROTE_FIRST_AND_WARM_NOTES").toBe(true);
     }
     const cancelStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests a cancellable voyage record on 2026-07-12.", requestId: "odysseus-stop", sessionId: sid }));
-    await until(() => existsSync(join(dir, "events.jsonl")) && readFileSync(join(dir, "events.jsonl"), "utf8").includes('"attempt":3'), 15000);
+    await until(() => existsSync(join(brain,"notes/worker-3.md")) && existsSync(join(dir, "events.jsonl")) && readFileSync(join(dir, "events.jsonl"), "utf8").includes('"attempt":3'), 15000);
     const cancelSentAt = performance.now();
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= cancelStart && ((f.type === "status" && f.status === "idle") || f.type === "result" || f.type === "error")), 15000);
@@ -163,7 +166,7 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
     await until(() => sender.frames.some(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart), 15000);
     expect(performance.now() - cancelSentAt, "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(2000);
     const stoppedWorker = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).find(row => row.kind === "worker_exit" && row.attempt === 3);
-    expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBeNull();
+    expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBe(BACKEND === "pi" ? 137 : null);
     await sleep(500);
     const admissionCancelStart = performance.now(), attemptBefore = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length;
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests an immediately cancelled voyage record.", requestId: "odysseus-cancel-admission", sessionId: sid }));
@@ -183,7 +186,7 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
     expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
-      source: SOURCE, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
+      source: SOURCE, backend: BACKEND, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
       workerFiles: readdirSync(join(brain, "notes")).filter(name => name.startsWith("worker-")), events: readFileSync(join(dir, "events.jsonl"), "utf8").trim().split("\n").map(value => JSON.parse(value))
     };
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));

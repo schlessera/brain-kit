@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const [source, dir, brain, socket] = process.argv.slice(2);
+const [source, dir, brain, socket, selectedBackend = "claude"] = process.argv.slice(2);
 const dbPath = join(dir!, "ui.db");
 const firstImportStartedAt = performance.now();
 const { createApp } = await import(join(source!, "packages/ui-server/src/app.ts"));
@@ -9,15 +9,22 @@ const { resolveServerConfig } = await import(join(source!, "packages/ui-server/s
 const { createStaticBackendRegistry } = await import(join(source!, "packages/ui-server/src/agent/backend.ts"));
 const { createSilentObservability } = await import(join(source!, "packages/ui-server/src/observability/index.ts"));
 const { createPrincipal } = await import(join(source!, "packages/ui-server/src/db/principals.ts"));
+const { createPiBackend } = await import(join(source!, "packages/ui-backend-pi/src/backend.ts"));
+const { startPiNativeInference } = await import("./pi-inference.js");
 const { createClaudeBackend } = await import(join(source!, "packages/ui-backend-claude/src/backend.ts"));
 const SECRET = "odysseus-probe-cookie-secret-0123456789";
 const SID = "11111111-1111-4111-8111-111111111790";
 const event = (kind: string, data: object = {}) => appendFileSync(join(dir!, "events.jsonl"), JSON.stringify({ kind, at: performance.now(), wallAt: Date.now(), ...data }) + "\n");
 event("first_import_complete", { elapsedMs: performance.now() - firstImportStartedAt });
+let piWorkerCount=0;
 const tracedSpawn = Bun.spawn;
-Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd, start = performance.now(), child = Reflect.apply(tracedSpawn, Bun, args); const tail = argv.slice(-8); event("app_spawn_start", { pid: child.pid, tail }); void child.exited.then((code: number) => event("app_spawn_end", { pid: child.pid, tail, code, elapsedMs: performance.now() - start })); return child; }) as typeof Bun.spawn;
+Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd, start = performance.now(), child = Reflect.apply(tracedSpawn, Bun, args); const tail = argv.slice(-8);
+ const options=Array.isArray(args[0])?args[1]:args[0];let piAttempt:number|undefined;
+ if(options?.env?.BRAIN_WORKER_LAUNCH){const launch=JSON.parse(options.env.BRAIN_WORKER_LAUNCH);if(launch.command?.some((part:string)=>part.endsWith("/ui-backend-pi/src/worker-entry.ts"))){piAttempt=++piWorkerCount;event("worker_start",{attempt:piAttempt,pid:child.pid,backend:"pi"});}}
+ event("app_spawn_start", { pid: child.pid, tail }); void child.exited.then((code: number) => {event("app_spawn_end", { pid: child.pid, tail, code, elapsedMs: performance.now() - start });if(piAttempt)event("worker_exit",{attempt:piAttempt,code,pid:child.pid,backend:"pi"});}); return child; }) as typeof Bun.spawn;
 let count = 0;
-const backend = createClaudeBackend({
+const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event) : undefined;
+const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
   profiles: [{
     id: "odysseus-offline", label: "Odysseus offline", billing: "api", requiredEnvKeys: [],
@@ -67,10 +74,10 @@ try {
   app = await createApp({
     config: resolveServerConfig({
       AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: SECRET,
-      HOST: "127.0.0.1", DB_PATH: dbPath, BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: "claude",
+      HOST: "127.0.0.1", DB_PATH: dbPath, BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: selectedBackend,
       PI_CODING_AGENT_DIR: join(dir!, "pi"), BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0",
       BRAIN_UI_TURN_TIMEOUT_MS: "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
-    }), registry: createStaticBackendRegistry([backend], "claude"), observability: createSilentObservability()
+    }), registry: createStaticBackendRegistry([backend], selectedBackend), observability: createSilentObservability()
   });
   event("app_create_complete", { elapsedMs: performance.now() - appCreateStartedAt });
   // Timing wrappers call the original methods unchanged. No admission path is replaced.
@@ -107,7 +114,7 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); event("closed"); process.exit(0); }
+    try { server.stop(true); await app.close(); inference?.close(); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {
