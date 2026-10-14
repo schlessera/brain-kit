@@ -41,6 +41,13 @@ cold runs). Point `PUPPETEER_EXECUTABLE_PATH` at it to use it. It is not
 searched for: a broken binary found first would stop every render even with a
 working Chrome installed.
 
+PNG captures are capped at 4096 × 16384 device pixels (2048 × 8192 CSS
+pixels at scale factor 2). Normal bodies retain their body-box crop. A zero-sized
+or hidden body uses document scroll dimensions and the viewport at the origin,
+with the same caps and at least one CSS pixel on each axis. Empty and fixed-only
+documents therefore still capture the viewport; positioned overflow cannot
+select an unbounded full-page screenshot.
+
 ## Options
 
 | Option | Default | Notes |

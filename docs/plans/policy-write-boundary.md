@@ -25,9 +25,12 @@ remain unchanged. Approval is not production containment evidence.
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
 tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:85-256`).
-The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
-the child with piped stdio (`createWrappedSpawn`,
-`packages/ui-backend-claude/src/spawn-wrapper.ts:36-65`). Parent-side MCP/bridge
+The installed SDK exposes `spawnClaudeCodeProcess`; at the investigation baseline,
+the adapter wrapped the child with piped stdio
+([historical `createWrappedSpawn`](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)).
+#1037 subsequently made worker execution unconditional, and #1808 retired the
+unused adapter. This paragraph preserves the earlier child-only boundary analysis.
+Parent-side MCP/bridge
 handlers are outside a boundary around that child. Their effects must be audited
 and validated separately; this report does not claim they currently write policies.
 

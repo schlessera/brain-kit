@@ -175,8 +175,12 @@ export * from "../tool-contracts/index.js";
 
 
 
-export type { TranscriptStore } from "./transcript-store.js";
-export { createTranscriptStore } from "./transcript-store.js";
+export type {
+  TranscriptStore, RecoverableTranscriptStore, TranscriptDiagnostic,
+  TranscriptFailure, TranscriptRecoveryProvenance, TranscriptRecord,
+  TranscriptMetaRecord, TranscriptMessageRecord,
+} from "./transcript-store.js";
+export { createTranscriptStore, TranscriptCorruptionError, TranscriptRecoveryError } from "./transcript-store.js";
 
 export * from "../protocol.js";
 

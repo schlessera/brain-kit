@@ -192,6 +192,10 @@ policy mirrors the Claude backend:
 - **Allowlisted tools run with no round-trip** (`DEFAULT_PI_ALLOWED_TOOLS`:
   every curated tool except `brain_archive`, plus `pi-web-access`'s
   `web_search`/`fetch_content`).
+  This includes `brain_read_base`, which reads the authoritative content and
+  base hash before an edit. An explicit `allowedTools` list still replaces
+  the default; native base reads still require an admitted grant for the exact
+  path and a live turn.
 - **Destructive `bash` shapes confirm first** (shared
   `DEFAULT_CONFIRM_BASH_PATTERNS`: recursive delete, `git push --force`,
   `git reset --hard`, `brain archive`, …). Each pattern carries its effect

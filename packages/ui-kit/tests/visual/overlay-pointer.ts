@@ -23,3 +23,37 @@ declare module "vitest/browser" {
     overlayMouse(point: { x: number; y: number }): Promise<void>;
   }
 }
+
+/** Compare actual navigation paint with and without destination effects.
+ * The active tab/focus stay identical; shadows are absent from hit testing. */
+export const destinationPaint: BrowserCommand<[string, string], { same: boolean }> = async (ctx, navigation, panel) => {
+  const nav = ctx.iframe.locator(navigation);
+  const overlay = ctx.iframe.locator(panel);
+  const painted = await nav.screenshot({ animations: "allow" });
+  const visibility = await overlay.evaluate(element => {
+    const node = element as HTMLElement;
+    const value = node.style.visibility;
+    node.style.visibility = "hidden";
+    return value;
+  });
+  try {
+    const clear = await nav.screenshot({ animations: "allow" });
+    return { same: painted.equals(clear) };
+  } finally {
+    await overlay.evaluate((element, value) => { (element as HTMLElement).style.visibility = value; }, visibility);
+  }
+};
+
+/** Exercise Chromium's real env() values, rather than replacing CSS geometry. */
+export const destinationSafeArea: BrowserCommand<[number], void> = async (ctx, bottom) => {
+  const session = await ctx.page.context().newCDPSession(ctx.page);
+  try { await session.send("Emulation.setSafeAreaInsetsOverride", { insets: { bottom } }); }
+  finally { await session.detach(); }
+};
+
+declare module "vitest/browser" {
+  interface BrowserCommands {
+    destinationPaint(navigation: string, panel: string): Promise<{ same: boolean }>;
+    destinationSafeArea(bottom: number): Promise<void>;
+  }
+}
