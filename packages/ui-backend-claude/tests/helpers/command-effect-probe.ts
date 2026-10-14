@@ -10,6 +10,7 @@ import type { WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { createPermissionWiring } from "../../src/permission-hooks";
 import { createTurnLockBinding } from "../../src/turn-lock";
 import { MUTATING_TOOL_MATCHER } from "../../src/tool-policy";
+import { resetRtkProbe } from "../../../ui-sdk/src/server/rtk.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -37,6 +38,8 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
     writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {}, admission: { signal } });
   const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [] };
   const maintenance = createFixtureMaintenanceHost(root);
+  // Every probe owns its PATH; do not reuse another fixture's availability result.
+  resetRtkProbe();
   const wiring = createPermissionWiring({ maintenance, req: { prompt: "Return to Ithaca", signal,
     workerSandbox: { commandPolicy, brain: root, profile: "governed" } as unknown as WorkerSandbox,
     ...(options.voice ? { posture: "voice" as const, enforceAllowedTools: true } : {}), noGrantSurface: options.noGrantSurface,
@@ -71,5 +74,5 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
     }
     return { requests, events, outputs, rewritten: existsSync(rewriteMarker), executed: existsSync(marker),
       bytes: existsSync(marker) ? readFileSync(marker, "utf8") : null };
-  } finally { turnLock.close(); maintenance.cleanup(); }
+  } finally { resetRtkProbe(); turnLock.close(); maintenance.cleanup(); }
 }
