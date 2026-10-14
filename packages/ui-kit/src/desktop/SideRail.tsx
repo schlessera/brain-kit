@@ -345,7 +345,7 @@ export function SideRail(p: SideRailProps) {
                   </span>
                 ) : null}
                 {expanded && it.shortcut ? (
-                  <span style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
+                  <span className="bk-keyboard-hint" style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
                     {it.shortcut}
                   </span>
                 ) : null}

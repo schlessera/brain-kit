@@ -70,7 +70,7 @@ export interface PaletteItem {
    * cannot be selected, clicked or focused, and ↑↓ step over it.
    */
   why?: string;
-  /** A printed key, e.g. `⌘N`. Always shown; the selected row shows ⏎ when it has none. */
+  /** A printed key, e.g. `⌘N`. Shown under a fine pointer; the selected row falls back to ⏎. */
   shortcut?: string;
   onClick?: () => void;
 }

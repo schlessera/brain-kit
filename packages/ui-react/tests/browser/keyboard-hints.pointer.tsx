@@ -2,7 +2,7 @@ import { afterEach, expect, inject, test } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { Composer } from "@schlessera/brain-ui-kit";
+import { Composer, SideRail as KitSideRail } from "@schlessera/brain-ui-kit";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
@@ -116,5 +116,9 @@ for (const width of live ? [1280] : [320, 600, 1280]) {
     // Enter operates the real tree row even when its legend is suppressed.
     (tree.element() as HTMLElement).focus(); await userEvent.keyboard("{Enter}");
     await expect.poll(() => ui!.stores.file.getState().currentPath).toBe("voyage/return.md");
+    // Standalone embedders need the kit's own explicit-key gate too.
+    flushSync(() => renderer!.render(<KitSideRail expanded items={[{ icon: "files", label: "Ithaca", shortcut: "⌘9" }]} spendPct={null} hint={null} />));
+    expect(host.innerText).toContain("Ithaca");
+    expect(host.innerText.includes("⌘9"), "standalone rail destination key").toBe(live ? false : fine);
   });
 }
