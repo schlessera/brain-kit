@@ -77,7 +77,7 @@ interface Turn {
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const c of cleanups.splice(0).reverse()) c(); });
 
-function world(options: { db?: Database; principalValid?: () => boolean; governedTurns?: import("../src/brain/governed-turn.js").GovernedTurns } = {}) {
+function world(options: { db?: Database; principalValid?: () => boolean; turnTimeoutMs?: number; historyRead?: () => Promise<void>; governedTurns?: import("../src/brain/governed-turn.js").GovernedTurns } = {}) {
   const db = options.db ?? createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "recovery-test" });
   const stream = createActivityStream(store);
@@ -89,6 +89,7 @@ function world(options: { db?: Database; principalValid?: () => boolean; governe
     id: "fixture",
     capabilities: { permissions: true, askUser: true },
     async getHistory(sessionId) {
+      await options.historyRead?.();
       if (failHistory) throw new Error("Fixture transcript unavailable");
       return structuredClone(transcripts.get(sessionId) ?? []);
     },
@@ -121,6 +122,7 @@ function world(options: { db?: Database; principalValid?: () => boolean; governe
     catalog: createSessionCatalog(() => db),
     activity: { store, stream },
     governedTurns: options.governedTurns,
+    turnTimeoutMs: options.turnTimeoutMs,
     isPrincipalValid: options.principalValid ?? (() => true),
   });
   const principal: Principal = testPrincipal();
@@ -584,8 +586,107 @@ test("cancelling native admission settles both clients without starting a backen
   expect(cleaned, "NATIVE_ADMISSION_CLEANUP_SETTLED").toBe(true);
   expect(w.turns, "CANCELLED_NATIVE_ADMISSION_NEVER_STARTS_BACKEND").toHaveLength(0);
   for (const frames of [w.frames, other]) {
-    expect(frames.some(frame => frame.type === "status" && frame.status === "cancelled" && frame.requestId === "cancel-native-admission"),
-      "CANCELLED_NATIVE_ADMISSION_SETTLES_CLIENT").toBe(true);
+    expect(frames.filter(frame => frame.type === "status" && frame.status === "cancelled" && frame.requestId === "cancel-native-admission"),
+      "CANCELLED_NATIVE_ADMISSION_SETTLES_CLIENT_ONCE").toHaveLength(1);
+    expect(frames.filter(frame => frame.type === "status" && frame.status === "idle"), "CANCELLED_ADMISSION_IS_NOT_REPLACED_WITH_IDLE").toHaveLength(0);
     expect(frames.filter(frame => frame.type === "error")).toEqual([]);
   }
+});
+
+
+test("finalization idle refreshes terminal times only after journal and history cleanup", async () => {
+  const historyEntered = Promise.withResolvers<void>(), historyReleased = Promise.withResolvers<void>();
+  const w = world({ historyRead: async () => { historyEntered.resolve(); await historyReleased.promise; } });
+  const journalEntered = Promise.withResolvers<void>(), journalReleased = Promise.withResolvers<void>();
+  await w.chat("Plot the course home", { requestId: "req-finalized" });
+  const first = await w.turn(0), running = await w.recover(first.sessionId);
+  const originalJournal = w.host.journal;
+  Object.defineProperty(w.host, "journal", { value: { async finish() { journalEntered.resolve(); await journalReleased.promise; } }, configurable: true });
+  const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+  const send = w.ws.send;
+  w.ws.send = data => {
+    send(data);
+    const frame = JSON.parse(data) as ServerMessage;
+    if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+  };
+  try {
+    first.finish();
+    await journalEntered.promise;
+    expect(w.frames.some(frame => frame.type === "result")).toBe(true);
+    expect((await w.recover(first.sessionId)).latest).toMatchObject({ state: "running", endedAt: null });
+    expect(atIdle).toHaveLength(0);
+    Object.defineProperty(w.host, "journal", { value: originalJournal, configurable: true });
+    journalReleased.resolve();
+    await historyEntered.promise;
+    // Activity is committed and the live markers are cleared, but cleanup
+    // still awaits history. The final notification must wait for it too.
+    expect((await w.recover(first.sessionId)).latest).toMatchObject({ state: "terminal", outcome: "success" });
+    expect(atIdle, "NO_FINAL_IDLE_BEFORE_REQUIRED_CLEANUP").toHaveLength(0);
+  } finally {
+    Object.defineProperty(w.host, "journal", { value: originalJournal, configurable: true });
+    journalReleased.resolve(); historyReleased.resolve();
+    await w.idle();
+  }
+  expect(atIdle, "FINALIZED_TURN_NOTIFIES_RECOVERY_CLIENT").toHaveLength(1);
+  const read = await atIdle[0]!;
+  expect(read.kind).toBe("ok");
+  if (read.kind !== "ok") throw Error("Expected finalized recovery");
+  expect(read.recovery.latest).toMatchObject({ turnId: running.latest.turnId, state: "terminal", outcome: "success" });
+  expect(read.recovery.latest.endedAt).toBeNumber();
+  const idle = w.frames.find(frame => frame.type === "status" && frame.status === "idle");
+  expect(idle).toMatchObject({ sessionId: first.sessionId, turnId: running.latest.turnId });
+  expect(w.frames.filter(frame => frame.type === "result")).toHaveLength(1);
+});
+
+
+for (const outcome of ["error", "cancelled", "timeout"] as const) {
+  test(`finalization idle preserves the authoritative ${outcome} outcome`, async () => {
+    const w = world(outcome === "timeout" ? { turnTimeoutMs: 20 } : {});
+    await w.chat("Watch the crossing");
+    const first = await w.turn(0);
+    const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+    const send = w.ws.send;
+    w.ws.send = data => {
+      send(data);
+      const frame = JSON.parse(data) as ServerMessage;
+      if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+    };
+    if (outcome === "error") first.finish({ outcome: "error" });
+    else if (outcome === "cancelled") await w.send({ type: "cancel", sessionId: first.sessionId });
+    await w.idle();
+    expect(atIdle, "FINAL_IDLE_RETAINS_HOST_TERMINAL_PRECEDENCE").toHaveLength(1);
+    const read = await atIdle[0]!;
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") throw Error("Expected terminal recovery");
+    expect(read.recovery.latest).toMatchObject({ state: "terminal", outcome });
+    expect(read.recovery.latest.endedAt).toBeNumber();
+    expect(w.frames.filter(frame => frame.type === "result")).toHaveLength(outcome === "error" ? 1 : 0);
+  });
+}
+
+test("finalization idle keeps its turn identity ahead of the queued successor", async () => {
+  const w = world();
+  await w.chat("First watch", { requestId: "req-first-watch" });
+  const first = await w.turn(0), before = await w.recover(first.sessionId);
+  await w.chat("Next watch", { sessionId: first.sessionId, requestId: "req-next-watch" });
+  const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+  const send = w.ws.send;
+  w.ws.send = data => {
+    send(data);
+    const frame = JSON.parse(data) as ServerMessage;
+    if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+  };
+  first.finish();
+  const second = await w.turn(1);
+  try {
+    const idleIndex = w.frames.findIndex(frame => frame.type === "status" && frame.status === "idle");
+    const nextIndex = w.frames.findIndex(frame => frame.type === "session_info" && (frame as { turnId?: string }).turnId !== before.latest.turnId);
+    expect(idleIndex, "FINAL_IDLE_PRECEDES_QUEUED_SUCCESSOR").toBeGreaterThanOrEqual(0);
+    expect(nextIndex).toBeGreaterThan(idleIndex);
+    expect(w.frames[idleIndex]).toMatchObject({ sessionId: first.sessionId, turnId: before.latest.turnId });
+    const read = await atIdle[0]!;
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") throw Error("Expected queued recovery");
+    expect(read.recovery.latest).toMatchObject({ requestId: "req-next-watch", state: "queued", outcome: null });
+  } finally { second.finish(); await w.idle(); }
 });
