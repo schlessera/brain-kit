@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import { rm } from "node:fs/promises";
@@ -85,6 +86,7 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     let accepted = false;
     try {
       const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target");
+      const binaryHashes = result.skipped?.length ? [] : await Promise.all(input.files.map(async (file, index) => ({ path: result.files[index]?.path, sha256: createHash("sha256").update(new Uint8Array(await file.arrayBuffer())).digest("hex") })));
       const outcome = db.transaction(() => {
         authorize(principal, isCurrent); // revocation may occur during decoding or staging
         const owned = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
@@ -98,8 +100,8 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
         const work = store.ingest({ threadId: crypto.randomUUID(), itemId: crypto.randomUUID(), source,
           dedupKey: key, stagingId: id, expiresAt: Date.now() + SHARE_STAGING_TTL_MS, stakes: 1 });
         if (!work.created) throw new Error("Intake receipt is missing for an existing item");
-        db.query("UPDATE inbox_intake_receipts SET state = 'committed', item_id = ?, result_json = ? WHERE staging_id = ?")
-          .run(work.item.id, JSON.stringify(result), id);
+        db.query("UPDATE inbox_intake_receipts SET state = 'committed', item_id = ?, result_json = ?, binary_hashes_json = ? WHERE staging_id = ?")
+          .run(work.item.id, JSON.stringify(result), JSON.stringify(binaryHashes), id);
         return { result, created: true, threadId: work.thread.id, itemId: work.item.id };
       }).immediate();
       accepted = outcome.result.id === id;

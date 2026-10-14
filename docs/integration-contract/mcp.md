@@ -731,8 +731,8 @@ initialization/migration as the CLI. Annotations are `readOnlyHint: true` and
 
 ## Durable inbox bridge tools (additive, #685)
 
-Both first-party backends attach `inbox_list`, `inbox_get`, `inbox_add` and
-`resolve_action` to their existing UI bridge. Claude names them
+Both first-party backends attach `inbox_list`, `inbox_get`, `inbox_add`,
+`resolve_action` and `complete_share` to their existing UI bridge. Claude names them
 `mcp__brain-ui__<name>` and loads their schemas and executors eagerly; pi
 attaches plain names to its session toolkit. Shared contracts are exported
 from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
@@ -743,6 +743,7 @@ from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 | `inbox_get` | `itemId` | `{ item, thread }` |
 | `inbox_add` | `text` (1–32000 characters); `idempotencyKey` | `{ created, threadId, itemId }` |
 | `resolve_action` | `sessionId`, `itemId`, `optionId`, positive integer `expectedVersion` | `{ replay, followUpId? }` |
+| `complete_share` | `receiptIds` (1–32 distinct IDs); `files` (0–10 exact original dispositions) | `{ itemId, status: "done", replay }` |
 
 IDs and keys are nonempty strings of at most 256 characters. Inputs are strict
 objects; origin, principal, trust, policy and effects are never tool arguments.
@@ -769,6 +770,51 @@ binding: ordinary and autonomous sessions refuse `resolve_action`. Deferred
 `open_session`/`write_policy` and hygiene's separate UI preview are unavailable
 through this tool. A future bound flow must supply an explicit exact approval;
 the tool name or an extra permission tap alone cannot establish that binding.
+
+### Interactive share completion (additive, #1764)
+
+The confirmed client sends the intake's UUID as `chat_message.shareId`, outside
+the quoted prompt. The host matches the immutable authenticated intake principal
+and share provenance, claims the original triage item using its existing
+version/attempt/lease lifecycle, and persists the resulting session binding.
+It accepts no model-selected item ID, trust class or operation grant. Racing
+owners refuse. A repeated confirmed intake resumes its server-selected existing
+session; a caller asking for a different session refuses. Recovery uses that
+same session and item. A share whose start ended before a
+session was named can start again after lease recovery.
+
+For a bound session, successful authoritative applications return an optional
+`BrainApplicationResult.shareReceiptId`. Each receipt belongs to the source
+item and records actual document paths and hashes. An intake admits at most
+32 bounded application records; reaching that limit refuses additional filing. Equivalent validated
+application effects replay their original result without applying again, including
+a freshly read base hash after a lost response. An
+interrupted application with an uncertain result refuses replay and preserves
+originals for inspection; it never guesses success or retries the side effect.
+
+`complete_share` takes no session or item ID. The server selects both from the
+live bridge, rechecks principal/turn authority and verifies each receipt against
+current authoritative document bytes. The filed Markdown must include
+`<!-- share-source:INTAKE_UUID -->`, identifying the source association; this
+marker alone cannot create a receipt or grant authority. Unrelated or forged
+receipts, destructive effects, changed documents and incomplete intake refuse.
+
+Each original requires exactly one strict disposition object. Retention uses
+`{ sourcePath, disposition: "retained", path }`: `path` must be an ordinary
+`assets/` file with the original intake hash and a Markdown link in a filed
+document. Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
+a nonempty reason capped at 1000 characters, and requires the existing exact
+interactive approval. Missing files, aliases, changed originals and unsupported
+retention refuse. The operation promotes no binary and grants no new writer.
+
+Completion atomically records the exact request and transitions the owned item
+to `done` once. Replaying that request returns `replay: true`; a changed replay
+refuses. Later ordinary work in the same chat remains available. Partial or
+cancelled filing retains originals and durable replay restrictions, and a
+dispatcher cannot acquire the bound item. Cleanup is journaled only after
+verified completion and live worker unwind, then retried through the existing
+compensation lifecycle. The path also works with dispatch disabled. Voice,
+restricted and unbound sessions cannot complete interactive shares.
 
 ## Hosted policy proposal (additive, #1662)
 

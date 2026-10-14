@@ -180,6 +180,8 @@ export interface SessionWorkerProfile {
 }
 
 export interface ClientChatMessage {
+  /** Authenticated share intake to bind at interactive start, never an item grant. */
+  shareId?: string;
   type: "chat_message";
   text: string;
   sessionId?: string;

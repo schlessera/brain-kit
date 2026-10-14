@@ -445,6 +445,8 @@ export "./client" (./src/client/index.ts)
   type BridgeToolName
   type BudgetObservation
   type BudgetScope
+  COMPLETE_SHARE_CONTRACT
+  COMPLETE_SHARE_INPUT_SCHEMA
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -488,6 +490,8 @@ export "./client" (./src/client/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type CompleteShareInput
+  type CompleteShareResult
   type ConflictVersionSelection
   type ConnectionStatus
   type ConversationAudioFormat
@@ -1677,6 +1681,8 @@ export "./server" (./src/server/index.ts)
   type BridgeToolName
   type BudgetObservation
   type BudgetScope
+  COMPLETE_SHARE_CONTRACT
+  COMPLETE_SHARE_INPUT_SCHEMA
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatFileAttachment
@@ -1724,6 +1730,8 @@ export "./server" (./src/server/index.ts)
   type CoastlineRequest
   type CoastlineResult
   type CompiledConfirmPattern
+  type CompleteShareInput
+  type CompleteShareResult
   type CompletedAutonomousToolCall
   type ConfirmPattern
   type ConfirmPatternSource
@@ -2256,6 +2264,10 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type Block
   type BlockKind
   type BridgeToolName
+  COMPLETE_SHARE_CONTRACT
+  COMPLETE_SHARE_INPUT_SCHEMA
+  type CompleteShareInput
+  type CompleteShareResult
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
@@ -3631,6 +3643,17 @@ signatures (every public export and the types it is made of)
         itemId: z.ZodString;
         optionId: z.ZodString;
         sessionId: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"complete_share", z.ZodObject<{
+        files: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            disposition: z.ZodLiteral<"retained">;
+            path: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            disposition: z.ZodLiteral<"discarded">;
+            reason: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>], "disposition">>;
+        receiptIds: z.ZodArray<z.ZodString>;
     }, z.core.$strict>>, import("./contract.js").ToolComponentContract<"ask_user", z.ZodObject<{
         questions: z.ZodArray<z.ZodObject<{
             header: z.ZodString;
@@ -4520,7 +4543,7 @@ signatures (every public export and the types it is made of)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly [...("inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block", "turn_temp"];
+        names: readonly [...("complete_share" | "inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block", "turn_temp"];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -4697,6 +4720,7 @@ signatures (every public export and the types it is made of)
             replay: boolean;
             followUpId?: string;
         }>;
+        completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -4889,6 +4913,7 @@ signatures (every public export and the types it is made of)
   BrainApplicationResult (packages/ui-sdk/src/server/brain-application.ts)
     export interface BrainApplicationResult {
         ok: boolean;
+        shareReceiptId?: string;
         code?: string;
         message: string;
         changes: {
@@ -4996,6 +5021,32 @@ signatures (every public export and the types it is made of)
     }
   BudgetScope (packages/ui-sdk/src/turn-budgets.ts)
     export type BudgetScope = "turn" | "session" | "day";
+  COMPLETE_SHARE_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const COMPLETE_SHARE_CONTRACT: import("./contract.js").ToolContract<"complete_share", z.ZodObject<{
+        files: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            disposition: z.ZodLiteral<"retained">;
+            path: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            disposition: z.ZodLiteral<"discarded">;
+            reason: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>], "disposition">>;
+        receiptIds: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>>;
+  COMPLETE_SHARE_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const COMPLETE_SHARE_INPUT_SCHEMA: z.ZodObject<{
+        files: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            disposition: z.ZodLiteral<"retained">;
+            path: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            disposition: z.ZodLiteral<"discarded">;
+            reason: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>], "disposition">>;
+        receiptIds: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>;
   CONVERSATION_CAPABILITY_KEYS (packages/ui-sdk/src/protocol.ts)
     const CONVERSATION_CAPABILITY_KEYS: readonly ["nonblockingWork", "manualEndpoint", "finalTranscript", "remoteOutputCancelAck", "exactPermissionSpeech", "echoIsolatedInput", "outputWordAlignment"];
   CONVERSATION_LIMITS (packages/ui-sdk/src/protocol.ts)
@@ -5127,6 +5178,7 @@ signatures (every public export and the types it is made of)
     }
   ClientChatMessage (packages/ui-sdk/src/protocol.ts)
     export interface ClientChatMessage {
+        shareId?: string;
         type: "chat_message";
         text: string;
         sessionId?: string;
@@ -5349,6 +5401,14 @@ signatures (every public export and the types it is made of)
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
     };
+  CompleteShareInput (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export type CompleteShareInput = z.infer<typeof COMPLETE_SHARE_INPUT_SCHEMA>;
+  CompleteShareResult (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export interface CompleteShareResult {
+        itemId: string;
+        status: "done";
+        replay: boolean;
+    }
   CompletedAutonomousToolCall (packages/ui-sdk/src/server/backend.ts)
     export interface CompletedAutonomousToolCall {
         toolName: string;
@@ -6046,6 +6106,17 @@ signatures (every public export and the types it is made of)
         itemId: z.ZodString;
         optionId: z.ZodString;
         sessionId: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"complete_share", z.ZodObject<{
+        files: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            disposition: z.ZodLiteral<"retained">;
+            path: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            disposition: z.ZodLiteral<"discarded">;
+            reason: z.ZodString;
+            sourcePath: z.ZodString;
+        }, z.core.$strict>], "disposition">>;
+        receiptIds: z.ZodArray<z.ZodString>;
     }, z.core.$strict>>];
   ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export interface ImageMaskHandlerOptions {
@@ -9123,6 +9194,7 @@ signatures (every public export and the types it is made of)
         inboxGet?: string | false;
         inboxAdd?: string | false;
         resolveAction?: string | false;
+        completeShare?: string | false;
         block?: string | false;
         turnTemp?: string | false;
     }
@@ -9900,6 +9972,7 @@ signatures (every public export and the types it is made of)
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
+        shareId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
@@ -10171,6 +10244,7 @@ signatures (every public export and the types it is made of)
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
+        shareId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";

@@ -197,6 +197,7 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
  * same slot (same sessionId) after the current one resolves.
  */
 export interface RunningTurn {
+  shareId?: string;
   /** Chat correlation for the current turn; replaced on dequeue. */
   requestId?: string;
   /** The draft revision the current turn's message was sent from; replaced on dequeue. */

@@ -196,6 +196,7 @@ export function useShareIntake(): {
 
         const sent = root.connection.send({
           type: "chat_message",
+          shareId: outcome.result.id,
           text: prompt,
           ...(trackFiles.length ? { files: trackFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
           ...(attachments.length

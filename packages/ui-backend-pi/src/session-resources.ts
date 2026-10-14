@@ -178,7 +178,7 @@ function buildAppend(
         location: env.caps.location && "get_current_location",
         activity: env.caps.activity && "query_activity",
         inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
-        inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action",
+        inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action", completeShare: env.caps.inbox && "complete_share",
         mask: env.caps.mask && "request_image_mask",
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         // Always registered: it needs nothing from the bridge.

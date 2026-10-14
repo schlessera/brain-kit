@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:528`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:552`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:529`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:553`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:269-362`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:271-364`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -358,6 +358,33 @@ it consumes the shared store, resolution and streaming prerequisites without
 blocking all of #51 or moving markdown findings into this operational store.
 Odysseus is the sole example world under the September 30 ruling on #51/#533;
 the repository-wide conversion is #625, not an extra task here.
+
+## Interactive intake reconciliation — 2026-10-14
+
+The [maintainer's ruling on #1764](https://github.com/schlessera/brain-kit/issues/1764#issuecomment-6148735456)
+connects confirmed interactive filing to the original durable intake item.
+The host owns the authenticated intake/session association, claims and finite
+attempt recovery; the model cannot select arbitrary work or promote source
+trust. An explicit `complete_share` verifies authoritative filing receipts and
+every original's disposition before committing `done`. Observing an unrelated
+write, assistant prose or cancellation cannot infer successful filing.
+
+Persist the binding and application replay receipts in the operational store.
+Interrupted replies reuse the same identity and exact result. A write with an
+uncertain application outcome refuses repeat execution, preserving content and
+originals for inspection. The source marker identifies a filing's association;
+it is neither an application receipt nor an approval. Retained files need their
+intake byte hashes and links from the verified document. Discards use the
+existing exact approval surface; unsupported binary retention preserves staging
+rather than inventing a promotion route.
+
+Interactive ownership excludes autonomous acquisition of that item. Live kernel
+ownership protects cleanup through unwind, including after the durable terminal
+transition. Partial work remains recoverable in its bound session; completion
+journals compensated cleanup after successful verification. This reconciliation
+does not enable dispatch or alter its production gates. The additive schemas,
+refusals and replay behavior are recorded in the
+[completion contract](../integration-contract/mcp.md#interactive-share-completion-additive-1764).
 
 ## Alternatives rejected
 

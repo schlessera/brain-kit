@@ -236,7 +236,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   ask_user_form: "read",
   get_current_location: "read",
   query_activity: "read",
-  inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate",
+  inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
