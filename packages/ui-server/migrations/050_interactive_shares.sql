@@ -12,6 +12,7 @@ CREATE TABLE inbox_share_applications (
   item_id TEXT NOT NULL REFERENCES inbox_interactive_shares(item_id),
   input_json TEXT NOT NULL CHECK (json_valid(input_json)),
   operation_key TEXT NOT NULL,
+  run_id TEXT NOT NULL,
   result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
   UNIQUE(item_id, operation_key)
 );

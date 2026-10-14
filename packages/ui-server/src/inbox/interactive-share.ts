@@ -14,7 +14,7 @@ import { recoverAutonomousItem } from "./yield.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
 
 interface Binding { item_id: string; staging_id: string; principal_id: string; session_id: string | null; run_id: string; completion_json: string | null }
-interface Application { id: string; input_json: string; result_json: string | null }
+interface Application { id: string; input_json: string; result_json: string | null; run_id: string }
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 
 /** Read each path through directory descriptors, refusing aliases and hardlinks. */
@@ -84,6 +84,10 @@ export function createInteractiveShares(db: Database, root: string) {
     }
     return binding;
   }
+  function replayResult(row: Application): BrainApplicationResult {
+    if (!row.result_json) throw new Error("Filing outcome is uncertain; inspect existing content and preserve originals, never repeat the write");
+    return JSON.parse(row.result_json) as BrainApplicationResult;
+  }
   return {
     start,
     resolveSession(principalId: string, stagingId: string, requested: string | undefined, current: () => boolean): string | undefined {
@@ -127,24 +131,36 @@ export function createInteractiveShares(db: Database, root: string) {
       // cannot turn the same filing effect into a second append/application.
       const operationKey = hash(JSON.stringify(parsed.data, (key, value) => key === "expectedBaseHash" ? undefined : value));
       if (binding.completion_json) {
-        const prior = db.query("SELECT result_json FROM inbox_share_applications WHERE item_id = ? AND operation_key = ?").get(binding.item_id, operationKey) as { result_json: string | null } | null;
-        if (prior?.result_json) return JSON.parse(prior.result_json) as BrainApplicationResult;
-        // A completed share does not disable ordinary later work in its chat.
+        const prior = db.query("SELECT * FROM inbox_share_applications WHERE item_id = ? AND operation_key = ?").get(binding.item_id, operationKey) as Application | null;
+        if (prior) {
+          const previous = replayResult(prior);
+          if (!(prior.run_id !== runId && previous.ok === false && Array.isArray(previous.changes) && previous.changes.length === 0)) return previous;
+        }
+        // Known no-effect refusals do not disable ordinary later work. A
+        // successful or uncertain filing still cannot be written twice.
         return apply();
       }
       const receiptId = db.transaction(() => {
         bound(principalId, runId, sessionId, current);
         const prior = db.query("SELECT * FROM inbox_share_applications WHERE item_id = ? AND operation_key = ?").get(binding.item_id, operationKey) as Application | null;
-        if (prior) return prior;
+        if (prior) {
+          const previous = prior.result_json ? JSON.parse(prior.result_json) as BrainApplicationResult : null;
+          // Only a fresh, bounded Queue claim may retry a proven no-effect
+          // refusal. Success, uncertainty and partial effects never replay writes.
+          if (prior.run_id !== runId && previous?.ok === false && Array.isArray(previous.changes) && previous.changes.length === 0) {
+            db.query("UPDATE inbox_share_applications SET input_json = ?, run_id = ?, result_json = NULL WHERE id = ?").run(json, runId, prior.id);
+            return { ...prior, input_json: json, run_id: runId, result_json: null, created: true };
+          }
+          return prior;
+        }
         const count = db.query("SELECT COUNT(*) AS n FROM inbox_share_applications WHERE item_id = ?").get(binding.item_id) as { n: number };
         if (count.n >= 32) throw new Error("Share filing receipt limit reached; preserve originals for recovery");
         const id = crypto.randomUUID();
-        db.query("INSERT INTO inbox_share_applications (id, item_id, input_json, operation_key) VALUES (?, ?, ?, ?)").run(id, binding.item_id, json, operationKey);
-        return { id, input_json: json, result_json: null, created: true };
+        db.query("INSERT INTO inbox_share_applications (id, item_id, input_json, operation_key, run_id) VALUES (?, ?, ?, ?, ?)").run(id, binding.item_id, json, operationKey, runId);
+        return { id, input_json: json, result_json: null, run_id: runId, created: true };
       }).immediate();
       if (!("created" in receiptId)) {
-        if (!receiptId.result_json) throw new Error("Filing outcome is uncertain; inspect existing content and preserve originals, never repeat the write");
-        return JSON.parse(receiptId.result_json) as BrainApplicationResult;
+        return replayResult(receiptId);
       }
       const result = await apply();
       const receipt = { ...result, ...(result.ok && result.changes.length ? { shareReceiptId: receiptId.id } : {}) };

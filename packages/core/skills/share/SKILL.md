@@ -138,7 +138,9 @@ The server checks this session's ownership, actual document hashes, original
 intake bytes and retained binary links before committing Queue `done` once.
 This works with autonomous dispatch disabled. A lost completion reply can
 repeat the exact request; it never files content again. Repeating an identical
-filing application returns its recorded result. An uncertain application
+filing application returns its recorded result. For a known refusal with no
+applied effects, a fresh bounded attempt in the same filing chat can retry
+with current approvals and corrected bases. An uncertain application
 refuses replay: inspect the existing content and preserve originals.
 
 Hosted workers cannot move unsupported assets into the authoritative brain.

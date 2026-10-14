@@ -788,7 +788,9 @@ For a bound session, successful authoritative applications return an optional
 item and records actual document paths and hashes. An intake admits at most
 32 bounded application records; reaching that limit refuses additional filing. Equivalent validated
 application effects replay their original result without applying again, including
-a freshly read base hash after a lost response. An
+a freshly read base hash after a lost response. A proven no-effect failure may
+retry only under a fresh bounded server claim, with current operation authority
+and approvals; repeated delivery within one claim keeps its original refusal. An
 interrupted application with an uncertain result refuses replay and preserves
 originals for inspection; it never guesses success or retries the side effect.
 

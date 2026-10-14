@@ -222,6 +222,54 @@ test("uncertain application receipt refuses replay instead of duplicating a comm
   expect(readFileSync(join(f.brainPath, "notes/ithaca-share.md"), "utf8")).toBe((application(share) as { content: string }).content);
 });
 
+test("a proven no-effect failure retries only in a fresh bounded claim with a corrected authoritative base", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  mkdirSync(join(f.brainPath, "notes"), { recursive: true });
+  writeFileSync(join(f.brainPath, "notes/ithaca-share.md"), "Odysseus checks the earlier harbor note.\n");
+  const sid = await f.send(share, async req => {
+    const refused = await req.bridge.applyBrain!(application(share));
+    expect(refused).toMatchObject({ ok: false, code: "stale_base", changes: [] });
+    const base = await req.bridge.readBrainBase!("notes/ithaca-share.md");
+    const corrected = { ...application(share), expectedBaseHash: base.expectedBaseHash } as BrainApplicationInput;
+    expect(await req.bridge.applyBrain!(corrected), "SAME_CLAIM_CANNOT_RETRY_REFUSED_EFFECT").toEqual(refused);
+  });
+  expect(f.item(share)).toMatchObject({ status: "ready", attempts: 1 });
+  expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
+  await f.send(share, async req => {
+    const base = await req.bridge.readBrainBase!("notes/ithaca-share.md");
+    const result = await req.bridge.applyBrain!({ ...application(share), expectedBaseHash: base.expectedBaseHash } as BrainApplicationInput);
+    expect(result.ok, "FRESH_CLAIM_RECOVERS_KNOWN_NO_EFFECT_FAILURE").toBe(true);
+    expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: [] })).toMatchObject({ status: "done" });
+  }, sid);
+  expect(f.item(share)).toMatchObject({ status: "done", attempts: 2 });
+  expect(f.app.db.query("SELECT COUNT(*) AS n FROM inbox_share_applications").get()).toEqual({ n: 1 });
+});
+
+test("completed filing preserves success and uncertainty replay guards while allowing later ordinary no-effect retries", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  mkdirSync(join(f.brainPath, "notes"), { recursive: true });
+  writeFileSync(join(f.brainPath, "notes/ithaca-share.md"), "Odysseus checks an earlier note.\n");
+  let filed: any;
+  const sid = await f.send(share, async req => {
+    expect((await req.bridge.applyBrain!(application(share))).code).toBe("stale_base");
+    filed = await req.bridge.applyBrain!(application(share, "notes/filed-ithaca.md"));
+    expect(await req.bridge.completeShare!({ receiptIds: [filed.shareReceiptId], files: [] })).toMatchObject({ status: "done" });
+  });
+  await f.send(share, async req => {
+    const base = await req.bridge.readBrainBase!("notes/ithaca-share.md");
+    const result = await req.bridge.applyBrain!({ ...application(share), expectedBaseHash: base.expectedBaseHash } as BrainApplicationInput);
+    expect(result.ok, "COMPLETED_CHAT_ALLOWS_FRESH_ORDINARY_NO_EFFECT_RETRY").toBe(true);
+    expect(result.shareReceiptId).toBeUndefined();
+    expect(await req.bridge.applyBrain!(application(share, "notes/filed-ithaca.md"))).toEqual(filed);
+  }, sid);
+  // Even after completion an interrupted reply remains a replay restriction.
+  f.app.db.query("UPDATE inbox_share_applications SET result_json = NULL WHERE id = ?").run(filed.shareReceiptId);
+  await f.send(share, async req => {
+    await expect(req.bridge.applyBrain!(application(share, "notes/filed-ithaca.md")), "COMPLETION_NEVER_REOPENS_UNCERTAIN_WRITES").rejects.toThrow("outcome is uncertain");
+  }, sid);
+  expect(f.item(share).status).toBe("done");
+});
+
 test("the existing exact approval surface owns binary discard and completion commits only after approval", async () => {
   const f = await fixture(), share = await f.upload();
   const approval = deferred<any>();
