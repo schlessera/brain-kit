@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:261-355`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:269-363`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -134,7 +134,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:746`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:261-355`). Timeout unwind is
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:269-363`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:357-363`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`) closes measured bypasses.

@@ -9,8 +9,8 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { createTestApp } from "./helpers/test-app";
 import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
-import { createHostBoundary } from "../src/brain/host-boundary.js";
-import { createHostExecution } from "../src/brain/host-execution.js";
+import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
+import { createFixtureHostExecution as createHostExecution } from "./helpers/native-host-fixture.js";
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
@@ -151,6 +151,7 @@ test("an injected final chmod error does not leave other directories in temporar
 test("maintenance publishes explicit output without opening the execution view for writes", async () => {
   const brain = fixture();
   const boundary = createHostBoundary({ brainPath: brain });
+  await boundary.prepare();
   expect(boundary.isolated()).toBe(true);
   const program = 'console.log((await import("./brain.config.ts")).default); try {await Bun.write("./harbor.md", "attack"); process.exit(43)} catch(e) {if(e.code!=="EROFS")throw e} await Bun.write(process.env.BRAIN_ROOT + "/harbor.md", "Odysseus departs.\\n");';
   const result = await boundary.run({ argv: [process.execPath, "--no-env-file", "-e", program], env: {}, credentials: false, gate: "shared", purpose: "maintenance output proof" });

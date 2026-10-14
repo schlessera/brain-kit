@@ -786,8 +786,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       },
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
-      checkWorkerHost: () => {
+      checkWorkerHost: async () => {
         for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes);
+        await boundary.prepare();
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },

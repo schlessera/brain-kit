@@ -1,5 +1,7 @@
+import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { boundaryPlanner } from "../src/brain/application.js";
 import { expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createKeyedLock, type BackendBridge, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
@@ -31,13 +33,14 @@ test("the real session bridge applies, rechecks revocation and records exact eff
     results.push(await req.bridge.applyBrain!({ operation: "write", path: "notes/refused-raft.md", content: "Untrusted raft", expectedBaseHash: null }));
   } });
   backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
-  const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => db),
+  const host = new WsHost({ brainPath: root, applicationPlanner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })), registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => db),
     isPrincipalAuthorized: () => currentAuthority, activity: { store, stream } });
   const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
   try {
     const running = runSession(host, { authorization, text: "Repair the raft", attachments: [] });
     authorization.release(); await running;
     expect(results).toHaveLength(2); expect(results[0]!.ok).toBe(true); expect(results[1]!.code).toBe("authority_revoked");
+    expect(existsSync(join(root, "notes/refused-raft.md")), "REFUSED_APPLICATION_HAS_NO_EFFECT_AFTER_IDLE").toBe(false);
     expect(readFileSync(join(root, "notes/ws-raft.md"), "utf8")).toBe("Odysseus rows.\n");
     const events = db.query("SELECT event_type, payload AS payload_json FROM activity_events WHERE event_type LIKE 'brain_application%'").all() as { event_type: string; payload_json: string }[];
     expect(events.filter(e => e.event_type === "brain_application_change")).toHaveLength(1);

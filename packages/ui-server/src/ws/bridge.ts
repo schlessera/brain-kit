@@ -131,6 +131,14 @@ export function makeBridge(
     ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),
     emit: (message) => {
       let msg = message;
+      // Pi preserves a bare acquisition error for direct SDK callers without
+      // inventing a session. The hosted request has its own cancellation and
+      // correlation, so preserve that terminal UI state only for this exact
+      // no-identity cancellation; classified failures keep their error frame.
+      if (backendId === "pi" && requestId && turn.turnId === turnId && turn.cancelled && signal.aborted
+        && !turn.sessionId && msg.type === "error" && !msg.sessionId && !msg.failure
+        && msg.code === "agent_error" && msg.message === "The turn was cancelled before a session was acquired.")
+        msg = { type: "status", status: "cancelled", detail: "Cancelled before starting", requestId };
       if (msg.type === "error" && requestId) msg = { ...msg, requestId };
       if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
         msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };
@@ -560,7 +568,7 @@ export function makeBridge(
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path);
     };
-    bridge.applyBrain = async input => { await host.journal?.idle(); assertAuthority(); return apply({ principalId, turnId, input }); };
+    bridge.applyBrain = async input => { await host.journal?.idle(); return apply({ principalId, turnId, input }); };
     if (backendId === "claude" || backendId === "pi") {
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths,

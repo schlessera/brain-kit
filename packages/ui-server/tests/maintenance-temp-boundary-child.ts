@@ -4,9 +4,12 @@ import { basename } from "node:path";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createUiDb } from "../src/db/client";
 import { ledgerLine } from "../../ui-sdk/tests/maintenance-temp-ledger-protocol";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 const [brainPath, marker, role, raw, dbPath] = process.argv.slice(2);
 const answer = (value: unknown) => writeSync(1, `${JSON.stringify(value)}\n`);
-const host = createHostExecution({ brainPath: brainPath!, dbPath: dbPath!, maintenanceTemp: JSON.parse(raw!), requireGate: true });
+const native = createNativeAppFixture(brainPath!);
+const host = createHostExecution({ nativeManager: createNativeBrainManagerClient(native.nativeBrain), brainPath: brainPath!, dbPath: dbPath!, maintenanceTemp: JSON.parse(raw!), requireGate: true });
 const db = createUiDb(dbPath!);
 host.attach(db);
 const boundary = host.boundary;
@@ -27,4 +30,4 @@ if (role === "server") {
   catch (error) { answer({ admitted: false, errorClass: (error as {errorClass?:string}).errorClass, error: String(error) }); }
 }
 
-host.release(); db.close();
+host.release(); db.close(); await native.close();

@@ -387,7 +387,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       signal?.throwIfAborted();
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
       if (!ordinary.ok) return governed();
-      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
+      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
       const view = preparedView ?? await prepareInput(signal);
       try {
         signal?.throwIfAborted();
@@ -395,7 +395,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
         return governed();
-      } catch (error) { if (error instanceof WorkerStateError) maintenanceResourceRefused = true; throw error; }
+      } catch (error) {
+        if (!(error instanceof WorkerStateError)) throw error;
+        signal?.throwIfAborted();
+        // A transient resource refusal keeps the UI available and execution
+        // isolated. The next explicit preparation retries immediately.
+        maintenanceResourceRefused = true;
+        maintenance = { probe: { ok: false, requirement: error.message }, at: Date.now() };
+        return governed();
+      }
       finally { if (!preparedView) await view.cleanup(); }
       }, { signal });
     },

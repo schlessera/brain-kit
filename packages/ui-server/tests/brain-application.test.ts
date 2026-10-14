@@ -1,10 +1,11 @@
+import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, statSync, cpSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createKeyedLock, BRAIN_APPLICATION_MAX_BYTES, type BrainApplicationInput, type BrainApplicationResult, type BrainApplicationOperation } from "@schlessera/brain-ui-sdk/server";
 import { keylessEnv } from "../../core/tests/cli-harness.js";
-import { contentHash, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
+import { boundaryPlanner, contentHash, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
 
 const operations: BrainApplicationOperation[] = ["add", "update", "archive", "write", "edit", "staged"];
 let root: string;
@@ -24,7 +25,7 @@ const policy = "---\ntype: policy\n---\nAthena reviews crew decisions.\n";
 const request = (input: unknown) => ({ principalId: "odysseus", turnId: "turn-raft", input: input as BrainApplicationInput });
 const write = (target = path, content = "Odysseus sails.\n", expectedBaseHash: string | null = contentHash(raw)) => ({ operation: "write" as const, path: target, content, expectedBaseHash });
 function application() {
-  return createBrainApplication({ root, principalId: "odysseus", turnId: "turn-raft", signal: signal.signal,
+  return createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })), principalId: "odysseus", turnId: "turn-raft", signal: signal.signal,
     isAuthorized: () => authorized, policy: { autoAllowed: allowed, available, lock },
     approve: async input => { approvals.push(input); return approved; }, record: result => receipts.push(result),
     beforeCommit: () => beforeCommit?.(),

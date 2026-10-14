@@ -2,10 +2,14 @@ import { spyOn } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import * as workerSdk from "@schlessera/brain-ui-sdk/internal";
+import * as startup from "../../../ui-sdk/src/server/worker-startup-view.js";
 import { hostExecution } from "../../src/brain/host-boundary.js";
 import { createFixtureWorkerStartupView, prepareFixtureNativeWorkerOutput } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Explicit byte-copy fixture manager, never a product fallback or native filesystem proof. */
 export function createNativeHostInputFixture() {
+  // This fixture exercises native owner calls, rather than an app fixture's
+  // acquisition-only spy left installed by another suite.
+  spyOn(startup, "prepareNativeWorkerStartupView").mockRestore();
   const store = fs.mkdtempSync("/tmp/odysseus-native-host-"), brain = join(store, "brain");
   fs.mkdirSync(brain); fs.writeFileSync(join(brain, "helper.txt"), "Odysseus initial input");
   const actualStat = fs.statfsSync;
