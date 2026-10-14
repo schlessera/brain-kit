@@ -8,6 +8,9 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("release"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("delta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listRecovery"), after: nativeCheckpointId.nullable() }).strict(),
+  z.object({ operation: z.literal("prepareStage"), id: nativeCheckpointId, checkpointId: nativeCheckpointId, allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("inspectStage"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("releaseStage"), id: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
 export type NativeManagerErrorCode = "unsupported" | "capacity" | "unavailable" | "unknown" | "released" | "invalid";
@@ -44,7 +47,25 @@ export interface NativeRecoveryRecord {
   id: string;
   state: "creating" | "sealed" | "deleting" | "deleted";
   checkpoint?: NativeCheckpoint;
+  kind?: "stage";
+  stage?: NativeStage;
 }
+export interface NativeStage {
+  id: string;
+  checkpointId: string;
+  checkpointUuid: string;
+  sourceUuid: string;
+  path: string;
+  namespacePid: number;
+  namespaceStart: string;
+  appUid: number;
+  appGid: number;
+  allowanceBytes: number;
+  rootDevice: string;
+  rootInode: string;
+}
+/** The privileged helper inspects only its bounded upper layer after the worker exits. */
+export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }
 export const NATIVE_CONTROL_BYTES = 64 * 1024;
 export const NATIVE_DATA_CHUNK_BYTES = 64 * 1024;
 /** Transport work bounds, configurable; neither is a history/object/change quota. */

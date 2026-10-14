@@ -3,12 +3,18 @@ import { isAbsolute } from "node:path";
 import { request as unixRequest } from "node:http";
 import { Readable } from "node:stream";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
-  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord } from "./native-brain-manager-protocol.js";
+  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange } from "./native-brain-manager-protocol.js";
 
 export interface NativeDeltaStream {
   stream: ReadableStream<Uint8Array>;
   /** Must be awaited in addition to the parser's native CRC/END/EOF validation. */
   completed: Promise<{ exitCode: 0; bytes: number }>;
+}
+export interface NativeStageInspection {
+  checkpointId: string;
+  checkpointUuid: string;
+  changes: AsyncIterable<NativeStageChange>;
+  completed: NativeDeltaStream["completed"];
 }
 async function boundedJson(response: Response): Promise<any> {
   if (!response.body) throw new NativeBrainManagerError("unavailable", "Native manager returned no response body.");
@@ -117,6 +123,42 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     ready: async (signal?: AbortSignal): Promise<NativeManagerReady> => control({ operation: "ready" }, signal),
     checkpoint: async (id: string, signal?: AbortSignal): Promise<NativeCheckpoint> => control({ operation: "checkpoint", id }, signal),
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),
+    prepareStage: async (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeStage> => control({ operation: "prepareStage", id, checkpointId, allowanceBytes }, signal),
+    releaseStage: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseStage", id }, signal),
+    inspectStage: async (id: string, signal?: AbortSignal): Promise<NativeStageInspection> => {
+      const response = await call({ operation: "inspectStage", id }, signal);
+      const checkpointId = response.headers.get("x-brain-stage-checkpoint"), checkpointUuid = response.headers.get("x-brain-stage-lower");
+      if (response.headers.get("content-type") !== "application/x-brain-native-stage" || response.headers.get("x-brain-stage-id") !== id
+        || !checkpointId || !checkpointUuid || !/^[0-9a-f]{32}$/.test(checkpointUuid) || !response.body)
+        throw new NativeBrainManagerError("unavailable", "Native manager returned no complete stage inspection.");
+      const framed = decodeNativeDelta(response.body, options.maxDeltaBytes);
+      return { checkpointId, checkpointUuid, completed: framed.completed,
+        changes: (async function* () {
+          const reader = framed.stream.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
+          let pending = "", count = 0;
+          try { for (;;) {
+            const item = await reader.read(); if (item.done) break;
+            pending += decoder.decode(item.value, { stream: true });
+            for (;;) {
+              const end = pending.indexOf("\n"); if (end < 0) break;
+              const line = pending.slice(0, end); pending = pending.slice(end + 1);
+              if (Buffer.byteLength(line) > NATIVE_CONTROL_BYTES || ++count > 200_000)
+                throw new NativeBrainManagerError("capacity", "Stage metadata exceeded its existing entry/control bounds.");
+              const row = JSON.parse(line) as NativeStageChange;
+              if (Object.keys(row).sort().join(",") !== "kind,pathHex" || !["entry", "whiteout", "opaque"].includes(row.kind)
+                || typeof row.pathHex !== "string" || !/^(?:[0-9a-f]{2})+$/.test(row.pathHex))
+                throw new NativeBrainManagerError("unavailable", "Malformed stage change metadata.");
+              yield row;
+              if (count % 256 === 0) await Bun.sleep(0);
+            }
+            if (Buffer.byteLength(pending) > NATIVE_CONTROL_BYTES) throw new NativeBrainManagerError("capacity", "Stage metadata row exceeded its control bound.");
+          }
+          pending += decoder.decode(); if (pending) throw new NativeBrainManagerError("unavailable", "Stage metadata ended within a row.");
+          await framed.completed;
+          } finally { await reader.cancel(); }
+        })(),
+      };
+    },
     listRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativeRecoveryRecord[]; next: string | null }> => control({ operation: "listRecovery", after }, signal),
     delta: async (from: string, to: string, signal?: AbortSignal): Promise<NativeDeltaStream> => {
       const response = await call({ operation: "delta", from, to }, signal);
