@@ -654,4 +654,23 @@ Identical scene data retains coordinates under input reorder, refetch, resize
 and presentation changes. Changed data can repack any branch inside its hop
 band; Discovery cuts to those positions and preserves the camera and selected
 node identity. A selected survivor receives a brief `Layout updated` notice.
-Changing root or depth resets the scene. Discovery expansion is separate work.
+Changing root or depth resets the scene.
+
+Select a real note and choose **Expand** to reveal its outgoing targets from the
+original root's graph. Hop labels keep that root's distances. Counts come from
+the fetched response, never from degree estimates. Expansion uses the existing
+maximum of eight hops and server node/edge limits. A limited or stale response
+cannot establish that all links are shown; the note card explains that state.
+At eight hops, earlier and same-hop targets can still be revealed.
+
+Applied expansions animate surviving marks for 200 ms and fade in new ones;
+reduced motion cuts directly to their final positions. The status announces
+distinct notes added once. Failed or superseded requests do not announce success.
+**Reset expanded** restores the selected base depth and clears expansion choices;
+it retains a selected base note, otherwise returns focus to the node list.
+
+Sync rebuilds retained expansion paths from fresh bounded evidence. Missing
+paths in shallow, limited or stale data remain unresolved. Only complete fresh
+eight-hop evidence can establish that a path is outside the supported graph;
+it does not establish deletion. A failed rebuild retains the previous scene and
+offers **Refresh and retry**. Sync and reset use immediate layout updates.

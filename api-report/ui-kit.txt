@@ -678,6 +678,7 @@ signatures (every public export and the types it is made of)
         disabled?: boolean;
         ariaDisabled?: boolean;
         ariaLabel?: string;
+        ariaDescribedBy?: string;
         block?: boolean;
         center?: boolean;
         onClick?: () => void;
@@ -844,6 +845,11 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         tone?: ButtonTone;
         onClick?: () => void;
+        disabled?: boolean;
+        ariaDisabled?: boolean;
+        ariaLabel?: string;
+        ariaDescribedBy?: string;
+        loading?: boolean;
     }
   ContactCard (packages/ui-kit/src/blocks/ContactCard.tsx)
     export function ContactCard(p: ContactCardProps): import("react").JSX.Element;
@@ -1290,6 +1296,7 @@ signatures (every public export and the types it is made of)
         readonly latest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly link: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly loading: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly menu: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly mic: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly model: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;

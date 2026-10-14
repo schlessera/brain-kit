@@ -2499,6 +2499,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
  * kit-generated fallbacks live without browser state in presentational components.
  * Display:none removes their flex slots; keyboard handlers are independent. */
 .bk-touch-command { display: none; }
+@keyframes bk-action-spin { to { transform: rotate(360deg); } }
+.bk-action-spinner { display: inline-flex; animation: bk-action-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .bk-action-spinner { animation: none; } }
 @media not (any-pointer: fine) {
   .bk-keyboard-hint { display: none !important; }
   .bk-touch-command { display: inline-flex; }
