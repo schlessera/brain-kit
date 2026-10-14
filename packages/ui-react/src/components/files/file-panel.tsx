@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useFileStore } from "../../stores/file-store.js";
 import { singleKey } from "../../lib/single-key.js";
 import { useUIStore } from "../../stores/ui-store.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
@@ -193,8 +194,8 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
  * The footer prints the keys that fire. `j` / `k` are single-key letters
  * and go with the Settings off switch (D37 — a key that does not fire is
  * not advertised); `← →` and `⏎` are not letters, the switch does not
- * cover them, and the kit `FileRow` binds them regardless — so they print
- * regardless. `FileRow` already moves focus with ↑↓ and Home/End on its
+ * cover them, and the kit `FileRow` binds them regardless. All printed
+ * instructions follow the fine-pointer heuristic (D36 addendum). `FileRow` already moves focus with ↑↓ and Home/End on its
  * own, so nothing here binds movement a second time.
  *
  * The evidence rail (sixth pass §3a): each block is independent and simply
@@ -207,6 +208,7 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
   const currentPath = useFileStore((s) => s.currentPath);
   const content = useFileStore((s) => s.currentContent);
   const singleKeyShortcuts = useUIStore((s) => s.singleKeyShortcuts);
+  const finePointer = useFinePointer();
   const loaded = content !== null && content.path === currentPath ? content : null;
 
   const frontmatter: ReceiptRow[] =
@@ -261,9 +263,9 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             <FileTree />
           </Suspense>
         </div>
-        <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
+        {finePointer ? <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
           {singleKeyShortcuts ? "j / k move · " : ""}← → fold · ⏎ open
-        </div>
+        </div> : null}
       </aside>
 
       {/* Reading pane */}
