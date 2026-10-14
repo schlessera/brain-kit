@@ -4,6 +4,8 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, ope
 import { join } from "node:path";
 import { WorkerStateError } from "../../src/server/worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../../src/protocol.js";
+import { launchAgentWorker, type WorkerLaunch } from "../../src/server/worker-launcher.js";
+import type { MaintenanceHost } from "../../src/server/maintenance-worker.js";
 import { prepareWorkerOutput } from "../../src/server/worker-output.js";
 
 export interface WorkerStartupStorage {
@@ -218,4 +220,17 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
     async publishLocked(lock) { await publication.publishLocked(lock); },
     cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { await view.cleanup(); } })(); },
   };
+}
+
+/** Real launcher with an explicit copied input lease for non-native runtime fixtures. */
+export function launchFixtureAgentWorker(input: WorkerLaunch) {
+  const startupView = input.startupView ?? createFixtureWorkerStartupView(input.brainPath, { omitGit: Boolean(input.restricted) });
+  try { return launchAgentWorker({ ...input, startupView }); }
+  catch (error) { if (!input.startupView) startupView.cleanup(); throw error; }
+}
+
+/** Prepared Git/configuration input; caller owns cleanup after its maintenance reads. */
+export function createFixtureMaintenanceHost(brain: string, options: MaintenanceHost = {}) {
+  const startupView = createFixtureWorkerStartupView(brain);
+  return { ...options, startupView, cleanup() { startupView.cleanup(); } };
 }
