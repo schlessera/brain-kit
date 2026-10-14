@@ -581,33 +581,93 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
   test("Liveness B: a blackholed idle socket is probed after 15 s, replaced 5 s later, and resyncs", async () => {
     const { context, net } = await newContext();
     try {
-      const page = await openPage(context);
-      const pingsBefore = () => net.frames.filter((f) => f.dir === "up" && f.type === "ping").length;
-      // Healthy idle traffic: one probe per 15 s without other frames.
-      const idleStart = Date.now();
-      await page.waitForTimeout(16_500);
-      const healthyPings = pingsBefore();
-      expect(healthyPings).toBe(1);
-      expect(net.frames.some((f) => f.dir === "down" && f.type === "pong")).toBe(true);
-      expect(net.connections).toBe(1);
+      const page = await context.newPage();
+      // Install before app timers exist. Native sockets, host, IndexedDB and
+      // event delivery stay real; only this page's JS clock is controlled.
+      await page.clock.install({ time: new Date("2026-07-12T12:00:00Z") });
+      await page.addInitScript(() => {
+        const frames: Array<{ dir: string; type: string; probeId?: string; at: number }> = [];
+        const NativeSocket = WebSocket;
+        class ObservedSocket extends NativeSocket {
+          constructor(url: string | URL, protocols?: string | string[]) {
+            super(url, protocols);
+            this.addEventListener("message", event => {
+              const frame = JSON.parse(event.data);
+              // Record delivery only; the later page evaluation and synchronous
+              // production handler establish the clock-advance barrier.
+              queueMicrotask(() => frames.push({ dir: "down", type: frame.type, probeId: frame.probeId, at: Date.now() }));
+            });
+          }
+          override send(data: Parameters<WebSocket["send"]>[0]) {
+            if (typeof data === "string") {
+              const frame = JSON.parse(data);
+              frames.push({ dir: "up", type: frame.type, probeId: frame.probeId, at: Date.now() });
+            }
+            super.send(data);
+          }
+        }
+        Object.assign(window, { WebSocket: ObservedSocket, __livenessFrames: frames });
+      });
+      await page.goto(origin);
+      await page.waitForFunction("window.__answers?.connected()");
+      // Give reconnect something real to resync, rather than inferring a
+      // resync from a second transport opening on an empty chat.
+      const requestId = await ask(page, "ask_user_rank");
+      await answer(page, "ask_user_rank");
+      await waitForState(page, requestId, "answered");
+      await page.getByText("Completed ask_user_rank", { exact: true }).waitFor();
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+      const frames = () => page.evaluate(() => (window as unknown as {
+        __livenessFrames: Array<{ dir: string; type: string; probeId?: string; at: number }>;
+      }).__livenessFrames);
+      // Each read is a separate page evaluation after native dispatch; the
+      // current liveness/history handlers commit synchronously. The observer
+      // microtask alone does not establish arbitrary async-handler completion.
+      // Bun-side polling exits on the event (5s is only a failure cap).
+      const nativeWait = { polls: 0, waitedMs: 0 };
+      const observed = async (predicate: (observedFrames: Awaited<ReturnType<typeof frames>>) => boolean) => {
+        const deadline = Date.now() + 5_000;
+        while (!predicate(await frames())) {
+          if (Date.now() >= deadline) throw new Error("Liveness native event did not complete");
+          const started = performance.now();
+          await Bun.sleep(10);
+          nativeWait.polls++;
+          nativeWait.waitedMs += performance.now() - started;
+        }
+      };
+      // Reset through a real host frame, then test the full default interval.
+      const statuses = (await frames()).filter(f => f.dir === "down" && f.type === "status").length;
+      for (const entry of net.live) entry.route.send(JSON.stringify({ type: "status", status: "idle" }));
+      await observed(fs => fs.filter(f => f.dir === "down" && f.type === "status").length > statuses);
+      const pingCount = async () => (await frames()).filter(f => f.dir === "up" && f.type === "ping").length;
+      const initialPings = await pingCount();
+      await page.clock.runFor(14_999);
+      expect(await pingCount(), "BROWSER_DEFAULT_IDLE_NOT_EARLY").toBe(initialPings);
+      await page.clock.runFor(1);
+      expect(await pingCount(), "BROWSER_DEFAULT_IDLE_AT_BOUNDARY").toBe(initialPings + 1);
+      const ping = (await frames()).filter(f => f.dir === "up" && f.type === "ping").at(-1)!;
+      await observed(fs => fs.some(f => f.dir === "down" && f.type === "pong" && f.probeId === ping.probeId));
+      await page.clock.runFor(5_000);
+      expect(net.connections, "CORRELATED_PONG_CANCELS_REPLACEMENT").toBe(1);
 
       net.blackhole();
-      const cut = Date.now();
-      await page.waitForFunction(() => true);
-      const deadline = cut + 30_000;
-      while (net.connections < 2 && Date.now() < deadline) await page.waitForTimeout(100);
-      const replacedAfter = Date.now() - cut;
-      expect(net.connections).toBe(2);
-      // At most 15 s idle + 5 s for the pong, plus timer slack.
-      expect(replacedAfter).toBeLessThan(15_000 + 5_000 + 2_000);
-      await page.waitForFunction("window.__answers.connected()");
-      // A routed socket is counted before its upstream handshake completes,
-      // and connected() can still reflect the previous socket in that gap.
-      // Observe the replacement host greeting within the same deadline.
-      const helloCount = () => net.frames.filter((f) => f.dir === "down" && f.type === "server_hello").length;
-      while (helloCount() < 2 && Date.now() < deadline) await page.waitForTimeout(100);
-      expect(helloCount()).toBe(2);
-      console.log(`[measure] idle ${Date.now() - idleStart} ms, ${healthyPings} probe(s) while healthy; blackhole replaced after ${replacedAfter} ms`);
+      await page.clock.runFor(9_999);
+      expect(await pingCount(), "PONG_RESETS_IDLE_CLOCK").toBe(initialPings + 1);
+      await page.clock.runFor(1);
+      expect(await pingCount(), "BLACKHOLED_PROBE_AT_IDLE_BOUNDARY").toBe(initialPings + 2);
+      await page.clock.runFor(4_999);
+      expect(net.connections, "BROWSER_RESPONSE_NOT_EARLY").toBe(1);
+      const resumes = (await frames()).filter(f => f.dir === "up" && f.type === "session_resume").length;
+      const historiesBefore = (await frames()).filter(f => f.dir === "down" && f.type === "session_history").length;
+      await page.clock.runFor(1);
+      await observed(fs => fs.filter(f => f.dir === "down" && f.type === "server_hello").length === 2);
+      expect(net.connections, "BROWSER_RESPONSE_AT_BOUNDARY").toBe(2);
+      await observed(fs => fs.filter(f => f.dir === "up" && f.type === "session_resume").length > resumes &&
+        fs.filter(f => f.dir === "down" && f.type === "session_history").length > historiesBefore);
+      expect(await page.evaluate<boolean>("window.__answers.connected()")).toBe(true);
+      expect(settlements.get(requestId)).toHaveLength(1);
+      console.log("[measure] liveness", JSON.stringify({ controlledMs: 35_000, ...nativeWait,
+        guarantees: "native greeting, correlated pong and session resync" }));
     } finally {
       await context.close();
     }

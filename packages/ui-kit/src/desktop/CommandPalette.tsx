@@ -1,6 +1,7 @@
 import { useId, useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from "react";
 
 import { warnOnce } from "../internal/dev.js";
+import { IconButton } from "../primitives/IconButton.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
@@ -70,7 +71,7 @@ export interface PaletteItem {
    * cannot be selected, clicked or focused, and ↑↓ step over it.
    */
   why?: string;
-  /** A printed key, e.g. `⌘N`. Always shown; the selected row shows ⏎ when it has none. */
+  /** A printed key, e.g. `⌘N`. Shown under a fine pointer; the selected row falls back to ⏎. */
   shortcut?: string;
   onClick?: () => void;
 }
@@ -308,7 +309,10 @@ export function CommandPalette(p: CommandPaletteProps) {
           readOnly={!editable}
           onChange={editable ? (e: ChangeEvent<HTMLInputElement>) => p.onQueryChange?.(e.target.value) : undefined}
         />
-        <span style={keyCap}>esc</span>
+        <span className="bk-keyboard-hint" style={keyCap}>esc</span>
+        {p.onClose ? <span className="bk-touch-command">
+          <IconButton name="Close commands" glyph={<Icon icon="dismiss" size={16} />} tone="mute" size="md" onClick={p.onClose} />
+        </span> : null}
       </div>
 
       <div
@@ -458,7 +462,7 @@ export function CommandPalette(p: CommandPaletteProps) {
                       ) : null}
                     </div>
                     {!it.why && (on || it.shortcut) ? (
-                      <span style={lineBox(chipped)}>
+                      <span className="bk-keyboard-hint" style={lineBox(chipped)}>
                         <span style={mono10}>{on ? it.shortcut || "⏎" : it.shortcut}</span>
                       </span>
                     ) : null}
@@ -480,8 +484,8 @@ export function CommandPalette(p: CommandPaletteProps) {
           background: token("palette-foot-bg"),
         }}
       >
-        <span style={{ ...footText, flex: 1, minWidth: 0 }}>{p.footHint ?? DEFAULT_FOOT_HINT}</span>
-        <span style={{ ...footText, flex: "none" }}>{p.footMeta ?? "4,812 docs · 0.2s"}</span>
+        <span className="bk-keyboard-hint" style={{ ...footText, flex: 1, minWidth: 0 }}>{p.footHint ?? DEFAULT_FOOT_HINT}</span>
+        <span style={{ ...footText, flex: "none", marginLeft: "auto" }}>{p.footMeta ?? "4,812 docs · 0.2s"}</span>
       </div>
     </div>
   );

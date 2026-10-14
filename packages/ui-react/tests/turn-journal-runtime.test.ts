@@ -75,7 +75,11 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
   catch { const body = await page.locator("body").innerText(); await context.close(); throw new Error(`Journal scene failed: ${body}; ${errors.join("; ")}`); }
   return { context, page, outside };
 }
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (const replay of [false, true]) test(`journal ${replay ? "replay" : "live"} ${theme} ${width} starts collapsed and reviews raw versions with stable keyboard focus`, async () => {
+// JournalTheme stories cover both themes on the actual journal and readers.
+// Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
+// real Revert/Undo file effects here with deterministic theme selection.
+const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
+for (const [width, theme] of journalRuntimeCells) for (const replay of [false, true]) test(`journal ${replay ? "replay" : "live"} ${theme} ${width} starts collapsed and reviews raw versions with stable keyboard focus`, async () => {
   const { context, page, outside } = await scene(width, theme, replay);
   try {
     const disclosure = page.getByRole("button", { name: /changed file/ });
@@ -200,7 +204,7 @@ test("voice and expired facts remove actions; an old POST response cannot attach
   } finally {releaseResponse?.();hold.release();await context.close();}
 });
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
+for (const [width, theme] of journalRuntimeCells) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
   const { context, page, outside } = await scene(width, theme, true);
   try {
     await page.getByRole("button", { name: /changed file/ }).click();
@@ -225,7 +229,7 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`st
   } finally { await context.close(); }
 });
 
-for(const width of [320,1280])for(const theme of ["dark","light"])test(`shared conflict reader chooses retained versions, keeps both and Undo ${theme} ${width}`,async()=>{
+for(const [width,theme] of journalRuntimeCells)test(`shared conflict reader chooses retained versions, keeps both and Undo ${theme} ${width}`,async()=>{
   const {context,page,outside}=await scene(width,theme,true,true);
   try {
     await page.getByRole("button",{name:/changed file/}).click();

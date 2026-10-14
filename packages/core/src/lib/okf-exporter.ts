@@ -391,7 +391,7 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
     const raw = readFileSync(resolve(root, path), "utf-8");
     let parsed: ParsedFrontmatter;
     try {
-      parsed = parseFrontmatter(raw);
+      parsed = parseFrontmatter(raw, { dataOnly: true });
     } catch (error) {
       throw new OkfExportError(`Cannot parse frontmatter in ${path}: ${(error as Error).message}`);
     }
@@ -558,7 +558,7 @@ export function checkOkfBundle(directory: string): OkfCheckReport {
     const name = basename(path);
     let parsed: ParsedFrontmatter;
     try {
-      parsed = parseFrontmatter(raw);
+      parsed = parseFrontmatter(raw, { dataOnly: true });
     } catch (error) {
       issues.push({ severity: "error", path, message: `invalid YAML frontmatter: ${(error as Error).message}` });
       continue;

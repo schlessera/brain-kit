@@ -219,7 +219,7 @@ function installOne(
 
   let data: Record<string, unknown>;
   try {
-    data = parseFrontmatter(Buffer.from(skillMd).toString("utf-8")).data as Record<string, unknown>;
+    data = parseFrontmatter(Buffer.from(skillMd).toString("utf-8"), { dataOnly: true }).data as Record<string, unknown>;
   } catch (e) {
     return {
       name: label,

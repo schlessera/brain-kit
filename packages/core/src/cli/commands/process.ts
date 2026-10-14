@@ -89,7 +89,7 @@ async function processNote(
   const fullPath = safeResolve(root, notePath);
   if (!fullPath) throw new UsageError(`Path escapes the brain root: ${notePath}`);
   const raw = readFileSync(fullPath, "utf-8");
-  const { data, content } = parseFrontmatter(raw);
+  const { data, content } = parseFrontmatter(raw, { dataOnly: true });
 
   const searchQuery = (data.title || "") + " " + content.slice(0, 200).replace(/\n/g, " ");
   const relatedContent = await searchRelated(searchQuery.trim(), db, search);
@@ -156,7 +156,7 @@ export const processCommand: CoreCommand = {
         for (const file of glob.scanSync({ cwd: dir })) {
           const raw = readFileSync(resolve(dir, file), "utf-8");
           try {
-            const { data } = parseFrontmatter(raw);
+            const { data } = parseFrontmatter(raw, { dataOnly: true });
             if (!data.processed && data.status !== "archived") noteFiles.push(`${inboxDir}/${file}`);
           } catch {
             noteFiles.push(`${inboxDir}/${file}`);

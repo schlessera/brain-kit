@@ -1,3 +1,4 @@
+import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { afterEach, expect, test } from "bun:test";
@@ -137,4 +138,46 @@ test("missing brain permits service startup but never creates a root or requests
   mkdirSync(root);
   expect((await service.propose(turn, "root-now-present", input)).state).toBe("updated");
   expect(readFileSync(path, "utf8")).toBe(proposed); expect(approvals).toBe(1); expect(observations).toBe(1); expect(events).toBe(1);
+});
+
+
+test("unsupported proposals and current-policy section comparison never dispatch engines", async () => {
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    for (const language of ["js", "javascript", "JS", "JavaScript", "json", "odyssey", "unknown"]) {
+      const f = fixture(), content = `---${language}\nschema_version: 1\n---\nOdysseus\n`;
+      let error: unknown;
+      const refused = f.service.propose(f.turn, "unsupported", { ...input, content }).catch(caught => { error = caught; });
+      expect(sentinel.dispatched, "PROPOSAL_NO_ENGINE_DISPATCH").toEqual([]);
+      await refused;
+      expect(String(error)).toContain("use YAML data only");
+      expect(f.count()).toBe(0); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
+      expect(f.db.query("SELECT count(*) AS n FROM policy_proposals").get()).toEqual({ n: 0 });
+      expect(readFileSync(f.path, "utf8")).toBe(original);
+      // Invalid existing policy still gets an exact byte diff, without interpreting its engine.
+      writeFileSync(f.path, content);
+      const pending = f.service.propose(f.turn, "repair", input);
+      expect(sentinel.dispatched, "POLICY_SECTIONS_NO_ENGINE_DISPATCH").toEqual([]);
+      expect(f.count()).toBe(1); f.answer(true);
+      const result = await pending;
+      expect(result.state).toBe("updated"); expect(result.frontmatterDiff + result.bodyDiff).toContain(language);
+      expect(readFileSync(f.path, "utf8")).toBe(proposed);
+      expect(sentinel.dispatched).toEqual([]);
+    }
+  } finally { sentinel.restore(); }
+});
+
+test("post-approval validation refuses unsupported selection before dispatch or publication", async () => {
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    let revalidating = false;
+    const f = fixture({ validate: bytes => parseGovernancePolicy(revalidating
+      ? Buffer.from("---javascript\nschema_version: 1\n---\nOdysseus\n") : bytes) });
+    const pending = f.service.propose(f.turn, "revalidation", input);
+    expect(f.count()).toBe(1); revalidating = true; f.answer(true);
+    const result = await pending;
+    expect(sentinel.dispatched, "REVALIDATION_NO_ENGINE_DISPATCH").toEqual([]);
+    expect(result.state).toBe("invalid"); expect(result.message).toContain("use YAML data only");
+    expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
+  } finally { sentinel.restore(); }
 });
