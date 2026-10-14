@@ -26,8 +26,10 @@ before advancing again. Restore complete property descriptors on teardown;
 dispose browser contexts and native workers even when assertions fail.
 
 A real-time exception states the failure mode controlled time cannot reproduce,
-the shortest justified observation window, and its execution domain. Keep native
-process freeze, browser navigation/download denial, media encoding and pointer
+a minimum justified observation window with its operational basis and chosen
+margin, and its execution domain. State the relevant native opportunities or
+completion boundary. One successful run or a mutation delayed by 250 ms does not prove that 500 ms
+is the shortest reliable window. Keep native process freeze, browser navigation/download denial, media encoding and pointer
 proof native. Expensive elapsed-time confirmation follows the execution-tier
 policy in [testing.md](testing.md#required-proof-for-a-pr); it is not silently
 removed from required proof.
@@ -49,6 +51,10 @@ observation windows; fixed-count event-loop yields are not condition polls. All
 execution counts and actual elapsed times in this source snapshot are explicitly
 unmeasured. Focused execution receipts belong in the delivery PR. Named aliases (`wait`, `settle`, `pause`, `delay`) must also be followed
 to their callers when measuring a file; counting their definitions once is wrong.
+The [reviewed role annotations](evidence/test-wait-role-corrections.json) correct
+specific historical classifications without changing that snapshot's source
+identity. [Executed observations](evidence/test-wait-observations.json) keep each
+measurement's checkout and file hash separate from the search inventory.
 
 Reproduce the candidate search with `git grep -n -E
 'setTimeout|Bun.sleep|waitForTimeout|sleep\(' <sha> -- tests experiments
@@ -60,15 +66,15 @@ seconds of successful execution.
 The following inspected families explain the actionable cost and the important
 exceptions. Unmeasured means no saving is claimed.
 
-| Source / assertion | Attributed role and retained proof | Measurement / disposition |
+| Source / assertion | Attributed role and retained proof | Completion control / native boundary |
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. All theme/width and ten-cycle cases remain. |
 | `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native negative windows per successful frame/tab pair, starting after the actual click lands | Retained. A browser-process navigation/download may arrive after the renderer's click handler or DOM settles; page JS clock does not drive it. 1500 ms is the existing bounded observation budget, not a newly measured universal browser latency guarantee. Expected escape controls await their actual hit independently. Candidate/runtime proof. |
 | Same preview file, raw endpoint 500 ms | Native denial observation, no scripts/remote arrival | Retained, same native-boundary rationale; no speedup claimed. |
-| `turn-scope.test.ts`, long Bash loop | Production 15 s observer plus independent 20 ms observer and 150 ms no-progress freeze window | Unchanged; [#1867](https://github.com/schlessera/brain-kit/issues/1867) owns controlled host scheduling while preserving native writer/freeze/overshoot/snapshot proof. 150 ms covers several native observer/writer cycles; JavaScript time cannot prove the process stopped. |
-| `draft-client.test.ts`, device-only/unsupported/conflict/retry | 800–1200 ms windows protect forbidden delayed uploads; other waits poll acknowledgements | Unmeasured; [#1868](https://github.com/schlessera/brain-kit/issues/1868) owns this file's controlled debounce/retry boundaries. Do not replace with immediate no-call checks. |
+| `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
+| `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
 | `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Unmeasured. Await actual chunk commits for capture; a deletion window needs writer completion plus all delayed callbacks before it can be removed. |
 | `auth-expiry-runtime.test.ts`, 400 ms entrances and 1800 ms post-restore observation | Login entrance settling vs no delayed navigation/restored-state observation | Unmeasured; no common shortened timeout is selected. |
@@ -139,3 +145,64 @@ receipt: early and late registration, wrong interval, lost cancellation, and
 premature readiness. A timeout or module-load failure alone does not demonstrate
 the intended assertion. The delivery PR holds measurements and mutation receipts;
 this document holds the durable rule and source attribution, not work status.
+
+## Reading executed observations
+
+The [measurement sample](evidence/test-wait-observations.json) records ten full
+files at their actual source identities. It is historical evidence, not a list
+of all tests or a repository-wide cost total. Each observation names its original
+line and column or helper anchor, the scenario contexts captured when it began,
+started and completed counts, and accumulated duration. Zero means an observed
+zero; a null total means a started observation did not finish. Missing metrics
+remain unmeasured. Source helper counts never stand in for execution counts.
+
+The commands retained their existing offline guards, original waits and assertions.
+The evidence records actual environment overrides and guard scope. These were
+local commands, without a recorded network-namespace or container wrapper; the
+Bun preload is not proof of native browser socket isolation. Hosted required
+proof retains its own environment and is not replaced by these observations.
+Temporary synchronous counters were removed byte-for-byte. Whole commands were
+timed inside a shared benchmark lock; unrelated host load and observer overhead
+were not controlled. Build time is inside the owned runtime commands but outside
+the shared association command, whose build also served another file. CPU and
+maximum RSS describe the timed command's process tree; maximum RSS is not the
+sum of simultaneous process memory. These samples are attribution, not savings.
+
+Several distinctions matter when interpreting the data:
+
+- Association samples distinguish actual condition completion from native media
+  capture and late-writer/deletion windows. Parallel-session samples distinguish
+  physical pointer holds and host-stop transport drains from renderer settling,
+  readiness and no-send/security observations. These measurements do not justify
+  removing the later forbidden-effect assertions.
+
+- Renderer phase-budget outcomes overlap fixture delays and each other. Their
+  accumulated completion time can exceed test-body wall time. None of the
+  45 failure watchdogs fired, so their configured maxima are not elapsed costs.
+- The Unix-manager fixture started a 100 ms response delay, but the client
+  reached its 20 ms deadline and the process exited before that delay completed.
+  The fixture's total duration is unknown; it is neither zero nor 100 ms of
+  measured awaited cost. Its real Unix transport and uncertainty assertion remain.
+- PDF fixture timer delivery is registration-to-callback latency, separate from
+  explicit awaited sleeps. Its 60000 ms error-control deadline does not mean a
+  minute of successful execution. Silent-worker deadlines, late error delivery
+  and retired-worker cleanup are different observations.
+- Native condition completion includes IO and event processing. Its internal
+  polling count is unknown unless that polling loop itself was instrumented.
+  The in-memory recording-transcription tests do not prove native media encoding.
+
+The unit samples also explain relative horizons without inventing native
+exceptions. A keyed-lock 40 ms observation crosses its configured 30 ms cancelled
+waiter deadline. Fake renderer delays separate overlapping acquisition/render
+budgets; late-cleanup sleeps give continuations an opportunity to run. A PDF
+retirement window observes disposal while a retry is still held. These
+in-process doubles do not establish a need for real browser or process time;
+clock or completion replacements must still preserve their negative assertions.
+
+Native browser denial and continuity windows retain their existing bounded
+observation policy. Actual navigation/download cancellation acknowledgements or
+complete delayed-effect boundaries would be needed to replace them. A stable
+DOM frame alone does not establish either. Scope's independent writer/observer
+opportunities have a different, explicit native rationale in its proof document.
+Execution ownership follows [required proof](testing.md#required-proof-for-a-pr);
+an expensive negative window is not automatically an endurance scenario.
