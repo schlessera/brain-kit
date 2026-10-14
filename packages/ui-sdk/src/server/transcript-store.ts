@@ -9,6 +9,7 @@ import {
   openSync, readdirSync, readFileSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 
 import type { ChatSession, SessionHistoryMessage } from "../protocol.js";
@@ -91,12 +92,12 @@ export interface RecoverableTranscriptStore extends TranscriptStore {
 }
 
 const count = z.number().int().nonnegative();
-const failureSchema = z.object({
+const failureSchema = z.looseObject({
   line: z.number().int().positive(), byteOffset: count,
   position: z.enum(["final", "interior"]),
   reason: z.enum(["invalid-json", "invalid-record", "invalid-utf8", "missing-meta"]),
 });
-const recoverySchema = z.object({
+const recoverySchema = z.looseObject({
   sourceSessionId: z.string().min(1), sourceVersion: z.string().regex(/^[a-f0-9]{64}$/),
   prefixBytes: count, prefixRecords: z.number().int().positive(), failure: failureSchema,
 });
@@ -104,14 +105,18 @@ const metaSchema = z.looseObject({
   kind: z.literal("meta"), id: z.string().min(1), title: z.string().nullable(),
   createdAt: z.number().finite().nonnegative(), recovery: recoverySchema.optional(),
 });
-// Reuse the history schema for admission, retaining original objects/bytes
-// rather than its read-normalized output (optional fields may be normalized).
+// Reuse history validation but refuse normalization: a verified raw record
+// cannot retain a malformed field the wire reader would silently discard.
 const messageSchema = z.looseObject({
   kind: z.literal("message"), ts: z.number().finite().nonnegative(),
   message: serverSessionHistorySchema.shape.messages.element,
   costUsd: z.number().finite().nonnegative().optional(),
 });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+const validRawRecord = (schema: z.ZodType, value: unknown) => {
+  const parsed = schema.safeParse(value);
+  return parsed.success && isDeepStrictEqual(parsed.data, value);
+};
 
 interface Inspection {
   bytes: Buffer;
@@ -139,8 +144,8 @@ function inspect(sessionId: string, bytes: Buffer): Inspection {
       catch { reason = "invalid-json"; }
       if (!reason) {
         const valid = records.length === 0
-          ? metaSchema.safeParse(value).success && (value as TranscriptMetaRecord).id === sessionId
-          : messageSchema.safeParse(value).success;
+          ? validRawRecord(metaSchema, value) && (value as TranscriptMetaRecord).id === sessionId
+          : validRawRecord(messageSchema, value);
         if (valid) {
           if (records.length === 0) metaEnd = next;
           records.push(value as TranscriptRecord);
@@ -210,7 +215,7 @@ export function createTranscriptStore(dir: string): RecoverableTranscriptStore {
       const meta: TranscriptMetaRecord = {
         kind: "meta", id, title: opts.title ?? null, createdAt: nextTs(),
       };
-      if (!metaSchema.safeParse(meta).success) throw new Error("Invalid transcript metadata");
+      if (!validRawRecord(metaSchema, meta)) throw new Error("Invalid transcript metadata");
       writeFileSync(fileOf(id), `${JSON.stringify(meta)}\n`, { flag: "wx" });
       return id;
     },
@@ -221,7 +226,7 @@ export function createTranscriptStore(dir: string): RecoverableTranscriptStore {
         kind: "message", ts: nextTs(), message,
         ...(opts.costUsd !== undefined ? { costUsd: opts.costUsd } : {}),
       };
-      if (!messageSchema.safeParse(record).success) throw new Error("Invalid transcript message");
+      if (!validRawRecord(messageSchema, record)) throw new Error("Invalid transcript message");
       // A complete final record need not have a newline. Separate the next one.
       const separator = snapshot.bytes.length && snapshot.bytes.at(-1) !== 10 ? "\n" : "";
       appendFileSync(fileOf(sessionId), `${separator}${JSON.stringify(record)}\n`);

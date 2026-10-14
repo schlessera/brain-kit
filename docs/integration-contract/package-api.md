@@ -3107,6 +3107,8 @@ supported `SessionHistoryMessage` and optional finite nonnegative `costUsd`.
 Unknown additive properties remain intact. Empty files, missing/wrong metadata
 and repeated metadata are corrupt. Blank lines are allowed. Valid final JSON
 without a newline is healthy; append supplies a separating newline.
+Admission also refuses malformed optional fields that the wire reader would
+normalize or discard: a verified raw prefix must remain valid without alteration.
 
 `list()` excludes quarantined files, without aborting healthy enumeration.
 `history()` and `append()` on a quarantined file throw

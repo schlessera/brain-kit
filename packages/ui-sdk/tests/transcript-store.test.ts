@@ -166,6 +166,18 @@ describe("createTranscriptStore", () => {
     expect(readFileSync(path, "utf8").trim().split("\n")).toHaveLength(3);
   });
 
+  test("malformed optional history fields cannot enter a verified raw prefix", () => {
+    const dir = tempDir();
+    const store = createTranscriptStore(dir);
+    const id = store.create();
+    const path = join(dir, `${id}.jsonl`);
+    appendFileSync(path, '{"kind":"message","ts":1,"message":{"role":"assistant","content":"Sail home","toolCalls":[],"failure":"invalid"}}\n');
+    expect(store.diagnose(id)).toMatchObject({
+      status: "quarantined", complete: false,
+      failure: { line: 2, reason: "invalid-record" },
+    });
+  });
+
   test("invalid metadata, duplicate metadata and invalid UTF-8 are quarantined honestly", () => {
     const dir = tempDir();
     const store = createTranscriptStore(dir);
