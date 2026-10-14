@@ -2,7 +2,7 @@
 
 Every frontmatter parse in the tree goes through one helper,
 `parseFrontmatter` (`parseFrontmatter`,
-`packages/common/src/frontmatter-parse.ts:28-30`), which always passes
+`packages/common/src/frontmatter-parse.ts:34-38`), which always passes
 gray-matter an options object. A lint gate refuses every other way of reaching
 gray-matter's parser. Issue #142 holds the reproductions and the ruling.
 
@@ -35,11 +35,11 @@ with its own comment explaining why, and the rest did not.
 **One cache-free helper, enforced; not a convention at each call site.** The
 maintainer chose option B on #142 on 2026-09-28.
 
-- `parseFrontmatter(input, options?)` calls `matter(input, { ...options })`.
+- `parseFrontmatter(input, options?)` calls gray-matter with a fresh options object.
   The caller's options are kept, and gray-matter's own `defaults()` copies
   them again, so the caller's object is never mutated. An object is always
-  passed, so the cache is never read or written. Parsing behaviour is
-  otherwise unchanged, and the tests pin it: dates, byte order mark, CRLF,
+  passed, so the cache is never read or written. Without `dataOnly`, parsing behaviour is
+  unchanged, and the tests pin it: dates, byte order mark, CRLF,
   empty, missing and unclosed blocks, custom delimiters, engines, excerpts.
 - **One internal leaf package, not a copy per package** (#1396, maintainer
   ruling 2026-10-09). The helper lives in `@schlessera/brain-common` and is
@@ -54,7 +54,7 @@ maintainer chose option B on #142 on 2026-09-28.
   - Rule 1: gray-matter may be loaded (`import`, `import type`, `export …
     from`, `import x = require()`, `require()`, `import()`, subpaths) only by
     the files in its `ALLOWED` list (`ALLOWED`,
-    `scripts/check-frontmatter-parse.ts:40-57`).
+    `scripts/check-frontmatter-parse.ts:40-62`).
   - Rule 2: inside those files, the default binding may only be called with an
     object literal where gray-matter takes its options, or named in a type.
     Aliases, re-exports, `matter.read`, `matter.cache` and variable options
@@ -62,8 +62,48 @@ maintainer chose option B on #142 on 2026-09-28.
 - **The one justified non-parsing use** is `stringifyDocument` in
   `packages/core/src/lib/frontmatter.ts`. `matter.stringify` parses its content
   argument too, but only with the options it is given, and the gate requires
-  those to be a literal. The other listed file is the test that seeds and
-  reads the cache to prove the helper ignores it.
+  those to be a literal. The test probes seed/read the cache and replace executable engines with
+  inert callbacks to prove cache independence and refusal before dispatch.
+
+## Data-only callers (#1830, 2026-10-14)
+
+First-party Markdown inputs normally use YAML data. They set `{ dataOnly: true }` at
+this same boundary, which checks the delimiter-selected language before
+calling gray-matter (`assertDataLanguage`,
+`packages/common/src/frontmatter-parse.ts:41-53`). Unlabelled YAML and the
+case-insensitive `yaml`/`yml` declarations remain supported. Other declarations
+are refused before any engine callback, even on empty blocks. BOM, CRLF,
+custom delimiters and the dependency's no-newline selection are covered.
+Setting only `language: "yaml"` or supplying only a YAML engine cannot do this:
+gray-matter's defaults retain built-ins and the opening fence overrides the
+default language.
+
+The call-site audit covers governance checks/reader/admission and proposal
+validation, old/new section comparison and post-approval revalidation; skill
+creation/update/discovery/archive installation; schedule files; core indexing,
+validation, ingestion, context assembly, rendering, export, briefing, audit,
+archive, tags, skills, registry, frontmatter editing and sync; and finance,
+jobs and travel content. Jobs' legacy scoring reader and lossless migration
+explicitly support both YAML and JSON source blocks; those three parses use
+`{ dataOnly: "yaml-json" }` to preserve that existing representation while
+refusing every executable engine before dispatch. The migration's pre-existing
+JSON preservation regression and an inert executable-slot regression cover it.
+`stringifyDocument` also passes an already guarded parsed object to the
+serializer so its content cannot select an engine during implicit parsing.
+Tests exercise real descriptor reads, native admission, proposal approval and
+publication, skill installation, schedule parsing, index parsing and serialization.
+
+The intentional custom YAML engine consumer is travel's parser, which uses
+`js-yaml`'s JSON schema to retain written calendar days as strings. It combines
+that engine with `dataOnly`; it does not permit arbitrary language selection.
+The general internal helper retains its original options/custom-engine behavior
+when the mode is absent. Existing JSON/custom-engine and cache-independence
+regressions remain. The test-only engine probe replaces callbacks with inert
+sentinels and restores complete descriptors in `finally`; no test input is code.
+
+This repairs the documented data-only input guarantee. It changes no supported
+YAML meaning, envelope, approval authority, descriptor read, size limit or
+last-valid fallback. See the [file-layer contract](../integration-contract/frontmatter.md#file-layer-contracts).
 
 ## Rejected alternatives
 

@@ -185,7 +185,7 @@ export function loadLedgers(opts: FinanceOptions, filterSlug?: string): ClientLe
     if (!existsSync(ledgerFile)) continue;
     if (filterSlug && entry !== filterSlug) continue;
 
-    const { data } = parseFrontmatter(readFileSync(ledgerFile, "utf8"));
+    const { data } = parseFrontmatter(readFileSync(ledgerFile, "utf8"), { dataOnly: true });
     const slug = String(data.client || entry);
     // gray-matter parses bare YAML dates into JS Date objects; coerce back to
     // YYYY-MM-DD strings so date math doesn't produce Invalid Date.

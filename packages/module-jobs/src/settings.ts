@@ -118,7 +118,7 @@ export function planScoringMigration(root: string, config: { criteria: string; s
   const path = safeResolve(root, config.criteria);
   if (!path) throw new Error("Criteria document escapes the brain root; no changes made");
   const before = readFileSync(path, "utf8");
-  const original = parseFrontmatter(before);
+  const original = parseFrontmatter(before, { dataOnly: "yaml-json" });
   const scoring: unknown = original.data.scoring;
   const input = scoring && typeof scoring === "object" && !Array.isArray(scoring) ? scoring as Record<string, unknown> : {};
   const moved = Object.fromEntries(Object.entries(input).filter(([key]) => MOVED_KEYS.has(key)));
@@ -145,7 +145,7 @@ export function planScoringMigration(root: string, config: { criteria: string; s
     : removalRanges(pair.value, MOVED_KEYS, yaml);
   let after = before;
   for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) after = after.slice(0, offset + start) + after.slice(offset + Math.min(end, yaml.length));
-  const remaining = parseFrontmatter(after);
+  const remaining = parseFrontmatter(after, { dataOnly: "yaml-json" });
   const retained = remaining.data.scoring && typeof remaining.data.scoring === "object" ? remaining.data.scoring : {};
   const jsonMoved = JSON.parse(JSON.stringify(moved)) as Record<string, unknown>;
   const restored = { ...retained, ...jsonMoved };

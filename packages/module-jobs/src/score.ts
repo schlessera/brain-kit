@@ -197,7 +197,7 @@ export function loadScoringConfig(root: string, criteriaPath: string, source?: u
         `or set the module "criteria" config to an existing file.`
     );
   }
-  const { data } = parseFrontmatter(readFileSync(abs, "utf8"));
+  const { data } = parseFrontmatter(readFileSync(abs, "utf8"), { dataOnly: "yaml-json" });
   return parseScoringConfig((data as Record<string, unknown>).scoring);
 }
 
