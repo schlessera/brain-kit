@@ -585,3 +585,22 @@ boundaries; neither awaited closure nor fetch completion proves that all browser
 network work has drained. The two cases passed 11 assertions in 3.15 seconds of
 command time. No target-destruction observation, mutation, minimum duration or
 equivalent replacement was established, and neither window was shortened.
+
+The [maintenance gate observations](evidence/test-wait-maintenance-gates.json)
+use the existing stderr channel in three governed workers, preserving exact
+stdout, event files, permissions and error-context handling. The selected cases
+pass 19 assertions in 1.30 seconds; 18 completed predicate polls accumulate
+171.89 ms. That is observed gate latency, not a mandatory elapsed floor. The
+serialization case retains its 150 ms negative window. Callers that turn stderr
+into application progress events are outside this observation: injecting counters
+there would change the protocol being tested.
+
+Two [index observations](evidence/test-wait-index-observations.json) use stderr
+already captured in the successful CLI result. The native deferred-refresh case
+completed its original 700 ms fixture wait in 700.88 ms and passed its process
+drain and writer-gate assertions. Its startup also logged `EINVAL` from the
+version probe and governed-availability check, so this is selected native CLI
+attribution, not governed-availability qualification. The capture case completed
+its 30 ms overlap wait in 30.13 ms while retaining the exact operation log and
+three coalesced success responses. Both sources were restored; their original
+waits remain unchanged and no numerical minimum or savings is inferred.
