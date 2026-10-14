@@ -1,3 +1,4 @@
+import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
@@ -62,6 +63,7 @@ const storyProject = (name: string, theme: string) => ({
     setupFiles: ["./tests/visual/story-theme-setup.ts"],
     browser: {
       enabled: true,
+      commands: { consumerParityViewport },
       provider: playwright({}),
       headless: true,
       instances: [{ browser: "chromium" }],
