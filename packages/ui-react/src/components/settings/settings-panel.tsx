@@ -1,4 +1,4 @@
-import { Fragment, Suspense, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { Fragment, Suspense, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { ChevronRight, KeyRound, Laptop, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
@@ -138,7 +138,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   const body = <div key={tab} id={`${id}-panel-${tab}`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <SectionBody tab={tab} open={open} moduleSession={moduleSession} />
   </div>;
-  return <SlidePanel open={open} onClose={onClose} title="Settings" wide mode={pane ? "pane" : "drawer"} closedBy={closedBy} destination panelRef={panelRef}>
+  return <><SettingsFocusReturn open={open} /><SlidePanel open={open} onClose={onClose} title="Settings" wide mode={pane ? "pane" : "drawer"} closedBy={closedBy} destination panelRef={panelRef} returnFocus={false}>
     <div className="flex h-full min-h-0 flex-col">
       {pane && <div className="flex shrink-0 items-center border-b border-border pr-3">
         <div className="min-w-0 flex-1"><ScreenHeader variant="nav" title="Settings" back={false} divider={false} /></div>
@@ -155,7 +155,35 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
         {pane ? <div className="flex min-h-0 min-w-0 flex-1 flex-col"><div className="flex min-h-0 w-full max-w-[720px] flex-1 flex-col">{body}</div></div> : body}
       </div>
     </div>
-  </SlidePanel>;
+  </SlidePanel></>;
+}
+
+/** Mounted before SlidePanel so its layout capture precedes native autofocus. */
+function SettingsFocusReturn({ open }: { open: boolean }) {
+  const root = useBrainUiRoot();
+  const opener = useRef<HTMLElement | null>(null);
+  const previousVisibility = useRef({ open: false, root });
+  // This earlier sibling captures before the drawer's layout autofocus.
+  // One owner spans widths; resizing or replacing a brain is not a close.
+  useLayoutEffect(() => {
+    const previous = previousVisibility.current;
+    if (previous.root !== root) opener.current = null;
+    else if (open && !previous.open) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let restore = 0;
+    if (!open && previous.open && previous.root === root) {
+      const target = opener.current;
+      // React restores pre-mutation focus after layout cleanups. Restore
+      // after that commit, respecting a modal or a newly focused destination.
+      restore = requestAnimationFrame(() => {
+        const focused = document.activeElement;
+        const needsFocus = !focused || focused === document.body || focused === document.documentElement;
+        if (needsFocus && !previousVisibility.current.open && previousVisibility.current.root === root) focusFirst([target]);
+      });
+    }
+    previousVisibility.current = { open, root };
+    return () => { if (restore) cancelAnimationFrame(restore); };
+  }, [open, root]);
+  return null;
 }
 
 function AppearanceSection() {

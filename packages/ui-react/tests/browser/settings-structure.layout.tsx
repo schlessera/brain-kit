@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { BrainUiProvider } from "../../src/root-context.js";
+import { BrainUiProvider, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 
@@ -177,4 +177,46 @@ test("moved Accounts flows, Security revocation and device preferences retain th
   expect(reloaded.stores.ui.getState().theme).toBe("light");
   expect(reloaded.stores.ui.getState().singleKeyShortcuts).toBe(false);
   reloaded.dispose();
+});
+
+
+for (const width of [320, 1280]) test(`closing Settings returns to its opener at ${width}`, async ctx => {
+  const outer = await commands.formViewport(width, 800);
+  const before = { width: innerWidth, height: innerHeight };
+  await page.viewport(width, 800);
+  const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+  const host = document.createElement("div"); document.body.append(host);
+  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ models: [], customModels: [], discovery: { enabled: false } }) });
+  const react = createRoot(host);
+  function Shell() {
+    const open = useRootStore("ui", state => state.settingsPanelOpen);
+    return <><button onClick={() => ui.stores.ui.getState().openSettings("models")}>Open Settings</button><button onClick={() => ui.stores.ui.getState().setActiveView("activity")}>Actions</button><SettingsPanel open={open} onClose={() => ui.stores.ui.getState().setSettingsPanelOpen(false)} /></>;
+  }
+  ctx.onTestFinished(async () => { flushSync(() => react.unmount()); ui.dispose(); host.remove(); style.remove(); await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
+  flushSync(() => react.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
+  const opener = page.getByRole("button", { name: "Open Settings", exact: true });
+  await opener.click();
+  await expect.poll(() => page.getByRole("tab", { name: "Models", exact: true }).elements().length).toBe(1);
+  await page.getByRole("button", { name: width < 900 ? "Close Settings" : "Close", exact: true }).click();
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_RETURNS_OPENER_FOCUS" }).toBe(true);
+  await opener.click();
+  await expect.poll(() => page.getByRole("tab", { name: "Models", exact: true }).elements().length).toBe(1);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_ESCAPE_RETURNS_OPENER_FOCUS" }).toBe(true);
+  await opener.click();
+  await page.getByRole("tab", { name: "Models", exact: true }).click();
+  const resized = width === 320 ? 1280 : 320;
+  await commands.formViewport(resized, 800); await page.viewport(resized, 800);
+  await expect.poll(() => page.getByRole("tablist").element().getAttribute("aria-orientation")).toBe(resized < 900 ? "horizontal" : "vertical");
+  await page.getByRole("button", { name: resized < 900 ? "Close Settings" : "Close", exact: true }).click();
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_RESIZE_RETURNS_ORIGINAL_OPENER" }).toBe(true);
+  if (width === 1280) {
+    await commands.formViewport(1280, 800); await page.viewport(1280, 800);
+    await opener.click();
+    const actions = page.getByRole("button", { name: "Actions", exact: true });
+    await actions.click();
+    await expect.poll(() => ui.stores.ui.getState().settingsPanelOpen).toBe(false);
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(document.activeElement === actions.element(), "SETTINGS_CLOSE_PRESERVES_NEW_DESTINATION_FOCUS").toBe(true);
+  }
 });

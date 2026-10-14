@@ -6,3 +6,5 @@ Organize Settings into seven consistent panes across phone, tablet and desktop.
 Move Appearance and Input into their own pane, provider connections and web
 search into Accounts, and always-allowed tools into Security. Add manual
 keyboard tab navigation and preserve selection across responsive layouts.
+Closing Settings returns to its opener across width changes without taking
+focus from a newly selected destination.

@@ -669,3 +669,5 @@ column by This device, This brain and Access. Arrow keys and Home/End move focus
 without loading a pane; Enter/Space select it. Models remains the default and
 selection survives resize. Module drafts and pending credentials keep their
 existing navigation and dismissal protections.
+Close and Escape return focus to the opener, including after a resize;
+choosing another destination preserves that destination's focus.
