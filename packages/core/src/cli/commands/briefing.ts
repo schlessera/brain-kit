@@ -107,7 +107,7 @@ export interface BriefingOptions {
  * Null when neither holds a date.
  */
 function lastHygieneRun(text: string): string | null {
-  const parsed = parseFrontmatter(text);
+  const parsed = parseFrontmatter(text, { dataOnly: true });
   const heading = /^## Last run:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(parsed.content)?.[1];
   if (heading && isDay(heading)) return heading;
   const updated = parsed.data.updated;
@@ -117,7 +117,7 @@ function lastHygieneRun(text: string): string | null {
 
 /** Open hygiene entries: the `### ` heading lines of open.md that are not code. */
 function countOpenEntries(text: string): number {
-  const body = parseFrontmatter(text).content;
+  const body = parseFrontmatter(text, { dataOnly: true }).content;
   const code = codeRanges(body);
   let count = 0;
   let offset = 0;
@@ -208,7 +208,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
     // 1. Current focus (verbatim, without frontmatter)
     if (focusRel) {
-      const { content } = parseFrontmatter(readFileSync(resolve(brain.root, focusRel), "utf-8"));
+      const { content } = parseFrontmatter(readFileSync(resolve(brain.root, focusRel), "utf-8"), { dataOnly: true });
       lines.push("## Current Focus\n");
       lines.push(content.trim());
     }

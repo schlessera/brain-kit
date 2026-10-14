@@ -658,7 +658,7 @@ function withLinkTokens(root: string, candidates: HygieneCandidate[]): HygieneCa
         if (!file.startsWith(`${resolve(root)}/`)) throw new Error("outside the brain");
         const raw = readFileSync(file, "utf-8");
         try {
-          text = parseFrontmatter(raw).content;
+          text = parseFrontmatter(raw, { dataOnly: true }).content;
         } catch {
           text = raw;
         }
@@ -716,7 +716,7 @@ function splitFrontmatter(text: string, rel: string): { frontmatter: string; bod
   if (!frontmatter) throw new HygieneLogError(`${rel}: the frontmatter is never closed with ---; fix it by hand, brain hygiene will not rewrite it`);
   let data: unknown;
   try {
-    data = parseFrontmatter(frontmatter).data;
+    data = parseFrontmatter(frontmatter, { dataOnly: true }).data;
   } catch (e) {
     throw new HygieneLogError(`${rel}: the frontmatter is not valid YAML (${(e as Error).message.split("\n")[0]}); fix it by hand, brain hygiene will not rewrite it`);
   }

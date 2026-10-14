@@ -227,6 +227,15 @@ exported from `@schlessera/brain` — and that test fails when this document, th
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);
   `deadline` / `next_review` are ISO dates queried by briefing features.
+  Data-only correction (#1830): first-party readers accept unlabelled YAML and
+  case-insensitive `yaml`/`yml` declarations; other delimiter-selected languages
+  are refused before engine dispatch. This restores the existing YAML guarantee
+  for governance, skills, schedules, core and canonical module content without
+  changing supported YAML semantics or CLI/MCP/wire envelopes. Jobs' legacy
+  scoring reader/migration also retain their explicitly supported JSON source
+  blocks through a data-only YAML/JSON mode. The internal
+  general parser's intentional custom-engine mode remains available; travel's
+  custom YAML date parser remains in use.
 - Optional `generated_from` (additive in 0.38.0): a non-empty string, either a
   repo-relative path to the document's source or a free-form tool name. It
   marks the document as produced by a tool or an agent pass, not written by

@@ -44,7 +44,7 @@ function today(): string {
  * the relevance as it would otherwise be.
  */
 export function relevanceOnArchive(raw: string, requested?: string): "historical" | undefined {
-  const relevance = requested ?? parseFrontmatter(raw).data.relevance;
+  const relevance = requested ?? parseFrontmatter(raw, { dataOnly: true }).data.relevance;
   return !relevance || relevance === "primary" ? "historical" : undefined;
 }
 

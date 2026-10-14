@@ -106,7 +106,7 @@ function readSkillsDir(
 
     let data: Record<string, unknown>;
     try {
-      data = parseFrontmatter(readFileSync(skillFile, "utf8")).data as Record<string, unknown>;
+      data = parseFrontmatter(readFileSync(skillFile, "utf8"), { dataOnly: true }).data as Record<string, unknown>;
     } catch (e) {
       warnings.push(`${skillFile}: could not parse frontmatter (${(e as Error).message}); skipped`);
       continue;

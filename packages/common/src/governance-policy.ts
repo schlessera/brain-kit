@@ -90,7 +90,7 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
   try {
     if (bytes.byteLength > GOVERNANCE_POLICY_MAX_BYTES) throw new Error("Policy exceeds the 1 MiB input bound");
     const input = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const data = parseFrontmatter(input).data;
+    const data = parseFrontmatter(input, { dataOnly: true }).data;
     const warnings: string[] = [];
     const commandRuleIndices: GovernanceCommandRuleIndices = { deny: [], confirm: [] };
     for (const list of ["deny", "confirm"] as const) {
