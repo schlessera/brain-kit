@@ -1,0 +1,32 @@
+{
+  "repository": "https://github.com/moby/profiles",
+  "revision": "4b8214fc4971e06172938a1f1554ccff6647ee80",
+  "file": "seccomp/default.json",
+  "removedRules": [
+    {
+      "names": [
+        "clone3"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 38,
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      }
+    }
+  ],
+  "addedRule": {
+    "names": [
+      "clone",
+      "clone3",
+      "mount",
+      "umount2",
+      "unshare",
+      "setns",
+      "pivot_root"
+    ],
+    "action": "SCMP_ACT_ALLOW"
+  },
+  "license": "Apache-2.0"
+}

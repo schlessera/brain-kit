@@ -3,6 +3,14 @@
 set -euo pipefail
 sudo apt-get update -qq
 sudo apt-get install --yes bubblewrap iproute2
+# Unit partitions retain their existing prerequisites; the runtime job alone
+# prepares the native image before entering its network-disabled proof.
+if [ "${1:-}" = "--native" ]; then
+  sudo apt-get install --yes btrfs-progs
+  sudo modprobe loop
+  sudo modprobe btrfs
+  docker build --file scripts/native-proof/Dockerfile --tag brain-kit-native-runtime:1 scripts/native-proof
+fi
 # Ubuntu's AppArmor userns knob prevents the offline namespace harness. This
 # runner is disposable; tests still run with their own network isolation.
 if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
