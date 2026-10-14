@@ -155,7 +155,7 @@ describe("the arms that the two backends actually load", () => {
 
 test("the server instrument counts parsed top-level calls over a real socket", async () => {
   const { runOnce, observedRuntimeVersions } = await import("../scripts/measure-show-block-server.ts");
-  const { createApp } = await import("../packages/ui-server/src/app.ts");
+  const { createFixtureApp: createApp } = await import("../packages/ui-server/tests/helpers/native-app-fixture.ts");
   const { resolveServerConfig } = await import("../packages/ui-server/src/config/env.ts");
   const { createStaticBackendRegistry } = await import("../packages/ui-server/src/agent/backend.ts");
   const { makeFakeBackend } = await import("../packages/ui-server/tests/helpers/fake-backend.ts");

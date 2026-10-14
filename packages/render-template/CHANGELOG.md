@@ -1,5 +1,7 @@
 # @schlessera/brain-render-template
 
+## 0.43.0
+
 ## 0.42.1
 
 ## 0.42.0

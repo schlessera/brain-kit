@@ -158,6 +158,14 @@ copies and rerun: `rm -rf node_modules && bun install --frozen-lockfile
 --backend=copyfile`. The lock is unchanged, so this does not invalidate
 anything; do not skip or edit the tests.
 
+**An offline experiment app refuses with `Hosted workers require managed Btrfs
+storage`?** Measurement harnesses are outside the normal product tests and
+hosted CI, so an app-fixture migration can first surface in this tier. Use the
+explicit native app fixture in the offline test or its offline preload; keep
+the real app, worker and measurement assertions. A provider-enabled entry still
+requires qualified native storage. Never add a copied-storage fallback to that
+entry or weaken the startup guard to make the experiment pass.
+
 ## A cold build tries to download an installed CLI
 
 `bunx @tailwindcss/cli` may search for a binary named `cli`, even though the
