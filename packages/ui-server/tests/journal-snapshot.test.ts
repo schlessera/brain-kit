@@ -1,152 +1,142 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
-import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+/** Legacy raw-history semantics exercised through native capture, not a second walker. */
+import { expect, spyOn, test } from "bun:test";
+import * as asyncFs from "node:fs/promises";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createJournalWalker } from "../src/brain/journal-snapshot.js";
+import { createUiDb } from "../src/db/client.js";
+import { createTurnJournal } from "../src/brain/turn-journal.js";
+import { readNativeJournalFile } from "../src/brain/native-journal-read.js";
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
-const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "journal-odysseus-")); roots.push(root);
-  mkdirSync(join(root, "notes"));
-  const objects = new Map<string, Buffer>();
-  const store = { putFile(fd: number) { const bytes = readFileSync(fd); const hash = createHash("sha256").update(bytes).digest("hex"); objects.set(hash, Buffer.from(bytes)); return hash; }, has(hash: string) { return objects.has(hash); } };
-  return { root, objects, walker: createJournalWalker(root, store) };
+  const directory = mkdtempSync(join(tmpdir(), "native-history-odysseus-")), root = join(directory, "brain"), dbPath = join(directory, "ui.db");
+  mkdirSync(join(root, "notes"), { recursive: true });
+  const db = createUiDb(dbPath), native = createNativeJournalFixture(root, directory);
+  const journal = createTurnJournal(db, { brainPath: root, dbPath, objectsRoot: join(directory, "objects"), nativeManager: native.manager });
+  return { root, directory, db, journal,
+    begin: () => journal.begin("odysseus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}),
+    async observe() { await journal.observe(); return journal.details("ithaca", "odysseus")!; },
+    bytes(path: string, side: "before" | "after") {
+      const change = journal.details("ithaca", "odysseus")!.changes.findLast(item => item.path === path)!;
+      return journal.version("ithaca", "odysseus", change.sequence, side)!.bytes(1024 * 1024);
+    },
+    async close() { try { await journal.close(); } finally { db.close(); await native.close(); rmSync(directory, { recursive: true, force: true }); } },
+  };
 }
 
-test("raw CRLF note bytes and changed create/delete versions are independent of Git objects", () => {
-  const { root, objects, walker } = fixture();
-  const note = join(root, "notes", "odysseus.md");
-  writeFileSync(note, "# Ithaca\r\nReturn by sea.\r\n");
-  mkdirSync(join(root, ".git", "objects"), { recursive: true });
-  const before = walker.begin();
-  const entry = before.entries.find(item => item.path === "notes/odysseus.md");
-  expect(entry?.hash, "JOURNAL_RAW_NOTE_CAPTURED").toBeDefined();
-  expect(objects.get(entry!.hash!)).toEqual(readFileSync(note));
-  writeFileSync(join(root, "notes", "athena.md"), "# Athena\nPlan the return.\n");
-  rmSync(note); rmSync(join(root, ".git", "objects"), { recursive: true });
-  const after = walker.observe();
-  expect(after.entries.some(item => item.path === "notes/athena.md")).toBe(true);
-  expect(after.entries.some(item => item.path === "notes/odysseus.md")).toBe(false);
-  expect(objects.get(entry!.hash!)).toEqual(Buffer.from("# Ithaca\r\nReturn by sea.\r\n"));
+test("native changed capture keeps exact CRLF create/delete versions without Git object storage", async () => {
+  const f = fixture(), note = join(f.root, "notes/odysseus.md");
+  try {
+    writeFileSync(note, "# Ithaca\r\nReturn by sea.\r\n"); mkdirSync(join(f.root, ".git/objects"), { recursive: true });
+    await f.begin();
+    expect(f.db.query("SELECT count(*) AS n FROM turn_journal_objects").get(), "NATIVE_HISTORY_UNCHANGED_BASELINE_HAS_NO_OBJECTS").toEqual({ n: 0 });
+    writeFileSync(join(f.root, "notes/athena.md"), "# Athena\nPlan the return.\n"); rmSync(note); rmSync(join(f.root, ".git/objects"), { recursive: true });
+    const details = await f.observe();
+    expect(details.changes.find(item => item.path === "notes/odysseus.md")).toMatchObject({ before: { kind: "file" }, after: null });
+    expect(details.changes.find(item => item.path === "notes/athena.md")).toMatchObject({ before: null, after: { kind: "file" } });
+    expect(f.bytes("notes/odysseus.md", "before"), "NATIVE_HISTORY_DELETED_RAW_CRLF_PRESERVED").toEqual(Buffer.from("# Ithaca\r\nReturn by sea.\r\n"));
+    expect(f.bytes("notes/athena.md", "after")).toEqual(readFileSync(join(f.root, "notes/athena.md")));
+  } finally { await f.close(); }
 });
 
-test("turn-start ignore rules remain frozen and initial covered notes remain content", () => {
-  const { root, walker } = fixture();
-  writeFileSync(join(root, ".gitignore"), "ignored.txt\n");
-  writeFileSync(join(root, "ignored.txt"), "one");
-  writeFileSync(join(root, "notes", "odysseus.md"), "Ithaca");
-  walker.begin();
-  writeFileSync(join(root, ".gitignore"), "notes/\n");
-  writeFileSync(join(root, "notes", "odysseus.md"), "Return to Ithaca");
-  writeFileSync(join(root, "ignored.txt"), "a longer ignored observation");
-  const after = walker.observe();
-  expect(after.entries.find(item => item.path === "notes/odysseus.md")?.hash, "JOURNAL_INITIAL_COVERAGE_PINNED").toBeDefined();
-  expect(after.entries.find(item => item.path === "ignored.txt")).toMatchObject({ ignored: true, bytes: Buffer.byteLength("a longer ignored observation") });
+test("native changed capture freezes admitted ignore rules while ignored changes retain metadata only", async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.root, ".gitignore"), "ignored.txt\n"); writeFileSync(join(f.root, "ignored.txt"), "one"); writeFileSync(join(f.root, "notes/odysseus.md"), "Ithaca");
+    await f.begin();
+    writeFileSync(join(f.root, ".gitignore"), "notes/\n"); writeFileSync(join(f.root, "notes/odysseus.md"), "Return to Ithaca"); writeFileSync(join(f.root, "ignored.txt"), "a longer ignored observation");
+    const details = await f.observe();
+    expect(f.bytes("notes/odysseus.md", "after"), "NATIVE_HISTORY_FROZEN_CONTENT_COVERAGE").toEqual(Buffer.from("Return to Ithaca"));
+    const ignored = details.changes.find(item => item.path === "ignored.txt")!;
+    expect(ignored.after).toMatchObject({ ignored: true, bytes: Buffer.byteLength("a longer ignored observation") });
+    expect(ignored.after?.hash).toBeUndefined();
+  } finally { await f.close(); }
 });
 
-test("ctime invalidates the host stat cache when a same-size edit restores mtime", () => {
-  const { root, objects, walker } = fixture();
-  const note = join(root, "notes", "odysseus.md"); writeFileSync(note, "Ithaca");
-  const date = new Date("2026-07-12T09:00:00.000Z"); utimesSync(note, date, date);
-  const info = statSync(note);
-  const before = walker.begin().entries.find(item => item.path === "notes/odysseus.md");
-  writeFileSync(note, "Athena"); utimesSync(note, info.atime, info.mtime);
-  const after = walker.observe().entries.find(item => item.path === "notes/odysseus.md");
-  expect(objects.get(after?.hash ?? ""), "JOURNAL_CTIME_CHANGED_BYTES").toEqual(Buffer.from("Athena"));
-  expect(after?.hash).not.toBe(before?.hash);
+test("native changed capture detects a same-size edit with restored mtime", async () => {
+  const f = fixture(), note = join(f.root, "notes/odysseus.md");
+  try {
+    writeFileSync(note, "Ithaca"); const date = new Date("2026-07-12T09:00:00.000Z"); utimesSync(note, date, date); const before = statSync(note);
+    await f.begin(); writeFileSync(note, "Athena"); utimesSync(note, before.atime, before.mtime);
+    expect(statSync(note).mtimeMs).toBe(before.mtimeMs);
+    const details = await f.observe(), change = details.changes.find(item => item.path === "notes/odysseus.md")!;
+    expect(f.bytes(change.path, "before")).toEqual(Buffer.from("Ithaca"));
+    expect(f.bytes(change.path, "after"), "NATIVE_HISTORY_RESTORED_MTIME_CHANGED_BYTES").toEqual(Buffer.from("Athena"));
+    expect(change.after?.hash).not.toBe(change.before?.hash);
+  } finally { await f.close(); }
 });
 
-test("workspace coverage and raw refs never read config hooks or Git object bytes", () => {
-  const { root, objects, walker } = fixture();
-  const workspace = join(root, "workspaces", "ithaca");
-  for (const path of [join(root, ".git", "refs", "heads"), join(workspace, ".git", "refs", "heads"), join(workspace, "notes")]) mkdirSync(path, { recursive: true });
-  writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/main\n");
-  writeFileSync(join(workspace, ".git", "HEAD"), "ref: refs/heads/return\r\n");
-  writeFileSync(join(workspace, ".git", "refs", "heads", "return"), "fixture-ref\n");
-  writeFileSync(join(workspace, "notes", "athena.md"), "# Athena\r\n");
-  writeFileSync(join(workspace, ".git", "config"), "[core]\nfsmonitor = false\n");
-  const snapshot = walker.begin();
-  expect(snapshot.missing).toEqual([]);
-  expect(snapshot.entries.some(entry => entry.path.endsWith(".git/config"))).toBe(false);
-  const head = snapshot.entries.find(entry => entry.path === "workspaces/ithaca/.git/HEAD")!;
-  expect(objects.get(head.hash!)).toEqual(Buffer.from("ref: refs/heads/return\r\n"));
-  expect(snapshot.entries.find(entry => entry.path === "workspaces/ithaca/notes/athena.md")?.scope).toBe("workspaces/ithaca");
+test("native workspace history retains raw HEAD and refs but excludes Git config and object bytes", async () => {
+  const f = fixture(), workspace = join(f.root, "workspaces/ithaca");
+  try {
+    for (const path of [join(f.root, ".git/refs/heads"), join(workspace, ".git/refs/heads"), join(workspace, "notes")]) mkdirSync(path, { recursive: true });
+    writeFileSync(join(f.root, ".git/HEAD"), "ref: refs/heads/main\n"); writeFileSync(join(workspace, ".git/HEAD"), "ref: refs/heads/return\r\n");
+    writeFileSync(join(workspace, ".git/refs/heads/return"), "fixture-ref\n"); writeFileSync(join(workspace, "notes/athena.md"), "# Athena\r\n");
+    writeFileSync(join(workspace, ".git/config"), "[core]\nfsmonitor = false\n"); mkdirSync(join(workspace, ".git/objects")); writeFileSync(join(workspace, ".git/objects/fixture"), "excluded raw Git object");
+    await f.begin();
+    writeFileSync(join(workspace, ".git/HEAD"), "ref: refs/heads/harbor\r\n"); writeFileSync(join(workspace, ".git/refs/heads/return"), "updated-ref\n");
+    writeFileSync(join(workspace, "notes/athena.md"), "# Athena\r\nHarbor plan.\r\n"); writeFileSync(join(workspace, ".git/config"), "[core]\nfsmonitor = malicious\n"); writeFileSync(join(workspace, ".git/objects/fixture"), "excluded changed raw Git object");
+    const details = await f.observe();
+    expect(details.changes.some(item => item.path.endsWith(".git/config") || item.path.includes(".git/objects/")), "NATIVE_HISTORY_GIT_EXECUTION_INPUTS_NOT_RETAINED").toBe(false);
+    expect(f.bytes("workspaces/ithaca/.git/HEAD", "before")).toEqual(Buffer.from("ref: refs/heads/return\r\n"));
+    expect(f.bytes("workspaces/ithaca/.git/HEAD", "after")).toEqual(Buffer.from("ref: refs/heads/harbor\r\n"));
+    expect(f.bytes("workspaces/ithaca/.git/refs/heads/return", "after")).toEqual(Buffer.from("updated-ref\n"));
+    expect(details.changes.find(item => item.path === "workspaces/ithaca/notes/athena.md")?.scope).toBe("workspaces/ithaca");
+    expect(details.missing).toEqual([]);
+  } finally { await f.close(); }
 });
 
-test("a nested ignore cannot reinclude a file below an excluded parent directory", () => {
-  const { root, walker } = fixture();
-  mkdirSync(join(root, "notes", "ignored"));
-  writeFileSync(join(root, ".gitignore"), "notes/ignored/\n");
-  writeFileSync(join(root, "notes", "ignored", ".gitignore"), "!odysseus.md\n");
-  writeFileSync(join(root, "notes", "ignored", "odysseus.md"), "Ithaca");
-  expect(walker.begin().entries.find(entry => entry.path === "notes/ignored/odysseus.md")).toMatchObject({ ignored: true });
+test("native history cannot reinclude a changed file beneath an ignored parent", async () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.root, "notes/ignored")); writeFileSync(join(f.root, ".gitignore"), "notes/ignored/\n");
+    writeFileSync(join(f.root, "notes/ignored/.gitignore"), "!odysseus.md\n"); writeFileSync(join(f.root, "notes/ignored/odysseus.md"), "Ithaca");
+    await f.begin(); writeFileSync(join(f.root, "notes/ignored/odysseus.md"), "Return to Ithaca");
+    const details = await f.observe(), change = details.changes.find(item => item.path === "notes/ignored/odysseus.md")!;
+    expect(change.after).toMatchObject({ ignored: true }); expect(change.after?.hash).toBeUndefined();
+  } finally { await f.close(); }
 });
 
-test("newly created workspace ignore rules cannot remove content from the existing turn's observation", () => {
-  const { root, walker } = fixture(); walker.begin();
-  const workspace = join(root, "workspaces", "ithaca"); mkdirSync(workspace, { recursive: true });
-  writeFileSync(join(workspace, ".gitignore"), "odysseus.md\n");
-  writeFileSync(join(workspace, "odysseus.md"), "Ithaca");
-  expect(walker.observe().entries.find(entry => entry.path === "workspaces/ithaca/odysseus.md")?.hash).toBeDefined();
+test("a new workspace ignore file cannot hide its new content from an existing native turn", async () => {
+  const f = fixture();
+  try {
+    await f.begin(); const workspace = join(f.root, "workspaces/ithaca"); mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, ".gitignore"), "odysseus.md\n"); writeFileSync(join(workspace, "odysseus.md"), "Ithaca");
+    await f.observe(); expect(f.bytes("workspaces/ithaca/odysseus.md", "after"), "NATIVE_HISTORY_LATE_WORKSPACE_RULES_NOT_ADOPTED").toEqual(Buffer.from("Ithaca"));
+  } finally { await f.close(); }
 });
 
-test("20,000-file warm raw snapshot prints its timing and completes within the approved 500ms bound", () => {
-  const { root, walker } = fixture();
-  for (let i = 0; i < 20_000; i++) writeFileSync(join(root, "notes", `odysseus-${i}.md`), "# Ithaca\r\nReturn by sea.\r\n");
-  walker.begin();
-  const start = performance.now(), snapshot = walker.observe(), elapsed = performance.now() - start;
-  console.log(`Journal 20,000-file warm raw snapshot: ${elapsed.toFixed(1)}ms`);
-  expect(snapshot.entries).toHaveLength(20_000); expect(snapshot.missing).toEqual([]);
-  expect(elapsed, "JOURNAL_WARM_20K_BELOW_500MS").toBeLessThan(500);
-});
-
-test("deterministic directory replacement between stat and open never captures the linked outside file", () => {
-  const { root, objects, walker } = fixture();
-  const outside = mkdtempSync(join(tmpdir(), "journal-athena-outside-")); roots.push(outside);
-  writeFileSync(join(outside, "athena-private.md"), "This owned fixture stays outside the snapshot.");
-  writeFileSync(join(root, "notes", "odysseus.md"), "Ithaca");
-  const open = fs.openSync;
-  let swapped = false;
-  const probe = spyOn(fs, "openSync").mockImplementation((...args: Parameters<typeof fs.openSync>) => {
-    if (!swapped && String(args[0]).endsWith("/notes")) {
-      swapped = true;
-      fs.renameSync(join(root, "notes"), join(root, "notes-before-swap"));
-      fs.symlinkSync(outside, join(root, "notes"));
-    }
+test("native descriptor reads refuse a directory replaced by an outside link during open", async () => {
+  const f = fixture(), outside = join(f.directory, "outside"); mkdirSync(outside); writeFileSync(join(outside, "odysseus.md"), "Athena's private advice");
+  writeFileSync(join(f.root, "notes/odysseus.md"), "Ithaca");
+  const open = asyncFs.open; let swapped = false;
+  const probe = spyOn(asyncFs, "open").mockImplementation((...args: Parameters<typeof asyncFs.open>) => {
+    if (!swapped && String(args[0]).endsWith("/notes")) { swapped = true; renameSync(join(f.root, "notes"), join(f.root, "notes-before-swap")); symlinkSync(outside, join(f.root, "notes")); }
     return open(...args);
   });
   try {
-    const snapshot = walker.begin();
-    expect(swapped).toBe(true);
-    expect(snapshot.missing.map(entry => entry.path)).toContain("notes");
-    expect(snapshot.entries.some(entry => entry.path.endsWith("athena-private.md")), "JOURNAL_DIRECTORY_SWAP_NOT_FOLLOWED").toBe(false);
-    expect([...objects.values()].some(bytes => bytes.equals(Buffer.from("This owned fixture stays outside the snapshot.")))).toBe(false);
-  } finally { probe.mockRestore(); }
+    await expect(readNativeJournalFile(f.root, "notes/odysseus.md", 1024), "NATIVE_HISTORY_DIRECTORY_SWAP_NOT_FOLLOWED").rejects.toThrow();
+    expect(swapped).toBe(true); expect(readFileSync(join(outside, "odysseus.md"), "utf8")).toBe("Athena's private advice");
+  } finally { probe.mockRestore(); await f.close(); }
 });
 
-test("a real skip-worktree note and malicious Git configuration remain raw data, never commands", () => {
-  const { root, objects, walker } = fixture();
-  const note = join(root, "notes", "odysseus.md"); writeFileSync(note, "# Ithaca\r\n");
-  const env = { PATH: "/usr/bin:/bin", HOME: root, GIT_CONFIG_NOSYSTEM: "1" };
-  const git = (args: string[]) => {
-    const child = Bun.spawnSync(["git", ...args], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
-    expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString();
-  };
-  git(["init", "-b", "main"]); git(["add", "notes/odysseus.md"]); git(["update-index", "--skip-worktree", "notes/odysseus.md"]);
-  expect(git(["ls-files", "-v"]).trim()).toBe("S notes/odysseus.md");
-  const sentinel = join(root, "git-must-not-run");
-  const helper = join(root, "git-fixture-hook.sh");
-  writeFileSync(helper, `#!/bin/sh\nprintf unexpected > '${sentinel}'\n`, { mode: 0o755 });
-  writeFileSync(join(root, "included.config"), `[filter "odysseus"]\nclean = ${helper}\nsmudge = ${helper}\n`);
-  writeFileSync(join(root, ".git", "config"), `[core]\nfsmonitor = ${helper}\n[include]\npath = ${join(root, "included.config")}\n`);
-  writeFileSync(join(root, ".gitattributes"), "*.md filter=odysseus text eol=lf\n");
-  const before = walker.begin().entries.find(entry => entry.path === "notes/odysseus.md")!;
-  writeFileSync(note, "# Ithaca\r\nReturn by sea.\r\n");
-  const after = walker.observe().entries.find(entry => entry.path === "notes/odysseus.md")!;
-  expect(objects.get(after.hash!), "JOURNAL_SKIP_WORKTREE_RAW_EDIT").toEqual(readFileSync(note));
-  expect(after.hash).not.toBe(before.hash);
-  expect(existsSync(sentinel), "JOURNAL_GIT_CONFIGURATION_NEVER_EXECUTED").toBe(false);
+test("real skip-worktree and malicious Git filters/config remain raw changed bytes and never commands", async () => {
+  const f = fixture(), note = join(f.root, "notes/odysseus.md");
+  try {
+    writeFileSync(note, "# Ithaca\r\n");
+    const env = { PATH: "/usr/bin:/bin", HOME: f.root, GIT_CONFIG_NOSYSTEM: "1" };
+    const git = (args: string[]) => { const child = Bun.spawnSync(["git", ...args], { cwd: f.root, env, stdout: "pipe", stderr: "pipe" }); expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString(); };
+    git(["init", "-b", "main"]); git(["add", "notes/odysseus.md"]); git(["update-index", "--skip-worktree", "notes/odysseus.md"]);
+    expect(git(["ls-files", "-v"]).trim()).toBe("S notes/odysseus.md");
+    const sentinel = join(f.root, "git-must-not-run"), helper = join(f.root, "git-fixture-hook.sh");
+    writeFileSync(helper, `#!/bin/sh\nprintf unexpected > '${sentinel}'\n`, { mode: 0o755 });
+    writeFileSync(join(f.root, "included.config"), `[filter "odysseus"]\nclean = ${helper}\nsmudge = ${helper}\n`);
+    writeFileSync(join(f.root, ".git/config"), `[core]\nfsmonitor = ${helper}\n[include]\npath = ${join(f.root, "included.config")}\n`);
+    writeFileSync(join(f.root, ".gitattributes"), "*.md filter=odysseus text eol=lf\n");
+    await f.begin(); writeFileSync(note, "# Ithaca\r\nReturn by sea.\r\n"); await f.observe();
+    expect(f.bytes("notes/odysseus.md", "after"), "NATIVE_HISTORY_SKIP_WORKTREE_RAW_EDIT").toEqual(readFileSync(note));
+    expect(f.bytes("notes/odysseus.md", "before")).toEqual(Buffer.from("# Ithaca\r\n"));
+    expect(existsSync(sentinel), "NATIVE_HISTORY_GIT_CONFIGURATION_NEVER_EXECUTED").toBe(false);
+  } finally { await f.close(); }
 });

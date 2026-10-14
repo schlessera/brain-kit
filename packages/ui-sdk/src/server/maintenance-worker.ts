@@ -62,7 +62,7 @@ export interface MaintenanceCommand {
 
 /** Trusted helper configuration shared by hosted startup and short Git checks. */
 export interface MaintenanceHost {
-  /** A host-prepared immutable input lease, acquired before a synchronous reader. */
+  /** @internal A host-prepared immutable input lease, acquired before a synchronous reader. */
   startupView?: WorkerStartupView;
   tempLimits?: WorkerStateLimits;
   tempDomain?: MaintenanceTempDomain;

@@ -107,6 +107,9 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
     case "--version": case "briefing": case "stats": case "list": case "read": case "validate":
     case "hygiene": case "skills": case "scratch":
       return { credentials: false, gate: "shared" };
+    // Automatic plain index is keyword-only. Provider/flagged operations keep
+    // the conservative credentialed exclusive envelope.
+    case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
     case "search": return { credentials: true, gate: "shared" };
     // A module action runs the module's own code, which may call out.
     case "module": return args.includes("--action") ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
@@ -376,7 +379,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     isolated,
     governed,
     async prepare(signal, preparedView) {
+      signal?.throwIfAborted();
+      // Capability proof is already complete. A maintenance output operation
+      // has its own lease and must not delay this cached admission fact.
+      if (passedMaintenanceProbes.has(maintenanceKey)) return governed();
       return outputLock.withLock(brain, async () => {
+      signal?.throwIfAborted();
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
       if (!ordinary.ok) return governed();
       if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();

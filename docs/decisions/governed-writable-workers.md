@@ -771,8 +771,8 @@ admission, tool completion, 15-second scope observations and turn completion
 before quarantine/gate release. The journal and private content objects are
 operational state beside `DB_PATH`, masked from workers; they do not make
 `brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
-the stat cache are implemented by (`createJournalWalker`,
-`packages/ui-server/src/brain/journal-snapshot.ts:36-40`).
+the stat cache were implemented by
+[the historical `createJournalWalker`](https://github.com/schlessera/brain-kit/blob/79d54278f1b2f35e929f4c6f182089360ab7759f/packages/ui-server/src/brain/journal-snapshot.ts#L36-L40).
 
 The approved aggregate cap is 10 GiB. Reservations include retained raw
 objects, simultaneous temporary copies, journal-owned SQLite pages and bounded
@@ -920,8 +920,11 @@ A credentialed maintenance worker holds it exclusively.
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
 turn waits for is credential-free; for example, the synchronous index after a
-curated application. Credentialed work, such as Git transport or an interim keyed
-reindex, is queued, and runs once no shared holder remains.
+curated application. The automatic plain `brain index` command is keyword-only
+and uses that same credential-free shared path. Flagged index operations,
+including embedding and on-commit passes, retain the credentialed exclusive
+path. Git transport and other credentialed work remain queued until no shared
+holder remains.
 
 Revert takes the gate exclusively too:
 

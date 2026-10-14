@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { createNativeHostInputFixture as fixture } from "./helpers/native-host-input-fixture.js";
 import { prepareNativeWorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
-import { createHostBoundary } from "../src/brain/host-boundary.js";
+import { brainCommandClass, createHostBoundary } from "../src/brain/host-boundary.js";
 
 
 test("boot qualification and each async host operation acquire fresh inputs and await native release", async () => {
@@ -60,4 +60,28 @@ test("host completion cannot settle while final native deletion is still pending
     complete.resolve(); expect((await operation).exitCode).toBe(0);
     expect(f.released).toEqual(f.checkpoints);
   } finally { complete.resolve(); f.cleanup(); }
+});
+
+test("plain automatic keyword index is credential-free/shared; flagged operations stay exclusive", () => {
+  expect(brainCommandClass(["index"]),"PLAIN_INDEX_USES_EXISTING_UNCREDENTIALED_SHARED_RULE").toEqual({credentials:false,gate:"shared"});
+  for(const args of [["index","--embeddings"],["index","--on-commit"],["index","--force"],["index","--unknown"],["index","--json"]])
+    expect(brainCommandClass(args),"FLAGGED_INDEX_PRESERVES_CREDENTIAL_EXCLUSIVE_BOUNDARY").toEqual({credentials:true,gate:"exclusive"});
+});
+test("a known passing maintenance probe never waits for unrelated maintenance output ownership", async () => {
+  const f=fixture(),entered=Promise.withResolvers<void>(),resume=Promise.withResolvers<void>();
+  let running:Promise<unknown>|undefined;
+  try {
+    const boundary=createHostBoundary({brainPath:f.brain,nativeManager:f.manager,workerHost:()=>({ok:true})});
+    expect((await boundary.prepare()).available).toBe(true);
+    const checkpoint=f.manager.checkpoint;
+    f.manager.checkpoint=async id=>{entered.resolve();await resume.promise;return checkpoint(id);};
+    running=boundary.run(f.execution);await entered.promise;
+    let qualified=false;const cached=boundary.prepare().then(value=>{qualified=value.available;});
+    await Bun.sleep(0);
+    expect(qualified,"CACHED_NATIVE_PROBE_BYPASSES_UNRELATED_OUTPUT_LOCK").toBe(true);
+    expect(f.checkpoints).toHaveLength(1);
+    const stopped=new AbortController();stopped.abort(new Error("Odysseus cancelled cached admission"));
+    await expect(boundary.prepare(stopped.signal),"CACHED_NATIVE_PROBE_STILL_OBSERVES_ABORT").rejects.toThrow("Odysseus cancelled cached admission");
+    resume.resolve();await cached;await running;
+  } finally {resume.resolve();await running?.catch(()=>{});f.cleanup();}
 });

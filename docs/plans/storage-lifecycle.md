@@ -88,7 +88,7 @@ Source foundations for the matrix:
   Retention is applied at admission
   (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:236-264`).
   Object copies reserve temporary bytes before writing
-  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:126-178`).
+  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:66-118`).
 - Turn-temp purge has its own scope and measured result
   (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-494`),
   and tool validation/recording

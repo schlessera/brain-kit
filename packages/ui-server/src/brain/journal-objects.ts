@@ -1,9 +1,8 @@
 /** Private streamed content objects; a durable journal ledger owns every reservation. */
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, readSync, unlinkSync, writeSync } from "node:fs";
 import * as fs from "node:fs";
 import { promisify } from "node:util";
-import type { JournalSnapshotObjects } from "./journal-snapshot.js";
 
 export interface JournalObjectReservation {
   readonly id?: string;
@@ -32,7 +31,8 @@ export class JournalCapacityError extends Error {
 }
 
 /** No brain pathname reaches this store. Only checked source descriptors and sha256 object names do. */
-export function createJournalObjects(root: string, accounting: JournalObjectAccounting): JournalSnapshotObjects & {
+export function createJournalObjects(root: string, accounting: JournalObjectAccounting): {
+  has(hash: string): boolean;
   putFileAsync(source: number, size: number): Promise<string>;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
@@ -63,66 +63,6 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
   };
   return {
     has,
-    putFile(source, size) {
-      assertOpen();
-      if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");
-      const info = fstatSync(source);
-      if (!info.isFile() || info.size !== size) throw new Error("Journal source changed before its storage reservation.");
-      // Precompute the identity so the same transaction can allocate final
-      // object metadata and reserve its bytes before any temporary disk write.
-      const initialHash = createHash("sha256"), initialChunk = Buffer.alloc(64 * 1024);
-      let initialBytes = 0;
-      for (;;) {
-        const count = readSync(source, initialChunk, 0, Math.min(initialChunk.length, size - initialBytes + 1), initialBytes);
-        if (!count) break;
-        if (initialBytes + count > size) throw new Error("Journal source grew before storage admission.");
-        initialHash.update(initialChunk.subarray(0, count)); initialBytes += count;
-      }
-      if (initialBytes !== size) throw new Error("Journal source shrank before storage admission.");
-      const expectedHash = initialHash.digest("hex");
-      // Reserve before creating a temporary file; duplicates occupy temporary space until discarded too.
-      const reservation = accounting.reserve(size, expectedHash);
-      const name = `pending-${reservation.id ?? crypto.randomUUID()}`;
-      let output: number | undefined;
-      let present = false;
-      let published = false;
-      try {
-        output = openSync(path(name), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-        present = true;
-        const hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
-        let bytes = 0;
-        for (;;) {
-          const length = readSync(source, chunk, 0, Math.min(chunk.length, size - bytes + 1), bytes);
-          if (!length) break;
-          if (bytes + length > size) throw new Error("Journal source grew during its bounded copy.");
-          hash.update(chunk.subarray(0, length));
-          let written = 0;
-          while (written < length) {
-            const count = writeSync(output, chunk, written, length - written);
-            if (!count) throw new Error("Journal object write made no progress.");
-            written += count;
-          }
-          bytes += length;
-        }
-        if (bytes !== size) throw new Error("Journal source shrank during its bounded copy.");
-        fsyncSync(output); closeSync(output); output = undefined;
-        const digest = hash.digest("hex");
-        if (digest !== expectedHash) throw new Error("Journal source changed between identity and content capture.");
-        let duplicate = false;
-        try { linkSync(path(name), path(digest)); published = true; }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; if (!has(digest)) throw error; duplicate = true; }
-        unlinkSync(path(name)); present = false;
-        fsyncSync(directory);
-        reservation.finish(digest, size, duplicate);
-        return digest;
-      } catch (error) {
-        if (output !== undefined) closeSync(output);
-        if (present) unlinkSync(path(name));
-        // A published object whose ledger commit failed stays charged by its
-        // pending reservation until recovery; never leave unaccounted bytes.
-        if (!published) reservation.cancel(); throw error;
-      }
-    },
     async putFileAsync(source, size) {
       assertOpen();
       if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");

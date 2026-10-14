@@ -569,7 +569,8 @@ signatures (every public export and the types it is made of)
     export interface GovernedTurnHold {
         readonly sandbox: WorkerSandbox;
         readonly policy: TurnGovernancePolicy;
-        end(): Reconciliation | null;
+        readonly startupView?: WorkerStartupView;
+        end(): Promise<Reconciliation | null>;
     }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurns {
@@ -712,6 +713,26 @@ signatures (every public export and the types it is made of)
     }
   ModelDiscoverySource (packages/ui-server/src/agent/backend.ts)
     export type ModelDiscoverySource = BackendModelSource;
+  NativeJournalCheckpoint (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalCheckpoint {
+        id: string;
+        path: string;
+        uuid: string;
+        transaction: string;
+        readOnly: true;
+    }
+  NativeJournalManager (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalManager {
+        checkpoint(id: string, signal?: AbortSignal): Promise<NativeJournalCheckpoint>;
+        delta(from: string, to: string, signal?: AbortSignal): Promise<{
+            stream: ReadableStream<Uint8Array>;
+            completed: Promise<{
+                exitCode: 0;
+                bytes: number;
+            }>;
+        }>;
+        release(id: string, signal?: AbortSignal): Promise<unknown>;
+    }
   Observability (packages/ui-server/src/observability/index.ts)
     export interface Observability {
         logger(scope: string): Logger;
@@ -827,6 +848,12 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        nativeBrain?: {
+            socketPath: string;
+            timeoutMs: number;
+            maxDeltaBytes: number;
+            leasePath?: string;
+        };
         maintenanceTemp?: {
             allowanceBytes: number;
             budgetBytes: number;
@@ -1050,6 +1077,20 @@ signatures (every public export and the types it is made of)
         readonly scratchAliasesRemoved: readonly string[];
         readonly home?: WorkerHome;
     }
+  WorkerStartupStorage (packages/ui-sdk/src/server/worker-startup-view.ts)
+    export interface WorkerStartupStorage {
+        readonly root: string;
+        retain(): void;
+        release(): void | Promise<void>;
+        readonly cleanupPid?: number;
+    }
+  WorkerStartupView (packages/ui-sdk/src/server/worker-startup-view.ts)
+    export interface WorkerStartupView {
+        readonly brain: string;
+        readonly root: string;
+        readonly storage: WorkerStartupStorage;
+        cleanup(): void | Promise<void>;
+    }
   WorkerStateLimits (packages/ui-sdk/src/server/worker-state-limits.ts)
     export interface WorkerStateLimits {
         allowanceBytes: number;
@@ -1243,6 +1284,7 @@ signatures (every public export and the types it is made of)
         objectsRoot: string;
         capBytes?: number;
         now?: () => number;
+        nativeManager: NativeJournalManager;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
     }): {
         begin(turnId: string, metadata: {
@@ -1252,15 +1294,17 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
-        }, stop: (error: Error) => void): void;
+        }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
         bindSession(turnId: string, sessionId: string): void;
-        close(): void;
+        close(): Promise<void>;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
-        finish(turnId: string): void;
+        finish(turnId: string): Promise<void>;
         finishReserved(turnId: string): void;
-        observe(): void;
-        observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+        idle(): Promise<void>;
+        isHeld(): boolean;
+        observe(): Promise<void>;
+        observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
             observedBytes: number;
