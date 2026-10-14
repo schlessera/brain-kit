@@ -640,3 +640,18 @@ leave the graph view and return to refresh its metadata.
 This capability failure is distinct from an old or uncomputed index. See
 [the server installation guidance](../ui-server/README.md#installing-core-for-the-graph-and-voice-vocabulary)
 for the required core package.
+
+## Discovery placement
+
+Discovery uses exact outgoing-hop bands with deterministic lanes and branch
+wedges informed by directed link predecessors. Nearby marks do not establish a
+direct link or shared parent; cross-branch edges can still be drawn. The
+placement disclosure explains missing scene predecessors and the active colour
+legend. Every visible note remains accessible through zoom and the hop-grouped,
+degree-ranked node list, including notes in the missing-predecessor wedge.
+
+Identical scene data retains coordinates under input reorder, refetch, resize
+and presentation changes. Changed data can repack any branch inside its hop
+band; Discovery cuts to those positions and preserves the camera and selected
+node identity. A selected survivor receives a brief `Layout updated` notice.
+Changing root or depth resets the scene. Discovery expansion is separate work.
