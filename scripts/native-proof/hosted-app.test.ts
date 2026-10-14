@@ -100,25 +100,28 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
       let completed = true;
       let durableAckMs: number | null = null;
       let ackRecovery: any = null;
+      let recovery: any = null;
+      let phaseError: string | null = null;
       try {
         await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === requestId), 45000);
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
         sid = ack.sessionId;
         ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
-        await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000); }
-      catch { completed = false; }
+        await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
+        await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete"), 10000);
+        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+      }
+      catch (error) { completed = false; phaseError = String(error); }
       finally { stop = true; clearInterval(pingTimer); await probe; }
       const named = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId);
       sid = named?.sessionId ?? sid;
       await sleep(200);
-      if (completed && sid) await until(() => sender.frames.some(f => f.type === "turn_journal" && f.receiptAt >= begin && f.journal?.state === "complete"), 10000);
-      const recovery = sid ? await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json()) : null;
       const pongs = observer.frames.filter(f => f.type === "pong" && f.probeId?.startsWith(phase + "-"));
       const terminal = sender.frames.filter(f => (f.type === "result" || f.type === "error") && f.receiptAt >= begin);
       results.push({
         phase, completed, health, timeoutCount: health.filter(p => p.timeout).length, submitToAckMs: named ? named.receiptAt - begin : null,
-        elapsedMs: performance.now() - begin, durableAckMs, ackRecovery, pings: pings.length, pongs: pongs.length,
+        elapsedMs: performance.now() - begin, durableAckMs, ackRecovery, phaseError, pings: pings.length, pongs: pongs.length,
         pingLatencyMs: pongs.map(f => f.receiptAt - pings.find(p => p.id === f.probeId)!.at), recovery, terminal
       });
       if (!completed) break;
