@@ -8933,7 +8933,7 @@
       ],
       "timers": [
         {
-          "site": "packages/ui-sdk/tests/fixtures/worker-cgroup-probe.ts:29:30",
+          "site": "packages/ui-sdk/tests/fixtures/worker-cgroup-probe.ts:28:30",
           "kind": "setInterval",
           "requestedMs": 100,
           "registrations": 1,
@@ -8945,6 +8945,7 @@
           "clearAgeRangeMs": [2086.600187, 2086.600187]
         }
       ],
+      "sourceLabelCorrection": "Raw observer label29:30 was a transcription error; unique original setInterval expression is28:30. Raw receipt and instrumented bytes are preserved, counts/ages unchanged.",
       "namespaceProof": {
         "uid": 1000,
         "netNamespace": "net:[4026532663]",
@@ -8954,7 +8955,7 @@
         "childPreloadClaim": false
       },
       "rawReceiptSha256": "3434a0e935f3e26f845b1038eb9e8a954b85d6e7af3b80018805e5aaf92046d2",
-      "limits": "One original cgroup case,22filtered,30expects. Original delegatedScope gate unchanged and passed. systemd-run child inherits verified offline namespace but no injected child-preload claim. Shell2s hold and CPU loop not counted;20observed interval callbacks are separate. Preparation AST serialization error stopped before tests and was corrected."
+      "limits": "One original cgroup case,22 filtered,30 expects. Original delegatedScope gate unchanged and passed. systemd-run child inherits verified offline namespace but no injected child-preload claim. Shell2s hold and CPU loop not counted;20observed interval callbacks are separate. Preparation AST serialization error stopped before tests and was corrected."
     },
     {
       "kind": "unchanged-no-observer-containment-control",
@@ -8986,7 +8987,7 @@
         "packages/ui-backend-pi/src/worker-entry.ts": "49c9a9aa10da4044f422bf384937bcbf5133278137ab2bdb01bd1439319a4e80"
       },
       "rawLogSha256": "6062a49ac91dbc377feef6ca168c3aa63e73dcb5cc09a927139a16e8e3f6ef5d",
-      "limits": "Separate selected1/69control,3filtered; no counter data. Does not erase3/1full diagnostic or establish collision cause. #1945 owns diagnosis."
+      "limits": "Separate selected1/69control,3 filtered; no counter data. Does not erase3/1full diagnostic or establish collision cause. #1945 owns diagnosis."
     }
   ],
   "missingTelemetryAttempts": [
