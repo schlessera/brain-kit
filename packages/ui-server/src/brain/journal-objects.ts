@@ -1,6 +1,8 @@
 /** Private streamed content objects; a durable journal ledger owns every reservation. */
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, unlinkSync, writeSync } from "node:fs";
+import * as fs from "node:fs";
+import { promisify } from "node:util";
 import type { JournalSnapshotObjects } from "./journal-snapshot.js";
 
 export interface JournalObjectReservation {
@@ -15,6 +17,13 @@ export interface JournalObjectAccounting {
 
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const READ = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+const readAsync = promisify(fs.read);
+const writeAsync = promisify(fs.write);
+const openAsync = promisify(fs.open);
+const closeAsync = promisify(fs.close);
+const syncAsync = promisify(fs.fsync);
+const linkAsync = promisify(fs.link);
+const unlinkAsync = promisify(fs.unlink);
 const HASH = /^[a-f0-9]{64}$/;
 
 export class JournalCapacityError extends Error {
@@ -24,6 +33,7 @@ export class JournalCapacityError extends Error {
 
 /** No brain pathname reaches this store. Only checked source descriptors and sha256 object names do. */
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): JournalSnapshotObjects & {
+  putFileAsync(source: number, size: number): Promise<string>;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
   withVerifiedCopy<T>(hash: string, bytes: number, apply: (copy: (destination: number) => void) => T): T;
@@ -111,6 +121,59 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         // A published object whose ledger commit failed stays charged by its
         // pending reservation until recovery; never leave unaccounted bytes.
         if (!published) reservation.cancel(); throw error;
+      }
+    },
+    async putFileAsync(source, size) {
+      assertOpen();
+      if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");
+      const info = fstatSync(source);
+      if (!info.isFile() || info.size !== size) throw new Error("Journal source changed before its storage reservation.");
+      // The caller pins a sealed native checkpoint and this descriptor until
+      // completion. Each read/write yields; large changed files cannot monopolize
+      // the server loop. Admission and publication retain the existing ledger.
+      async function digestSource(output?: number): Promise<string> {
+        const hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
+        let position = 0;
+        for (;;) {
+          const { bytesRead } = await readAsync(source, chunk, 0, Math.min(chunk.length, size - position + 1), position);
+          if (!bytesRead) break;
+          if (position + bytesRead > size) throw new Error("Journal source grew during capture.");
+          hash.update(chunk.subarray(0, bytesRead));
+          if (output !== undefined) {
+            let written = 0;
+            while (written < bytesRead) {
+              const { bytesWritten } = await writeAsync(output, chunk, written, bytesRead - written, position + written);
+              if (!bytesWritten) throw new Error("Journal object write made no progress.");
+              written += bytesWritten;
+            }
+          }
+          position += bytesRead;
+        }
+        if (position !== size) throw new Error("Journal source shrank during capture.");
+        return hash.digest("hex");
+      }
+      const expectedHash = await digestSource();
+      const reservation = accounting.reserve(size, expectedHash);
+      const name = `pending-${reservation.id ?? crypto.randomUUID()}`;
+      let output: number | undefined, present = false, published = false;
+      try {
+        output = await openAsync(path(name), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        present = true;
+        const digest = await digestSource(output);
+        await syncAsync(output); await closeAsync(output); output = undefined;
+        if (digest !== expectedHash) throw new Error("Journal source changed between identity and content capture.");
+        let duplicate = false;
+        try { await linkAsync(path(name), path(digest)); published = true; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !has(digest)) throw error; duplicate = true; }
+        await unlinkAsync(path(name)); present = false;
+        await syncAsync(directory);
+        reservation.finish(digest, size, duplicate);
+        return digest;
+      } catch (error) {
+        if (output !== undefined) await closeAsync(output);
+        if (present) await unlinkAsync(path(name));
+        if (!published) reservation.cancel();
+        throw error;
       }
     },
     read(hash, maxBytes) {

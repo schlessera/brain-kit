@@ -9,14 +9,17 @@ const schedules = /(?:^|\/)context\/scheduled-tasks\//;
 const policy = /(?:^|\/)context\/policies(?:\/|$)/;
 const scripts = /\.(?:[cm]?[jt]sx?|json|toml|ya?ml)$/;
 
+export const isJournalSteeringPath = (path: string): boolean => !policy.test(path) &&
+  (instructions.test(path) || configuration.test(path) || surfaces.test(path) || schedules.test(path));
+
 /** A classification inventory, never a claim that arbitrary code was executed. */
-export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (hash: string, maximum: number) => Buffer) {
+function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (path: string) => JournalSnapshotEntry | undefined): Generator<JournalSnapshotEntry, { paths: Set<string>; unavailable: string[] }, Buffer | undefined> {
   const entries = new Map<string, JournalSnapshotEntry>();
   const paths = new Set<string>(), pending: JournalSnapshotEntry[] = [];
   const unavailable = new Set<string>();
   for (const snapshot of snapshots) for (const entry of snapshot.entries) {
     entries.set(entry.path, entry);
-    if (!policy.test(entry.path) && (instructions.test(entry.path) || configuration.test(entry.path) || surfaces.test(entry.path) || schedules.test(entry.path))) {
+    if (isJournalSteeringPath(entry.path)) {
       paths.add(entry.path); pending.push(entry);
     }
   }
@@ -26,20 +29,20 @@ export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], rea
     const candidate = posix.normalize(posix.join(posix.dirname(from.path), reference));
     const rootRelative = posix.normalize(posix.join(from.scope, reference));
     for (const path of [candidate, rootRelative]) for (const suffix of ["", ".ts", ".tsx", ".js", ".mjs", ".json", "/index.ts", "/index.js"]) {
-      const resolved = `${path}${suffix}`, entry = entries.get(resolved);
+      const resolved = `${path}${suffix}`, entry = entries.get(resolved) ?? lookup?.(resolved);
       if (!entry || policy.test(resolved) || entry.scope !== from.scope || paths.has(resolved)) continue;
       paths.add(resolved); pending.push(entry);
     }
   };
   while (pending.length) {
     const entry = pending.pop()!;
-    if (!scripts.test(entry.path) || visited.has(`${entry.path}:${entry.hash}`)) continue;
-    visited.add(`${entry.path}:${entry.hash}`);
-    // Classification reads only the existing retained object, never the live
-    // path or an import. Large/ignored/opaque inputs stay explicitly unknown.
-    if (!entry.hash || entry.bytes > 1024 * 1024) { unavailable.add(entry.path); continue; }
-    let text: string;
-    try { text = read(entry.hash, 1024 * 1024).toString("utf8"); } catch { unavailable.add(entry.path); continue; }
+    if (!scripts.test(entry.path) || visited.has(`${entry.path}:${entry.hash ?? entry.stamp}`)) continue;
+    visited.add(`${entry.path}:${entry.hash ?? entry.stamp}`);
+    // Readers use retained objects or pinned sealed roots, never live imports.
+    if (entry.ignored || entry.bytes > 1024 * 1024) { unavailable.add(entry.path); continue; }
+    const bytes = yield entry;
+    if (!bytes) { unavailable.add(entry.path); continue; }
+    const text = bytes.toString("utf8");
     if (/\.[cm]?[jt]sx?$/.test(entry.path)) {
       try {
         const loader = entry.path.endsWith("x") ? "tsx" : "ts";
@@ -60,4 +63,28 @@ export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], rea
     }
   }
   return { paths, unavailable: [...unavailable].sort() };
+}
+
+/** Existing retained-object reader, also used by historical journal fixtures. */
+export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (hash: string, maximum: number) => Buffer) {
+  const inventory = steeringInventory(snapshots);
+  let step = inventory.next();
+  while (!step.done) {
+    let bytes: Buffer | undefined;
+    try { if (step.value.hash) bytes = read(step.value.hash, 1024 * 1024); } catch { /* Explicit unavailable classification. */ }
+    step = inventory.next(bytes);
+  }
+  return step.value;
+}
+
+/** Native admission needs no CAS copy of unchanged configuration inputs. */
+export async function nativeJournalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (entry: JournalSnapshotEntry, maximum: number) => Promise<Buffer>, lookup?: (path: string) => JournalSnapshotEntry | undefined) {
+  const inventory = steeringInventory(snapshots, lookup);
+  let step = inventory.next();
+  while (!step.done) {
+    let bytes: Buffer | undefined;
+    try { bytes = await read(step.value, 1024 * 1024); } catch { /* Explicit unavailable classification. */ }
+    step = inventory.next(bytes);
+  }
+  return step.value;
 }

@@ -1,3 +1,4 @@
+import { isJournalSteeringPath } from "./journal-steering.js";
 /** One metadata index and rolling sealed roots; no initial content capture. */
 import { randomUUID } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
@@ -60,9 +61,11 @@ class MetadataIndex {
   readonly entries = new Map<string, NativeJournalMetadata>();
   readonly children = new Map<string, Set<string>>();
   readonly inodes = new Map<string, Set<string>>();
+  readonly ignoreInputs = new Map<string, NativeJournalMetadata>();
+  readonly steeringInputs = new Map<string, NativeJournalMetadata>();
   remove(path: string): void {
     const entry = this.entries.get(path); if (!entry) return;
-    this.entries.delete(path);
+    this.entries.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
     const directory = parent(path), children = this.children.get(directory); children?.delete(path);
     if (!children?.size) this.children.delete(directory);
     const names = this.inodes.get(entry.inode); names?.delete(path);
@@ -70,6 +73,8 @@ class MetadataIndex {
   }
   put(entry: NativeJournalMetadata): void {
     this.remove(entry.path); this.entries.set(entry.path, entry);
+    if (entry.path.split("/").at(-1) === ".gitignore") this.ignoreInputs.set(entry.path, entry);
+    if (isJournalSteeringPath(entry.path)) this.steeringInputs.set(entry.path, entry);
     const directory = parent(entry.path), children = this.children.get(directory) ?? new Set<string>();
     children.add(entry.path); this.children.set(directory, children);
     const names = this.inodes.get(entry.inode) ?? new Set<string>();
@@ -270,6 +275,8 @@ export function createNativeJournalObserver(native: NativeJournalManager) {
     /** Borrowed until the next committed observation; never an independent lease. */
     currentRoot(): NativeJournalCheckpoint { if (closed || !root) return unavailable("Native observer is not initialized or is closed."); return root; },
     entries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return index.entries.values(); },
+    steeringEntries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return index.steeringInputs.values(); },
+    ignoreEntries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return index.ignoreInputs.values(); },
     get(path: string): NativeJournalMetadata | undefined { if (closed) return unavailable("Native observer is closed."); return index.entries.get(path); },
     async observe(signal?: AbortSignal): Promise<NativeJournalObservation> {
       if (closed || inFlight || pending) unavailable("Native observation must be serialized and reconciled.");
