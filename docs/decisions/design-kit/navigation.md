@@ -138,3 +138,10 @@ start and keeps focus on its tab. The compact strip reveals selected/focused
 tabs through its own horizontal scroll, with an overflow cue and 44px targets.
 Modules draft guards, credential-mint dismissal/navigation protection, opener
 focus return and D52 N3 remain binding. D36 shortcut policy is unchanged.
+
+Fictional Chromium review captures show the [previous compact allocation](../../assets/settings-1773/phone-before-dark.png),
+[Models with the recovered space and a long roster](../../assets/settings-1773/phone-models-dark.png),
+[Appearance & input on paper](../../assets/settings-1773/phone-appearance-paper.png),
+and [the grouped desktop Accounts pane](../../assets/settings-1773/desktop-accounts-paper.png).
+The original capture has an empty roster; the final capture uses long content
+to prove scrolling. These illustrate the organization, not pixel baselines.
