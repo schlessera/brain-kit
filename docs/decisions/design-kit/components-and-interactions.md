@@ -1153,7 +1153,8 @@ outline inward does not prevent a rounded ancestor from chopping its arc.
 
 The command query inherits the dialog's inner top geometry. Flush row stacks
 opt into `bk-focus-clip`, whose first and last rows inherit the surface's
-respective corners. Zero-padding Surface bodies carry that treatment for their
+respective corners during visible focus, preserving resting dividers.
+Zero-padding Surface bodies carry that treatment for their
 grouped rows; scroll bodies inherit only the bottom corners when a header sits
 above them. The recording disclosure follows the tray's top corners while
 expanded and all four while collapsed. Controls in unpadded clipping strips

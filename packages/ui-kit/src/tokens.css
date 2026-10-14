@@ -1656,15 +1656,15 @@
  * with the same inside offset as rows rather than an invisible outside ring. */
 .bk-control-inset:focus-visible { outline-offset: -2px; }
 
-/* Opt in only on a flush row stack touching a rounded clipping boundary.
- * Inherit the containing surface's corners on its edge rows; inset alone
+/* Focus-only geometry preserves the resting row dividers in a flush stack.
+ * Inherit the containing surface's corners on focused edge rows; inset alone
  * cannot make a rectangular outline follow an ancestor's clipping curve.
  * :first/last-of-type allow a status span beside a stack of button rows. */
-.bk-focus-clip > .bk-row:first-of-type {
+.bk-focus-clip > .bk-row:first-of-type:focus-visible {
   border-top-left-radius: inherit;
   border-top-right-radius: inherit;
 }
-.bk-focus-clip > .bk-row:last-of-type {
+.bk-focus-clip > .bk-row:last-of-type:focus-visible {
   border-bottom-left-radius: inherit;
   border-bottom-right-radius: inherit;
 }
