@@ -27,7 +27,7 @@ function AccountTheme({ onAssign, onSignOut }: { width: number; onAssign: (id: s
     const recordings = root.recordings;
     root.recordings = new Proxy({ list: async () => rows, subscribe: () => () => {}, assign: onAssign, dispose: () => {} }, {
       get(target, key) { if (key in target) return target[key as keyof typeof target]; throw new Error(`Unexpected recording operation: ${String(key)}`); },
-    }) as RecordingStore;
+    }) as unknown as RecordingStore;
     const dispose = root.dispose;
     root.dispose = () => { root.recordings = recordings; dispose(); };
     root.localWorkFlow.loss = async () => ({ account: "odysseus", epoch: 0, recordings: 2, bytes: 1048576, transcripts: 1, accepted: 1, drafts: 1, tracks: 1, review: false, unassigned: 2, unknown: false, otherTabs: false, otherUnknown: false });
