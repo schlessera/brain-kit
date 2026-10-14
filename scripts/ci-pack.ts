@@ -351,8 +351,8 @@ async function probe(consumer: string, runtime: "bun" | "node", spec: ProbeSpec)
 
 export const BIN_PROBES: Record<BinProbe, (consumer: string) => Promise<void>> = {
   "brain-native-store-usage": async consumer => {
-    const { output } = await run("brain-native-store --help", ["./node_modules/.bin/brain-native-store", "--help"], consumer);
-    if (!output.includes("Usage: brain-native-store")) throw new Error("Packed native storage launcher lost its usage interface");
+    const { code, output } = await run("brain-native-store --help", ["./node_modules/.bin/brain-native-store", "--help"], consumer, true);
+    if (code !== 0 || !output.includes("Usage: brain-native-store")) throw new Error("Packed native storage launcher lost its usage interface");
   },
   "brain-version": async consumer => { await run("brain --version", ["./node_modules/.bin/brain", "--version"], consumer); },
   "brain-ui-cron-usage": async consumer => {
