@@ -253,6 +253,10 @@ export class WsHost {
   readonly askUserFormLimits: AskUserFormLimits;
   /** @internal Turn bookkeeping shared with the package's own connection and dispatch modules. */
   readonly coordinator: TurnCoordinator = new TurnCoordinator();
+  /** @internal Keep native leases/state open until cancelled runners settle. */
+  readonly turnTasks = new Set<Promise<void>>();
+  /** @internal Application shutdown refuses new runners. */
+  closing = false;
   /** @internal Host wiring (#1053). */
   readonly clients: ClientSet;
   readonly registry: BackendRegistry;
@@ -655,6 +659,8 @@ export class WsHost {
 
   /** Stop host-owned timers during application/test teardown. */
   close(): void {
+    this.closing = true;
+    this.coordinator.cancelAll("Server shutting down");
     clearInterval(this.authorizationExpiryTimer);
     this.scope?.close();
     this.inbox?.close();

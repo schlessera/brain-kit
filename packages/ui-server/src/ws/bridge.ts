@@ -88,8 +88,9 @@ export function makeBridge(
   const principalId = turn.principalId;
   const authorization = turn.authorization;
   const signal = turn.abortController.signal;
-  const isAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
-    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
+  const principalIsAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
+    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId) && !host.scope?.isPaused(turnId);
+  const isAuthorized = () => principalIsAuthorized() && !host.journal?.isHeld();
   const assertAuthority = () => {
     if (signal.aborted || !isAuthorized() || host.scope?.isPaused(turnId)) throw new Error("This turn no longer has current principal authority.");
   };
@@ -138,7 +139,7 @@ export function makeBridge(
         }
       }
       if ((msg.type === "tool_use_start" || msg.type === "tool_use_complete") && turn.turnId === turnId) host.scope?.toolCall(turnId, msg.toolUseId);
-      if (msg.type === "tool_result" && turn.turnId === turnId) host.journal?.observe();
+      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.observe().catch(error => { turn.abortController.abort(error); emitTurnError(host, turn, error); });
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         if (turn.turnId === turnId) collectedSessionId = msg.sessionId;
@@ -524,7 +525,7 @@ export function makeBridge(
   };
   if (host.policyProposals && work?.posture !== "voice") {
     bridge.proposePolicyChange = (requestId, input) => host.policyProposals!.propose({
-      principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized,
+      principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: principalIsAuthorized,
       isAvailable: () => work?.posture !== "voice",
       approve: async review => {
         const decision = await bridge.requestPermission({ toolUseId: requestId,
@@ -559,7 +560,7 @@ export function makeBridge(
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path);
     };
-    bridge.applyBrain = input => apply({ principalId, turnId, input });
+    bridge.applyBrain = async input => { await host.journal?.idle(); assertAuthority(); return apply({ principalId, turnId, input }); };
     if (backendId === "claude" || backendId === "pi") {
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths,
@@ -575,6 +576,7 @@ export function makeBridge(
         return png;
       };
       bridge.applyImageMask = async input => {
+        await host.journal?.idle(); assertAuthority();
         const pending = pendingMasks.get(input.imagePath);
         pendingMasks.delete(input.imagePath);
         if (!pending || !Buffer.from(pending.png).equals(Buffer.from(input.png))) {
@@ -591,12 +593,13 @@ export function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction"] as const) {
     const original = bridge[name];
     if (!original) continue;
-    (bridge as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+    (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
       if (name === "requestPermission" && work?.posture === "voice") return Promise.resolve({ behavior: "deny", message: "Voice cannot grant tools." });
       try {
+        await host.journal?.idle();
         assertAuthority();
         if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
           throw new Error("This capability is outside the voice membership.");

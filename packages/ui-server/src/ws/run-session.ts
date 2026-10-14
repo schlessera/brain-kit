@@ -158,15 +158,20 @@ function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readon
 }
 
 export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
+  if (host.closing) throw new Error("The host is shutting down; no new turn was started.");
   const releaseAuthorization = initial.authorization.retain();
+  const task = runRetainedSession(host, initial);
+  host.turnTasks.add(task);
   try {
-    await runRetainedSession(host, initial);
+    await task;
   } finally {
     // Every early exit (cancelled while routing, revoked) lands here; a work
     // item that ran has settled already and ignores this.
-    initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
-    releaseAuthorization();
-    initial.handoffHooks?.onSettled();
+    try { initial.work?.settle("cancelled", { reason: "The session ended before this request ran" }); }
+    finally {
+      try { releaseAuthorization(); }
+      finally { try { initial.handoffHooks?.onSettled(); } finally { host.turnTasks.delete(task); } }
+    }
   }
 }
 
@@ -211,7 +216,10 @@ async function runRetainedSession(
     }
   }
 
-  if (starting.cancelled) return;
+  if (starting.cancelled || host.closing) {
+    for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+    return;
+  }
   if (!initial.authorization.valid) {
     if (initial.sessionId) coordinator.dropStartingQueue(initial.sessionId, starting, REVOKED_REASON);
     else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
@@ -460,6 +468,8 @@ async function runRetainedSession(
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
       let scopeStopReason: string | undefined;
+      let backendStarted = false;
+      let cancelledAdmission = false;
       try {
         if (initial.profileDraftId && (!initial.draftId || !initial.requestId || initial.sessionId
           || (initial.draftRef && initial.draftRef.draftId !== initial.profileDraftId)))
@@ -479,7 +489,7 @@ async function runRetainedSession(
             observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,source:governedHold.policy.hash ? "policy":"default"}}); } catch {throw new BudgetUnavailable();}
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         if (governedHold && host.journal) {
-          host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
+          await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
             actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
           error => {
@@ -488,8 +498,9 @@ async function runRetainedSession(
             journalFailure = error;
             abortController.abort(error);
             coordinator.drainPendingForTurn(turn, error.message);
-          });
+          }, abortController.signal);
         }
+        abortController.signal.throwIfAborted();
         const scopeTurnId = turn.turnId;
         if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
           origin, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
@@ -577,7 +588,9 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: "strict",
           });
         }
+        backendStarted = true;
         await backend.startTurn({
+          ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
             ...governedHold.sandbox.noteFacts,
@@ -607,7 +620,7 @@ async function runRetainedSession(
         });
         // Final observation is part of this host outcome, after worker writes
         // stop and before its Activity terminal, quarantine or gate release.
-        host.journal?.finish(turn.turnId);
+        await host.journal?.finish(turn.turnId);
         if (budgetFailure) throw budgetFailure;
         if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
@@ -651,7 +664,8 @@ async function runRetainedSession(
               source:governedHold?.policy.hash ? "policy":"default",stage:"admission"}});
         }
         if (terminal instanceof BudgetUnavailable) recorder?.recordBudgetStop(terminal.message,"budget_unavailable");
-        if (!scopeStopReason || budgetFailure || journalFailure) emitTurnError(host, turn, terminal);
+        cancelledAdmission = !backendStarted && turn.cancelled && !budgetFailure && !journalFailure && !scopeStopReason;
+        if (!cancelledAdmission && (!scopeStopReason || budgetFailure || journalFailure)) emitTurnError(host, turn, terminal);
         recorder?.finish(
           budgetFailure ? "error" : turn.cancelled ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
@@ -664,11 +678,11 @@ async function runRetainedSession(
       } finally {
         try {
           // Observe after backend writers stop, before quarantine and gate release.
-          host.journal?.finish(turn.turnId);
+          await host.journal?.finish(turn.turnId);
         } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
         host.scope?.finish(turn.turnId);
         try {
-          const reconciled = governedHold?.end();
+          const reconciled = await governedHold?.end();
           for (const item of reconciled?.quarantined ?? []) {
             const info = lstatSync(item.to);
             host.activity?.governance?.({ kind: "quarantine", payload: { path: item.path,
@@ -687,6 +701,10 @@ async function runRetainedSession(
         turn.revision = undefined;
         turn.startedAt = undefined;
         await failureRecording.finish(turn.sessionId);
+        // No backend existed to publish its usual cancelled status. Send it
+        // only after native preparation and host cleanup have settled.
+        if (cancelledAdmission) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
+          detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });

@@ -114,7 +114,7 @@ test("a throwing worker-start callback kills and drains its real child before re
   const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined,
     { ledger, limits, turnTempLimits: { allowanceBytes: 1024 * 1024, budgetBytes: 1024 * 1024 } }, undefined,
-    started => { worker = started; throw Error("Odysseus scope freezer refused"); });
+    started => { worker = started as import("@schlessera/brain-ui-sdk/internal").LaunchedWorker; throw Error("Odysseus scope freezer refused"); });
   try {
     const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "while :; do sleep 1; done"],
       env: { CLAUDE_CONFIG_DIR: saved, HOME: home }, signal: new AbortController().signal } as never);
