@@ -701,6 +701,45 @@ describe("restoring", () => {
 });
 
 describe("sends", () => {
+  test("an accepted bound send never uploads its consumed words again across save and retry deadlines", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    const text = "Ask Telemachus about the harbour fees";
+    drafts().edit(id, ITHACA, { text });
+    await until(() => host.rows.get(id)?.revision === 1);
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
+    expect(clock.events.some(event => event.kind === "registered" && event.delay === SAVE_PAUSE), "the client registered its default save deadline").toBe(true);
+    const acceptanceEventsStart = clock.events.length;
+    const ref = drafts().beginSend({ requestId: "req-consumed", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-consumed", source: "typed" } }, text);
+    expect(ref).toEqual({ draftId: id, revision: 1 });
+    // The native runtime proves atomic host consumption. This host preserves
+    // that tombstone while the actual client processes its correlated receipt.
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
+    socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-consumed" });
+    expect(drafts().sends["req-consumed"]?.state).toBe("accepted");
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "accepted content must not issue another PUT under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "consumption leaves no live session draft").toBe(false);
+    };
+    await clock.advance(0);
+    noRecreation();
+    await clock.advance(SAVE_PAUSE - 1);
+    noRecreation();
+    await clock.advance(1);
+    noRecreation();
+    for (const delay of RETRY_DELAYS) {
+      await clock.advance(delay - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+    }
+    const acceptedEvents = clock.events.slice(acceptanceEventsStart);
+    const owedWork = acceptedEvents.find(event => event.kind === "registered" && event.delay === 0);
+    expect(owedWork, "acceptance registers its actual zero-delay owed work").toBeDefined();
+    expect(acceptedEvents.some(event => event.kind === "fired" && event.id === owedWork?.id), "the retired draft's callback actually ran").toBe(true);
+  });
+
   test("the socket closing before acceptance holds the send for review, and nothing is sent again", async () => {
     const host = fakeHost();
     const { ui, socket, drafts } = boot(host);

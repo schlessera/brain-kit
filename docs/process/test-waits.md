@@ -533,3 +533,34 @@ questions remain separate: a native negative window still needs the forbidden
 effect, actual opportunities, minimum justified duration and chosen margin. The
 source review does not complete those requirements or authorize moving proof
 to another tier.
+
+## Consumed drafts: the native window remains
+
+The [consumed-draft observations](evidence/test-wait-consumed-draft-observations.json)
+keep a concrete failure and its controls separate from a clock-equivalence claim.
+Changing `beginSend` to clear consumed words only for an unbound draft made the
+original phone runtime case fail its final host-absence assertion. After the
+correlated acceptance, the real default 800 ms callback uploaded those words
+under a new draft id during the retained 1,500 ms observation window. Restoring
+that guard passed all 28 assertions in the selected native case.
+The other two pointer contexts were filtered, not newly qualified by this run.
+
+An additive lower-layer case catches the same mutation on an additional PUT
+under any draft id. It checks both sides of the default 800 ms save boundary,
+observes the actual acceptance callback's zero-delay registration and firing,
+and checks absence across backoff-sized horizons. It does not induce failures
+or observe retry callbacks; the existing retry cases retain that responsibility.
+The complete lower file passes 42 tests and 205 assertions, versus the original
+41 tests and 169 assertions. Both command measurements rounded to 0.20 seconds;
+the added case took 1.28 ms in the full run. These are additive proof costs,
+not a measured speedup.
+
+The native 1,500 ms window is unchanged. The lower harness uses `storage: null`,
+whereas native local work schedules a 250 ms write and can apply kept or adopted
+branches after the IndexedDB commit, triggering draft subscriptions. A correlated
+send receipt or host absence does not drain those producers. The failing mutation
+establishes sensitivity to one real delayed recreation; it does not establish a
+minimum of 1,500 ms or justify subtracting 800 ms to invent a safety margin.
+The browser retains ownership of native persistence, transport and host
+consumption. A smaller window still requires source-specific equivalence evidence
+for those producers, and the execution-domain requirements remain in force.
