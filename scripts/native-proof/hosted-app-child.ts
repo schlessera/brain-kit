@@ -82,6 +82,13 @@ try {
       BRAIN_UI_TURN_TIMEOUT_MS: "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
     }), registry: createStaticBackendRegistry([backend], selectedBackend), observability
   });
+  const {spyOn} = await import("bun:test");
+  const workerSandbox = await import(join(source!,"packages/ui-sdk/src/server/worker-sandbox.ts"));
+  const scan = workerSandbox.scanForOutsideLinks;
+  spyOn(workerSandbox,"scanForOutsideLinks").mockImplementation((brain:string,path:string,limit?:number) => {
+    if(brain===path)event("whole_brain_alias_scan");
+    return scan(brain,path,limit);
+  });
   // Observe the actual final slot release, rather than guessing cleanup duration.
   const releaseSlot = app.wsHost.coordinator.running.delete.bind(app.wsHost.coordinator.running);
   app.wsHost.coordinator.running.delete = (turn: any) => { const released = releaseSlot(turn); event("session_slot_released", {sessionId:turn.sessionId,turnId:turn.turnId}); return released; };

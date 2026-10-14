@@ -31,6 +31,21 @@ export function nativeWorkerStartupInput(view: WorkerStartupView) {
 }
 const releasedViews = new WeakSet<WorkerStartupView>();
 const nativeRoots = new Set<string>();
+const nativeBrains = new Map<string, { dev: bigint; ino: bigint; fsid: string; sourceUuid: string }>();
+
+/** Private acquisition attestation, never an exemption for an arbitrary Btrfs directory. */
+export function hasNativeBrainBoundary(brain: string): boolean {
+  const owned = nativeBrains.get(brain);
+  if (!owned) return false;
+  try {
+    const current = lstatSync(brain, { bigint: true });
+    // Btrfs roots reserve inode 256 and getattr supplies the root's unique anon_dev.
+    if (current.isDirectory() && current.ino === 256n && current.ino === owned.ino
+      && current.dev === owned.dev && statfsSync(brain).type === 0x9123683e) return true;
+  } catch { /* A missing/replaced/unreadable root loses its attestation. */ }
+  nativeBrains.delete(brain);
+  return false;
+}
 
 /** Output staging accepts only a checkpoint whose native owner is still held. */
 export function isNativeWorkerStartupRoot(root: string): boolean { return nativeRoots.has(root); }
@@ -69,6 +84,7 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
     throw new Error("Immutable worker inputs require the configured native Btrfs managed brain; full-copy fallback is unavailable.");
   }
   const expected = join(dirname(brain), ".brain-native", "checkpoints", id);
+  const sourceIdentity = lstatSync(brain, { bigint: true });
   let checkpoint: NativeCheckpoint;
   try {
     checkpoint = await manager.checkpoint(id, signal);
@@ -79,6 +95,14 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
       || !/^[1-9][0-9]*$/.test(checkpoint.transaction)
       || !lstatSync(expected).isDirectory() || statfsSync(expected).type !== 0x9123683e) {
       throw new Error("Native manager did not return the expected complete immutable checkpoint identity.");
+    }
+    const current = lstatSync(brain, { bigint: true });
+    if (current.dev !== sourceIdentity.dev || current.ino !== sourceIdentity.ino)
+      throw new Error("The managed brain root changed while preparing its immutable checkpoint.");
+    if (current.isDirectory() && current.ino === 256n) {
+      // The fixed manager qualified the whole live subvolume before snapshotting.
+      // This boundary outlives the checkpoint; no descriptor or snapshot is retained.
+      nativeBrains.set(brain, { dev: current.dev, ino: current.ino, fsid: checkpoint.fsid, sourceUuid: checkpoint.sourceUuid });
     }
   } catch (error) {
     // Never use an aborted signal for ownership cleanup. Same-ID operations are

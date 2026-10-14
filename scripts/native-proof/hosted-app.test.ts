@@ -166,6 +166,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       expect(authority.namespaceUid, "NATIVE_AGENT_NAMESPACE_UID").toBe(APP_UID);
       expect(authority.ioctlsDenied).toHaveLength(7);
     }
+    expect(readFileSync(join(dir,"events.jsonl"),"utf8").split("\n").filter(line => line.includes('"whole_brain_alias_scan"')), "NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
     const cancelStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests a cancellable voyage record on 2026-07-12.", requestId: "odysseus-stop", sessionId: sid }));
     await until(() => existsSync(join(brain,"notes/worker-3.md")) && existsSync(join(dir, "events.jsonl")) && readFileSync(join(dir, "events.jsonl"), "utf8").includes('"attempt":3'), 15000);

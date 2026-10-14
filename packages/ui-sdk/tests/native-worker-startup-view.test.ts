@@ -1,3 +1,4 @@
+import "../src/server/worker-launcher.js";
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
@@ -6,7 +7,8 @@ import { prepareNativeWorkerOutput } from "../src/server/worker-native-output.js
 import { NativeBrainManagerError } from "../src/server/native-brain-manager-protocol.js";
 import { processStateLedger } from "../src/server/worker-state-budget.js";
 import { hostOutputStagingLimits } from "../src/server/worker-state-limits.js";
-import { createWorkerStartupView, isNativeWorkerStartupRoot, prepareNativeWorkerStartupView, retainWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { createWorkerStartupView, hasNativeBrainBoundary, isNativeWorkerStartupRoot, prepareNativeWorkerStartupView, retainWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { resolveWorkerProtection } from "../src/server/worker-protection.js";
 
 function fixture() {
   const store = fs.mkdtempSync(join(tmpdir(), "odysseus-native-view-")), brain = join(store, "brain");
@@ -26,6 +28,42 @@ function fixture() {
 
 test("the synchronous production path refuses without reading or copying inputs", () => {
   expect(() => createWorkerStartupView("/does-not-exist"), "NO_FULL_COPY_STARTUP_FALLBACK").toThrow("full-copy startup fallback is unavailable");
+});
+
+test("only an acquired subvolume-root identity permits the native brain boundary", async () => {
+  const f = fixture(), actual = fs.lstatSync(f.brain, { bigint: true }), lstat = fs.lstatSync;
+  let device = actual.dev;
+  const stat = spyOn(fs, "lstatSync").mockImplementation(((...args: Parameters<typeof fs.lstatSync>) => {
+    if (args[0] === f.brain && args[1]?.bigint) return { ...actual, dev: device, ino: 256n, isDirectory: () => true };
+    return Reflect.apply(lstat, fs, args);
+  }) as typeof fs.lstatSync);
+  try {
+    expect(hasNativeBrainBoundary(f.brain), "NO_GENERIC_BTRFS_BOUNDARY_EXEMPTION").toBe(false);
+    const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
+    expect(hasNativeBrainBoundary(f.brain), "ACQUIRED_NATIVE_BOUNDARY_ATTESTED").toBe(true);
+    await view.cleanup();
+    expect(hasNativeBrainBoundary(f.brain), "LIVE_SUBVOLUME_BOUNDARY_OUTLIVES_CHECKPOINT").toBe(true);
+    device++;
+    expect(hasNativeBrainBoundary(f.brain), "REPLACED_NATIVE_ROOT_INVALIDATES_ATTESTATION").toBe(false);
+    device = actual.dev;
+    expect(hasNativeBrainBoundary(f.brain), "INVALIDATED_BOUNDARY_REQUIRES_FRESH_ACQUISITION").toBe(false);
+  } finally { stat.mockRestore(); f.cleanup(); }
+});
+
+test("an attested native boundary still refuses a protected hardlink inside the brain", async () => {
+  const f = fixture(), actual = fs.lstatSync(f.brain, { bigint: true }), lstat = fs.lstatSync;
+  const stat = spyOn(fs, "lstatSync").mockImplementation(((...args: Parameters<typeof fs.lstatSync>) => {
+    if (args[0] === f.brain && args[1]?.bigint) return { ...actual, ino: 256n, isDirectory: () => true };
+    return Reflect.apply(lstat, fs, args);
+  }) as typeof fs.lstatSync);
+  try {
+    const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
+    fs.writeFileSync(join(f.brain, "brain.config.ts"), "export default {};\n");
+    fs.linkSync(join(f.brain, "brain.config.ts"), join(f.brain, "odysseus-alias.md"));
+    expect(resolveWorkerProtection(f.brain, { paths: ["brain.config.ts"] }).reason ?? "",
+      "NATIVE_PROTECTED_ALIAS_STILL_REFUSED").toContain("brain.config.ts is hardlinked");
+    await view.cleanup();
+  } finally { stat.mockRestore(); hasNativeBrainBoundary(f.brain); f.cleanup(); }
 });
 
 test("each consumer pins the complete prepared checkpoint until its final awaited release", async () => {

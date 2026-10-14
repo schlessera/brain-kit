@@ -96,7 +96,7 @@ Source foundations for the matrix:
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and
   restart behavior; it is not an index rebuild.
 - Startup input ownership is separate from writable staging
-  (`export async function prepareNativeWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:63-108`).
+  (`export async function prepareNativeWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:78-130`).
   The [native storage decision](../decisions/native-brain-storage.md) supersedes
   complete user-space startup copies and defines checkpoint recovery ownership.
   The staged-write limit states the separation
