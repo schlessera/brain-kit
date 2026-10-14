@@ -7,7 +7,14 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:112-145`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:145-164`).
+The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
+permits a bounded group of immutable readers to share startup, with a new owner
+per case. Principal enumeration, activity ownership, CLI dispatch, caches,
+mutations and lifecycle distinctions keep fresh applications. Repeated and
+permuted readers retain the same response oracles; a failed case destroys its
+whole environment before the next reader.
+
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
