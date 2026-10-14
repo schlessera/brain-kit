@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, ope
 import { join } from "node:path";
 import { WorkerStateError } from "../../src/server/worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../../src/protocol.js";
-import { launchAgentWorker, type WorkerLaunch } from "../../src/server/worker-launcher.js";
+import { launchAgentWorker, prepareWorkerSandbox, type WorkerLaunch } from "../../src/server/worker-launcher.js";
 import type { MaintenanceHost } from "../../src/server/maintenance-worker.js";
 import { prepareWorkerOutput } from "../../src/server/worker-output.js";
 
@@ -89,7 +89,7 @@ function createStartupInputStorage(): WorkerStartupStorage {
   };
 }
 
-export function createFixtureWorkerStartupView(brain: string, options: { omitGit?: boolean; storage?: WorkerStartupStorage } = {}): WorkerStartupView {
+export function createFixtureWorkerStartupView(brain: string, options: { omitGit?: boolean; omitWritableAreas?: boolean; storage?: WorkerStartupStorage } = {}): WorkerStartupView {
   // /tmp is always masked in every worker; TMPDIR must not put an unmasked
   // alternate copy of the brain (including its secrets) on the host root.
   // Complete immutable inputs retain their existing 4 GiB copy guard; they
@@ -124,6 +124,13 @@ export function createFixtureWorkerStartupView(brain: string, options: { omitGit
       const source = at(fd, name);
       const target = join(destination, name);
       const info = lstatSync(source);
+      // Git/configuration reader fixtures never execute or inspect staged area content.
+      // The actual writable-area validator still inspects the original namespace.
+      if (options.omitWritableAreas && info.isDirectory() &&
+        (depth === 0 && name === "workspaces" || parts.join("/") === ".brain" && name === "scratch")) {
+        mkdirSync(target, { mode: info.mode & 0o777 });
+        continue;
+      }
       stamps.push({ parts: [...parts, name], info });
       if (info.isSymbolicLink()) {
         symlinkSync(readlinkSync(source), target);
@@ -224,6 +231,7 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
 
 /** Real launcher with an explicit copied input lease for non-native runtime fixtures. */
 export function launchFixtureAgentWorker(input: WorkerLaunch) {
+  if (input.sandbox?.profile === "governed") return launchAgentWorker(input);
   const startupView = input.startupView ?? createFixtureWorkerStartupView(input.brainPath, { omitGit: Boolean(input.restricted) });
   try { return launchAgentWorker({ ...input, startupView }); }
   catch (error) { if (!input.startupView) startupView.cleanup(); throw error; }
@@ -231,6 +239,16 @@ export function launchFixtureAgentWorker(input: WorkerLaunch) {
 
 /** Prepared Git/configuration input; caller owns cleanup after its maintenance reads. */
 export function createFixtureMaintenanceHost(brain: string, options: MaintenanceHost = {}) {
-  const startupView = createFixtureWorkerStartupView(brain);
-  return { ...options, startupView, cleanup() { startupView.cleanup(); } };
+  const startupView = createFixtureWorkerStartupView(brain, { omitWritableAreas: true });
+  // Independent fixture hosts must not share the standalone per-UID ledger.
+  // Tests of shared admission supply their own explicit domain and keep it.
+  return { ...options, tempDomain: options.tempDomain ?? { statePath: join(startupView.storage.root, "maintenance-state.db") },
+    startupView, cleanup() { startupView.cleanup(); } };
+}
+
+/** Only short Git reads need the copied input; the sandbox still validates real writable-area identities. */
+export function prepareFixtureWorkerSandbox(brain: string, options: Parameters<typeof prepareWorkerSandbox>[1] = {}) {
+  const maintenance = createFixtureMaintenanceHost(brain, options.maintenance);
+  try { return prepareWorkerSandbox(brain, { ...options, maintenance }); }
+  finally { maintenance.cleanup(); }
 }

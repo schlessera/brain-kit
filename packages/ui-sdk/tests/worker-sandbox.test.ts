@@ -1,8 +1,9 @@
+import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox, createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher";
+import { workerCommand } from "../src/server/worker-launcher";
 import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
@@ -194,7 +195,9 @@ describe("worker sandbox writable areas (#1626)", () => {
           return (original.openSync as (...args: unknown[]) => number)(path, ...rest);
         }) as typeof fs.openSync);
       }
-      const scratchMount = resolveScratchMount(f.brain);
+      const maintenance = createFixtureMaintenanceHost(f.brain);
+      let scratchMount;
+      try { scratchMount = resolveScratchMount(f.brain, maintenance); } finally { maintenance.cleanup(); }
       spy.mockRestore();
       expect(swapped, "SWAP_HAPPENED").toBe(true);
       expect(readFileSync(join(f.brain, "notes/rule.md"), "utf8"), "SWAP_FOLLOWED").toBe(GOLDEN);

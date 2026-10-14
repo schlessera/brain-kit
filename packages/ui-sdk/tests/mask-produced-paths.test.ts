@@ -1,3 +1,4 @@
+import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,11 +38,13 @@ for (const adapter of ["claude", "pi"] as const) {
             }
           },
         } as unknown as BackendBridge;
-        const result = await handleRequestImageMask({ imagePath, instruction: "Repair the shroud." }, bridge, {
-          brainPath: root,
+        const maintenance = createFixtureMaintenanceHost(root);
+        let result;
+        try { result = await handleRequestImageMask({ imagePath, instruction: "Repair the shroud." }, bridge, {
+          brainPath: root, maintenance,
           maskFilename: adapter === "claude" ? claudeMaskFilename : piMaskFilename,
           reportMaskPath: adapter === "claude" ? claudeReportedMaskPath : piReportedMaskPath,
-        });
+        }); } finally { maintenance.cleanup(); }
         expect(existsSync(resolve(root, result.maskPath)), "REPORTED_MASK_SURVIVES_HOST_PRUNE").toBe(true);
         expect(readFileSync(resolve(root, result.maskPath))).toEqual(Buffer.from(maskBytes));
         expect(result.bytes).toBe(maskBytes.length);

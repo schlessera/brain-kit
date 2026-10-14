@@ -1,7 +1,8 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, WORKER_SCRATCH, WORKER_STATE } from "../src/server/worker-launcher";
+import { prepareWorkerSandbox, WORKER_SCRATCH, WORKER_STATE } from "../src/server/worker-launcher";
 import { WORKER_XDG_DIRS, WORKER_XDG_HOME } from "../src/server/worker-sandbox";
 import { createTurnTempPressure, purgeTurnTemp, turnTempPath, turnTempUsage, TURN_TEMP_WALK_LIMIT, type TurnTempAccess } from "../src/server/worker-turn-temp";
 import { handleTurnTemp, type TurnTempPurgeRecord } from "../src/server/bridge-tools/turn-temp";

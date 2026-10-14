@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A Claude turn on a profile with no credential of its own runs on the
@@ -161,12 +162,13 @@ async function runTurn(
     ]),
     log: () => {},
   });
-  await backend.startTurn({
+  const workerStartupView = createFixtureWorkerStartupView(brainPath);
+  try { await backend.startTurn({ workerStartupView,
     prompt: "Reply with the single word ok.",
     signal: new AbortController().signal,
     bridge,
     ...(profileId ? { profileId } : {}),
-  });
+  }); } finally { workerStartupView.cleanup(); }
   return { frames, observed, activity };
 }
 

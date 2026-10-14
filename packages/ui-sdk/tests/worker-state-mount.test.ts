@@ -1,3 +1,4 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 /**
  * Each worker's runtime state is a private, size-limited tmpfs (#1625),
  * proved with real bubblewrap workers: the server copies in before the
@@ -8,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, probeWorkerHost, workerCommand, WORKER_STATE } from "../src/server/worker-launcher";
+import { probeWorkerHost, workerCommand, WORKER_STATE } from "../src/server/worker-launcher";
 import { DEFAULT_WORKER_STATE_BYTES, parseWorkerStateBytes, resolveWorkerStateLimits } from "../src/server/worker-state-limits";
 
 const ROOT = resolve(import.meta.dir, "../../..");
