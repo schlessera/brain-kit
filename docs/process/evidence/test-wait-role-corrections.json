@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Reviewed role annotations for the immutable source snapshot; execution measurements remain separate.",
+  "corrections": [
+    {
+      "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "role": "native host-stop and transport drain",
+      "basis": "dropConnections stops the host and waits 200 ms before reconnect work; this is native transport/teardown opportunity, not renderer settling. Observed seven calls / 1403.028 ms at 6d9754d7f; see the separate measurement source identity.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 204
+    },
+    {
+      "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "role": "native pointer gesture hold",
+      "basis": "touch.holdMs holds an actual gesture while folding trackers; one measured 150 ms native hold. Clock/settle replacement must preserve physical gesture semantics.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 846
+    },
+    {
+      "file": "packages/ui-react/tests/pdf-loader.test.ts",
+      "role": "negative retired-worker cleanup observation",
+      "basis": "20 ms yields retirement/cleanup while main-thread retry remains held. There is no production 20 ms disposal timer. This double-only file can use actual completion/controlled scheduling with negative guarantee preserved.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 279
+    },
+    {
+      "file": "packages/ui-sdk/tests/native-brain-manager.test.ts",
+      "role": "fixture response latency beyond client deadline",
+      "basis": "Unix server callback delays 100 ms against client timeout 20 ms to produce unknown mutation outcome. The 100 ms callback is fixture work, not a production 100 ms policy or automatically fully awaited duration.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 113
+    },
+    {
+      "file": "packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "role": "startup rendering or post-restore negative observation, caller-dependent",
+      "basis": "16 ready calls measured; ten startup/staging calls belong to #1912, six post-restore calls retain negative/navigation opportunities. A global helper replacement would weaken later-effect assertions.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 205
+    }
+  ]
+}
