@@ -182,6 +182,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  console.log("[measure] continuity waits", JSON.stringify(waitMetrics));
   for (const release of gates.values()) release();
   await browser?.close();
   server?.stop(true);
@@ -192,6 +193,8 @@ afterAll(async () => {
 
 type Probe = {
   connected(): boolean;
+  received(type: string, sessionId: string): number;
+  replayComplete(sessionId: string): boolean;
   wsStatus(): string;
   vpnStatus(): string;
   draftsSupported(): boolean | null;
@@ -221,7 +224,7 @@ async function hostUntil(predicate: (drafts: DraftListResponse["drafts"]) => boo
     const drafts = await hostDrafts();
     if (predicate(drafts)) return drafts;
     if (Date.now() > end) throw new Error(`host drafts never matched: ${JSON.stringify(drafts)}`);
-    await Bun.sleep(100);
+    await hostPoll(100);
   }
 }
 
@@ -277,13 +280,65 @@ const newChat = async (cell: Cell, page: Page) => {
 };
 async function send(page: Page, text: string) {
   await composer(page).fill(text);
+  await page.waitForFunction(() => {
+    const send = document.querySelector('[role="button"][aria-label="Send"]');
+    // Streaming keeps Enter available while its visible action is Stop.
+    return (send !== null && send.getAttribute("aria-disabled") !== "true")
+      || document.querySelector('[role="button"][aria-label="Stop generating"]') !== null;
+  });
   await composer(page).press("Enter");
 }
 
-/** Lets entrances, a resync and the save line settle: two frames after a quiet half-second. */
+/**
+ * Called after each operation's own acknowledgement (history delivery, saved
+ * revision, rendered text or native IME event). Finish finite entrances and
+ * layout before measuring; this is not a negative-observation window.
+ */
+const waitMetrics = { renderCalls: 0, renderMs: 0, observationCalls: 0, observationMs: 0, retainedFrameCalls: 0, retainedFrameMs: 0, pollCalls: 0, pollMs: 0 };
+async function finishRender(page: Page) {
+  const started = performance.now();
+  waitMetrics.renderCalls++;
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const frame = () => new Promise<void>(done => requestAnimationFrame(() => done()));
+    const geometry = () => [...document.querySelectorAll("textarea[data-composer], [data-reading-column], [data-pill], [data-track-chip]")].map(el => {
+      const rect = el.getBoundingClientRect();
+      return [rect.x, rect.y, rect.width, rect.height, el.parentElement?.scrollTop];
+    });
+    let previous = "";
+    let stable = 0;
+    while (stable < 2) {
+      // Infinite activity indicators are intentionally ongoing. Finite
+      // entrances/transitions must finish, including ones created on a frame.
+      const animations = document.getAnimations().filter(animation =>
+        animation.playState !== "finished" && animation.effect?.getComputedTiming().iterations !== Infinity);
+      await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+      await frame();
+      const current = JSON.stringify(geometry());
+      stable = current === previous && animations.length === 0 ? stable + 1 : 0;
+      previous = current;
+    }
+  });
+  waitMetrics.renderMs += performance.now() - started;
+}
+
+/**
+ * A bounded native observation window for delayed focus/save/ghost reactions
+ * and unsolicited sends after recovery/IME changes. These are negative temporal
+ * assertions: stable geometry alone can precede the forbidden late effect.
+ * Keep the original 500ms budget until those tasks have causal completion
+ * signals. Native history/queue/upload acknowledgements remain separate.
+ */
 async function settle(page: Page) {
+  const started = performance.now();
+  waitMetrics.observationCalls++;
   await page.waitForTimeout(500);
-  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  waitMetrics.observationMs += performance.now() - started;
+  // Preserve the original post-window frame observation at these sites.
+  const framesStarted = performance.now();
+  waitMetrics.retainedFrameCalls++;
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  waitMetrics.retainedFrameMs += performance.now() - framesStarted;
 }
 
 async function scene(cell: Cell): Promise<Scene> {
@@ -316,7 +371,7 @@ async function scene(cell: Cell): Promise<Scene> {
   page.on("dialog", (dialog) => void dialog.dismiss());
   await page.goto(origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
-  await settle(page);
+  await finishRender(page);
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the cell's theme is the one drawn").toBe(cell.theme);
 
   // B runs out of view: a tracker where the width draws it (#950).
@@ -324,7 +379,7 @@ async function scene(cell: Cell): Promise<Scene> {
   await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
   const B = (await probe(page, (p) => p.activeSessionId()))!;
   await page.getByText("Setting out: Row through Scylla's strait").first().waitFor();
-  await settle(page);
+  await finishRender(page);
   await newChat(cell, page);
 
   // A runs in view with a long transcript, and a follow-up waits as a pill (#1002).
@@ -354,7 +409,9 @@ async function scene(cell: Cell): Promise<Scene> {
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
   await page.mouse.move(box.x, box.y);
+  const scrollBefore = await page.locator("[data-reading-column]").evaluate(el => el.parentElement!.scrollTop);
   await page.mouse.wheel(0, -600);
+  await page.waitForFunction(before => document.querySelector("[data-reading-column]")!.parentElement!.scrollTop < before, scrollBefore);
   await settle(page);
   const scroll = await page.locator("[data-reading-column]").evaluate((el) => {
     const s = el.parentElement!;
@@ -447,11 +504,17 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">) {
 }
 
 /** The network and the host come back; the app finds them on its own. */
-async function recover(s: Pick<Scene, "context" | "page">) {
+async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, "A">>) {
+  const statusBefore = s.A ? await probe(s.page, p => p.received("status", p.activeSessionId()!)) : 0;
   listen();
   await s.context.setOffline(false);
   await until(s.page, "p.connected() && p.vpnStatus() === 'connected'");
   await s.page.locator('[role="status"]', { hasText: "Connection lost" }).waitFor({ state: "detached" });
+  // Connected/hello precedes asynchronous history. Scenes wait for the actual
+  // replay; snapshot-race cases deliberately hold history and await their own
+  // release/status barrier instead.
+  if (s.A && !historyWaiters.has(s.A)) await until(s.page,
+    `p.received("status", ${JSON.stringify(s.A)}) > ${statusBefore} && p.replayComplete(${JSON.stringify(s.A)})`);
   await settle(s.page);
 }
 
@@ -506,6 +569,30 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
+  test("render readiness waits for a finite entrance even when its initial geometry is quiet", async () => {
+    const context = await browser!.newContext();
+    try {
+      await context.route("**/*", route => route.abort());
+      const page = await context.newPage();
+      await page.setContent('<textarea data-composer style="position:absolute;top:0">Ithaca</textarea>');
+      await page.evaluate(() => {
+        const field = document.querySelector("textarea")!;
+        // A real compositor animation can keep the same geometry for several
+        // frames before moving. Quiet frames cannot stand in for its finish.
+        const animation = field.animate([
+          { transform: "translateY(0)", offset: 0 },
+          { transform: "translateY(0)", offset: 0.8 },
+          { transform: "translateY(20px)", offset: 1 },
+        ], { duration: 200, fill: "forwards" });
+        Object.assign(window, { __entrance: animation });
+      });
+      await finishRender(page);
+      expect(await page.evaluate(() => (window as unknown as { __entrance: Animation }).__entrance.playState),
+        "FINITE_ANIMATION_FINISHED_BEFORE_GEOMETRY").toBe("finished");
+      expect(await page.locator("textarea").evaluate(el => el.getBoundingClientRect().top)).toBe(20);
+    } finally { await context.close(); }
+  });
+
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
     const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -525,10 +612,10 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     const first = `Hold: Sail past the Sirens (snapshot ${mode})`;
     const second = `Hold: Then bind me to the mast (snapshot ${mode})`;
     try {
-      await page.goto(origin); await until(page, "p?.connected() && p.draftsSupported() === true"); await settle(page);
+      await page.goto(origin); await until(page, "p?.connected() && p.draftsSupported() === true"); await finishRender(page);
       await send(page, first); await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
       sessionId = (await probe(page, (p) => p.activeSessionId()))!;
-      await page.getByText("Setting out: Sail past the Sirens").first().waitFor(); await settle(page);
+      await page.getByText("Setting out: Sail past the Sirens").first().waitFor(); await finishRender(page);
       const oldTurn = frames.find((f) => f.type === "text_delta" && f.sessionId === sessionId)?.turnId;
       expect(oldTurn, "the original answer has a host-proven turn").toBeTruthy();
       const draft = "Steer toward Ithaca"; await composer(page).fill(draft); await composer(page).focus();
@@ -537,7 +624,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       const sentBefore = net.sent.length; expect(net.sent).toContain("chat_message");
       await drop({ context, page, net }); await recover({ context, page });
       const readDeadline = Date.now() + 5_000;
-      while (!waiting.reads && Date.now() < readDeadline) await Bun.sleep(10);
+      while (!waiting.reads && Date.now() < readDeadline) await hostPoll(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
       expect(gates.has(first)).toBe(true);
       if (newer) { gates.get(first)!(); gates.delete(first); }
@@ -561,7 +648,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       });
       const beforeStatus = frames.length; release(); historyWaiters.delete(sessionId);
       const statusDeadline = Date.now() + 5_000;
-      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await Bun.sleep(10);
+      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
       expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
       await settle(page);
       expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the captured old snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
@@ -595,7 +682,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         expect(transcripts.get(s.A)!.at(-1)!.content, "the host retained the missed delta").toContain("Missed tide.");
         historyWaiters.set(s.A, waiting);
         await recover(s);
-        for (let i = 0; waiting.reads === 0 && i < 250; i++) await Bun.sleep(20);
+        for (let i = 0; waiting.reads === 0 && i < 250; i++) await hostPoll(20);
         expect(waiting.reads, "the real host is reading history asynchronously").toBeGreaterThan(0);
         advance.get(prompt)!();
         await s.page.waitForFunction(() => (window as unknown as { __marks: { nodes: Element[] } }).__marks.nodes.at(-1)?.textContent?.includes("Rowing again."));
@@ -655,7 +742,10 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           expect(net.queues.length, "real queue frames were delayed after hello").toBeGreaterThan(0);
           same(`cycle ${cycle}, queue report still delayed`, await measure(page), base);
           net.holdQueues = false;
-          for (const release of net.queues.splice(0)) release();
+          const queueBefore = await probe(page, p => p.received("session_queue", "*"));
+          const queued = net.queues.splice(0);
+          for (const release of queued) release();
+          await until(page, `p.received("session_queue", "*") >= ${queueBefore + queued.length}`);
           await settle(page);
           if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
@@ -724,3 +814,11 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     }, 300_000);
   }
 });
+
+/** Native host polling is measured separately from the observation windows. */
+async function hostPoll(ms: number) {
+  const started = performance.now();
+  waitMetrics.pollCalls++;
+  await Bun.sleep(ms);
+  waitMetrics.pollMs += performance.now() - started;
+}
