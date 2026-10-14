@@ -160,7 +160,7 @@ its distinct retry treatment. Nothing archives, purges or automatically sends.
 The notice's presentation and actions are (`StateRoomNotice`,
 `packages/ui-react/src/components/chat/state-room-notice.tsx:22-100`); the host
 keeps the measurement and first quiet event (`if (msg.type === "result") {`,
-`packages/ui-server/src/ws/bridge.ts:189-199`).
+`packages/ui-server/src/ws/bridge.ts:190-200`).
 
 ### Historical state directories remain untouched
 

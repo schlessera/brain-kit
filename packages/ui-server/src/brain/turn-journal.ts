@@ -348,7 +348,7 @@ export function createTurnJournal(db: Database, options: {
         try { return objects.stream(selected.hash!, release); } catch (error) { release(); throw error; }
       } };
     },
-    async close() { clearInterval(scopeTimer); await tail; await capture.close(); objects.close(); },
+    async close() { clearInterval(scopeTimer); try { await tail; await capture.close(); } finally { objects.close(); } },
   };
 }
 

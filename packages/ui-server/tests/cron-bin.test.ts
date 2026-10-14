@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -11,9 +12,20 @@ import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 
 import { createUiDb } from "../src/db/client";
-import { MAINTENANCE_HOME, probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
+import { resolveCronConfig } from "../src/config/env.js";
+import { MAINTENANCE_HOME } from "@schlessera/brain-ui-sdk/internal";
+
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 
 const BIN = resolve(import.meta.dir, "../src/bin/brain-ui-cron.ts");
+const PRELOAD = resolve(import.meta.dir, "fixtures/cron-native-startup-preload.ts");
+const nativeCleanup: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); });
+function nativeProcess(brain: string, args: string[], env: Record<string, string | undefined>, cwd?: string) {
+  const fixture = createNativeAppFixture(brain); nativeCleanup.push(fixture.close);
+  return Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", "--preload", PRELOAD, BIN, ...args], {
+    env: { ...env, BRAIN_PATH: brain, ...fixture.env }, ...(cwd ? { cwd } : {}), stdout: "pipe", stderr: "pipe" });
+}
 let directory: string;
 let dbPath: string;
 
@@ -25,17 +37,23 @@ beforeAll(() => {
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
 describe("brain-ui-cron subprocess", () => {
+  test("native ownership settings reach the real emitted runner environment without entering scheduled child authority", async () => {
+    const settings = { BRAIN_UI_NATIVE_BRAIN_SOCKET: "/run/odysseus/native.sock", BRAIN_UI_NATIVE_BRAIN_LEASE_PATH: "/var/lib/odysseus/native-leases.sqlite",
+      BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS: "2000", BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES: "32768" };
+    const resolved = resolveCronConfig(settings);
+    expect(resolved.nativeBrain).toEqual({ socketPath: settings.BRAIN_UI_NATIVE_BRAIN_SOCKET, leasePath: settings.BRAIN_UI_NATIVE_BRAIN_LEASE_PATH, timeoutMs: 2000, maxDeltaBytes: 32768 });
+    for (const key of Object.keys(settings)) expect(resolved.childEnv, "NATIVE_MANAGER_AUTHORITY_STOPS_AT_CRON_RUNNER").not.toHaveProperty(key);
+    const proc = Bun.spawn([process.execPath, BIN, "environment"], { env: { PATH: "/usr/bin:/bin", ...settings }, stdout: "pipe", stderr: "pipe" });
+    const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    expect(code, errors).toBe(0);
+    for (const [key, value] of Object.entries(settings)) expect(output, "NATIVE_CRON_RUNNER_CONTROL_ENV_PRESERVED").toContain(`${key}="${value}"\n`);
+    expect(errors).toBe("");
+  });
   test("run records a row and returns the child's exit code", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
-    const proc = Bun.spawn(
-      [bun, BIN, "run", "smoke", "--", bun, "-e", "console.log('cron smoke'); process.exit(7)"],
-      {
-        env: { ...process.env, DB_PATH: dbPath },
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
+    const brain = join(directory, "smoke-brain"); mkdirSync(brain);
+    const proc = nativeProcess(brain, ["run", "smoke", "--", bun, "-e", "console.log('cron smoke'); process.exit(7)"], { PATH: process.env.PATH, DB_PATH: dbPath });
 
     expect(await proc.exited).toBe(7);
     expect(await new Response(proc.stdout).text()).toBe("cron smoke\n");
@@ -52,30 +70,10 @@ describe("brain-ui-cron subprocess", () => {
   test("run re-admits a generated wrapper extra without forwarding the hatch", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
-    const proc = Bun.spawn(
-      [
-        bun,
-        BIN,
-        "run",
-        "--subprocess-env-extra",
-        " CUSTOM_CRON_TOKEN,bad-name,CUSTOM_CRON_TOKEN ",
-        "extra-env",
-        "--",
-        bun,
-        "-e",
-        "console.log(JSON.stringify({ custom: process.env.CUSTOM_CRON_TOKEN, hatch: process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, unknown: process.env.UNKNOWN_CHILD_VALUE }))",
-      ],
-      {
-        env: {
-          PATH: process.env.PATH,
-          DB_PATH: dbPath,
-          CUSTOM_CRON_TOKEN: "custom",
-          UNKNOWN_CHILD_VALUE: "must-not-pass",
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
+    const brain = join(directory, "extra-brain"); mkdirSync(brain);
+    const proc = nativeProcess(brain, ["run", "--subprocess-env-extra", " CUSTOM_CRON_TOKEN,bad-name,CUSTOM_CRON_TOKEN ", "extra-env", "--", bun, "-e",
+      "console.log(JSON.stringify({ custom: process.env.CUSTOM_CRON_TOKEN, hatch: process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, unknown: process.env.UNKNOWN_CHILD_VALUE }))"],
+      { PATH: process.env.PATH, DB_PATH: dbPath, CUSTOM_CRON_TOKEN: "custom", UNKNOWN_CHILD_VALUE: "must-not-pass" });
 
     expect(await proc.exited).toBe(0);
     expect(JSON.parse(await new Response(proc.stdout).text())).toEqual({
@@ -178,30 +176,8 @@ describe("brain-ui-cron subprocess", () => {
       chmodSync(fakeBrain, 0o755);
     }
 
-    const proc = Bun.spawn(
-      [
-        bun,
-        BIN,
-        "crontab",
-        "--wrapper-command",
-        "/absolute/brain-ui-cron run",
-        "--digest-command",
-        "/absolute/brain-ui-cron digest",
-        "--path-line",
-        "PATH=/custom/bin",
-        "--user",
-        "cronuser",
-      ],
-      {
-        env: {
-          PATH: `${directory}:${process.env.PATH ?? ""}`,
-          BRAIN_PATH: brainRoot,
-          DB_PATH: dbPath,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
+    const proc = nativeProcess(brainRoot, ["crontab", "--wrapper-command", "/absolute/brain-ui-cron run", "--digest-command", "/absolute/brain-ui-cron digest", "--path-line", "PATH=/custom/bin", "--user", "cronuser"],
+      { PATH: `${directory}:${process.env.PATH ?? ""}`, DB_PATH: dbPath });
 
     expect(await proc.exited).toBe(0);
     const output = await new Response(proc.stdout).text();
@@ -217,7 +193,7 @@ describe("brain-ui-cron subprocess", () => {
     expect(await new Response(proc.stderr).text()).toBe("");
   });
 
-  test("module discovery uses brainCli env on the host and no credential in a worker; scheduled commands use cron env", async () => {
+  test("module discovery stays credential-free in managed workers regardless of runner cwd; scheduled commands use cron env", async () => {
     const bun = Bun.which("bun");
     if (!bun) throw new Error("bun executable not found");
     const brainRoot = join(directory, "audience-brain-root");
@@ -248,46 +224,19 @@ describe("brain-ui-cron subprocess", () => {
       BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CUSTOM_DISCOVERY_TOKEN",
       UNKNOWN_CHILD_VALUE: "must-not-pass",
     };
-    // A runner started inside the brain can run no governed turn, so its
-    // discovery stays on the host with the brainCli audience.
-    const emit = Bun.spawn([bun, BIN, "crontab"], {
-      cwd: brainRoot,
-      env: parentEnv,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
+    // Managed repository evaluation remains isolated even when the runner's cwd is the brain.
+    const emit = nativeProcess(brainRoot, ["crontab"], parentEnv, brainRoot);
     expect(await emit.exited).toBe(0);
-    expect(await Bun.file(observedEnv).text()).toBe(
-      "/brain-cli/home|/brain-cli/claude|brain-cli-anthropic|unset|operator-extra|unset|unset\n"
-    );
+    expect(await Bun.file(observedEnv).text(), "NATIVE_CRON_DISCOVERY_NEVER_HOST_EVALUATES").toBe(`${MAINTENANCE_HOME}|||unset||unset|unset\n`);
     expect(await new Response(emit.stderr).text()).toBe("");
+    rmSync(observedEnv);
+    const isolated = nativeProcess(brainRoot, ["crontab"], parentEnv, "/");
+    expect(await isolated.exited).toBe(0);
+    expect(await Bun.file(observedEnv).text()).toBe(`${MAINTENANCE_HOME}|||unset||unset|unset\n`);
+    expect(await new Response(isolated.stderr).text()).toBe("");
 
-    // Started outside the brain on a host that runs the worker boundary,
-    // discovery runs in a credential-free maintenance worker: none of it.
-    if (probeWorkerHost(brainRoot).ok) {
-      rmSync(observedEnv);
-      const isolated = Bun.spawn([bun, BIN, "crontab"], { cwd: "/", env: parentEnv, stdout: "pipe", stderr: "pipe" });
-      expect(await isolated.exited).toBe(0);
-      expect(await Bun.file(observedEnv).text()).toBe(`${MAINTENANCE_HOME}|||unset||unset|unset\n`);
-      expect(await new Response(isolated.stderr).text()).toBe("");
-    }
-
-    const run = Bun.spawn(
-      [
-        bun,
-        BIN,
-        "run",
-        "--subprocess-env-extra",
-        "CUSTOM_DISCOVERY_TOKEN",
-        "audience-check",
-        "--",
-        bun,
-        "-e",
-        "console.log(JSON.stringify({ db: process.env.DB_PATH, home: process.env.HOME, claude: process.env.CLAUDE_CONFIG_DIR, anthropic: process.env.ANTHROPIC_API_KEY, custom: process.env.CUSTOM_DISCOVERY_TOKEN, unknown: process.env.UNKNOWN_CHILD_VALUE }))",
-      ],
-      { env: parentEnv, stdout: "pipe", stderr: "pipe" }
-    );
+    const run = nativeProcess(brainRoot, ["run", "--subprocess-env-extra", "CUSTOM_DISCOVERY_TOKEN", "audience-check", "--", bun, "-e",
+      "console.log(JSON.stringify({ db: process.env.DB_PATH, home: process.env.HOME, claude: process.env.CLAUDE_CONFIG_DIR, anthropic: process.env.ANTHROPIC_API_KEY, custom: process.env.CUSTOM_DISCOVERY_TOKEN, unknown: process.env.UNKNOWN_CHILD_VALUE }))"], parentEnv);
 
     expect(await run.exited).toBe(0);
     expect(JSON.parse(await new Response(run.stdout).text())).toEqual({
@@ -318,14 +267,9 @@ describe("brain-ui-cron subprocess", () => {
     );
     chmodSync(fakeBrain, 0o755);
 
-    const proc = Bun.spawn([bun, BIN, "crontab"], {
-      env: {
-        PATH: `${directory}:${process.env.PATH ?? ""}`,
-        BRAIN_PATH: brainRoot,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const localBrain = join(brainRoot, "node_modules/.bin/brain"); mkdirSync(dirname(localBrain), { recursive: true });
+    writeFileSync(localBrain, '#!/bin/sh\nprintf \'%s\\n\' \'{"enabled":[],"available":[]}\'\n', { mode: 0o755 });
+    const proc = nativeProcess(brainRoot, ["crontab"], { PATH: `${directory}:${process.env.PATH ?? ""}`, DB_PATH: dbPath });
     expect(await proc.exited).toBe(0);
     return await new Response(proc.stdout).text();
   }
@@ -357,4 +301,44 @@ describe("brain-ui-cron subprocess", () => {
     });
     expect(output).toContain("bun scripts/jobs/scrape-all.ts --api-only");
   });
+});
+
+
+test("qualified native module discovery emits its repository-declared job", async () => {
+  const brain = join(directory, "module-job-brain"), bin = join(brain, "node_modules/.bin/brain");
+  mkdirSync(dirname(bin), { recursive: true });
+  const modules = { enabled: [{ name: "harbor", key: "harbor", description: null, types: [], commands: [], cron: [{ name: "watch", schedule: "12 * * * *", command: "harbor watch" }] }], available: [] };
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(modules)}'\n`, { mode: 0o755 });
+  const proc = nativeProcess(brain, ["crontab", "--wrapper-command", "/absolute/brain-ui-cron run"], { PATH: process.env.PATH, DB_PATH: dbPath });
+  const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  expect(code, errors).toBe(0);
+  expect(output, "NATIVE_CRON_REAL_MODULE_DISCOVERY_EMITTED_JOB").toContain("run harbor-watch -- brain harbor watch");
+  expect(output).toContain("12 * * * *");
+  expect(errors).toBe("");
+});
+
+test("repository job without native qualification refuses before creating UI state or executing child", async () => {
+  const brain = join(directory, "refused-brain"), state = join(directory, "refused-ui.sqlite"), sentinel = join(directory, "refused-child"); mkdirSync(brain);
+  const proc = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", BIN, "run", "refused", "--", process.execPath, "-e", `await Bun.write(${JSON.stringify(sentinel)}, "executed")`],
+    { env: { PATH: process.env.PATH, BRAIN_PATH: brain, DB_PATH: state }, stdout: "pipe", stderr: "pipe" });
+  const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  expect(code, "NATIVE_CRON_RUN_REFUSES_UNQUALIFIED_STORAGE").not.toBe(0);
+  expect(errors).toContain("require configured managed Btrfs storage");
+  expect(output).toBe("");
+  expect(existsSync(state), "NATIVE_CRON_REFUSAL_CREATES_NO_UI_DATABASE").toBe(false);
+  expect(existsSync(sentinel), "NATIVE_CRON_REFUSAL_EXECUTES_NO_REPOSITORY_JOB").toBe(false);
+});
+
+test("crontab without native qualification emits core jobs and explicitly reports unavailable module discovery", async () => {
+  const brain = join(directory, "unavailable-modules-brain"), bin = join(brain, "node_modules/.bin/brain"), sentinel = join(directory, "unavailable-discovery"); mkdirSync(dirname(bin), { recursive: true });
+  writeFileSync(bin, `#!/bin/sh\nprintf evaluated > ${JSON.stringify(sentinel)}\nprintf '%s\\n' '{"enabled":[],"available":[]}'\n`, { mode: 0o755 });
+  const state = join(directory, "unavailable-modules-ui.sqlite");
+  const proc = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", BIN, "crontab", "--wrapper-command", "/absolute/brain-ui-cron run"], { env: { PATH: process.env.PATH, BRAIN_PATH: brain, DB_PATH: state }, stdout: "pipe", stderr: "pipe" });
+  const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  expect(code, errors).toBe(0);
+  expect(output).toContain("run sync --");
+  expect(output).toContain("run digest --");
+  expect(errors, "NATIVE_CRON_MODULE_DISCOVERY_UNAVAILABLE_IS_EXPLICIT").toContain("module discovery unavailable; emitting core jobs only");
+  expect(existsSync(sentinel), "NATIVE_CRON_FALLBACK_NEVER_HOST_EVALUATES_BRAIN").toBe(false);
+  expect(existsSync(state)).toBe(false);
 });

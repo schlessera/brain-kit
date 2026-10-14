@@ -43,7 +43,7 @@ export type Probe = (typeof PROBES)[number];
  */
 export const OWN_PROCESS: readonly Probe[] = ["travel-cli"];
 /** The named bin probes in BIN_PROBES below. */
-export const BIN_PROBE_NAMES = ["brain-version", "brain-ui-cron-usage"] as const;
+export const BIN_PROBE_NAMES = ["brain-version", "brain-ui-cron-usage", "brain-native-store-usage"] as const;
 export type BinProbe = (typeof BIN_PROBE_NAMES)[number];
 
 export interface PackRow {
@@ -95,7 +95,8 @@ export const PACK_TABLE: Record<string, PackRow> = {
     bins: ["brain-version"],
   },
   "ui-sdk": {
-    files: ["dist/index.js"],
+    files: ["dist/index.js", "dist/bin/brain-native-store.js"],
+    bins: ["brain-native-store-usage"],
     bun: ["@schlessera/brain-ui-sdk"],
     node: [
       "@schlessera/brain-ui-sdk",
@@ -349,6 +350,10 @@ async function probe(consumer: string, runtime: "bun" | "node", spec: ProbeSpec)
 }
 
 export const BIN_PROBES: Record<BinProbe, (consumer: string) => Promise<void>> = {
+  "brain-native-store-usage": async consumer => {
+    const { output } = await run("brain-native-store --help", ["./node_modules/.bin/brain-native-store", "--help"], consumer);
+    if (!output.includes("Usage: brain-native-store")) throw new Error("Packed native storage launcher lost its usage interface");
+  },
   "brain-version": async consumer => { await run("brain --version", ["./node_modules/.bin/brain", "--version"], consumer); },
   "brain-ui-cron-usage": async consumer => {
     const { code, output } = await run("brain-ui-cron", ["./node_modules/.bin/brain-ui-cron"], consumer, true);

@@ -2985,13 +2985,43 @@ subject to their existing tool permissions; voice retains its narrower roster.
 ordinary turns. Autonomous turns remain restricted. Server application tools
 keep their approvals and exact-base semantics. Snapshot consumers execute
 configuration from complete read-only startup views with a separate validated
-write path, as ruled on #1649. Startup inputs and publication copies share a
+write path, as ruled on #1649. In 0.42.0, startup inputs and publication copies shared a
 separate bounded output-staging allowance (256 MiB by default), admitted through
 the worker ledger; exhausted aggregate capacity refuses as `worker_state_busy`
 with Retry. `BRAIN_UI_OUTPUT_STAGING_BYTES` and
 `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` configure it. Invalid values refuse boot;
-oversized starting copies refuse as `worker_state_exceeded`, and writes beyond
+oversized starting copies refused as `worker_state_exceeded`. Under the native
+storage requirement below, inputs use native checkpoints; writes beyond
 the filesystem allowance fail with `ENOSPC`. Internal launch/request fields remain internal.
+
+### Native hosted storage (breaking host requirement, #1790)
+
+The maintainer approved managed Btrfs storage and its capacity scope on
+2026-10-14. Hosted `createApp` requires `ServerConfig.nativeBrain` with
+`socketPath`, `timeoutMs` and `maxDeltaBytes`; environment resolution uses
+`BRAIN_UI_NATIVE_BRAIN_SOCKET`, `BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS` (30000) and
+`BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES` (67108864). The last two values are
+positive finite transport bounds, not storage allowances. Optional `leasePath`
+(`BRAIN_UI_NATIVE_BRAIN_LEASE_PATH`) selects the persistent checkpoint ownership
+ledger; it defaults to `DB_PATH.native-leases.sqlite` and is required explicitly
+for an ephemeral UI database. Keep it across restarts, outside the brain.
+Readiness verifies
+that the configured brain is the manager's authoritative live subvolume.
+Unsupported, absent or mismatched storage refuses startup with setup guidance;
+there is no full-copy fallback.
+
+The SDK ships the host-only `brain-native-store` launcher. It reads one fixed,
+root-owned configuration file and serves a Unix socket; it cannot provision,
+format or resize storage. Its manager operations and checkpoint identities are
+internal implementation details, not a new general filesystem API.
+
+Read-only native checkpoints now supply complete immutable startup inputs.
+The 256 MiB output-staging allowance still bounds writable staged outputs, but
+no longer holds full input copies. Native checkpoints instead consume the
+separate, explicitly configured finite managed-volume capacity. Retained
+changed-file versions, journal metadata and object-write reservations retain
+the existing 10 GiB journal cap. No numeric total-volume default is supplied.
+See the [storage decision](../decisions/native-brain-storage.md).
 
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported

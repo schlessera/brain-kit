@@ -368,8 +368,8 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:347` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`),
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:355` →
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:701-735`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -381,7 +381,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:342`; `drainPendingForTurn`, `run-session.ts:347`),
+(`abortController.abort()`, `run-session.ts:350`; `drainPendingForTurn`, `run-session.ts:355`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -406,7 +406,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:418-424`, and the lookup computing
-`remembered`, `ws/bridge.ts:283-303`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:284-304`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -463,7 +463,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:531-546`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:312-327`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:313-328`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:526`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:528`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -592,7 +592,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:283-303`,
+  `packages/ui-server/src/ws/bridge.ts:284-304`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:418-424`).
   The evaluation happens

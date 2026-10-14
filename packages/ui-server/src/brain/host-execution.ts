@@ -67,6 +67,7 @@ export interface HostExecution {
 
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
   nativeManager?: import("./host-boundary.js").HostBoundaryOptions["nativeManager"];
+  nativeMaskPaths?: readonly string[];
   maintenanceTemp?: WorkerStateLimits;
   privateStatePaths?: OperationalStateLayout["privateStatePaths"]; profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
   assertOperationalStateOutsideBrain(options);
@@ -79,6 +80,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}) });
   const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.nativeManager ? { nativeManager: options.nativeManager } : {}),
+    ...(options.nativeMaskPaths ? { nativeMaskPaths: options.nativeMaskPaths } : {}),
     ...(options.maintenanceTemp ? { maintenanceTemp: options.maintenanceTemp } : {}),
     ...(options.exec ? { exec: options.exec } : {}), ...(options.home ? { home: options.home } : {}),
     ...(options.log ? { log: options.log } : {}), ...(options.requireGate ? { requireGate: true } : {}),

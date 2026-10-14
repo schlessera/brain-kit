@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -129,6 +130,10 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
   const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
   // Stands in for the worker's private /tmp, as the server holds it (#1703).
   const tmp = mkdtempSync(join(tmpdir(), "pi-turn-temp-"));
+  mkdirSync(join(brain,".brain/scratch"),{recursive:true});
+  writeFileSync(join(brain,".gitignore"),".brain/scratch/\n");
+  const scratchReader = createFixtureWorkerStartupView(brain);
+  children.push(() => { void scratchReader.cleanup(); });
   let closed = 0;
   launch.mockImplementation((input: worker.WorkerLaunch) => {
     const stdout = new PassThrough(), stderr = new PassThrough();
@@ -165,7 +170,7 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
       turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), close: () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const events: unknown[] = [], frames: ServerMessage[] = [];
-  await createPiBackend({ brainPath: brain, sessionDir }).startTurn({
+  await createPiBackend({ brainPath: brain, sessionDir, maintenance: { startupView: scratchReader } }).startTurn({
     prompt: "Write up the voyage report", signal: new AbortController().signal, turnId,
     bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }), activity: event => events.push(event) },
   });

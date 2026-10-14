@@ -29,7 +29,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { hostOutputStagingLimits, hostMaintenanceTempLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, hostOutputStagingLimits, hostMaintenanceTempLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -303,6 +303,30 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "MAX_CONCURRENT_SESSIONS",
     description: "Cap on concurrently RUNNING agent sessions.",
     default: "3",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_NATIVE_BRAIN_SOCKET",
+    description: "Absolute host-only Unix socket for the managed Btrfs brain service. Hosted workers require this qualified store; unsupported storage has no full-copy fallback.",
+    default: "(required)",
+    required: "Hosted native storage",
+  },
+  {
+    name: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH",
+    description: "Persistent native checkpoint ownership ledger outside the brain. Defaults beside DB_PATH; required explicitly when the UI database is ephemeral. Keep this path across restarts so dead-owner checkpoints can be reclaimed.",
+    default: "DB_PATH.native-leases.sqlite",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS",
+    description: "Positive native manager transport operation deadline in milliseconds; interrupted mutations retain an identity for recovery. This is not an undo retention quota.",
+    default: "30000",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES",
+    description: "Positive bound for one native metadata delta stream; exceeding it refuses the observation explicitly. Content and retained-history capacities are separate.",
+    default: "67108864 (64 MiB)",
     required: false,
   },
   {
@@ -726,6 +750,8 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /** Host-only Unix service for managed native brain storage. */
+  nativeBrain?: { socketPath: string; timeoutMs: number; maxDeltaBytes: number; leasePath?: string };
   /** Resolved by the host edge; optional for existing programmatic callers, which use SDK defaults. */
   maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   askUserFormLimits?: AskUserFormLimits;
@@ -789,6 +815,8 @@ type EnvRecord = Record<string, string | undefined>;
 
 /** Configuration resolved specifically for the standalone cron bin. */
 export interface CronConfig {
+  /** Fixed native manager configuration, retained by the runner only. */
+  nativeBrain?: ServerConfig["nativeBrain"];
   /** Resolved by the runner edge, never forwarded as job authority; absent callers retain defaults. */
   maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   /** Brain repository inspected by the crontab emitter. */
@@ -991,6 +1019,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
   return {
+    nativeBrain: resolveNativeBrainConfig(env),
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
     askUserFormLimits: resolveAskUserFormLimits(Object.fromEntries([
@@ -1082,6 +1111,20 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   };
 }
 
+function resolveNativeBrainConfig(env: EnvRecord): ServerConfig["nativeBrain"] {
+  const nativeInteger = (name: string, fallback: number) => {
+    const value = env[name] === undefined ? fallback : Number(env[name]);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive finite integer.`);
+    return value;
+  };
+  return  env.BRAIN_UI_NATIVE_BRAIN_SOCKET ? {
+    socketPath: env.BRAIN_UI_NATIVE_BRAIN_SOCKET,
+    ...(env.BRAIN_UI_NATIVE_BRAIN_LEASE_PATH ? { leasePath: env.BRAIN_UI_NATIVE_BRAIN_LEASE_PATH } : {}),
+    timeoutMs: nativeInteger("BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS", NATIVE_MANAGER_OPERATION_TIMEOUT_MS),
+    maxDeltaBytes: nativeInteger("BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES", NATIVE_MANAGER_MAX_DELTA_BYTES),
+  } : undefined;
+}
+
 /**
  * Resolve the standalone cron bin's paths and allowlisted scheduled-job
  * environment. The escape hatch is parsed here, at this package's sole env
@@ -1095,6 +1138,7 @@ export function resolveCronConfig(
     [env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, ...admittedNames].join(",")
   );
   return {
+    nativeBrain: resolveNativeBrainConfig(env),
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath: env.BRAIN_PATH || "/data/brain",
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",

@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 /** Thin argv dispatcher for the ui-server's container cron jobs. */
 
-import { statSync } from "fs";
-import { join } from "path";
+import { statSync, realpathSync } from "fs";
+import { join, resolve } from "path";
 
-import { resolveCronConfig } from "../config/env.js";
-import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
+import { resolveCronConfig, type CronConfig } from "../config/env.js";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
+import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
 import { runDigest } from "../cron/digest.js";
 import {
   emitCrontab,
@@ -101,8 +103,21 @@ function runOptions(args: string[]): {
  * reconciled here too, before this process evaluates anything in the brain.
  * Gated jobs refuse rather than run without the gate.
  */
-function cronHostExecution(config: { brainPath: string; dbPath: string; exec: ExecWrapperConfig; maintenanceTemp?: import("@schlessera/brain-ui-sdk/internal").WorkerStateLimits }, options: { gate: boolean }) {
-  const execution = createHostExecution({ brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
+async function cronHostExecution(config: CronConfig, options: { gate: boolean }) {
+  if (!config.nativeBrain) throw Error("Repository cron jobs require configured managed Btrfs storage and BRAIN_UI_NATIVE_BRAIN_SOCKET; no full-copy fallback is supported.");
+  const raw = createNativeBrainManagerClient(config.nativeBrain), ready = await raw.ready();
+  if (realpathSync(config.brainPath) !== ready.brainPath) throw Error("The native manager serves a different cron brain; no repository code can run.");
+  const ephemeral = !config.dbPath || config.dbPath === ":memory:";
+  if (ephemeral && !config.nativeBrain.leasePath) throw Error("Ephemeral cron UI state requires explicit BRAIN_UI_NATIVE_BRAIN_LEASE_PATH.");
+  const statePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
+  const privateStatePaths = [{ setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: statePath }];
+  assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
+  const leases = await createNativeBrainLeaseManager(raw, { statePath, brainPath: ready.brainPath, fsid: ready.fsid, brainUuid: ready.brainUuid });
+  try {
+  const recovered = await leases.recoverDeadOwners();
+  if (recovered.unknown.length || recovered.retainedUnverifiable) process.stderr.write(`[brain-ui-cron] native ownership recovery retained ${recovered.unknown.length} unknown outcomes and ${recovered.retainedUnverifiable} unverifiable PID namespaces.\n`);
+  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: ready.privatePaths, privateStatePaths,
+    brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {
       if (!result.quarantined.length && !result.failed.length) continue;
@@ -115,15 +130,22 @@ function cronHostExecution(config: { brainPath: string; dbPath: string; exec: Ex
   try {
     // A job holds the gate on the database; emitting a crontab only needs
     // whatever an existing database says about the brain.
+    report(execution.reconcileExisting());
+    await execution.boundary.prepare();
     if (options.gate) {
       db = createUiDb(config.dbPath);
       report(execution.attach(db));
-    } else report(execution.reconcileExisting());
+    }
   } catch (error) {
     reconciled = false;
     process.stderr.write(`[brain-ui-cron] the brain cannot be evaluated: ${error instanceof Error ? error.message : String(error)}\n`);
+    execution.release(); db?.close();
+    throw error;
   }
-  return { boundary: execution.boundary, reconciled, close: () => { execution.release(); try { db?.close(); } catch { /* Closing cannot fail the job. */ } } };
+  return { boundary: execution.boundary, reconciled, close: async () => {
+    execution.release(); try { await leases.close(); } finally { try { db?.close(); } catch { /* Closing tracking cannot fail the job. */ } }
+  } };
+  } catch (error) { await leases.close().catch(() => {}); throw error; }
 }
 
 async function readModuleList(
@@ -160,7 +182,7 @@ const [subcommand, ...args] = process.argv.slice(2);
 if (subcommand === "run") {
   const { jobName, command, subprocessEnvExtraNames } = runOptions(args);
   const config = resolveCronConfig(undefined, subprocessEnvExtraNames);
-  const host = cronHostExecution(config, { gate: true });
+  const host = await cronHostExecution(config, { gate: true });
   let code: number;
   try {
     code = await runJob({
@@ -172,7 +194,7 @@ if (subcommand === "run") {
       brainPath: config.brainPath,
       boundary: host.boundary,
     });
-  } finally { host.close(); }
+  } finally { await host.close(); }
   process.exit(code);
 }
 
@@ -184,12 +206,16 @@ if (subcommand === "digest" && args.length === 0) {
 if (subcommand === "crontab") {
   const config = resolveCronConfig();
   const options = crontabOptions(args);
-  const host = cronHostExecution(config, { gate: false });
-  let modules: BrainModuleListPayload | null;
+  let modules: BrainModuleListPayload | null = null;
   try {
-    // Nothing evaluates a brain that still holds an unreconciled protected path.
-    modules = host.reconciled ? await readModuleList(config.brainPath, config.moduleDiscoveryEnv, host.boundary) : null;
-  } finally { host.close(); }
+    const host = await cronHostExecution(config, { gate: false });
+    try {
+      // Nothing evaluates a brain without native qualification and reconciliation.
+      modules = host.reconciled ? await readModuleList(config.brainPath, config.moduleDiscoveryEnv, host.boundary) : null;
+    } finally { await host.close(); }
+  } catch (error) {
+    process.stderr.write(`[brain-ui-cron] module discovery unavailable; emitting core jobs only. ${error instanceof Error ? error.message : String(error)}\n`);
+  }
   process.stdout.write(
     emitCrontab({
       ...options,

@@ -72,3 +72,6 @@ export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-br
 export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 
 export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutputStorage } from "./server/worker-native-output.js";
+
+export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
+export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";

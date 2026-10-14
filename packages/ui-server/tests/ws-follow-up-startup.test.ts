@@ -12,6 +12,8 @@ import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { AgentBackend, FollowUpRequest } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
 import { queuedFollowUpBytes } from "../src/ws/turns";
+import { createGovernancePolicyReader } from "../src/brain/governance-policy.js";
+import { handleChatMessage } from "../src/ws/run-session.js";
 import {
   addClient,
   closeDb,
@@ -133,6 +135,88 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
   afterEach(() => {
     resetForTests();
     closeDb();
+  });
+
+  test("async admission queues a follow-up until the backend actually owns its turn", async () => {
+    const fake = runnerLikeBackend(); setBackendForTests(fake.backend);
+    const host = testHost(), previous = host.governedTurns;
+    let entered = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    Object.defineProperty(host, "governedTurns", { configurable: true, value: {
+      async begin(_id: string, signal: AbortSignal) { entered = true; await gate; signal.throwIfAborted(); throw Error("Fixture admission released without a worker"); },
+    } });
+    const { ws } = client();
+    try {
+      await handleClientMessage(ws, { type: "chat_message", text: "Prepare the Ithaca harbor", sessionId: "s-ithaca" });
+      await waitFor(() => entered);
+      await handleClientMessage(ws, { type: "chat_message", text: "Count the returning ships", sessionId: "s-ithaca" });
+      await Promise.resolve();
+      expect(fake.attempts, "ASYNC_ADMISSION_NEVER_INJECTS_INTO_ABSENT_BACKEND").toEqual([]);
+      expect(host.coordinator.bySession.get("s-ithaca")?.queue.map(item => item.text)).toEqual(["Count the returning ships"]);
+      expect(fake.prompts).toEqual([]);
+    } finally {
+      host.coordinator.cancelAll("Fixture cancelled admission"); release();
+      await Promise.allSettled([...host.turnTasks]);
+      Object.defineProperty(host, "governedTurns", { configurable: true, value: previous });
+    }
+  });
+
+  test("cancelled async admission leaves local context pending and source unrecorded", async () => {
+    const fake = runnerLikeBackend(); setBackendForTests(fake.backend);
+    const host = testHost(), previous = host.governedTurns;
+    let entered = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    Object.defineProperty(host, "governedTurns", { configurable: true, value: {
+      async begin(_id: string, signal: AbortSignal) { entered = true; await gate; signal.throwIfAborted(); throw Error("Fixture admission released without a worker"); },
+    } });
+    const { ws } = client();
+    try {
+      await handleClientMessage(ws, { type: "local_exchange", sessionId: "s-ithaca", exchange: ledger });
+      await handleClientMessage(ws, { type: "chat_message", text: "Plan the return to Ithaca", sessionId: "s-ithaca" });
+      await waitFor(() => entered);
+      host.coordinator.cancelAll("Fixture cancelled admission"); release();
+      await Promise.allSettled([...host.turnTasks]);
+      expect(getDb().query("SELECT delivered_at FROM local_exchanges WHERE exchange_id=?").get(ledger.id), "ASYNC_CANCELLED_ADMISSION_PRESERVES_UNSENT_LOCAL_CONTEXT").toEqual({ delivered_at: null });
+      expect(getDb().query("SELECT count(*) AS n FROM message_sources WHERE session_id=?").get("s-ithaca"), "ASYNC_CANCELLED_ADMISSION_RECORDS_NO_UNDELIVERED_MESSAGE_SOURCE").toEqual({ n: 0 });
+      expect(fake.prompts).toEqual([]);
+    } finally {
+      host.coordinator.cancelAll("Fixture cancelled admission"); release();
+      await Promise.allSettled([...host.turnTasks]);
+      Object.defineProperty(host, "governedTurns", { configurable: true, value: previous });
+    }
+  });
+
+  for (const invalidation of ["revocation", "expiry"] as const) test(`${invalidation} during native admission refuses the backend and preserves another principal's queued turn`, async () => {
+    const fake = runnerLikeBackend(); setBackendForTests(fake.backend);
+    const host = testHost(), previous = host.governedTurns, policy = createGovernancePolicyReader(process.cwd()).load();
+    let entered = false, release!: () => void, ended = 0, first = true;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    Object.defineProperty(host, "governedTurns", { configurable: true, value: {
+      async begin() { if (first) { first = false; entered = true; await gate; } return { sandbox: { profile: "strict" }, policy, async end() { ended++; return null; } }; },
+    } });
+    const own = host.coordinator.openAuthorization({ principalId: "test-principal", expiresAt: Date.now() + 60000, valid: true });
+    const other = host.coordinator.openAuthorization({ principalId: "penelope-principal", expiresAt: Date.now() + 60000, valid: true });
+    const { ws } = client();
+    try {
+      await handleClientMessage(ws, { type: "local_exchange", sessionId: "s-ithaca", exchange: ledger });
+      await handleChatMessage(host, ws, { authorization: own, text: "Odysseus plans the return", sessionId: "s-ithaca", attachments: [] });
+      await waitFor(() => entered);
+      await handleChatMessage(host, ws, { authorization: other, text: "Penelope counts the ships", sessionId: "s-ithaca", attachments: [], requestId: "penelope-valid-followup" });
+      const authorization = host.coordinator.bySession.get("s-ithaca")!.authorization;
+      if (invalidation === "revocation") host.revokePrincipals([authorization.principalId], 4001, "Fixture principal revoked");
+      else Object.defineProperty(authorization, "expiresAt", { value: Date.now() - 1 });
+      release();
+      await waitFor(() => fake.prompts.length > 0 || !isTurnActive());
+      expect(fake.prompts.map(item => item.prompt.split("\n")[0]), "NATIVE_ADMISSION_RECHECKS_AUTHORITY_BEFORE_BACKEND").toEqual(["Penelope counts the ships"]);
+      expect(fake.prompts[0]!.prompt, "NATIVE_REVOKED_ADMISSION_LEAVES_CONTEXT_FOR_VALID_QUEUED_PRINCIPAL").toContain("ships: 12");
+      expect(ended, "NATIVE_REVOKED_ADMISSION_RELEASES_GOVERNED_HOLD").toBe(1);
+      fake.live.get("s-ithaca")!.finish(); await waitFor(() => !isTurnActive());
+      expect(ended).toBe(2);
+    } finally {
+      host.coordinator.cancelAll("Fixture ended"); release(); for (const turn of fake.live.values()) turn.finish();
+      await Promise.allSettled([...host.turnTasks]); own.release(); other.release();
+      Object.defineProperty(host, "governedTurns", { configurable: true, value: previous });
+    }
   });
 
   test("a resumed turn still starting queues the follow-up, which runs after it", async () => {

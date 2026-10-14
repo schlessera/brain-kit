@@ -1,9 +1,10 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
 import { EventEmitter } from "node:events";
+import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { createTurnTempPromoter, launchAgentWorker, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
+import { createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -108,24 +109,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   };
   /** Live workers' exhaustion checks, so asking for the failure also checks now. */
   const checks = new Set<() => void>();
-  return {
-    /** The resource limits this turn's workers hit so far (#1660). */
-    limits,
-    /** The turn-temp allowance each of this turn's workers is mounted with (#1703). */
-    turnTempBytes: turnTempLimits.allowanceBytes,
-    /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
-    turnTempRoot: (): string | undefined => liveTurnTemp?.root,
-    configurationRoot: (): string | undefined => liveConfigurationRoot,
-    observeFile: (path: string) => liveFileObserver?.(path),
-    stateRoom: (): StateRoomObservation | undefined => observation,
-    /** The same, once the workers have exited or `waitMs` has passed. */
-    async settledLimits(waitMs = 3_000): Promise<WorkerLimitReport> {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([Promise.allSettled(completions), new Promise(resolve => { timer = setTimeout(resolve, waitMs); })]);
-      clearTimeout(timer);
-      return limits();
-    },
-    spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
+  function spawnNow({ command, args, env, signal }: SpawnOptions, preparedOutput?: PreparedWorkerOutput) {
       // The real launcher, with this worker's allowance, before anything is
       // restored, admitted or copied.
       requireWorkerHost(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes,
@@ -150,13 +134,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
-            ...(startupView ? { startupView: retainWorkerStartupView(startupView) } : {}),
+            ...(preparedOutput ? { preparedOutput } : startupView ? { startupView: retainWorkerStartupView(startupView) } : {}),
             command: [command, ...args], env: childEnv, ...(outputLock ? { outputLock } : {}),
             restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
-            ...(startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
+            ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
@@ -229,14 +213,51 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
           try { handle.close(); turnTemp?.close(); } finally { state.release(); }
         });
-      completions.push(done);
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
-      try { workerStarted?.(worker); }
-      catch (error) { startFailure = error ?? new Error("Worker start callback failed."); kill("SIGKILL"); }
-      return { stdin: worker.stdin, stdout: worker.stdout, get killed() { return killed; },
+      const process = { stdin: worker.stdin, stdout: worker.stdout, get killed() { return killed; },
         get exitCode() { return exitCode; }, get signalCode() { return signalCode; }, kill,
         on: emitter.on.bind(emitter), once: emitter.once.bind(emitter), off: emitter.off.bind(emitter) } as SpawnedProcess;
+      try { workerStarted?.(worker); }
+      catch (error) { startFailure = error ?? new Error("Worker start callback failed."); kill("SIGKILL"); }
+      return { process, settled: done };
+  }
+  return {
+    /** The resource limits this turn's workers hit so far (#1660). */
+    limits,
+    /** The turn-temp allowance each of this turn's workers is mounted with (#1703). */
+    turnTempBytes: turnTempLimits.allowanceBytes,
+    /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
+    turnTempRoot: (): string | undefined => liveTurnTemp?.root,
+    configurationRoot: (): string | undefined => liveConfigurationRoot,
+    observeFile: (path: string) => liveFileObserver?.(path),
+    stateRoom: (): StateRoomObservation | undefined => observation,
+    /** The same, once the workers have exited or `waitMs` has passed. */
+    async settledLimits(waitMs = 3_000): Promise<WorkerLimitReport> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.allSettled(completions), new Promise(resolve => { timer = setTimeout(resolve, waitMs); })]);
+      clearTimeout(timer);
+      return limits();
+    },
+    spawn(options: SpawnOptions): SpawnedProcess {
+      const areas = sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
+      if (sandbox?.profile === "governed" || !areas.length) {
+        const started = spawnNow(options);
+        completions.push(started.settled);
+        return started.process;
+      }
+      const deferred = deferredWorkerSpawn(async signal => {
+        if (!startupView) throw new Error("Strict writable workers require a prepared native startup view.");
+        const output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, signal });
+        try {
+          signal.throwIfAborted();
+          return spawnNow({ ...options, signal }, output);
+        } catch (error) { await output.cleanup(); throw error; }
+      }, [immediateSignal, options.signal]);
+      // Register preparation immediately: finish must own it even before a
+      // native child exists, including a cancelled late preparation result.
+      completions.push(deferred.settled);
+      return deferred.process;
     },
     async finish() { await Promise.all(completions); },
     /** Why the worker's runtime state refused or stopped the turn, if it did (#1625). */

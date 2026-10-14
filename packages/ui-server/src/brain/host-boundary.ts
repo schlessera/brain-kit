@@ -182,6 +182,8 @@ export interface HostBoundaryOptions {
   /** The UI database file; its directory is masked from every maintenance worker. */
   dbPath?: string;
   privateStatePaths?: OperationalStateLayout["privateStatePaths"];
+  /** Exact root-private paths verified by the configured native manager. */
+  nativeMaskPaths?: readonly string[];
   /** The writer gate, once the database is open. */
   gate?: () => WriterGate | null;
   /** Whether a governed turn has ever started on this brain: the durable record in the UI database. */
@@ -307,7 +309,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
   };
 
-  const maskPaths = operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths });
+  const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
   const workerPath = (env: BrainExecution["env"]) => [join(brain, "node_modules", ".bin"), env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":");
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView): MaintenanceCommand => {
     const path = workerPath(execution.env);

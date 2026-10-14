@@ -65,7 +65,7 @@ by this spike.
 | Journal collection; ui-server `createTurnJournal` / accounting | Private CAS, journal-owned SQLite pages, manifests, reservations and quarantine/revert evidence. Existing 10 GiB cap / completed-detail retention. | Existing owner collects completed detail oldest-first under cap; active windows, shared refs and reader reservations protect objects. Do not offer a manual “cache clear” that circumvents ownership. | Detail expiry loses Undo; summaries can remain, and no pre-expiry deletion receipt extends retention. Existing cap collection is already approved; **new expiry rules are unresolved**. WAL/checkpoint needs safe headroom and can refuse reader contention. | Measure CAS and owned DB/WAL allocation, not just deleted rows. SQLite free pages may remain allocated. Label expired detail and remaining recovery window honestly. |
 | Operational backups; ui-server export/restore + generated host scheduling/retention, #686 and hosting-template #9 | Full operational DB image and matching staging bytes; separate Git content backup. | Capture consistency checks; restore requires stopped writers, empty targets and matching checksum/recovery marker. Backup retention must preserve an operator-tested compatible recovery point. | At least 24-hour successful capture objective; replacement export has private temporary bytes. Retention policy and remote/provider deletion belong to host configuration, not a package default. | List known age/completeness/size; unknown remote or older artifacts stay unknown. Never delete recovery material to make an export fit. Report local and remote outcomes separately. |
 | Runtime maintenance; SDK owned turn temp vs externally managed logs/images/layers | `turn_temp` only reaches the current worker's private `/tmp`; runtime state is excluded. Host/container caches and other users' data are outside ordinary app authority. | Existing scoped tool skips output-linked paths; named force may override, all+force refused; no-follow/device checks. No approval for this already-authorized scoped tool. No Docker socket or global prune. | Turn temp expires at exit; linked files promote via held descriptor. Purge is not Undo; runtime transcripts/settings/memory are not its targets. | Tool measures tmpfs usage/limit/actual delta and records governance; persistent storage reclamation is a separate metric. Host logs/images/volumes show externally managed/unavailable and generic operator guidance only. |
-| Immutable startup copies and output staging; ui-sdk, delivered #1778 | Private immutable execution inputs and separately bounded writable copy-on-write output. These are neither canonical content nor agent turn temp. | Owning storage references/helpers keep live input and publication material. No storage-UI sweep of host `/tmp` or deletion by guessed prefix. Copy guards and output admission remain distinct. | Inputs can require private host-disk copies up to the existing 4 GiB logical guard; sparse holes preserve logical bytes. Owner cleanup releases copies, including a crash-cleanup helper. Output upper bytes/metadata need their separately admitted allowance. | Measure input-copy disk occupancy, writable upper allocation and canonical post-publication state separately. Removing a lower-only input does not free upper write capacity; whiteout metadata can consume it. No promise that canonical deletion fixes a staging-capacity refusal. |
+| Immutable native inputs and output staging; ui-sdk, #1790 | Short-lived read-only Btrfs checkpoints and separately bounded writable output. These are neither canonical content nor agent turn temp. | Durable owner leases and live references protect inputs and publication material. No storage-UI sweep of host temporary paths or deletion by guessed prefix. | Checkpoints consume the operator-configured hard managed-volume capacity. Recovery releases owned stages before their lower checkpoints; unknown ownership remains retained. Writable upper bytes/metadata use the existing staging allowance. | Measure managed-volume reclamation, writable upper allocation and canonical post-publication state separately. Removing a lower-only input does not free upper write capacity; whiteout metadata can consume it. No promise that canonical deletion fixes a staging-capacity refusal. |
 
 Source foundations for the matrix:
 
@@ -84,11 +84,11 @@ Source foundations for the matrix:
 - Claude publishes and verifies cold copies before deleting the live source
   (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:188-242`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:69-100`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:115-139`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:189-215`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:236-264`).
   Object copies reserve temporary bytes before writing
-  (`export function createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:26-117`).
+  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:126-178`).
 - Turn-temp purge has its own scope and measured result
   (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-494`),
   and tool validation/recording
@@ -96,8 +96,9 @@ Source foundations for the matrix:
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and
   restart behavior; it is not an index rebuild.
 - Startup input ownership is separate from writable staging
-  (`function createStartupInputStorage`, `packages/ui-sdk/src/server/worker-startup-view.ts:74-87`;
-  `export function createWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:89-198`).
+  (`export async function prepareNativeWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:63-108`).
+  The [native storage decision](../decisions/native-brain-storage.md) supersedes
+  complete user-space startup copies and defines checkpoint recovery ownership.
   The staged-write limit states the separation
   (`export function outputStagingLimit`, `packages/ui-sdk/src/server/worker-state-limits.ts:144-150`).
 

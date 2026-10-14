@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-112`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:543-547`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:544-548`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -271,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-81`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-112`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -538,6 +538,11 @@ written, in addition to today's checks.
 
 ## Immutable startup configuration and explicit outputs
 
+> **2026-10-14 — Storage mechanism superseded.** The complete immutable view
+> requirement below still binds. [Native checkpoints](native-brain-storage.md)
+> replace per-launch user-space full copies; governed peers still share the live
+> brain and outputs still use authoritative validation.
+
 The maintainer's [complete-view ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6120567225)
 approves complete read-only startup views for strict, restricted, maintenance
 and host configuration consumers. A single frozen `brain.config.ts` is not
@@ -683,7 +688,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:825-825`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:840-868`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -753,6 +758,13 @@ copy and the diagnostic record keep promotion honest without showing anything
 to the user.
 
 ## The change journal and reconciliation
+
+> **2026-10-14 — Capture and temporary-storage scope superseded.**
+> [Native checkpoints and delta history](native-brain-storage.md) replace the
+> full baseline capture described below. Changed-only retained objects keep
+> their 10 GiB object/metadata/reservation cap; temporary native checkpoints
+> use the separately configured finite managed-volume bound. Observation,
+> attribution, guarded revert and honest partial-history guarantees still bind.
 
 **Delivered journal behavior (#1652).** The host records raw observations at
 admission, tool completion, 15-second scope observations and turn completion
@@ -832,6 +844,12 @@ working tree itself. It runs no git and imports no repository code:
 The journal entry is the difference between the two manifests. Reading
 `.git/HEAD`, the refs and `packed-refs` as raw text without following
 symlinks adds `HEAD` and ref movement.
+
+> **2026-10-14 — Historical measurement scope.** These walker timings do not
+> qualify the released per-turn object-retention and on-disk accounting path.
+> [#1790](https://github.com/schlessera/brain-kit/issues/1790) reproduced first
+> and warm journal-admission health stalls; the following cost conclusion is
+> superseded by the [native storage decision](native-brain-storage.md).
 
 **Measured on 2026-10-11** on a tmpfs-backed workstation with Bun. The times are
 a lower bound for disk-backed brains
@@ -1229,7 +1247,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:182`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:186`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1241,7 +1259,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1231`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1257`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1361,7 +1379,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:83`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:84`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1580,8 +1598,8 @@ configuration, dependency manifests and retained local import/resource inputs.
 The journal follows retained literal local references as data. It never imports
 or evaluates configuration to classify it. Ignored, oversized or opaque inputs
 are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`journalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:13-63`).
+runtime-consumption coverage (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:81-90`).
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1595,7 +1613,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-176`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;

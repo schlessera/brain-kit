@@ -10,7 +10,7 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
@@ -22,7 +22,7 @@ import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -124,6 +124,7 @@ import { createObservability, type Observability } from "./observability/index.j
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
+import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
@@ -268,12 +269,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
     options.observability ?? createObservability({ minSeverity: config.logLevel });
+  if (!config.nativeBrain) throw new Error("Hosted workers require managed Btrfs storage. Configure the native brain manager and BRAIN_UI_NATIVE_BRAIN_SOCKET; full-copy fallback is unsupported.");
+  const nativeClient = createNativeBrainManagerClient(config.nativeBrain);
+  const nativeReady = await nativeClient.ready();
+  if (realpathSync(config.brainPath) !== nativeReady.brainPath) throw new Error("The native storage manager serves a different brain. Correct the configured managed brain path before starting hosted workers.");
   const ephemeralJournal = config.dbPath === "" || config.dbPath === ":memory:";
+  if (ephemeralJournal && !config.nativeBrain.leasePath) throw new Error("An ephemeral UI database requires BRAIN_UI_NATIVE_BRAIN_LEASE_PATH outside the brain for durable native checkpoint ownership.");
+  const nativeLeasePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
   const journalRoot = ephemeralJournal ? mkdtempSync(join(tmpdir(), "brain-ui-journal-"))
     : join(dirname(resolve(config.dbPath)), `${basename(config.dbPath)}.journal`);
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
-  privateStatePaths.push({ setting: "turn journal", path: journalRoot });
+  privateStatePaths.push({ setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // The manager verifies its fixed topology and root-private state. These are
+  // exact masks, not app-owned directories to enumerate or mask by parent.
+  const nativeMaskPaths = nativeReady.privatePaths;
   try { assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }); }
   catch (error) {
     if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
@@ -281,6 +291,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       attributes: { "boot.refusal": (error as Error).name } });
     throw error;
   }
+  const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
+    .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
+  const bootCleanup: (() => void | Promise<void>)[] = [];
+  try {
+  const nativeRecovery = await nativeLeases.recoverDeadOwners();
+  if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
+    body: `Native storage recovery retained ${nativeRecovery.unknown.length + nativeRecovery.retainedUnverifiable} unresolved checkpoint ownership record(s). Reconcile the native storage service before reclaiming their capacity.` });
+  const nativeManager = nativeLeases.client;
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -345,8 +363,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
-  const hostExecution = createHostExecution({ profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
+  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
+  bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
     for (const result of results) {
@@ -358,20 +377,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Only an existing database can hold a manifest, and a refused boot below
   // must still leave no new database behind.
   reconciled(hostExecution.reconcileExisting());
-  let inboxPokeAuth: ReturnType<typeof createInboxPokeAuth>;
-  try {
-    await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
-    // Provision the independently authorized runtime file before opening handles.
-    inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
-  } catch (error) { hostExecution.release(); throw error; }
+  await boundary.prepare();
+  await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+  // Provision the independently authorized runtime file before opening handles.
+  const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
-  let db: ReturnType<typeof createUiDb>;
-  try { db = createUiDb(config.dbPath, { log: dbLog }); }
-  catch (error) { hostExecution.release(); throw error; }
-  try {
-    reconciled(hostExecution.attach(db));
-    assertInboxRecoveryReady(db);
-  } catch (error) { hostExecution.release(); db.close(); throw error; }
+  const db = createUiDb(config.dbPath, { log: dbLog });
+  bootCleanup.push(() => db.close());
+  reconciled(hostExecution.attach(db));
+  assertInboxRecoveryReady(db);
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
@@ -386,7 +400,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // repository's fixture host, through a symbol no package entry exports,
   // wires the production engine to prove its lifecycle.
   const dispatchFixture = (options as InboxDispatchFixtureOptions)[INBOX_DISPATCH_FIXTURE];
-  if (dispatchFixture && !config.inbox?.budget) { db.close(); throw new Error("The dispatch fixture requires an inbox budget"); }
+  if (dispatchFixture && !config.inbox?.budget) throw new Error("The dispatch fixture requires an inbox budget");
   const inboxBudget = config.inbox?.budget ? { config: config.inbox.budget, pricing,
     maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined;
   let dispatcher: InboxDispatcher | undefined;
@@ -398,9 +412,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   } : {};
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
     brainRoot: config.brainPath, budget: inboxBudget, now: dispatchFixture?.now, afterCleanupRemove: dispatchFixture?.afterCleanupRemove, ...engine });
+  bootCleanup.push(() => inbox.close());
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
-  try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
+  bootCleanup.push(() => intake.close());
+  await inbox.ready; await intake.reconcile();
   const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary });
   // After a curated application, a credential-free worker indexed the change
   // without provider keys (#1648). The credentialed reindex that fills in its
@@ -408,11 +424,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // changes arrived meanwhile.
   const keyedReindex = coalesced(() => brain.index(), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
+  bootCleanup.push(() => keyedReindex.idle());
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
     // Exact-operation approval stays fail-closed unless the gated engine runs.
     ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
-  try { await hygieneReview.recover(); } catch (error) { await inbox.close(); db.close(); throw error; }
+  await hygieneReview.recover();
 
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
@@ -420,6 +437,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     log: observability.logger("activity"),
     pricing,
   });
+  bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
   const cron = createCronScheduler({
     db,
@@ -442,7 +460,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: observability.logger("agent"),
     });
   const scratchPins = createScratchPins(config.brainPath, registry);
+  bootCleanup.push(() => scratchPins.close());
   const scratchPrune = startScratchPrune({ brain, pins: scratchPins, db, log: observability.logger("cron") });
+  bootCleanup.push(() => scratchPrune.close());
   // The subscription token (#254): boot warnings now, the expiry check daily,
   // and what /api/status says about it.
   const subscription = createSubscriptionMonitor({
@@ -452,6 +472,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     lastTurnFailure: () => activity.runtime.subscriptionAuthFailure(),
     modelSource: () => registry.getModelSource(),
   });
+  bootCleanup.push(() => subscription.close());
   // The classification pass (D42): always constructed so persisted blocks
   // replay, calling out only when a key is configured.
   const classifier = createTurnClassifier({
@@ -466,17 +487,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
-  const governedTurns = createGovernedTurns({ brainPath: config.brainPath, execution: hostExecution,
+  const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
       recordPolicy: (turnId, origin, profile, policy) => db.query(`INSERT INTO turn_governance_policy
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
-      maskPaths: operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }),
+      maskPaths: [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths],
       index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+  bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
-  const journal = createTurnJournal(db, { brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
     changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
+  bootCleanup.push(() => journal.close());
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
@@ -546,6 +569,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       governanceDb: db,
     },
   });
+  bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
@@ -779,6 +803,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
+  bootCleanup.push(() => reverts.close());
   host.turnReverts = reverts;
   app.route("/api", createTurnRevertRoutes(reverts));
   // Only where server_hello advertises it: elsewhere the route is absent,
@@ -886,6 +911,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     });
   }
 
+  let closing: Promise<void> | undefined;
   return {
     fetch: app.fetch,
     websocket,
@@ -896,21 +922,38 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: async () => {
-      await inbox.close();
-      host.close();
-      subscription.close();
-      await intake.close();
-      await scratchPrune.close();
-      scratchPins.close();
-      await reverts.close();
-      // A keyed reindex still queued finishes before the gate's database closes.
-      await keyedReindex.idle();
-      await host.governedTurns?.close();
-      journal.close();
-      if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true });
-      activity.close();
-      db.close();
-    },
+    close: () => closing ??= (async () => {
+      // Refuse new requests immediately; every remaining owner drains even
+      // when a native deletion reply is unknown and its durable row stays.
+      host.closing = true;
+      const failures: unknown[] = [];
+      const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      await attempt(() => inbox.close());
+      await attempt(() => host.close());
+      await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
+      await attempt(() => subscription.close());
+      await attempt(() => intake.close());
+      await attempt(() => scratchPrune.close());
+      await attempt(() => scratchPins.close());
+      await attempt(() => reverts.close());
+      await attempt(() => keyedReindex.idle());
+      await attempt(async () => { await host.governedTurns?.close(); });
+      await attempt(() => journal.close());
+      await attempt(() => nativeLeases.close());
+      if (ephemeralJournal) await attempt(() => rmSync(journalRoot, { recursive: true, force: true }));
+      await attempt(() => activity.close());
+      await attempt(() => hostExecution.release());
+      await attempt(() => db.close());
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
+    })(),
   };
+  } catch (error) {
+    const failures: unknown[] = [];
+    for (const close of bootCleanup.reverse()) { try { await close(); } catch (cleanupError) { failures.push(cleanupError); } }
+    try { await nativeLeases.close(); } catch (cleanupError) { failures.push(cleanupError); }
+    if (ephemeralJournal) { try { rmSync(journalRoot, { recursive: true, force: true }); } catch (cleanupError) { failures.push(cleanupError); } }
+    if (failures.length) throw new AggregateError([error, ...failures], "Application boot failed and retained failed cleanup outcomes.");
+    throw error;
+  }
 }

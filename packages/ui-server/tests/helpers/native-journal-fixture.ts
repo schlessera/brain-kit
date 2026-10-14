@@ -94,6 +94,7 @@ export function createNativeJournalFixture(brain: string, root: string) {
     serve() {
       const socketPath = join(root, "native-test-manager.sock");
       const server = Bun.serve({ unix: socketPath, async fetch(request) {
+        try {
         const message = nativeManagerRequest.parse(await request.json());
         if (message.operation === "ready") return Response.json(await client.ready());
         if (message.operation === "checkpoint") return Response.json(await client.checkpoint(message.id, request.signal));
@@ -108,6 +109,7 @@ export function createNativeJournalFixture(brain: string, root: string) {
         for (let offset=0;offset<raw.length;offset+=NATIVE_DATA_CHUNK_BYTES) frames.push(nativeManagerFrame(1,raw.subarray(offset,offset+NATIVE_DATA_CHUNK_BYTES)));
         return new Response(Buffer.concat([...frames, nativeManagerFrame(2, bytes(JSON.stringify({ ok: true, ...completed })))]),
           { headers: { "content-type": "application/x-brain-native-delta" } });
+        } catch (error) { return Response.json({ code: "unknown", message: error instanceof Error ? error.message : String(error) }, { status: 503 }); }
       } });
       return { socketPath, close() { server.stop(true); } };
     },
