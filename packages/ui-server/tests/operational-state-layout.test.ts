@@ -4,16 +4,24 @@ import { launchAgentWorker, prepareWorkerSandbox } from "../../ui-sdk/src/server
 import { Database } from "bun:sqlite";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers/native-app-fixture";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "../src/brain/operational-state";
-import { createHostBoundary } from "../src/brain/host-boundary";
+import { createHostBoundary as createBoundary } from "../src/brain/host-boundary";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const nativeCleanup: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+/** Only native input acquisition is replaced; path guards and namespace workers remain real. */
+function createHostBoundary(options: Parameters<typeof createBoundary>[0]) {
+  const native = createNativeAppFixture(options.brainPath); nativeCleanup.push(native.close);
+  return createBoundary({ ...options, nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
+}
 function fixture() {
   const root = mkdtempSync(join(resolve(import.meta.dir, "../../../tmp"), "odysseus-state-layout-"));
   roots.push(root);
@@ -131,10 +139,11 @@ describe("operational state boot refusal (#1649)", () => {
     expect(boundary.status(), "OPERATIONAL_STATE_INODE_ALIAS_STATUS").toMatchObject({ available: false, reason: "database_in_brain" });
   });
 
-  test("hardlinks wholly outside the brain remain valid", () => {
+  test("hardlinks wholly outside the brain remain valid", async () => {
     const f = fixture(); const dbPath = join(f.state, "brain-ui.db"); writeFileSync(dbPath, "Odysseus private state");
     linkSync(dbPath, join(f.state, "outside-alias.db"));
     const boundary = createHostBoundary({ brainPath: f.brain, dbPath, workerHost: () => ({ ok: true }) });
+    await boundary.prepare();
     expect(boundary.status().available).toBe(true);
   });
 
@@ -142,7 +151,7 @@ describe("operational state boot refusal (#1649)", () => {
     const f = fixture(); const dbPath = join(f.state, existing ? "brain-ui.db" : "new/deeper/brain-ui.db");
     if (existing) { const db = new Database(dbPath, { create: true }); db.exec("CREATE TABLE private_probe (value TEXT); INSERT INTO private_probe VALUES ('Odysseus private state')"); db.close(); }
     const mounted = join(f.brain, "mounted-state"); mkdirSync(mounted);
-    const program = `import {createApp} from ${JSON.stringify(resolve(import.meta.dir, "../src/app.ts"))};
+    const program = `import {createFixtureApp as createApp} from ${JSON.stringify(resolve(import.meta.dir, "helpers/native-app-fixture.ts"))};
       import {createStaticBackendRegistry} from ${JSON.stringify(resolve(import.meta.dir, "../src/agent/backend.ts"))};
       import {resolveServerConfig} from ${JSON.stringify(resolve(import.meta.dir, "../src/config/env.ts"))};
       import {makeFakeBackend} from ${JSON.stringify(resolve(import.meta.dir, "helpers/fake-backend.ts"))};
@@ -185,10 +194,11 @@ for (const profile of ["governed", "strict"] as const) {
     const brain = join(root, "brain"); const state = join(root, "state");
     mkdirSync(brain); mkdirSync(state);
     writeFileSync(join(state, "private"), "host-private");
-    const sandbox = prepareWorkerSandbox(brain, { profile, areas: [], readPaths: [process.execPath, "/bin/sh"],
+    const view = profile === "strict" ? createFixtureWorkerStartupView(brain) : undefined;
+    const sandbox = prepareWorkerSandbox(brain, { profile, ...(view ? { startupView: view } : {}), areas: [], readPaths: [process.execPath, "/bin/sh"],
       maskPaths: operationalStateMasks({ brainPath: brain, dbPath: ":memory:", privateStatePaths: [{ setting: "fixture state", path: state }] }) });
     const output = `/tmp/odysseus-output-${root.split("/").at(-1)}`;
-    const worker = launchAgentWorker({ brainPath: brain, sandbox, turnTempBytes: 1024 * 1024, env: {},
+    const worker = launchAgentWorker({ brainPath: brain, sandbox, ...(view ? { startupView: view } : {}), turnTempBytes: 1024 * 1024, env: {},
       command: ["/bin/sh", "-c", 'printf private-output > "$2" && test ! -e "$1/private" && printf PRIVATE_TMP_WRITABLE_STATE_HIDDEN', "probe", state, output] });
     try {
       const [stdout, stderr, code] = await Promise.all([streamText(worker.stdout), streamText(worker.stderr), worker.exited]);
@@ -196,7 +206,7 @@ for (const profile of ["governed", "strict"] as const) {
       expect(stdout).toBe("PRIVATE_TMP_WRITABLE_STATE_HIDDEN");
       expect(worker.turnTemp!.space().total, "PRIVATE_TMP_CAPACITY_PRESERVED").toBe(1024 * 1024);
       expect(existsSync(output), "WORKER_OUTPUT_NOT_ON_HOST").toBe(false);
-    } finally { worker.turnTemp?.close(); }
+    } finally { worker.turnTemp?.close(); view?.cleanup(); }
     expect(readFileSync(join(state, "private"), "utf8")).toBe("host-private");
   });
 }

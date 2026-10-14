@@ -1,3 +1,5 @@
+import { createNativeJournalFixture } from "../../../ui-server/tests/helpers/native-journal-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
 import { createTurnJournal } from "../../../ui-server/src/brain/turn-journal.js";
 import { createHostExecution } from "../../../ui-server/src/brain/host-execution.js";
 import { createGovernedTurns } from "../../../ui-server/src/brain/governed-turn.js";
@@ -39,10 +41,11 @@ const originalProbe = workerHostBoundary.probe;
 if (process.env.POLICY_BROWSER_ACTUAL_RUNTIME !== "1") workerHostBoundary.probe = () => ({ ok: true });
 const execution = createHostExecution({ brainPath: root, dbPath, profile: "governed" }); execution.attach(db);
 const admitted: Array<{ hash: string | null }> = [];
-const governedTurns = createGovernedTurns({ brainPath: root, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {},
+const native = createNativeJournalFixture(root,state), restoreAcquisition = replaceNativeStartupAcquisitionForFixture();
+const governedTurns = createGovernedTurns({ nativeManager: native.client, brainPath: root, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {},
   recordPolicy: (_turn, _origin, _profile, policy) => { admitted.push({ hash: policy.hash }); } });
 governedTurns.facts();
-const journal = createTurnJournal(db, { brainPath: root, dbPath, objectsRoot: join(state, "objects") });
+const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: root, dbPath, objectsRoot: join(state, "objects") });
 const decisions: unknown[] = [];
 let mode = "", principalNow = principal, writes = 0, proposals = 0, reads = 0;
 const lock = createKeyedLock();
@@ -89,4 +92,4 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
   websocket: { open(ws) { void handlers.onOpen(undefined as never, context(ws) as never); }, message(ws, data) { handlers.onMessage({ data: String(data) } as MessageEvent, context(ws) as never); }, close(ws) { handlers.onClose({ code: 1000 } as CloseEvent, context(ws) as never); } },
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
-process.on("SIGTERM", () => { workerHostBoundary.probe = originalProbe; host.close(); server.stop(true); journal.close(); db.close(); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", async () => { restoreAcquisition(); workerHostBoundary.probe = originalProbe; host.close(); server.stop(true); await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });

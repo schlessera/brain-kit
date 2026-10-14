@@ -1,3 +1,7 @@
+import { createNativeJournalFixture } from "../../packages/ui-server/tests/helpers/native-journal-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../../packages/ui-server/tests/helpers/fixture-native-startup.js";
+const restoreNativeAcquisition = replaceNativeStartupAcquisitionForFixture();
+process.on("exit", restoreNativeAcquisition);
 /**
  * Integrated policy-write boundary proof (#1039), run behind the caller's
  * offline network namespace with loopback fixture inference only.
@@ -13,7 +17,7 @@ import {
   readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "../..");
 const [stage, adapter, scenario, root, donorPid] = process.argv.slice(2) as [string, "claude" | "pi", string, string, string?];
@@ -435,7 +439,7 @@ async function server(): Promise<void> {
     const execution = createHostExecution({ brainPath, dbPath: ":memory:" });
     execution.attach(db);
     applicationPlanner = boundaryPlanner(execution.boundary);
-    governedTurns = createGovernedTurns({ brainPath, execution, profile: "governed", maskPaths: [],
+    governedTurns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brainPath, dirname(brainPath)).client, brainPath, execution, profile: "governed", maskPaths: [],
       index: async () => {}, report: message => { throw new Error(message); } });
   }
   const host = new WsHost({ governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),

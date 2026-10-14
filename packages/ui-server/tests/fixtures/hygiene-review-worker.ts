@@ -3,9 +3,14 @@ import { createUiDb } from "../../src/db/client.js";
 import { createBrainClient } from "../../src/brain/client.js";
 import { createHygieneReview } from "../../src/inbox/hygiene-review.js";
 import { InboxStore } from "../../src/inbox/store.js";
-const [root, principalId, itemId, ready] = process.argv.slice(2);
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createHostBoundary } from "../../src/brain/host-boundary.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../helpers/fixture-native-startup.js";
+const [root, principalId, itemId, ready, nativeConfig] = process.argv.slice(2);
 const db = createUiDb(`${root}/../ui.sqlite`);
-const review = createHygieneReview(db, { brain: createBrainClient({ brainPath: root!, exec: {} }) });
+replaceNativeStartupAcquisitionForFixture();
+const boundary = createHostBoundary({ brainPath: root!, exec: {}, nativeManager: createNativeBrainManagerClient(JSON.parse(nativeConfig!)) });
+const review = createHygieneReview(db, { brain: createBrainClient({ brainPath: root!, exec: {}, boundary }) });
 const original = InboxStore.prototype.commit;
 InboxStore.prototype.commit = function(mutations) {
   if (mutations.some(m => m.kind === "hygiene_update" && m.hygiene.outcome?.status === "fixed")) {

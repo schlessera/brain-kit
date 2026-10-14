@@ -23,7 +23,7 @@ import { createPushSender } from "../src/activity/push-sender.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { isCompletedAutonomousToolCall, type AgentBackend, type InboxActionItem, type InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";

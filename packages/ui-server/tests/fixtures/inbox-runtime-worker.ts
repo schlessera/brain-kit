@@ -5,7 +5,7 @@ import { createInboxRuntime } from "../../src/inbox/runtime.js";
 
 const [mode, path, ready, gate, clock] = process.argv.slice(2);
 if (mode === "serve") {
-  const { createApp } = await import("../../src/app.js");
+  const { createFixtureApp: createApp } = await import("../helpers/native-app-fixture.js");
   const { resolveServerConfig } = await import("../../src/config/env.js");
   const { createStaticBackendRegistry } = await import("../../src/agent/backend.js");
   const { createRecordingObservability } = await import("../../src/observability/index.js");

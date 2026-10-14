@@ -13,7 +13,8 @@ import { join } from "path";
 
 import { readSyncRuntime } from "../src/activity/sync-runtime";
 import { createActivityStore, type ActivityStore, type SpanRow } from "../src/activity/store";
-import { BrainSyncError, createBrainClient } from "../src/brain/client";
+import { BrainSyncError } from "../src/brain/client";
+import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
 import { parseSyncResult, type BrainSyncOutput } from "../src/brain/sync-result";
 import { SYNC_JOB_COMMAND } from "../src/cron/emit";
 import { runJob } from "../src/cron/run-job";

@@ -1,3 +1,4 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,9 +37,10 @@ test("retained outward attribution survives Activity pruning and appears in the 
   const root = mkdtempSync(join(tmpdir(), "odysseus-outward-receipt-")), brain = join(root, "brain"), dbPath = join(root, "ui.db");
   mkdirSync(brain); writeFileSync(join(brain, "voyage.md"), "Homeward\n");
   const db = createUiDb(dbPath), store = createActivityStore(db, { writer: "outward-test" });
-  const journal = createTurnJournal(db, { brainPath: brain, dbPath, objectsRoot: join(root, "objects") });
+  const native = createNativeJournalFixture(brain,root);
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(root, "objects") });
   db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
-  journal.begin("voyage", { sessionId: "ithaca", actor: "voice", profile: "governed", model: null, policyHash: null }, error => { throw error; });
+  await journal.begin("voyage", { sessionId: "ithaca", actor: "voice", profile: "governed", model: null, policyHash: null }, error => { throw error; });
   const recorder = createTurnRecorder({ store, governance: input => { recordGovernanceEvent(db, input); } }, { turnId: "voyage", sessionId: "ithaca", posture: "voice" });
   recorder.setWorkerProfile("governed");
   try {
@@ -49,7 +51,7 @@ test("retained outward attribution survives Activity pruning and appears in the 
     const records = queryGovernanceEvents(db, { sessionId: "ithaca", turnId: "voyage", limit: 10 });
     expect(records, "OUTWARD_RETAINED_RECEIPT").toHaveLength(1);
     expect(records[0]).toMatchObject({ actor: "voice", model: null, profile: "governed", turnId: "voyage", kind: "outward_action", payload: { decision: "refused", target: "github.com/odysseus/voyage.git", rule: { list: "outward.allow", index: 1 } } });
-    recorder.finish("success"); journal.finish("voyage");
+    recorder.finish("success"); await journal.finish("voyage");
     store.prune({ digestFloorAt: Date.now() + 1, detailRetentionMs: 0, hardCeilingMs: 0, now: Date.now() + 1 });
     expect(store.snapshotRun("voyage")).toBeNull();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", turnId: "voyage", limit: 10 })).toEqual(records);
@@ -58,5 +60,5 @@ test("retained outward attribution survives Activity pruning and appears in the 
     expect(response.status).toBe(200);
     expect(await response.json(), "OUTWARD_JOURNAL_IRREVERSIBLE_RECEIPT").toMatchObject({ outwardActions: [{ decision: "refused", revertible: false, target: "github.com/odysseus/voyage.git" }], outwardActionsTruncated: false });
     expect(journal.details("other-session", "voyage")).toBeNull();
-  } finally { journal.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

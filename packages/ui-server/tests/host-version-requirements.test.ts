@@ -2,18 +2,22 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createApp, type HostVersionRequirements } from "../src/app";
+import { type HostVersionRequirements } from "../src/app";
+import { createNativeAppFixture, createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { createBackendRegistry, createStaticBackendRegistry, probeBackendRuntimes } from "../src/agent/backend";
 import { backendModule as claudeDescriptor } from "@schlessera/brain-backend-claude";
 import type { BackendModuleContext, BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
 import { createRecordingObservability } from "../src/observability";
 import { resolveServerConfig } from "../src/config/env";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const closeNative: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const close of closeNative.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(version = "0.42.0") {
   const directory = mkdtempSync(join(tmpdir(), "host-version-"));
   roots.push(directory);
@@ -27,10 +31,14 @@ function fixture(version = "0.42.0") {
   }
   install(version);
   const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: join(directory, "ui.db"), BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" });
+  const native = createNativeAppFixture(root); closeNative.push(native.close);
+  config.nativeBrain = native.nativeBrain;
+  const nativeManager = createNativeBrainManagerClient(native.nativeBrain);
+  const boundary = (exec: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig = {}) => createHostBoundary({ brainPath: root, exec, nativeManager });
   const observability = createRecordingObservability();
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
   const invocations = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [];
-  return { root, bin, install, config, observability, registry, invocations };
+  return { root, bin, install, config, observability, registry, invocations, boundary };
 }
 
 describe("host version requirements at app startup", () => {
@@ -180,7 +188,7 @@ describe("explicit probes retain bounded wrapper cleanup", () => {
       const marker = `odysseus-version-child-${f.root.split("/").at(-2)}`;
       writeFileSync(wrapper, `#!/bin/sh\n/bin/sh -c 'sleep 300; :' '${marker}' ${timesOut ? "" : ">/dev/null 2>&1 "}&\nsleep 0.3\n${timesOut ? "sleep 300" : "exit 4"}\n`);
       chmodSync(wrapper, 0o755);
-      const pending = probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, minimumVersion: "0.40.0" })
+      const pending = probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, boundary: f.boundary({ wrapper }), minimumVersion: "0.40.0" })
         .then(() => null, error => error as Error);
       const pids = await waitForHostProcesses(marker);
       expect(pids.length).toBeGreaterThan(0);
@@ -203,7 +211,7 @@ describe("explicit CLI minima on direct clients and probes", () => {
     const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
     try {
-      await createBrainClient({ brainPath: f.root, minimumVersion: "0.40.0" }).search("user-query");
+      await createBrainClient({ brainPath: f.root, boundary: f.boundary({ wrapper }), minimumVersion: "0.40.0" }).search("user-query");
       expect(readFileSync(records, "utf8").trim().split("\n").map(line => JSON.parse(line))).toEqual([
         { args: [f.bin, "--version"], cwd: f.root, color: "1" },
         { args: [f.bin, "search", "--", "user-query"], cwd: f.root, color: "1" },
@@ -219,18 +227,18 @@ describe("explicit CLI minima on direct clients and probes", () => {
     rmSync(f.bin);
     mkdirSync(join(f.root, "scripts"));
     writeFileSync(join(f.root, "scripts/brain-cli.ts"), 'console.log(process.argv.includes("--version") ? "0.39.0" : "unexpected invocation");\n');
-    await expect(createBrainClient({ brainPath: f.root, minimumVersion: "0.40.0" }).search("user-query")).rejects.toThrow("0.39.0");
+    await expect(createBrainClient({ brainPath: f.root, boundary: f.boundary(), minimumVersion: "0.40.0" }).search("user-query")).rejects.toThrow("0.39.0");
     expect(f.invocations()).toEqual([]);
   });
   test("a direct client verifies before the selected user command", async () => {
     const f = fixture("0.39.0");
-    await expect(createBrainClient({ brainPath: f.root, minimumVersion: "0.40.0" }).search("user-query")).rejects.toThrow("invocation");
+    await expect(createBrainClient({ brainPath: f.root, boundary: f.boundary(), minimumVersion: "0.40.0" }).search("user-query")).rejects.toThrow("invocation");
     expect(f.invocations()).toEqual([["--version"]]);
   });
   test("a cancelled explicit invocation check reaps its child before sending user input", async () => {
     const f = fixture();
     writeFileSync(f.bin, "#!/bin/sh\nsleep 300\n");
-    const client = createBrainClient({ brainPath: f.root, minimumVersion: "0.40.0", searchTimeoutMs: 500 });
+    const client = createBrainClient({ brainPath: f.root, boundary: f.boundary(), minimumVersion: "0.40.0", searchTimeoutMs: 500 });
     const started = Date.now();
     const pending = client.search("user-query").then(() => null, error => error as Error);
     const pids = await waitForHostProcesses(f.bin);
@@ -244,6 +252,6 @@ describe("explicit CLI minima on direct clients and probes", () => {
     const f = fixture();
     writeFileSync(f.bin, "#!/bin/sh\nexit 4\n");
     const log = f.observability.logger("brain");
-    await expect(probeBrainCliVersion(f.root, log, { exec: {}, minimumVersion: "0.40.0", phase: "invocation" })).rejects.toThrow(/host versionRequirements.brainCli.*0\.40\.0.*bump the brain repo/);
+    await expect(probeBrainCliVersion(f.root, log, { exec: {}, boundary: f.boundary(), minimumVersion: "0.40.0", phase: "invocation" })).rejects.toThrow(/host versionRequirements.brainCli.*0\.40\.0.*bump the brain repo/);
   });
 });

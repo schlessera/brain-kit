@@ -4,7 +4,7 @@ import { cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, 
 import { join } from "node:path";
 import type { NativeJournalCheckpoint, NativeJournalManager } from "../../src/brain/native-journal-observer.js";
 import type { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/native-brain-manager-client.js";
-import { nativeManagerFrame, nativeManagerRequest } from "../../../ui-sdk/src/server/native-brain-manager-protocol.js";
+import { nativeManagerFrame, nativeManagerRequest, NATIVE_DATA_CHUNK_BYTES } from "../../../ui-sdk/src/server/native-brain-manager-protocol.js";
 
 type Entry = { kind: "directory" | "file" | "symlink" | "other"; mode: number; bytes: number; identity: string; ino: bigint; target?: string };
 const bytes = (text: string) => Buffer.from(text, "utf8");
@@ -79,6 +79,9 @@ export function createNativeJournalFixture(brain: string, root: string) {
   };
   const client: ReturnType<typeof createNativeBrainManagerClient> = {
     ...manager,
+    async prepareStage() { throw Error("Copied native fixture does not qualify output-stage runtime; provide explicit prepared worker test output."); },
+    async inspectStage() { throw Error("Copied native fixture has no output stage to inspect."); },
+    async releaseStage(id) { return { id, state: "deleted" }; },
     async ready() { return { brainPath: brain, brainUuid: "11".repeat(16), brainRootId: "256", privatePaths: [snapshots],
       fsid: "11111111-1111-4111-8111-111111111790", capacityBytes: 1024 ** 3, availableBytes: 1024 ** 3, recoveryReserveBytes: 4096, reserveAllocatedBytes: 4096 }; },
     async checkpoint(id, signal) { return { ...await manager.checkpoint(id, signal), sourceUuid: "11".repeat(16), fsid: "11111111-1111-4111-8111-111111111790", rootId: "257" }; },
@@ -96,9 +99,14 @@ export function createNativeJournalFixture(brain: string, root: string) {
         if (message.operation === "checkpoint") return Response.json(await client.checkpoint(message.id, request.signal));
         if (message.operation === "release") return Response.json(await client.release(message.id, request.signal));
         if (message.operation === "listRecovery") return Response.json(await client.listRecovery());
+        if (message.operation === "prepareStage") return Response.json(await client.prepareStage(message.id,message.checkpointId,message.allowanceBytes,request.signal));
+        if (message.operation === "releaseStage") return Response.json(await client.releaseStage(message.id,request.signal));
+        if (message.operation === "inspectStage") throw Error("Copied native fixture cannot qualify stage inspection.");
         const result = await client.delta(message.from, message.to, request.signal);
         const raw = new Uint8Array(await new Response(result.stream).arrayBuffer()), completed = await result.completed;
-        return new Response(Buffer.concat([nativeManagerFrame(1, raw), nativeManagerFrame(2, bytes(JSON.stringify({ ok: true, ...completed })))]),
+        const frames: Uint8Array[] = [];
+        for (let offset=0;offset<raw.length;offset+=NATIVE_DATA_CHUNK_BYTES) frames.push(nativeManagerFrame(1,raw.subarray(offset,offset+NATIVE_DATA_CHUNK_BYTES)));
+        return new Response(Buffer.concat([...frames, nativeManagerFrame(2, bytes(JSON.stringify({ ok: true, ...completed })))]),
           { headers: { "content-type": "application/x-brain-native-delta" } });
       } });
       return { socketPath, close() { server.stop(true); } };
