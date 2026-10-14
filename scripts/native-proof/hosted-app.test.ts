@@ -34,7 +34,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const cli = join(brain, "node_modules/.bin/brain");
   const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
   // The fixed witness runs inside the actual automatic index maintenance worker.
-  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance"],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
   const FILES = 2000, BYTES = 16384;
   for (let i = 0;i < FILES;i++) {
     const header = `---\ntype: note\ntitle: Odysseus voyage ${i}\nupdated: 2026-07-12\n---\nOdysseus charts Ithaca ${i}.\n`;
@@ -75,6 +75,8 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     const origin = `http://127.0.0.1:${ready.port}`;
     const cookie = await serializeSigned("brain_ui_session", ready.principalId, ready.secret);
     const status = await fetch(origin + "/api/status", { headers: { cookie } }).then(r => r.json()) as any;
+    expect(status.runtime.workerHost.ordinary?.available, "NATIVE_BOOT_ORDINARY_WORKER_HEALTHY").toBe(true);
+    expect(status.runtime.workerHost.governed, "NATIVE_BOOT_MAINTENANCE_GOVERNED_HEALTHY").toMatchObject({ available: true, profile: "governed", hostExecution: "worker" });
     expect(status.runtime.workerHost.rootServer?.warning ?? null, "NATIVE_ROOT_APP_PRESERVES_STATUS_WARNING").toBe(APP_UID === 0 ? ready.rootWarnings[0] : null);
     async function device() {
       const frames: any[] = [];
@@ -117,6 +119,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       try {
         await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === requestId), 45000);
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
+        expect(ack.workerProfile?.actualProfile, "NATIVE_ADMITTED_GOVERNED_PROFILE").toBe("governed");
         sid = ack.sessionId;
         ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
@@ -124,6 +127,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
         // Visible result/journal frames precede final durable settlement and slot release.
         await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete") &&
           readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line)).some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
+        expect(sender.frames.filter(f => f.type === "turn_journal" && f.turnId === ack.turnId).every(f => f.journal?.profile === "governed"), "NATIVE_JOURNAL_GOVERNED_PROFILE").toBe(true);
         recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
       }
       catch (error) { completed = false; phaseError = String(error); }
@@ -199,9 +203,19 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     await until(() => sender.frames.some(f => f.receiptAt >= unnamedStart && f.type === "status" && f.status === "cancelled" && f.requestId === "odysseus-unnamed-cancel"), 10000);
     await sleep(200);
     expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
+    // Drain the real queued refresh before shutdown intentionally discards pending work.
+    await until(() => {
+      const events = readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line));
+      const failed = events.find(row => row.kind === "automatic_index_failed");
+      if (failed) throw Error(`NATIVE_AUTOMATIC_INDEX_COMPLETED: ${failed.error}`);
+      const warm = events.find(row => row.kind === "worker_exit" && row.attempt === 2);
+      // index() acquires its complete native input after this observed invocation.
+      return warm && events.some(start => start.kind === "automatic_index_started" && start.at > warm.at &&
+        events.some(end => end.kind === "automatic_index_finished" && end.ordinal === start.ordinal));
+    }, 90000);
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
-      source: SOURCE, backend: BACKEND, appUid: APP_UID, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
+      source: SOURCE, backend: BACKEND, appUid: APP_UID, bootWorkerHost: status.runtime.workerHost, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
       workerFiles: readdirSync(join(brain, "notes")).filter(name => name.startsWith("worker-")), events: readFileSync(join(dir, "events.jsonl"), "utf8").trim().split("\n").map(value => JSON.parse(value))
     };
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));
@@ -226,10 +240,21 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     if (existsSync(join(dir, "events.jsonl"))) writeFileSync(join(ARTIFACTS, "events.jsonl"), readFileSync(join(dir, "events.jsonl")));
     try {
       if (code === 0 && receipt && hostProofPassed) {
+        // The closed app has drained refresh work; no live reader can mutate SQLite sidecars.
+        const index = new Database(join(brain, "brain.db"), { readonly: true });
+        try {
+          for (const attempt of [1,2]) {
+            const row = index.query("SELECT path, content FROM documents WHERE path = ?").get(`notes/worker-${attempt}.md`) as { path: string; content: string } | null;
+            expect(row?.content ?? "", "NATIVE_AUTOMATIC_INDEX_PUBLISHED_FIRST_AND_WARM_NOTES").toContain(BACKEND === "pi" ? "Odysseus marks the actual Pi worker." : "Odysseus marks the actual worker.");
+          }
+        } finally { index.close(); }
         expect(existsSync(join(brain,".brain/maintenance-authority.json")), "NATIVE_AUTOMATIC_INDEX_AUTHORITY_PUBLISHED").toBe(true);
         const maintenanceAuthority = JSON.parse(readFileSync(join(brain,".brain/maintenance-authority.json"),"utf8"));
         expect(maintenanceAuthority.namespaceUid, "NATIVE_MAINTENANCE_NAMESPACE_UID").toBe(0);
         expect(maintenanceAuthority.ioctlsDenied).toHaveLength(7);
+        expect(maintenanceAuthority.nestedUsernsDenied, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED").toBe(true);
+        expect(maintenanceAuthority.quotaWriteDenied, "NATIVE_MAINTENANCE_QUOTA_WRITE_DENIED").toBe(true);
+        expect(maintenanceAuthority.siblingWriteDenied, "NATIVE_MAINTENANCE_SIBLING_SYSCTL_WRITE_DENIED").toBe(true);
         const workerLaunches = readFileSync(join(ARTIFACTS,"events.jsonl"),"utf8").trim().split("\n").map(line=>JSON.parse(line)).filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
         expect(workerLaunches.length, "NATIVE_REAL_AGENT_AND_MAINTENANCE_WORKERS_LAUNCHED").toBeGreaterThanOrEqual(3);
         expect(workerLaunches.every(row=>row.kernelUid===APP_UID), "NATIVE_WORKERS_KEEP_FIXED_KERNEL_UID").toBe(true);

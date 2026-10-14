@@ -1,5 +1,5 @@
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
-import { chmodSync, mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
@@ -40,13 +40,20 @@ if (import.meta.main) {
         "--mount", `type=bind,source=${lease},target=/repo/tmp/workspace-operation`,
         "--workdir=/repo", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/fixture.py", backend, uid];
       console.log(`Native ${backend} uid ${uid} hosted proof artifacts: ${artifact}`);
+      const runnerQuota = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
       const child = Bun.spawn(args, { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
       const signals = ["SIGINT", "SIGTERM"] as const;
       const forward = (signal: NodeJS.Signals) => child.kill(signal);
       for (const signal of signals) process.on(signal, forward);
-      let code: number;
+      let code: number, runnerQuotaChanged = false;
       try { code = await child.exited; }
-      finally { for (const signal of signals) process.off(signal, forward); }
+      finally {
+        for (const signal of signals) process.off(signal, forward);
+        const after = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
+        writeFileSync(join(artifact, "runner-quota.json"), JSON.stringify({ before: runnerQuota, after, unchanged: runnerQuota === after }));
+        runnerQuotaChanged = runnerQuota !== after;
+      }
+      if (runnerQuotaChanged) throw Error("NATIVE_RUNNER_USERNS_QUOTA_UNCHANGED");
       if (code !== 0) throw Error(`Native hosted proof failed (${code}); inspect ${artifact}. No skipped or absent runtime is passing proof.`);
       const receipt = await Bun.file(join(artifact, "native-fixture.json")).json() as { kind: string; mounted?: boolean; attached?: boolean; loopCreated?: boolean; backingExists?: boolean; errors?: string[] }[];
       const cleanup = receipt.at(-1);

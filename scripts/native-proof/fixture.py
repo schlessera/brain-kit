@@ -1,5 +1,5 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
-import fcntl, json, os, pathlib, signal, stat, struct, subprocess, sys, time
+import fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
 BACKEND = sys.argv[1] if len(sys.argv) >= 2 else "claude"
 if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
@@ -44,12 +44,20 @@ def run(argv, timeout=20):
 control = loop = image = None
 created = attached = mounted = False
 failure = None
+outer_quota = pathlib.Path("/proc/sys/user/max_user_namespaces").read_text()
 try:
     if os.getuid() != 0 or pathlib.Path("/sys/block/loop1790").exists():
         raise RuntimeError("Native proof requires an unused exact loop1790 and its root fixture owner")
+    try: apparmor_label = pathlib.Path("/proc/self/attr/current").read_text().strip()
+    except OSError as error: apparmor_label = "unavailable: " + str(error)
+    expected_apparmor = json.loads((ROOT / "native-environment.json").read_text())["apparmor"]
+    if expected_apparmor and apparmor_label != "brain-kit-native-proof (enforce)":
+        raise RuntimeError("NATIVE_APPARMOR_NAMED_PROFILE_ENFORCED: " + apparmor_label)
     record("environment", kernel=os.uname().release,
            capabilities=next(x.strip() for x in pathlib.Path("/proc/self/status").read_text().splitlines() if x.startswith("CapEff:")),
-           network=pathlib.Path("/proc/net/dev").read_text())
+           network=pathlib.Path("/proc/net/dev").read_text(), usernsQuota=outer_quota, apparmor=apparmor_label,
+           bwrapVersion=subprocess.check_output(["/usr/bin/bwrap", "--version"]).decode().strip(),
+           bwrapSha256=hashlib.sha256(pathlib.Path("/usr/bin/bwrap").read_bytes()).hexdigest())
     BACKING.parent.mkdir(mode=0o755)
     image = os.open(BACKING, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
     os.posix_fallocate(image, 0, CAPACITY)
@@ -96,6 +104,9 @@ finally:
     if control is not None: os.close(control)
     if image is not None: os.close(image)
     if not mounted and not attached and BACKING.exists(): BACKING.unlink()
+    after_quota = pathlib.Path("/proc/sys/user/max_user_namespaces").read_text()
+    record("parent-userns-quota", before=outer_quota, after=after_quota, unchanged=outer_quota == after_quota)
+    if outer_quota != after_quota: errors.append("NATIVE_CONTAINER_USERNS_QUOTA_UNCHANGED")
     record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors)
     if errors and failure is None: failure = RuntimeError("Native proof cleanup failed")
 if failure is not None: raise failure

@@ -12,7 +12,8 @@
   },
   "changes": [
     "Replace deny mount with mount allowance",
-    "Add pivot_root allowance"
+    "Add pivot_root allowance",
+    "Narrow non-kernel proc sysctl write denial only at /proc/sys/user/max_user_namespaces for namespace-local bubblewrap --disable-userns setup"
   ],
   "license": "Apache-2.0"
 }

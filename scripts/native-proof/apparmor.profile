@@ -41,7 +41,12 @@ profile "brain-kit-native-proof" flags=(attach_disconnected,mediate_deleted) {
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
   # deny write to files not in /proc/<number>/** or /proc/sys/**
   deny @{PROC}/{[^1-9/],[^1-9/][^0-9/],[^1-9s/][^0-9y/][^0-9s/],[^1-9/][^0-9/][^0-9/][^0-9/]*}/** w,
-  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  # Permit only bubblewrap's namespace-local user quota setup at this exact path.
+  # Every other previously denied proc/sys path remains denied.
+  deny @{PROC}/sys/[^ku]** w,
+  deny @{PROC}/sys/{u,us,use,user,user/,user/m,user/ma,user/max,user/max_,user/max_u,user/max_us,user/max_use,user/max_user,user/max_user_,user/max_user_n,user/max_user_na,user/max_user_nam,user/max_user_name,user/max_user_names,user/max_user_namesp,user/max_user_namespa,user/max_user_namespac,user/max_user_namespace} w,
+  deny @{PROC}/sys/{u[^s]**,us[^e]**,use[^r]**,user[^/]**,user/[^m]**,user/m[^a]**,user/ma[^x]**,user/max[^_]**,user/max_[^u]**,user/max_u[^s]**,user/max_us[^e]**,user/max_use[^r]**,user/max_user[^_]**,user/max_user_[^n]**,user/max_user_n[^a]**,user/max_user_na[^m]**,user/max_user_nam[^e]**,user/max_user_name[^s]**,user/max_user_names[^p]**,user/max_user_namesp[^a]**,user/max_user_namespa[^c]**,user/max_user_namespac[^e]**,user/max_user_namespace[^s]**} w,
+  deny @{PROC}/sys/user/max_user_namespaces{?**,/**} w,
   deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
   deny @{PROC}/sysrq-trigger rwklx,
   deny @{PROC}/kcore rwklx,

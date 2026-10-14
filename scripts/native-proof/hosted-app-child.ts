@@ -16,6 +16,20 @@ const SECRET = "odysseus-probe-cookie-secret-0123456789";
 const SID = "11111111-1111-4111-8111-111111111790";
 const event = (kind: string, data: object = {}) => appendFileSync(join(dir!, "events.jsonl"), JSON.stringify({ kind, at: performance.now(), wallAt: Date.now(), ...data }) + "\n");
 event("first_import_complete", { elapsedMs: performance.now() - firstImportStartedAt });
+// Observe real index completion, including guarded publication, without changing the call.
+const { spyOn } = await import("bun:test");
+const brainClients = await import(join(source!, "packages/ui-server/src/brain/client.ts"));
+const createBrainClient = brainClients.createBrainClient;
+let indexOrdinal = 0;
+spyOn(brainClients, "createBrainClient").mockImplementation((...args: Parameters<typeof createBrainClient>) => {
+  const brainClient = createBrainClient(...args), index = brainClient.index.bind(brainClient);
+  brainClient.index = async (...values: Parameters<typeof index>) => {
+    const ordinal = ++indexOrdinal; event("automatic_index_started", { ordinal });
+    try { const result = await index(...values); event("automatic_index_finished", { ordinal }); return result; }
+    catch (error) { event("automatic_index_failed", { ordinal, error: String(error) }); throw error; }
+  };
+  return brainClient;
+});
 let piWorkerCount=0;
 const tracedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd, start = performance.now(), child = Reflect.apply(tracedSpawn, Bun, args); const tail = argv.slice(-8);

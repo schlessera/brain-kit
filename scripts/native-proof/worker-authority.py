@@ -1,5 +1,6 @@
 """Fixed offline authority witness executed by actual native workers."""
 import errno
+import ctypes
 import fcntl
 import json
 import os
@@ -56,6 +57,27 @@ if expected_host_uid == 0:
     else:
         os.close(fd)
         raise AssertionError("NATIVE_ROOT_WORKER_PROC_READONLY")
+maintenance = len(sys.argv) > 2 and sys.argv[2] == "maintenance"
+nested_denied = quota_denied = sibling_denied = None
+if maintenance:
+    for path in ("/proc/sys/user/max_user_namespaces", "/proc/sys/user/max_pid_namespaces"):
+        try:
+            fd = os.open(path, os.O_WRONLY)
+        except OSError as error:
+            assert error.errno in (errno.EACCES, errno.EPERM, errno.EROFS), "NATIVE_MAINTENANCE_SYSCTL_WRITE_DENIED"
+        else:
+            os.close(fd)  # Never write, including an unexpectedly writable file.
+            raise AssertionError("NATIVE_MAINTENANCE_SYSCTL_WRITE_DENIED")
+    quota_denied = sibling_denied = True
+    child = os.fork()
+    if child == 0:
+        libc = ctypes.CDLL(None, use_errno=True)
+        result = libc.unshare(0x10000000)  # CLONE_NEWUSER, only in this disposable child.
+        os._exit(0 if result == -1 and ctypes.get_errno() in (errno.EPERM, errno.ENOSPC, errno.EUSERS) else 1)
+    _, status = os.waitpid(child, 0)
+    assert os.waitstatus_to_exitcode(status) == 0, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED"
+    nested_denied = True
 print(json.dumps({"namespaceUid": os.getuid(), "namespaceGid": os.getgid(), "caps": caps, "ioctlsDenied": denied,
                   "trustedOverlayDenied": True, "privateStateMasked": True, "controlSocketMasked": True,
-                  "procReadonly": proc_readonly}))
+                  "procReadonly": proc_readonly, "nestedUsernsDenied": nested_denied,
+                  "quotaWriteDenied": quota_denied, "siblingWriteDenied": sibling_denied}))
