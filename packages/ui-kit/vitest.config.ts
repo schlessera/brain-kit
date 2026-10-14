@@ -152,23 +152,6 @@ export default mergeConfig(
         {
           extends: true,
           test: {
-            // Touch emulation does not restore fine-pointer media on disable.
-            // Own its browser lifetime so live hint proof cannot affect other files.
-            name: "keyboard-hints-live",
-            include: ["../ui-react/tests/browser/keyboard-hints.pointer.tsx"],
-            provide: { railPointer: "fine", keyboardHintsLive: true },
-            browser: {
-              enabled: true,
-              commands: { dictationPointer, formViewport, formConsumerStyles, rankTouch, rankTap },
-              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
-              headless: true,
-              instances: [{ browser: "chromium" }],
-            },
-          },
-        },
-        {
-          extends: true,
-          test: {
             name: "visual",
             // `.visual.tsx`, deliberately NOT `.test.tsx`: the repo's `bun run test`
             // globs `packages/**` for `*.test.ts(x)` and would claim these, then
@@ -248,6 +231,23 @@ export default mergeConfig(
               enabled: true,
               commands: { rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture },
               provider: playwright({ contextOptions: { hasTouch: true } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            // Touch emulation does not restore fine-pointer media on disable.
+            // Own its browser lifetime so live hint proof cannot affect other files.
+            name: "keyboard-hints-live",
+            include: ["../ui-react/tests/browser/keyboard-hints.pointer.tsx"],
+            provide: { railPointer: "fine", keyboardHintsLive: true },
+            browser: {
+              enabled: true,
+              commands: { dictationPointer, formViewport, formConsumerStyles, rankTouch, rankTap },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },
