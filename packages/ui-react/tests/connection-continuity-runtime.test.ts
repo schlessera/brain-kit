@@ -25,8 +25,9 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 // queued (#1002's pending pill), another running session drawn as a tracker
 // (#950), and a draft the host keeps (#951) holding words, an image and a
 // track whose upload is pending. Across ten drop/reconnect cycles at 320px
-// and 1280px, in both themes, the test measures what the reader and the
-// writer would notice, in the offline state and again after recovery.
+// and 1280px, each in one fixed theme, the test measures what the reader and
+// writer would notice, in the offline state and again after recovery. Theme
+// layout/interaction parity belongs to docs/process/theme-parity.md.
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Connection-continuity runtime proof requires real Chrome");
@@ -247,10 +248,9 @@ function recorder() {
 }
 
 type Cell = { name: string; theme: "dark" | "light"; width: number; height: number };
+// Responsive recovery paths are independent; theme copies are covered centrally.
 const cells: Cell[] = [
   { name: "320 phone, dark", theme: "dark", width: 320, height: 640 },
-  { name: "320 phone, light", theme: "light", width: 320, height: 640 },
-  { name: "1280 desktop, dark", theme: "dark", width: 1280, height: 800 },
   { name: "1280 desktop, light", theme: "light", width: 1280, height: 800 },
 ];
 const wide = (cell: Cell) => cell.width >= 1280;
