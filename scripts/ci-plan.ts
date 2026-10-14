@@ -216,6 +216,10 @@ if (import.meta.main) {
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
       `cadence=${plan.cadence ?? "diagnostic"}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
-    console.log(JSON.stringify({ ...plan, draft }, null, 2));
+    console.log(JSON.stringify({ ...plan, draft, event: event && {
+      name: process.env.GITHUB_EVENT_NAME, action: event.action,
+      head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA,
+      base: event.pull_request?.base?.sha ?? event.before,
+    } }, null, 2));
   } catch (error) { console.error(error); process.exit(1); }
 }
