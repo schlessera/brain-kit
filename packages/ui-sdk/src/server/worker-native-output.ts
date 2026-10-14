@@ -44,6 +44,19 @@ function parent(root: string, rel: string) {
   try { for (const part of parts.slice(0, -1)) { const child = openSync(at(fd, part), DIRECTORY); closeSync(fd); fd = child; } return { fd, name: parts.at(-1)! }; }
   catch (error) { closeSync(fd); throw error; }
 }
+/** New-directory children prepare in their nearest existing no-follow ancestor. */
+function preparationDirectory(root: string, rel: string): number {
+  let fd = openSync(root, DIRECTORY);
+  try {
+    for (const part of rel.split("/").slice(0,-1)) {
+      let next: number;
+      try { next = openSync(at(fd,part), DIRECTORY); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return fd; throw error; }
+      closeSync(fd); fd = next;
+    }
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
+}
 function absent(error: unknown) { return ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? ""); }
 async function inspect(root: string, rel: string, members = false): Promise<Captured> {
   let handle: ReturnType<typeof parent>;
@@ -164,7 +177,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         try {
           for (const rel of changed) {
             const next = after.get(rel)!.entry; if (!next || next.type === "directory") continue;
-            const handle = { fd: openSync(brain, DIRECTORY), name: `.maintenance-${randomUUID()}` }, temporary = at(handle.fd, handle.name);
+            const handle = { fd: preparationDirectory(brain, rel), name: `.maintenance-${randomUUID()}` }, temporary = at(handle.fd, handle.name);
             pending.push({ rel, ...handle, temporary, next });
             if (next.type === "symlink") symlinkSync(next.link!, temporary);
             else {
@@ -187,7 +200,12 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           if (await processStart(stage!.namespacePid).catch(() => undefined) !== stage!.namespaceStart) throw Error("Native output stage was lost; discard outputs and reconcile ownership");
           // Recheck all bases after async preparation and before the first mutation.
           for (const rel of changed) {
-            if (currentVersion(brain, rel) !== authoritative.get(rel)!.stamp) throw Error(`stale maintenance output: ${rel}`);
+            const current = currentVersion(brain, rel), expected = authoritative.get(rel)!.stamp;
+            // Parent-local preparation changes only directory timestamps. The
+            // established directory predicate guards inode/mode; deletion also
+            // keeps the complete membership/version check before removal.
+            const directory = before.get(rel)!.entry?.type === "directory" && after.get(rel)!.entry?.type === "directory";
+            if (directory ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
           }
           for (const rel of changed.filter(p => !after.get(p)!.entry).sort((a,b) => b.split("/").length-a.split("/").length)) {
             const handle = parent(brain, rel); try { const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
