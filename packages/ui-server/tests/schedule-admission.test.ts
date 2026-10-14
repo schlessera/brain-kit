@@ -26,7 +26,7 @@ function start(): ScheduleFixture {
 
 function harness(f: ScheduleFixture, script: Script, options: Parameters<typeof scheduleRuntime>[1] extends infer O ? Partial<O> : never = {}) {
   const h = scheduleRuntime(f.db, { root: f.root, clock: f.clock, script, ...options });
-  closers.push(() => h.runtime.close());
+  closers.push(() => h.close());
   return h;
 }
 
@@ -64,7 +64,11 @@ test("a one-off is admitted once by concurrent processes, runs once through the 
   const f = fixture = start();
   const at = f.clock.now + 5 * MINUTE;
   const task = await create(f, "ithaca-once", atDefinition(isoInstant(at)));
-  const h = harness(f, succeed("Two checks remain at Ithaca."));
+  const h = harness(f, async (request, attempt) => {
+    expect(request.workerStartupView?.brain, "SCHEDULE_DISPATCH_PREPARED_BRAIN_INPUT").toBe(f.root);
+    expect(existsSync(request.workerStartupView!.root), "SCHEDULE_DISPATCH_INPUT_HELD_DURING_BACKEND").toBe(true);
+    await succeed("Two checks remain at Ithaca.")(request, attempt);
+  });
   // Not yet due: nothing is admitted and nothing runs.
   expect(await h.admission.admit()).toEqual([]);
   expect((await h.service.due(f.owner, {})).due).toEqual([]);
@@ -88,7 +92,8 @@ test("a one-off is admitted once by concurrent processes, runs once through the 
   expect(f.db.query("SELECT COUNT(*) AS n FROM schedule_occurrence_items").get()).toEqual({ n: 1 });
 
   expect(await h.runtime.tick()).toMatchObject({ claimed: 1, dispatchEnabled: true });
-  expect(h.calls).toHaveLength(1);
+  expect(h.calls, "SCHEDULE_DISPATCH_REACHES_BACKEND_WITH_NATIVE_INPUT").toHaveLength(1);
+  expect(existsSync(h.calls[0]!.workerStartupView!.root), "SCHEDULE_DISPATCH_INPUT_RELEASED_AFTER_BACKEND").toBe(false);
   expect(h.calls[0]!.prompt).toBe(atDefinition("").prompt);
   expect(h.calls[0]!.autonomous?.allowedTools).toEqual(["brain_read"]);
   expect(occurrences(f)).toEqual([expect.objectContaining({ id: due[0]!.occurrenceId, state: "completed",
