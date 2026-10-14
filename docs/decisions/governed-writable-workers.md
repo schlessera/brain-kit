@@ -970,7 +970,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:228`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation

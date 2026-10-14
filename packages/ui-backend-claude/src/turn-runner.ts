@@ -130,8 +130,9 @@ export function createClaudeTurnRunner(options: {
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
+    const turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
     const observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
-      ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnv(profile)).archive, "native-observations"), brainPath: options.backend.brainPath }
+      ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
       : undefined;
     const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
       ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
@@ -351,6 +352,7 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
+        turnEnvironment,
         fileVersions,
         req: { ...req, signal: abortController.signal },
         profile,

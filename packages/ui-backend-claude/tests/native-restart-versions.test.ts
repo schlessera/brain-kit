@@ -19,7 +19,7 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
   writeFileSync(path, tool === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n");
   utimesSync(path, new Date("2026-07-12T00:00:00Z"), new Date("2026-07-12T00:00:00Z"));
   const stamp = statSync(path);
-  let mode = "read", sent = 0, runtime: string | undefined;
+  let mode = "read", sent = 0, runtime: string | undefined, environmentCalls = 0, turns = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
     const body = await request.json() as { tools?: { name: string }[] };
@@ -40,7 +40,7 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
     ...originalSpawn(...args), observeFile: createWorkerFileObserver({ brain, configurationRoot: brain, areas: [] }),
   }));
   const makeBackend = () => createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Write", "Edit", "NotebookEdit"],
-    profiles: [{ id: "voyage", label: "Voyage", billing: "api", requiredEnvKeys: [], buildEnv: () => Object.fromEntries(Object.entries(env).filter((pair): pair is [string, string] => typeof pair[1] === "string")) }],
+    profiles: [{ id: "voyage", label: "Voyage", billing: "api", requiredEnvKeys: [], buildEnv: () => { environmentCalls++; return Object.fromEntries(Object.entries(env).filter((pair): pair is [string, string] => typeof pair[1] === "string")); } }],
     // A real CLI with loopback inference, isolated state and unchanged parent hooks.
     queryFn: ((params: { prompt: unknown; options: Options }) => (async function* () {
       for await (const message of query({ prompt: mode === "read" ? "Read the loom." : "Make the planned change.",
@@ -52,13 +52,14 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
   });
   let backend = makeBackend(), sessionId: string | undefined;
   async function turn(next: string) {
-    mode = next; sent = 0;
+    mode = next; sent = 0; turns++;
     const frames: ServerMessage[] = [], controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
     try {
       await backend.startTurn({ sessionId, prompt: next, signal: controller.signal,
         workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
         bridge: { emit: frame => { frames.push(frame); if (frame.type === "session_info") sessionId ??= frame.sessionId; }, requestPermission: async () => ({ behavior: "allow" }) },
       });
+      expect(environmentCalls, "ONE_ENVIRONMENT_FOR_STORAGE_AND_NATIVE_RUNTIME").toBe(turns);
       expect(runtime, "ACTUAL_INSTALLED_CLAUDE_FILE_TOOL_IDENTITY").toBe(MEASURED_RUNTIME.claudeCode);
       expect(sent, "ACTUAL_NATIVE_OPERATION_REQUESTED").toBe(next === "recover" ? 2 : 1);
       expect(frames.some(frame => frame.type === "result" && frame.outcome === "success")).toBe(true);
