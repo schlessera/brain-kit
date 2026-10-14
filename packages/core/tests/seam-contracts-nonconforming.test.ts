@@ -22,6 +22,8 @@ import {
   type ContractTestPrimitives,
 } from "@schlessera/brain/testing";
 
+import { withContractClock } from "./helpers/contract-clock";
+
 import type {
   AgentRunner,
   CompletionProvider,
@@ -31,7 +33,8 @@ import type {
 
 /** Register a suite into a collector, run every case, and name the ones that threw. */
 async function failingCases(
-  register: (primitives: ContractTestPrimitives) => void
+  register: (primitives: ContractTestPrimitives) => void,
+  controlled = false
 ): Promise<{ ran: number; failed: string[] }> {
   const cases: { name: string; fn: () => void | Promise<void> }[] = [];
   register({
@@ -41,14 +44,29 @@ async function failingCases(
   });
   const failed: string[] = [];
   for (const c of cases) {
-    try {
-      await c.fn();
-    } catch {
-      failed.push(c.name);
-    }
+    const execute = async () => {
+      try {
+        await c.fn();
+      } catch {
+        failed.push(c.name);
+      }
+    };
+    // Clock failures must escape, never masquerade as expected contract failures.
+    if (controlled) await withContractClock(execute);
+    else await execute();
   }
   return { ran: cases.length, failed };
 }
+
+/** Only the known in-memory deadline counterexamples opt into logical time. */
+const clockedFailingCases = (register: (primitives: ContractTestPrimitives) => void) =>
+  failingCases(register, true);
+
+test("clock infrastructure errors escape the expected-failure collector", async () => {
+  await expect(clockedFailingCases((p) => {
+    p.test("a malformed fixture with no scheduled completion", () => new Promise(() => {}));
+  })).rejects.toThrow("contract clock stalled without a pending timer");
+});
 
 // ---------------------------------------------------------------------------
 // EmbeddingProvider
@@ -112,7 +130,7 @@ describe("EmbeddingProvider contract suite", () => {
   });
 
   test("a hanging provider that drops the forwarded signal fails the cancellation case", async () => {
-    const result = await failingCases((p) =>
+    const result = await clockedFailingCases((p) =>
       runEmbeddingProviderContract(
         {
           name: "deaf",
@@ -140,7 +158,7 @@ describe("EmbeddingProvider contract suite", () => {
     [1_500, "a forwarded signal rejects the pending embedQuery promptly, early or late"],
   ] as const) {
     test(`a query that rejects on its own at ${ms}ms, not on the abort, fails a cancellation case`, async () => {
-      const result = await failingCases((p) =>
+      const result = await clockedFailingCases((p) =>
         runEmbeddingProviderContract(
           { name: "impatient", provider: () => embeddings(), hanging: rejectsAfter(ms) },
           p
@@ -289,7 +307,7 @@ describe("AgentRunner contract suite", () => {
   });
 
   test("a runner that ignores timeoutMs fails the timeout case", async () => {
-    const result = await failingCases((p) =>
+    const result = await clockedFailingCases((p) =>
       runAgentRunnerContract(
         {
           name: "deaf",
@@ -315,7 +333,7 @@ describe("AgentRunner contract suite", () => {
         echoRunner({
           run: () => new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms)),
         });
-      const result = await failingCases((p) =>
+      const result = await clockedFailingCases((p) =>
         runAgentRunnerContract({ name: "fixed", echoing: () => echoRunner(), hanging: fixed }, p)
       );
       expect(result.failed).toEqual([failing]);

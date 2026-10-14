@@ -131,6 +131,39 @@ completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
 
+## Private conformance counterexamples
+
+`packages/core/tests/seam-contracts-nonconforming.test.ts` runs the published
+contract callbacks against intentionally malformed in-memory implementations.
+Only its six fixed-deadline fixtures and two never-settling controls use the
+private clock (`withContractClock`,
+`packages/core/tests/helpers/contract-clock.ts:9-65`). Every original case and exact
+expected failed-case list remains. The clock delivers registered callbacks in
+deadline/registration order, drains their real promise continuations between
+deliveries, and advances `performance.now()` to the delivered deadline. Each
+contract case restores complete timer/elapsed-clock descriptors and discards its
+own pending fake callbacks, including when an assertion fails.
+
+| Malformed fixture | Actual contract boundary and expected failure |
+| --- | --- |
+| Embedding rejects at 40 or 300 ms regardless of signal | Fails the live-signal case requiring 1000 ms pending. The separate early/late abort case still observes actual rejected promises. |
+| Embedding rejects at 1500 ms | Passes the 1000 ms live-signal observation, but misses rejection within 400 ms of the 50 ms and 700 ms aborts. |
+| Embedding ignores abort forever | Passes the live-signal observation; fails the early/late rejection case at its actual 450/1100 ms horizons. |
+| Runner rejects at fixed 600 or 1200 ms | Passes the short case (elapsed greater than 350 ms, settled by 1500 ms); fails the long case's elapsed lower bound of greater than 2450 ms. |
+| Runner rejects at fixed 3000 ms | Misses the short case's 1500 ms horizon; passes the long case (elapsed greater than 2450 ms, settled by 3600 ms). |
+| Runner ignores deadlines forever | Fails both the short 1500 ms and long 3600 ms settlement horizons. |
+
+These fixtures prove the oracle rejects those counterexamples; they do not
+measure native runtimes. Published helpers and timing bounds are unchanged.
+`seam-contracts.test.ts` retains native-time provider/transport conformance, and
+`agent-runner-contracts.test.ts` retains the actual built-in runners, stand-in
+child CLIs, real elapsed deadlines, exit-code checks and all six cases per
+runner. Conforming and buffered-streaming self-tests also retain native time.
+The private clock controls have independent before/at/tied-deadline, promise
+outcome, cancellation, failure-cleanup and clean-successor assertions. Clock
+infrastructure errors propagate rather than counting as expected contract
+failures. This scope must not spread to real child processes or IO waits.
+
 ## Measuring a replacement
 
 Record the source SHA and exact changed inputs, Bun/browser versions, resources
