@@ -9,7 +9,7 @@ import {
 } from "@schlessera/brain-ui-sdk/share-target";
 import { useConnectionStore } from "../stores/connection-store.js";
 import { useShareStore } from "../stores/share-store.js";
-import { SHARE_REVIEW_PREFIX, holdShareReview, recoverShareReview, shareReviewIds, shareReviewPartition } from "../lib/share-review.js";
+import { SHARE_REVIEW_PREFIX, acquireShareReviewSession, releaseShareReviewSession, type ShareReviewSession, holdShareReview, recoverShareReview, shareReviewIds, shareReviewPartition } from "../lib/share-review.js";
 import { detectClientEnvironment } from "../lib/client-environment.js";
 import {
   buildSharePrompt,
@@ -65,13 +65,11 @@ export function useShareIntake(): {
 } {
   const root = useBrainUiRoot();
   const canUpload = useCallback(() => root.stores.connection.getState().wsStatus === "connected" && navigator.onLine !== false, [root]);
-  const activeUpload = useRef<{ id: string; record: StoredShare; controller: AbortController } | null>(null);
-  const waiting = useRef<StoredShare | null>(null);
+  const reviewSession = useRef<ShareReviewSession | null>(null);
   const wsStatus = useConnectionStore(state => state.wsStatus);
   const busy = useShareStore(state => state.busy);
   const queue = useShareStore(state => state.queue);
   const account = useConnectionStore(state => state.accountKey);
-  const owners = useRef(new Map<string, () => void>());
   const lifetime = useRef(new AbortController());
   useEffect(() => {
     const controller = new AbortController();
@@ -90,27 +88,30 @@ export function useShareIntake(): {
     if (error) setError(error);
     if (!account) return;
     let scanning = false;
-    const held = new Map<string, () => void>();
-    owners.current = held;
+    const session = acquireShareReviewSession(root, account);
+    const owner = lifetime.current.signal;
+    reviewSession.current = session;
+    const held = session.owners;
+    const lease = session.controller.signal;
     const scan = async () => {
-      if (scanning || controller.signal.aborted) return;
+      if (scanning || controller.signal.aborted || lease.aborted) return;
       scanning = true;
       try {
         for (const id of await shareReviewIds(root)) {
           if (controller.signal.aborted) return;
           if (held.has(id)) continue;
           // The callback retains the native lock while this tab owns review.
-          void holdShareReview(id, controller.signal, async () => {
+          void holdShareReview(id, lease, async () => {
             const review = await recoverShareReview(root, id);
-            if (!review || controller.signal.aborted) return;
+            if (!review || lease.aborted) return;
             await new Promise<void>(release => {
-              const stop = () => { controller.signal.removeEventListener("abort", stop); release(); };
+              const stop = () => { lease.removeEventListener("abort", stop); release(); };
               held.set(id, stop);
-              controller.signal.addEventListener("abort", stop, { once: true });
+              lease.addEventListener("abort", stop, { once: true });
               enqueue(review.record);
               if (review.confirmed) {
-                waiting.current = review.record;
-                root.stores.share.getState().setPhase("paused");
+                session.pending.add(review.record.id);
+                if (!root.stores.share.getState().busy) root.stores.share.getState().setPhase("paused");
               }
             });
           }).catch(err => {
@@ -127,44 +128,58 @@ export function useShareIntake(): {
     const timer = window.setInterval(() => void scan(), 1000);
     return () => {
       controller.abort(); window.clearInterval(timer);
-      for (const release of held.values()) release();
-      held.clear(); waiting.current = null;
+      releaseShareReviewSession(root, session, owner);
+      if (reviewSession.current === session) reviewSession.current = null;
     };
-  }, [root, account, enqueue, setError]);
+  }, [root, account, enqueue, remove, setError]);
 
   const confirm = useCallback(
     async (record: StoredShare) => {
       const controller = new AbortController();
       const owner = lifetime.current.signal;
-      if (owner.aborted || !owners.current.has(record.id) || !root.stores.share.getState().queue.some(row => row.id === record.id)) return;
+      const session = reviewSession.current;
+      if (!session || session.controller.signal.aborted || root.stores.connection.getState().accountKey !== session.account || owner.aborted || !session.owners.has(record.id) || !root.stores.share.getState().queue.some(row => row.id === record.id)) return;
       const abort = () => controller.abort();
       owner.addEventListener("abort", abort, { once: true });
+      session.controller.signal.addEventListener("abort", abort, { once: true });
+      const detach = () => { owner.removeEventListener("abort", abort); session.controller.signal.removeEventListener("abort", abort); };
       const signal = controller.signal;
       const share = root.stores.share.getState();
-      if (share.busy) { owner.removeEventListener("abort", abort); return; }
+      if (share.busy) { detach(); return; }
+      session.pending.delete(record.id);
+      if (session.waiting?.id === record.id) session.waiting = null;
       // Confirmation is account-bound durable consent, committed before any
       // network operation. Failure leaves the review and original untouched.
       setBusy(true);
       try {
         await shareReviewPartition(root).put(`${SHARE_REVIEW_PREFIX}${record.id}`, { record, confirmed: true });
       } catch (err) {
-        setBusy(false);
-        owner.removeEventListener("abort", abort);
-        setError(err instanceof Error ? err.message : "Could not save share confirmation");
+        detach();
+        if (!session.controller.signal.aborted) {
+          setBusy(false);
+          setError(err instanceof Error ? err.message : "Could not save share confirmation");
+        }
         return;
       }
-      if (signal.aborted || !owners.current.has(record.id)) { setBusy(false); owner.removeEventListener("abort", abort); return; }
+      if (signal.aborted || root.stores.connection.getState().accountKey !== session.account || !session.owners.has(record.id)) {
+        if (!session.controller.signal.aborted) {
+          if (root.stores.connection.getState().accountKey === session.account && session.owners.has(record.id)) session.waiting = record;
+          setBusy(false);
+        }
+        detach(); return;
+      }
       if (!canUpload()) {
-        waiting.current = record;
-        owner.removeEventListener("abort", abort);
+        session.pending.add(record.id);
+        session.waiting = record;
+        detach();
         setBusy(false);
         share.setPhase("paused");
         setError("Waiting for connection. Your confirmed share will resume automatically.");
         return;
       }
 
-      waiting.current = null;
-      activeUpload.current = { id: record.id, record, controller };
+      if (session.waiting?.id === record.id) session.waiting = null;
+      session.activeUpload = { record, controller, owner };
       share.setPhase("uploading");
       setBusy(true);
       setError(null);
@@ -173,7 +188,7 @@ export function useShareIntake(): {
         const outcome = await uploadShare(record, root.request, root.apiBase(), signal, () => { if (!signal.aborted) share.setPhase("parsing"); });
         if (signal.aborted) return;
         if (!outcome.ok) {
-          if (!canUpload()) waiting.current = record;
+          if (!canUpload()) session.waiting = record;
           setError(describeUploadError(outcome));
           return;
         }
@@ -198,8 +213,8 @@ export function useShareIntake(): {
         if (signal.aborted) return;
         remove(record.id);
         dropShareClaim(record.id);
-        owners.current.get(record.id)?.();
-        owners.current.delete(record.id);
+        session.owners.get(record.id)?.();
+        session.owners.delete(record.id);
 
         const { attachments, errors } = await shareImagesToAttachments(record.files);
         if (signal.aborted) {
@@ -250,10 +265,12 @@ export function useShareIntake(): {
       } catch (err) {
         if (!signal.aborted) setError(err instanceof Error ? err.message : "Could not complete shared content intake");
       } finally {
-        owner.removeEventListener("abort", abort);
-        activeUpload.current = null;
-        setBusy(false);
-        if (waiting.current) root.stores.share.getState().setPhase("paused");
+        detach();
+        if (session.activeUpload?.controller === controller) session.activeUpload = null;
+        if (!session.controller.signal.aborted) {
+          setBusy(false);
+          if (session.waiting || session.pending.size) root.stores.share.getState().setPhase("paused");
+        }
       }
     },
     [remove, setBusy, setError, setNotes, root, canUpload]
@@ -262,14 +279,16 @@ export function useShareIntake(): {
   // Only a share the reader already confirmed may resume automatically.
   useEffect(() => {
     const connectionChanged = () => {
+      const session = reviewSession.current;
+      if (!session || session.controller.signal.aborted) return;
       const online = root.stores.connection.getState().wsStatus === "connected" && navigator.onLine !== false;
-      const active = activeUpload.current;
+      const active = session.activeUpload;
       if (!online && active) {
-        waiting.current = active.record;
+        session.waiting = active.record;
         active.controller.abort();
         setError("Waiting for connection. Your confirmed share will resume automatically.");
       }
-      const record = waiting.current;
+      const record = session.waiting ?? root.stores.share.getState().queue.find(item => session.pending.has(item.id));
       if (online && record && !root.stores.share.getState().busy && root.stores.share.getState().queue.some(item => item.id === record.id)) void confirm(record);
     };
     connectionChanged();
@@ -280,15 +299,18 @@ export function useShareIntake(): {
 
   const dismiss = useCallback(
     (record: StoredShare) => {
-      if (waiting.current?.id === record.id) waiting.current = null;
-      if (activeUpload.current?.id === record.id) activeUpload.current.controller.abort();
+      const session = reviewSession.current;
+      if (!session || !session.owners.has(record.id)) return;
+      session.pending.delete(record.id);
+      if (session.waiting?.id === record.id) session.waiting = null;
+      if (session.activeUpload?.record.id === record.id) session.activeUpload.controller.abort();
       void (async () => {
         try {
           await shareReviewPartition(root).write([{ delete: `${SHARE_REVIEW_PREFIX}${record.id}` }]);
           remove(record.id);
           dropShareClaim(record.id);
-          owners.current.get(record.id)?.();
-          owners.current.delete(record.id);
+          session.owners.get(record.id)?.();
+          session.owners.delete(record.id);
           setError(null);
         } catch (err) { setError(err instanceof Error ? err.message : "Could not dismiss this share. The original is kept."); }
       })();

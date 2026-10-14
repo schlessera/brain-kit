@@ -7,7 +7,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-type Scenario = "reload" | "auth" | "race" | "dismiss" | "confirmed" | "lost-response" | "signout" | "transfer" | "transfer-signout" | "partial" | "ttl";
+type Scenario = "reload" | "auth" | "race" | "unmount" | "shared-consumers" | "multiple-confirmed" | "dismiss" | "confirmed" | "lost-response" | "signout" | "transfer" | "transfer-signout" | "partial" | "ttl";
 let bundle: Promise<string> | undefined;
 type Original = { id: string; text: string; bytes: number[] };
 async function action<T>(page: Page, method: string): Promise<T> {
@@ -95,6 +95,38 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await other.close();
       assert.equal(await action(page, "restore"), true, "real auth lock restores the same account");
       await queue(page); await original(page); assert.equal(uploads, 0);
+    } else if (scenario === "unmount") {
+      await action(page, "unmount");
+      assert.deepEqual(await action(page, "queue"), [], "unmount drops review memory when releasing ownership");
+      await original(page);
+      const peer = await context.newPage(); await peer.goto(origin); await ready(peer); await queue(peer);
+      await action(page, "remount"); await page.waitForTimeout(1200);
+      assert.deepEqual(await action(page, "queue"), [], "a remounted root cannot show another tab's review");
+      await peer.close(); await queue(page); await original(page);
+      assert.equal(uploads, 0);
+    } else if (scenario === "shared-consumers") {
+      await action(page, "mountSecond"); await action(page, "unmount");
+      assert.equal((await action<string[]>(page, "queue")).length, 1, "a remaining consumer keeps the root's ownership");
+      await action(page, "confirm"); await original(page);
+      const peer = await context.newPage(); await peer.goto(origin); await ready(peer); await peer.waitForTimeout(1200);
+      assert.deepEqual(await action(peer, "queue"), [], "another tab cannot claim a root with a live consumer");
+      await action(page, "resume");
+      await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0);
+      assert.equal(uploads, 1, "the remaining consumer confirms and resumes exactly once");
+      assert.deepEqual(await action(page, "inventory"), []);
+      await peer.close();
+    } else if (scenario === "multiple-confirmed") {
+      await action(page, "stash");
+      await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 2);
+      await action(page, "confirmAll"); assert.equal(uploads, 0);
+      await page.reload(); await ready(page);
+      await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 2);
+      const retained = await action<Original[]>(page, "inventory");
+      assert.equal(retained.length, 2); assert(retained.every(row => row.text === "Penelope keeps the original loom plan." && JSON.stringify(row.bytes) === "[0,1,2,255,17]"));
+      await action(page, "resume");
+      await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0);
+      assert.equal(uploads, 2, "all prior confirmations resume sequentially after reload");
+      assert.deepEqual(await action(page, "inventory"), []);
     } else if (scenario === "race") {
       // Terminate the initial owner; two independent tabs then race recovery.
       await page.close();

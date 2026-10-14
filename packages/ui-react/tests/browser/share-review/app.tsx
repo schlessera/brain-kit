@@ -41,7 +41,8 @@ function Gate() {
   const phase = useSyncExternalStore(ui.authLock.state.subscribe, () => ui.authLock.state.getState().phase);
   return phase === "locked" ? <main>Locked</main> : <Review />;
 }
-const renderer = createRoot(document.getElementById("app")!);
+let renderer = createRoot(document.getElementById("app")!);
+let secondRenderer: ReturnType<typeof createRoot> | undefined;
 flushSync(() => renderer.render(<BrainUiProvider root={ui}><Gate /></BrainUiProvider>));
 const fixture = {
   async stash() {
@@ -62,6 +63,7 @@ const fixture = {
   loss: () => ui.localWorkFlow.loss(),
   status: () => ({ online: navigator.onLine, share: { busy: ui.stores.share.getState().busy, phase: ui.stores.share.getState().phase, error: ui.stores.share.getState().error }, connection: ui.stores.connection.getState().wsStatus }),
   confirm: () => intake!.confirm(ui.stores.share.getState().queue[0]!),
+  confirmAll: async () => { for (const record of ui.stores.share.getState().queue) await intake!.confirm(record); },
   dismiss: () => intake!.dismiss(ui.stores.share.getState().queue[0]!),
   async expire() {
     await ui.localWork!.snapshotNow();
@@ -72,6 +74,16 @@ const fixture = {
   resume: () => { online = true; ui.stores.connection.getState().setWsStatus("connected"); window.dispatchEvent(new Event("online")); },
   clear: async () => ui.localWorkFlow.signOut(await ui.localWorkFlow.loss(), false, () => false),
   cleared: async () => ({ originals: (await getShareStore().list()).length, account: await ui.partitions!.isSignOutCleared(`account:${account}`) }),
+  unmount: () => flushSync(() => renderer.unmount()),
+  mountSecond: () => {
+    const host = document.createElement("div"); document.body.append(host);
+    secondRenderer = createRoot(host);
+    flushSync(() => secondRenderer!.render(<BrainUiProvider root={ui}><Gate /></BrainUiProvider>));
+  },
+  remount: () => {
+    renderer = createRoot(document.getElementById("app")!);
+    flushSync(() => renderer.render(<BrainUiProvider root={ui}><Gate /></BrainUiProvider>));
+  },
   async expireRecord() {
     const partition = ui.partitions!.openAccount();
     const rows = await partition.list("share:review:");

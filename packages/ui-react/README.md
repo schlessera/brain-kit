@@ -205,6 +205,9 @@ them. A native browser lock gives one tab ownership and releases automatically
 when that tab closes. Other accounts cannot recover them. The existing stash TTL
 and intake size caps still apply. Explicit sign-out includes these originals in
 the deletion warning and clears them with the account’s other local work.
+Consumers of the same root share ownership. Leaving the last review view drops
+its memory without deleting the original, allowing another tab or a later view
+to recover it. Multiple previously confirmed shares resume one at a time.
 Dismiss cancels an in-flight upload and commits deletion of the retained original. A previously confirmed share may resume when the
 connection returns, including after reload or same-account authentication; a share
 the reader has not confirmed never starts itself. A complete successful server

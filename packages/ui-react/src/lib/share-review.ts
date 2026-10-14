@@ -7,6 +7,46 @@ import { accountPartition, type PartitionHandle } from "./local-partitions.js";
 export const SHARE_REVIEW_PREFIX = "share:review:";
 export type ShareReview = { record: StoredShare; confirmed: boolean };
 
+/** Several mounted consumers may share one root; ownership belongs to the root. */
+export type ShareReviewSession = {
+  account: string;
+  consumers: number;
+  controller: AbortController;
+  owners: Map<string, () => void>;
+  waiting: StoredShare | null;
+  pending: Set<string>;
+  activeUpload: { record: StoredShare; controller: AbortController; owner: AbortSignal } | null;
+};
+const sessions = new WeakMap<BrainUiRoot, ShareReviewSession>();
+
+function stopSession(root: BrainUiRoot, session: ShareReviewSession): void {
+  if (session.controller.signal.aborted) return;
+  session.controller.abort();
+  session.activeUpload?.controller.abort();
+  for (const [id, release] of session.owners) { root.stores.share.getState().remove(id); release(); }
+  session.owners.clear(); session.waiting = null; session.pending.clear();
+  if (sessions.get(root) === session) root.stores.share.getState().setBusy(false);
+}
+
+export function acquireShareReviewSession(root: BrainUiRoot, account: string): ShareReviewSession {
+  let session = sessions.get(root);
+  if (session && session.account !== account) stopSession(root, session);
+  if (!session || session.controller.signal.aborted) {
+    session = { account, consumers: 0, controller: new AbortController(), owners: new Map(), waiting: null, pending: new Set(), activeUpload: null };
+    sessions.set(root, session);
+  }
+  session.consumers++;
+  return session;
+}
+
+export function releaseShareReviewSession(root: BrainUiRoot, session: ShareReviewSession, owner: AbortSignal): void {
+  if (session.activeUpload?.owner === owner) {
+    session.waiting = session.activeUpload.record;
+    session.activeUpload.controller.abort();
+  }
+  if (--session.consumers === 0) stopSession(root, session);
+}
+
 /** A native lock lives until unmount or tab termination, without a lease timer. */
 export function holdShareReview(id: string, signal: AbortSignal, run: () => Promise<void>): Promise<void> {
   if (!navigator.locks) return Promise.reject(new Error("This browser cannot safely recover shared content. The original is kept on this device."));
