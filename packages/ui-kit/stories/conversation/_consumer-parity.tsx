@@ -22,8 +22,21 @@ export function ConsumerDocument({ children }: { children: ReactNode }) {
     style.dataset.consumerParity = "";
     style.textContent = consumerStyles;
     document.head.append(style);
-    const restore = () => { style.remove(); for (const { sheet, disabled } of sheets) sheet.disabled = disabled; fixtureCleanups.delete(cleanup); };
-    const cleanup = () => { flushSync(() => setMounted(false)); restore(); };
+    const restore = () => {
+      const errors: unknown[] = [];
+      try { style.remove(); } catch (error) { errors.push(error); }
+      for (const { sheet, disabled } of sheets) {
+        try { sheet.disabled = disabled; } catch (error) { errors.push(error); }
+      }
+      fixtureCleanups.delete(cleanup);
+      if (errors.length) throw new AggregateError(errors, "Consumer stylesheet restoration failed");
+    };
+    const cleanup = () => {
+      const errors: unknown[] = [];
+      try { flushSync(() => setMounted(false)); } catch (error) { errors.push(error); }
+      try { restore(); } catch (error) { errors.push(error); }
+      if (errors.length) throw new AggregateError(errors, "Consumer document cleanup failed");
+    };
     fixtureCleanups.add(cleanup);
     return restore;
   }, []);
@@ -34,22 +47,33 @@ export function ConsumerDocument({ children }: { children: ReactNode }) {
 export async function consumerViewport({ args }: { args: { width: number } }) {
   if (!document.documentElement.dataset.expectedStoryTheme) return;
   const { page, commands } = await import("vitest/browser");
+  const { onTestFinished } = await import("vitest");
   const before = { width: innerWidth, height: innerHeight };
   const outer = await commands.consumerParityViewport(args.width);
-  try { await page.viewport(args.width, 800); }
-  catch (error) { await commands.consumerParityViewport(null, outer); throw error; }
   let restored = false;
   const cleanup = async () => {
     if (restored) return;
     restored = true;
-    for (const dispose of [...fixtureCleanups]) dispose();
-    try { await page.viewport(before.width, before.height); }
-    finally { await commands.consumerParityViewport(null, outer); }
+    const errors: unknown[] = [];
+    for (const dispose of [...fixtureCleanups]) {
+      try { dispose(); } catch (error) { errors.push(error); }
+    }
+    try { await page.viewport(before.width, before.height); } catch (error) { errors.push(error); }
+    try { await commands.consumerParityViewport(null, outer); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, "Consumer viewport cleanup failed");
   };
-  // Storybook's portable run cleans before the next story. Vitest's finalizer
-  // also cleans the last/failed story immediately, after its a11y afterEach.
-  const { onTestFinished } = await import("vitest");
+  // Register before resizing: a rejected resize can still have changed the
+  // iframe. Always attempt both viewport restorations and every fixture.
   onTestFinished(cleanup);
+  try { await page.viewport(args.width, 800); }
+  catch (error) {
+    try { await cleanup(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Consumer viewport setup and cleanup failed");
+    }
+    throw error;
+  }
+  // Storybook cleans before the next story; the finalizer also cleans the
+  // last/failed story immediately, after its unchanged a11y afterEach.
   return cleanup;
 }
 
