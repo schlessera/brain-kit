@@ -55,9 +55,11 @@ next to it.
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
-  (`Route the Claude Code subprocess`,
-  `packages/ui-backend-claude/src/spawn-wrapper.ts:2-18`); without one the SDK
-  spawns it directly.
+  ([historical wrapper header](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)); without one the SDK
+  spawned it directly at this baseline. #1037 subsequently made worker execution
+  unconditional; #1808 retired this unused adapter. The optional exec wrapper
+  now runs inside the worker (`createWorkerSpawn`,
+  `packages/ui-backend-claude/src/worker-spawn.ts:84-268`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -246,7 +248,8 @@ than refuses on a mismatch.**
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
   `{ command, args }` to `spawnClaudeCodeProcess` instead of spawning
-  (`sdk.mjs:127`), the seam `spawn-wrapper.ts` already uses. A probe can
+  (`sdk.mjs:127`), the seam the [retired spawn wrapper](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts) used
+  at this baseline (worker execution replaced it in #1037; #1808 removed it). A probe can
   supply a callback that records what it was handed and throws a sentinel
   error, so no process starts, and must tell that sentinel apart from a
   resolution error. For the native binary `command` is the binary itself. For
