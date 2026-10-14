@@ -36,6 +36,7 @@ import { readSessionRecovery } from "../src/ws/recovery";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { removeDbFile } from "./helpers/test-host";
+import { recoveryDeadline } from "./helpers/recovery-deadline";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
 
 const QUESTIONS: AskUserQuestion[] = [{
@@ -458,27 +459,148 @@ describe("authorization and existence", () => {
 });
 
 describe("a stalled backend", () => {
-  test("cannot hold a recovery read open: another backend's history settles it, and silence everywhere is a failure", async () => {
-    const db = createUiDb(":memory:");
-    cleanups.push(() => db.close());
-    let stalledReads = 0;
-    const stalled = makeFakeBackend({ id: "stalled", getHistory: () => { stalledReads++; return new Promise(() => {}); } });
+  const nativeTurn = () => new Promise<void>(resolve => setImmediate(resolve));
+  async function completed(check: () => boolean, oracle: string) {
+    const deadline = performance.now() + 1_000;
+    while (!check() && performance.now() < deadline) await nativeTurn();
+    expect(check(), oracle).toBe(true);
+  }
+
+  function fixture(extraBackend = false) {
+    const reads: { backend: string; session: string; done: boolean; release: () => void }[] = [];
+    const stalledBackend = (id: string) => makeFakeBackend({ id, getHistory: session => {
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const read = { backend: id, session, done: false, release };
+      reads.push(read);
+      return pending.then(() => { read.done = true; return []; });
+    } });
+    const stalled = stalledBackend("stalled");
     const holding = makeFakeBackend({ id: "holding", histories: { "odyssey-imported": [{ role: "user", content: "From the CLI", toolCalls: [] }] } });
-    const host = new WsHost({ registry: createStaticBackendRegistry([stalled, holding], "stalled"), catalog: createSessionCatalog(() => db) });
-    cleanups.push(() => host.close());
-    const started = Date.now();
-    const found = await readSessionRecovery(host, "odyssey-imported", testPrincipal());
-    expect(found.kind).toBe("ok");
-    expect(Date.now() - started).toBeLessThan(1_000);
-    const silent = readSessionRecovery(host, "odyssey-nowhere", testPrincipal()).then(
-      () => "answered",
-      (err: Error) => err.message,
-    );
-    expect(await Promise.race([silent, Bun.sleep(6_000).then(() => "still waiting")])).toBe("Session lookup timed out");
-    // Retries reuse the stalled backend's unfinished read instead of piling up more.
-    for (let i = 0; i < 3; i++) expect((await readSessionRecovery(host, "odyssey-imported", testPrincipal())).kind).toBe("ok");
-    expect(stalledReads).toBe(2);
+    const registry = createStaticBackendRegistry([stalled, ...(extraBackend ? [stalledBackend("other")] : []), holding], "stalled");
+    const hosts: { host: WsHost; db: Database }[] = [];
+    const makeHost = () => {
+      const db = createUiDb(":memory:");
+      const host = new WsHost({ registry, catalog: createSessionCatalog(() => db) });
+      hosts.push({ host, db });
+      return host;
+    };
+    const host = makeHost();
+    const clock = recoveryDeadline();
+    const requests: Promise<unknown>[] = [];
+    function recover(session: string, owner = host) {
+      const result: { state: "pending" | "done"; value?: Awaited<ReturnType<typeof readSessionRecovery>> | string } = { state: "pending" };
+      const promise = readSessionRecovery(owner, session, testPrincipal()).then(
+        value => { result.state = "done"; result.value = value; return value; },
+        (error: Error) => { result.state = "done"; result.value = error.message; return error.message; },
+      );
+      requests.push(promise);
+      return { result, promise };
+    }
+    return {
+      host, hosts, makeHost, clock, reads, recover,
+      async close() {
+        const failures: unknown[] = [];
+        try {
+          // The backend has no cancellation API. Release only during teardown,
+          // after reuse assertions; clearing wrapper timers never releases it.
+          for (const read of reads) read.release();
+          await Promise.all(requests);
+          await completed(() => reads.every(read => read.done) && clock.registrations.every(timer => timer.cleared), "RECOVERY_CLEANUP_SETTLES_READS_AND_WRAPPERS");
+          expect(clock.pending(), "RECOVERY_CLEANUP_HAS_NO_PENDING_TIMER").toEqual([]);
+        } catch (error) { failures.push(error); }
+        finally {
+          // Each owner is disposed even if another teardown action fails.
+          for (const { host, db } of hosts) {
+            try { host.close(); } catch (error) { failures.push(error); }
+            try { db.close(); } catch (error) { failures.push(error); }
+          }
+          try { clock.restore(); } catch (error) { failures.push(error); }
+        }
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) throw new AggregateError(failures, "Recovery fixture disposal failed");
+        expect(["setTimeout", "clearTimeout"].map(name => Object.getOwnPropertyDescriptor(globalThis, name)), "RECOVERY_TIMER_DESCRIPTORS_RESTORED").toEqual(clock.descriptors);
+        for (const { host, db } of hosts) {
+          expect(host.closing, "RECOVERY_HOST_CLOSED").toBe(true);
+          expect(() => db.query("SELECT 1").get(), "RECOVERY_DATABASE_CLOSED").toThrow();
+        }
+      },
+    };
+  }
+
+  test("cannot hold a recovery read open: another backend's history settles it, and silence everywhere is a failure", async () => {
+    const f = fixture();
+    try {
+      const started = Date.now();
+      const found = await f.recover("odyssey-imported").promise;
+      expect(typeof found === "object" && found.kind).toBe("ok");
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(f.clock.registrations.map(timer => timer.cleared), "RECOVERY_FOUND_CLEARS_ONLY_RESPONDING_BACKEND").toEqual([false, true]);
+      const silent = f.recover("odyssey-nowhere");
+      await completed(() => f.clock.registrations.length === 4 && f.clock.registrations[3]!.cleared, "RECOVERY_EMPTY_BACKEND_COMPLETES_BEFORE_ADVANCE");
+      expect(f.reads.map(read => [read.session, read.done]), "RECOVERY_TWO_DISTINCT_UNFINISHED_READS").toEqual([["odyssey-imported", false], ["odyssey-nowhere", false]]);
+      // The empty backend's real promise and bounded wrapper have completed;
+      // only the explicitly held fixture reads and their deadlines remain.
+      f.clock.advanceTo(2_999);
+      await nativeTurn();
+      expect(silent.result.state, "RECOVERY_PENDING_BEFORE_DEADLINE").toBe("pending");
+      expect(f.clock.registrations.filter(timer => timer.fired), "RECOVERY_NO_EARLY_CALLBACK").toHaveLength(0);
+      f.clock.advanceTo(3_000);
+      expect(f.clock.registrations.filter(timer => timer.fired), "RECOVERY_BOTH_LOSING_WRAPPERS_REACH_DEADLINE").toHaveLength(2);
+      await completed(() => silent.result.state === "done", "RECOVERY_CALLBACK_SETTLES_AT_DEADLINE");
+      expect(await silent.promise).toBe("Session lookup timed out");
+      expect(f.clock.registrations.map(timer => timer.delay), "RECOVERY_ACTUAL_REGISTRATION_IS_3000_MS").toEqual([3_000, 3_000, 3_000, 3_000]);
+      expect(f.clock.registrations.every(timer => timer.cleared), "RECOVERY_TIMEOUT_CLEARS_WRAPPERS").toBe(true);
+      expect(f.reads.every(read => !read.done), "RECOVERY_TIMEOUT_DOES_NOT_CANCEL_BACKEND").toBe(true);
+      // Retries reuse the stalled backend's unfinished read instead of piling up more.
+      for (let i = 0; i < 3; i++) {
+        const retry = await f.recover("odyssey-imported").promise;
+        expect(typeof retry === "object" && retry.kind).toBe("ok");
+      }
+      const stalledReads = f.reads.length;
+      expect(stalledReads, "RECOVERY_RETRIES_REUSE_UNFINISHED_PROBES").toBe(2);
+      expect(f.clock.pending(), "RECOVERY_RETRIES_OWN_THREE_LOSING_WRAPPERS").toHaveLength(3);
+      expect(f.clock.pending().every(timer => timer.delay === 3_000 && timer.due === 6_000)).toBe(true);
+    } finally { await f.close(); }
   }, 15_000);
+
+  test("unfinished recovery probes belong to each host and backend independently", async () => {
+    const f = fixture(true);
+    try {
+      const otherHost = f.makeHost();
+      const requests = [f.recover("odyssey-nowhere"), f.recover("odyssey-nowhere"), f.recover("odyssey-nowhere", otherHost), f.recover("odyssey-nowhere", otherHost)];
+      await completed(() => f.clock.registrations.length === 12, "RECOVERY_CONCURRENT_WRAPPERS_REGISTERED");
+      await nativeTurn();
+      expect(f.reads.map(read => read.backend).sort(), "RECOVERY_HOST_AND_BACKEND_IDENTITIES_ARE_INDEPENDENT").toEqual(["other", "other", "stalled", "stalled"]);
+      await completed(() => f.clock.registrations.filter(timer => timer.cleared).length === 4, "RECOVERY_CONCURRENT_EMPTY_BACKENDS_COMPLETE");
+      expect(f.clock.pending(), "RECOVERY_EACH_LOOKUP_OWNS_ITS_WRAPPERS").toHaveLength(8);
+      f.clock.advanceTo(2_999);
+      await nativeTurn();
+      expect(requests.every(request => request.result.state === "pending")).toBe(true);
+      f.clock.advanceTo(3_000);
+      await completed(() => requests.every(request => request.result.state === "done"), "RECOVERY_CONCURRENT_CALLBACKS_SETTLE");
+      expect(await Promise.all(requests.map(request => request.promise))).toEqual(Array(4).fill("Session lookup timed out"));
+      expect(f.reads.every(read => !read.done)).toBe(true);
+    } finally { await f.close(); }
+  });
+
+  test("an assertion failure releases held recovery reads, restores descriptors and closes every owner", async () => {
+    const f = fixture();
+    let failure: unknown;
+    try {
+      try {
+        f.recover("odyssey-nowhere");
+        await completed(() => f.reads.length === 1 && f.clock.registrations.length === 2, "RECOVERY_DIRTY_FAILURE_HAS_ACTIVE_RESOURCES");
+        expect(f.reads[0]!.done, "RECOVERY_INJECTED_ASSERTION_FAILURE").toBe(true);
+      } finally { await f.close(); }
+    } catch (error) { failure = error; }
+    expect(String(failure), "RECOVERY_FAILURE_CONTROL_REACHED_ASSERTION").toContain("RECOVERY_INJECTED_ASSERTION_FAILURE");
+    expect(f.reads.every(read => read.done)).toBe(true);
+    expect(f.clock.registrations).toEqual([]);
+    let delivered = false;
+    await new Promise<void>(resolve => setTimeout(() => { delivered = true; resolve(); }, 0));
+    expect(delivered, "RECOVERY_SUCCESSOR_USES_NATIVE_TIMEOUT").toBe(true);
+  });
 });
 
 describe("approval recovery after a partial history", () => {
