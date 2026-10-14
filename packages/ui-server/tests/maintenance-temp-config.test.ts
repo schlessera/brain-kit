@@ -62,12 +62,12 @@ test("hosted turn admission forwards maintenance identity before backend startup
   const maintenance = { tempLimits: { allowanceBytes: 8388608, budgetBytes: 16777216 },
     tempDomain: { statePath: "/tmp/odysseus-state/ui.db" }, maskPaths: ["/tmp/odysseus-state"] };
   let released = 0;
-  const execution = { boundary: { maintenance, governed: () => ({ available: true }) },
+  const execution = { boundary: { maintenance, prepare: async () => ({ available: true }), governed: () => ({ available: true }) },
     gate: () => ({ acquire: async () => ({ release: () => { released++; } }) }),
     manifests: () => ({}) } as unknown as HostExecution;
   const root = mkdtempSync(join(tmpdir(), "odysseus-maintenance-config-")), brain = join(root,"brain"); mkdirSync(brain);
   const native = createNativeJournalFixture(brain,root);
-  const prepare = spyOn(worker, "prepareWorkerSandbox").mockReturnValue({ profile: "strict" } as worker.WorkerSandbox);
+  const prepare = spyOn(worker, "prepareWorkerSandbox").mockReturnValue({ brain, restricted: false, profile: "strict", areas: [], scratchAliasesRemoved: [] } as worker.WorkerSandbox);
   try {
     const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, execution,
       profile: "strict", maskPaths: maintenance.maskPaths, index: async () => {}, report: () => {} });
