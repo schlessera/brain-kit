@@ -15,7 +15,7 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, prepareNativeWorkerStartupView, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
@@ -51,6 +51,8 @@ export interface AutonomousTurnInput {
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
+  /** Owned host manager; restricted workers still require immutable native inputs. */
+  nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
   /** Authoritative brain; standalone callers default to their working directory. */
   brainPath?: string;
   db: Database;
@@ -263,7 +265,13 @@ async function executeAutonomousTurn(
     bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
   }
   const principalCheck = setInterval(checkPrincipal, 100);
+  let startupView: WorkerStartupView | undefined;
   try {
+    if (!deps.nativeManager) throw new BackendRequestError("Autonomous workers require the configured native brain manager; full-copy fallback is unsupported.");
+    startupView = await prepareNativeWorkerStartupView(deps.brainPath ?? process.cwd(), deps.nativeManager, controller.signal);
+    controller.signal.throwIfAborted();
+    if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    request.workerStartupView = startupView;
     await deps.backend.startTurn(request);
     if (!terminal) {
       outcome = failed ? "error" : controller.signal.aborted ? "cancelled" : "error";
@@ -277,17 +285,19 @@ async function executeAutonomousTurn(
     throw error;
   } finally {
     closed = true;
-    await intake.close();
     clearInterval(principalCheck);
     input.signal.removeEventListener("abort", abort);
-    // The backend has returned. Release its kernel lock under the operational
-    // write lock, then settle before another connection can claim cleanup.
-    deps.db.transaction(() => {
-      lifetime.release();
-      if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
-      recorder.finish(outcome);
-      if (yielded) finishYield(deps.db, input.turnId);
-    }).immediate();
+    try {
+      await intake.close();
+      // The backend has returned. Release its kernel lock under the operational
+      // write lock, then settle before another connection can claim cleanup.
+      deps.db.transaction(() => {
+        lifetime.release();
+        if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
+        recorder.finish(outcome);
+        if (yielded) finishYield(deps.db, input.turnId);
+      }).immediate();
+    } finally { await startupView?.cleanup(); }
   }
 }
 
