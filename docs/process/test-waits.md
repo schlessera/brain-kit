@@ -71,8 +71,8 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
-| `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native negative windows per successful frame/tab pair, starting after the actual click lands | Retained. A browser-process navigation/download may arrive after the renderer's click handler or DOM settles; page JS clock does not drive it. 1500 ms is the existing bounded observation budget, not a newly measured universal browser latency guarantee. Expected escape controls await their actual hit independently. Candidate/runtime proof. |
-| Same preview file, raw endpoint 500 ms | The raw route has reached `load`; the inline-script marker must remain unchanged | Retained. This is a separate load-boundary observation, not evidence that the iframe escape channels need the same duration. A missing-CSP mutation at the load boundary is needed before claiming equivalent completion; no speedup claimed. |
+| `html-preview-runtime.test.ts`, escape attempts | Seven 1500 ms native negative windows after acknowledged clicks; three positive halves await the exact static destination document completing | Denied popup, form, download and frame-to-top actions retain their native windows. Positive self-navigation retains actual hit and app-stability oracles, with native href/readyState completion validated by held-body and wrong-target controls. The retained 1500 ms is an existing observation budget, not a measured universal minimum. Candidate/runtime proof. |
+| Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `ws-session-recovery.test.ts`, stalled backend lookup | Actual 3000 ms recovery registration and callback delivery advance logically in the named case only | The empty backend and its wrapper complete before advancing; silent reads stay pending at 2999 ms and fail at 3000 ms. A winning aggregate can leave losing bounded probes pending. Timed-out backend reads remain reusable because they have no cancellation API; teardown releases fixture reads, drains wrappers and restores descriptors. Native finalization, admission and revocation cases retain their existing clocks. |
@@ -533,6 +533,45 @@ questions remain separate: a native negative window still needs the forbidden
 effect, actual opportunities, minimum justified duration and chosen margin. The
 source review does not complete those requirements or authorize moving proof
 to another tier.
+
+## Positive HTML navigation completion
+
+The [native navigation experiment](evidence/test-wait-html-navigation-boundaries.json)
+separates three positive navigation halves from the seven denied-action windows.
+Each fixture makes one synchronous location assignment; the attacker destination
+is static HTML with no scripts or subresources. After the original actual-hit
+gate, the test observes that exact document's native `location.href` and
+`document.readyState === "complete"`. For the iframe, an actual changed app URL
+instead returns the escape result to the original assertions. Detachment alone
+never establishes completion. This boundary is specific to the fixture and does
+not claim to drain arbitrary browser or application work.
+
+Two native controls establish different parts of that guarantee. Holding the
+response body for two seconds after its headers and hit makes each of the three
+destinations visibly `loading`; the candidate returns only after body release
+and native completion. Omitting completion fails an additional diagnostic check
+with expected `complete`, received `loading`. Separately, enabling top navigation
+in both actual sandbox guards and changing the self-navigation fixture's target
+makes the original app-URL and exact-hit-list assertions fail. The helper does
+not replace those escape failures with a detached-frame timeout. All mutation
+sources were restored; the final runtime source omits experiment-only logging.
+
+At source `085d8cc`, both full-file runs pass the same 12 cases and 134
+expectations. Whole command time is 73.36 to 67.59 seconds; summed case bodies
+are 22.313 to 17.566 seconds, while mandatory setup/build is 50.517 to 49.514
+seconds. The ten original windows total 15,013.88 ms; the seven retained windows
+total 10,507.44 ms. The three new native completion observations take 0.828,
+0.748 and 0.754 ms in the ordinary passing run. Top-navigation's denied iframe
+half still retains 1,500 ms, as do both contexts for popup, form and download.
+
+CPU user plus system time is 97.95 to 95.52 seconds and maximum RSS is 1,252,716
+to 1,240,324 KiB. These are single paired observations on a shared host, with
+the same runtime, namespace and required builds. Setup and native scheduling
+also vary, so the entire command difference is not attributed to removed waits.
+The five commands cost 303.35 seconds including builds and deliberate mutants.
+No whole-CI speedup, global drain or universal minimum for the retained negative
+windows follows from this experiment. Their operational justification remains
+separate from the demonstrated positive-navigation completion boundary.
 
 ## Native child completion and deadline snapshots
 

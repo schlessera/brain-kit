@@ -240,8 +240,8 @@ function expectIsolated(r: Record<string, unknown>): void {
  * navigation, popup or download may surface after the renderer's click/DOM
  * work completes. A page JS clock cannot advance those browser-process tasks.
  * Preserve the established 1500ms observation budget after a confirmed click;
- * expected-escape controls additionally await the actual hit. Shortening this
- * window needs native control measurements, not a quiet DOM (test-waits.md).
+ * positive navigation has its own exact-destination completion boundary below.
+ * Shortening a denied window needs native controls, not a quiet DOM (test-waits.md).
  */
 const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0 };
 async function observeDeniedBrowserActions(page: Page | Frame) {
@@ -261,6 +261,20 @@ async function until(what: string, condition: () => boolean | Promise<boolean>, 
     await Bun.sleep(25);
     observationMetrics.pollMs += performance.now() - started;
   }
+}
+
+/**
+ * The fixture performs one synchronous navigation to a static, inert document.
+ * Observe that exact document's native completion; this is not a global drain.
+ * A changed app URL is an escape result for the caller's original assertions.
+ * Detaching the preview alone does not establish either outcome.
+ */
+async function finishExpectedNavigation(target: Page | Frame, path: string, app?: { page: Page; url: string }) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the destination ${path} completes or the app navigates`, async () => {
+    if (app && app.page.url() !== app.url) return true;
+    return target.evaluate((url) => location.href === url && document.readyState === "complete", destination).catch(() => false);
+  });
 }
 
 /** A mark the escape probe set on its root, or "" (also while it navigates). */
@@ -316,7 +330,8 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * page never sees it, and every negative assertion passes vacuously (#1108).
    * So the frame must first report the pointer, and each click must then be
    * seen to land, or to have navigated something, before its window starts.
-   * An expected hit is awaited rather than assumed to fit in the window.
+   * Expected hits are awaited independently, then their exact inert destination
+   * must finish loading. Denied actions retain their native observation window.
    */
   async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
@@ -337,7 +352,8 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
       await until("the click lands in the preview frame", async () =>
         (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
       if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
-      await observeDeniedBrowserActions(opened.page);
+      if (expected.frame) await finishExpectedNavigation(frame, expected.frame, { page: opened.page, url: appUrl });
+      else await observeDeniedBrowserActions(opened.page);
       const result = {
         opened,
         appUrlAfterFrame: opened.page.url(),
@@ -354,7 +370,8 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         await tab.locator("#go").click({ noWaitAfter: true });
         await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
         if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
-        await observeDeniedBrowserActions(tab);
+        if (expected.tab) await finishExpectedNavigation(tab, expected.tab);
+        else await observeDeniedBrowserActions(tab);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
         result.tabUrl = tab.url();
