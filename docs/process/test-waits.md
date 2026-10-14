@@ -419,7 +419,7 @@ ages, operation completion and accumulated awaited time are different quantities
 Two diagnostic limitations remain visible. The first tracker command passed
 12 cases and 128 expectations, but a post-run parser overwrote its direct
 sidecar. Its empty arrays are invalid telemetry, not zeros. The separate unchanged
-repeat passed the same assertions and records its own 78.39-second command,
+repeat passed the same assertions and records its own 78.47-second command (78.39 seconds reported by Bun),
 setup and counters. The observed containment command passed three cases and
 failed the Pi upstream-connection assertion; a separate unchanged selected
 control passed one case and 69 expectations, with three cases filtered. The
