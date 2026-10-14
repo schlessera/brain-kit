@@ -8,6 +8,8 @@ import type {
   GraphSubgraphResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 
+import { discoveryLayout } from "./discovery-layout.js";
+
 // --- Query strings -----------------------------------------------------------
 
 /**
@@ -65,41 +67,14 @@ export interface RadialPoint {
   y: number;
 }
 
-/**
- * Deterministic radial layout for discovery mode: radius = BFS distance,
- * nodes ordered within their ring by id (stable across refetches), the root
- * (distance 0) at the origin. Rings get a slight angular offset per ring so
- * spokes don't visually align into artificial lines.
- */
+/** Discovery packing uses scene units, independent of viewport and styling. */
 export function radialLayout(
-  nodes: Pick<GraphNodePayload, "id" | "distance">[],
-  ringSpacing = 1
+  nodes: Pick<GraphNodePayload, "id" | "distance" | "community" | "virtual">[],
+  ringSpacing = 1,
+  edges: GraphSubgraphResponse["edges"] = []
 ): Map<number, RadialPoint> {
-  const rings = new Map<number, number[]>();
-  for (const node of nodes) {
-    const d = node.distance ?? 0;
-    const ring = rings.get(d) ?? [];
-    ring.push(node.id);
-    rings.set(d, ring);
-  }
-  const positions = new Map<number, RadialPoint>();
-  for (const [distance, ids] of rings) {
-    ids.sort((a, b) => a - b);
-    const radius = distance * ringSpacing;
-    const offset = distance * 0.5; // radians; de-aligns consecutive rings
-    ids.forEach((id, i) => {
-      if (distance === 0) {
-        positions.set(id, { x: 0, y: 0 });
-        return;
-      }
-      const angle = offset + (2 * Math.PI * i) / ids.length;
-      positions.set(id, {
-        x: radius * Math.cos(angle),
-        y: radius * Math.sin(angle),
-      });
-    });
-  }
-  return positions;
+  return new Map([...discoveryLayout(nodes, edges).positions].map(([id, p]) =>
+    [id, { x: p.x * ringSpacing, y: p.y * ringSpacing }]));
 }
 
 // --- Node sizing -------------------------------------------------------------
