@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,10 +7,15 @@ const ROOT = join(import.meta.dir, "..");
 async function probe(scenario: string): Promise<any> {
   const root = mkdtempSync(join(tmpdir(), "brain-pi-worker-"));
   try {
+    const home = join(root, "home");
+    if (scenario === "default-home-state") mkdirSync(home);
     const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+      // Only the outer fixture can see this owned fictional default HOME.
+      // The actual Pi worker still masks /root read-only, as it normally does.
+      ...(scenario === "default-home-state" ? ["--tmpfs", "/root", "--bind", home, "/root"] : []),
       process.execPath, "--preload", join(ROOT, "scripts/test-network-child-preload.ts"),
       join(import.meta.dir, "fixtures/pi-worker-probe.ts"), scenario, root], {
-      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8" }, stdout: "pipe", stderr: "pipe" });
+      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", ...(scenario === "default-home-state" ? { HOME: "/root" } : {}) }, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(code, err || out).toBe(0);
     return JSON.parse(out.trim().split("\n").at(-1)!);
@@ -23,6 +28,27 @@ function policyUnchanged(r: any): void {
 }
 
 describe("ordinary pi isolated worker", () => {
+  test("default read-only HOME uses copied private Pi state and resumes without exposing parent files", async () => {
+    const r = await probe("default-home-state");
+    expect(r.frames.at(-1), "PI_DEFAULT_HOME_INITIALIZES_PRIVATE_STATE").toMatchObject({ type: "result", outcome: "success" });
+    expect(r.failure).toBeUndefined();
+    const results = r.frames.filter((f: any) => f.type === "tool_result" && f.toolUseId === "toolu_fixture_0");
+    expect(results).toHaveLength(2);
+    for (const result of results) {
+      const inside = JSON.parse(result.output).state;
+      expect(inside.stateInitError, "PI_DEFAULT_HOME_SDK_STATE_INITIALIZES_WITHOUT_EROFS").toBeUndefined();
+      expect(inside.agentDir, "PI_SDK_RESOLVES_BOUNDED_WORKER_STATE").toBe("/tmp/brain-worker-scratch/pi-state");
+      expect(inside.copiedAuth).toBe(true);
+      expect(inside.parentPrivateHidden, "PI_PARENT_STATE_REMAINS_MASKED").toBe(true);
+      expect(inside.homeWriteDenied).toBe(true);
+    }
+    expect(r.parentStateUnchanged).toBe(true);
+    expect(r.parentHomeWriteExists).toBe(false);
+    expect(r.sessions).toHaveLength(1);
+    expect(r.resumedHistory.filter((m: any) => m.role === "user").map((m: any) => m.content)).toEqual(["Odysseus worker proof", "Continue sailing"]);
+    expect(r.running).toEqual([]);
+    policyUnchanged(r);
+  });
   test("extension factories, custom tools, routed writes and nested bash cannot change policy while a permitted edit is indexed", async () => {
     const r = await probe("attacks");
     policyUnchanged(r);

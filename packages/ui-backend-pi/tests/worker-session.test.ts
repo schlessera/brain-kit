@@ -9,7 +9,7 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 import { createPiBackend } from "../src/backend.js";
 import { openPiWorkerSession } from "../src/worker-session.js";
 import { savePiSession } from "../src/session-storage.js";
-import { PI_PIPE_MAX_BYTES, sendPipe, sessionReserveBytes, SessionTooLargeError } from "../src/worker-protocol.js";
+import { PI_PIPE_MAX_BYTES, PI_WORKER_STATE, sendPipe, sessionReserveBytes, SessionTooLargeError } from "../src/worker-protocol.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const MiB = 1024 * 1024;
@@ -77,6 +77,17 @@ function terminal(frames: ServerMessage[]) {
   expect(results).toHaveLength(1);
   return results[0]!;
 }
+test("Pi child overrides inherited agent directory while parent settings and copied state stay unchanged", async () => {
+  const parentDir = process.env.PI_CODING_AGENT_DIR!;
+  mkdirSync(parentDir);
+  const settings = JSON.stringify({ retry: { enabled: false } });
+  writeFileSync(join(parentDir, "settings.json"), settings);
+  expect(terminal(await turn(null))).toMatchObject({ outcome: "success" });
+  expect(launch.mock.calls[0]![0].env.PI_CODING_AGENT_DIR, "PI_CHILD_OVERRIDES_INHERITED_AGENT_DIRECTORY").toBe(PI_WORKER_STATE);
+  expect(process.env.PI_CODING_AGENT_DIR).toBe(parentDir);
+  expect(receivedInit.agentFiles["settings.json"]).toBe(settings);
+  expect(readFileSync(join(parentDir, "settings.json"), "utf8")).toBe(settings);
+});
 for (const bytes of [17 * MiB, 13 * MiB]) test(`oversized session refuses before any worker launch (${bytes})`, async () => {
   save(bytes);
   await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false } }, undefined, ID))

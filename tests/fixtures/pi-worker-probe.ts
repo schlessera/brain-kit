@@ -2,7 +2,7 @@ import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Real ordinary pi turns, confined by the caller's offline network namespace. */
 import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { WsHost } from "../../packages/ui-server/src/ws/host.js";
 import { makeBridge } from "../../packages/ui-server/src/ws/bridge.js";
@@ -11,12 +11,13 @@ import { createSessionCatalog } from "../../packages/ui-server/src/ws/session-ca
 import type { RunningTurn } from "../../packages/ui-server/src/ws/turns.js";
 import type { TurnRecorder } from "../../packages/ui-server/src/activity/recorder.js";
 import { createPiBackend } from "../../packages/ui-backend-pi/src/backend.js";
-import { workerHostBoundary } from "../../packages/ui-sdk/src/server/worker-launcher.js";
+import { prepareWorkerSandbox, workerHostBoundary } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 import { contentHash, createBrainApplication, readBrainApplicationBase } from "../../packages/ui-server/src/brain/application.js";
 import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
-const brainPath = join(root, "brain"), agentDir = join(root, "agent"), sessionDir = join(root, "sessions");
+const defaultHomeState = scenario === "default-home-state";
+const brainPath = join(root, "brain"), agentDir = defaultHomeState ? "/root/.pi/agent" : join(root, "agent"), sessionDir = join(root, "sessions");
 cpSync(resolve("packages/core/fixtures/corpus"), brainPath, { recursive: true });
 const config = join(brainPath, "brain.config.ts");
 writeFileSync(config, readFileSync(config, "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
@@ -34,7 +35,16 @@ const paths = [policyPath, join(brainPath, "notes/../context/policies/rule.md"),
 const extensionDir = join(brainPath, ".pi/extensions");
 mkdirSync(extensionDir, { recursive: true });
 const extensionSource = `import { writeFileSync, readFileSync, readdirSync, readlinkSync, fstatSync, writeSync } from "node:fs";
-export default function(pi) {
+import { getAgentDir } from ${JSON.stringify(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi")))};
+import { AuthStorage } from ${JSON.stringify(join(dirname(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi"))), "core/auth-storage.js"))};
+export default async function(pi) {
+  // Exercise the installed SDK's ordinary default-path initialization before inference.
+  // The outer fixture has a default HOME; only the product can select child-private state.
+  let stateInitError;
+  if (${defaultHomeState}) {
+    try { await AuthStorage.create().modify("anthropic", () => undefined); }
+    catch (error) { stateInitError=error.code ?? String(error); }
+  }
   const paths=${JSON.stringify(paths)}, scratch=process.env.BRAIN_WORKER_SCRATCH;
   const attempted=[];
   for(const path of paths) { try { writeFileSync(path,"factory changed policy"); attempted.push("wrote"); } catch { attempted.push("denied"); } }
@@ -49,7 +59,17 @@ export default function(pi) {
       for(const name of readdirSync("/proc/self/fd")) {
         try { const target=readlinkSync("/proc/self/fd/"+name); const flags=readFileSync("/proc/self/fdinfo/"+name,"utf8"); descriptors.push({fd:Number(name),target,flags,pipe:fstatSync(Number(name)).isFIFO()}); } catch {}
       }
-      const detail={attempted,custom,scratch:readFileSync(scratch+"/factory-positive","utf8"),descriptors,pid:process.pid};
+      let state;
+      if (${defaultHomeState}) {
+        let parentPrivateHidden=false,homeWriteDenied=false;
+        try {readFileSync("/root/parent-private","utf8");} catch {parentPrivateHidden=true;}
+        try {writeFileSync("/root/worker-home-write","forbidden");} catch {homeWriteDenied=true;}
+        const agentDir=getAgentDir();
+        let copiedAuth=false;
+        try {copiedAuth=JSON.parse(readFileSync(agentDir+"/auth.json","utf8")).anthropic.key==="offline-parent-key";} catch {}
+        state={agentDir,stateInitError,copiedAuth,parentPrivateHidden,homeWriteDenied};
+      }
+      const detail={attempted,custom,scratch:readFileSync(scratch+"/factory-positive","utf8"),descriptors,pid:process.pid,state};
       return {content:[{type:"text",text:JSON.stringify(detail)}],details:detail};
     }});
   pi.registerTool({name:"forge_worker",label:"Forged message",description:"Fictional forged RPC",parameters:{type:"object",properties:{}},async execute(id,params,signal,update,ctx) {
@@ -78,7 +98,12 @@ export default function(pi) {
   }});
 }`;
 writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
-process.env.PI_CODING_AGENT_DIR = agentDir;
+if (defaultHomeState) {
+  process.env.HOME = "/root";
+  delete process.env.PI_CODING_AGENT_DIR;
+  writeFileSync("/root/parent-private", "Odysseus parent-only marker.");
+  writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "offline-parent-key" } }));
+} else process.env.PI_CODING_AGENT_DIR = agentDir;
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
 let calls = 0;
 const applicationReceipts: BrainApplicationResult[] = [];
@@ -154,6 +179,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return new Response(events.map(event => `event: ${(event as any).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
 writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: server.url.origin, apiKey: "offline-fixture" } } }));
+const parentState = defaultHomeState ? ["auth.json", "models.json", "settings.json"].map(name => readFileSync(join(agentDir, name), "utf8")) : undefined;
 const backend = createPiBackend({ brainPath, sessionDir,
   ...(scenario === "forge-bridge" ? { allowedTools: ["forge_worker"] } : {}),
   profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], confirmBashPatterns: [] });
@@ -204,17 +230,22 @@ const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: ma
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });
 if (scenario === "pre-aborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);
+const stateSandbox = defaultHomeState ? prepareWorkerSandbox(brainPath, { profile: "strict", areas: [] }) : undefined;
 try {
   try { await startFixtureTurn(backend, brainPath, { prompt: "Odysseus worker proof", profileId: "fixture", signal: controller.signal, bridge: activeBridge,
+    ...(stateSandbox ? { workerSandbox: stateSandbox } : {}),
     ...(scenario === "forge-bridge" ? { enforceAllowedTools: true, noGrantSurface: true } : {}) }); }
   catch (error) { failure = String(error); }
   const sessions = await backend.listSessions();
   const histories = await Promise.all(sessions.map(s => backend.getHistory(s.id)));
-  if (scenario === "resume" && sessions[0]) {
-    calls = 2;
-    await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge });
+  if ((scenario === "resume" || defaultHomeState) && sessions[0]) {
+    calls = defaultHomeState ? 0 : 2;
+    await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge,
+      ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
   }
   console.log(JSON.stringify({ frames, calls, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
+    parentStateUnchanged: parentState?.every((bytes, index) => bytes === readFileSync(join(agentDir, ["auth.json", "models.json", "settings.json"][index]!), "utf8")),
+    parentHomeWriteExists: defaultHomeState ? existsSync("/root/worker-home-write") : undefined,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
     policyBytes: readFileSync(policyPath, "utf8"), policyMembers: readdirSync(join(brainPath, "context/policies")),
     positive: existsSync(join(brainPath, "notes/worker-positive.md")) ? readFileSync(join(brainPath, "notes/worker-positive.md"), "utf8") : null,

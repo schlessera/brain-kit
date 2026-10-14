@@ -99,6 +99,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // runtime as the explicit read envelope, and the relay as the one route out.
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
+  workerEnv.PI_CODING_AGENT_DIR = PI_WORKER_STATE;
   let child: ReturnType<typeof launchAgentWorker>;
   let launchedChild: ReturnType<typeof launchAgentWorker> | undefined;
   let preparedOutput: PreparedWorkerOutput | undefined;
