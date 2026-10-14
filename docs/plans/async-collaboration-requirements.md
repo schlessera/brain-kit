@@ -279,7 +279,7 @@ Stated before the requirements because five of them derive from it.
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
   `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:191-214`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
   credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`)),

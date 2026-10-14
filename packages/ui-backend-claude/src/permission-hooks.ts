@@ -78,12 +78,21 @@ export function createPermissionWiring(options: {
   const nativeRefusal = (toolName: string, input: unknown): string | null => {
     if (req.autonomous || !["Write", "Edit", "NotebookEdit"].includes(toolName)) return null;
     const path = filePath(toolName, input), current = path ? observation(path) : undefined;
-    return current ? fileVersions.check(current.key, current.version) : null;
+    if (!current) return null;
+    const refusal = fileVersions.check(current.key, current.version);
+    if (refusal) return refusal;
+    try { fileVersions.beginWrite(current.key); }
+    catch { return "The host could not retain this write observation. Nothing was written; retry when host storage is available."; }
+    return null;
   };
   const beginNativeRead: HookCallback = async hookInput => {
     if (req.autonomous || req.signal.aborted || hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Read") return { continue: true };
     const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
-    if (current) fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version);
+    if (current) {
+      try { fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version); }
+      catch { return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+        permissionDecisionReason: "The host could not retain this read observation. Nothing was read; retry when host storage is available." } }; }
+    }
     return { continue: true };
   };
   const finishNativeFile: HookCallback = async hookInput => {

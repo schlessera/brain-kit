@@ -512,7 +512,7 @@ result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
 `worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:239-246`). A result, success or
+`packages/ui-backend-claude/src/turn-runner.ts:245-252`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the

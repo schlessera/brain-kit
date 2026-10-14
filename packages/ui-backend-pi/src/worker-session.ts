@@ -40,7 +40,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const info = infos.find(i => i.id === resumeId);
   if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
   const sessionId = resumeId ?? randomUUID();
-  const nativeVersions = nativeSessions.get(sessionId) ?? new NativeFileVersions();
+  const observationStorage = { directory: join(sessionDir, "native-observations"), brainPath: backend.brainPath, sessionId };
+  const nativeVersions = nativeSessions.get(sessionId)
+    ?? (!env.autonomous && resumeId ? NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
+  if (!env.autonomous && !resumeId) nativeVersions.retain(observationStorage);
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
   const entries = info ? readPiSession(info.path) : undefined;
   /** Entries saved before this turn: their answers were promoted, if at all, by their own turn. */
@@ -328,6 +331,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       else if (phase === "write_check") {
         const refusal = nativeVersions.check(observed.key, observed.version);
         if (refusal) throw new Error(refusal);
+        nativeVersions.beginWrite(observed.key);
       } else nativeVersions.finishWrite(observed.key, observed.version);
       return { ok: true };
     }

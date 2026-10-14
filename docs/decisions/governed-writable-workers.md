@@ -991,18 +991,40 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+`packages/ui-backend-claude/src/permission-hooks.ts:98`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:85`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
-or authority. Both preserve ordinary next turns on the running host. Neither
-restores the observations after a backend restart; resuming a saved transcript
-after restart does not establish restart-safe stale-write protection.
+or authority. Both also retain observations in host-private records and restore them before
+resumed native tools run. Claude keeps these records beside its transcript
+archive; Pi keeps them under its host-owned session directory. Neither worker
+receives them as writable state or serialized authority. The record is bound to
+the canonical brain root and native session identity; filenames contain only a
+SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
+regular-file validation and a 16 MiB per-session metadata bound protect the
+record (`saveNativeObservations`,
+`packages/ui-sdk/src/server/native-observation-storage.ts:56-69`).
+
+Read and write admission first retain an unavailable observation. A crash after the
+worker was shown or wrote bytes but before the completion callback therefore requires
+a genuine reread; it cannot turn an observed path into a never-read path.
+Successful stable reads and completed writes retain their versions at each
+observation, rather than waiting for turn end. Corrupt, aliased or unreadable
+records refuse resume before tools run; failed retention refuses subsequent
+writes until storage recovers.
+
+A retained session from before observation persistence, or one whose record
+is missing, has incomplete read history. It requires a genuine read before a
+native write to an unrecorded path. Rereading establishes that path's current
+version. This conservative recovery cannot infer that an unrecorded path was
+never read. Sessions with complete retained observations preserve the approved
+never-read behavior across restarts. There is no reconstruction of authority
+from worker transcripts, and no extension of the observed-shell guarantee.
 
 ## Monitoring
 
