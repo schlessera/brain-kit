@@ -566,7 +566,9 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
       for (const animation of animations) animation.pause();
       for (const time of [0, 150, 300]) {
         for (const animation of animations) animation.currentTime = time;
-        expect((await commands.destinationPaint(navigation, selector)).same,
+        const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
+        expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
+        expect(paint.same,
           `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
       }
       expect(surface.getBoundingClientRect().bottom, "pane ends above safe-area bar").toBe(nav.getBoundingClientRect().top);
