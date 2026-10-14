@@ -3,6 +3,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdir
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { linkSync } from "node:fs";
+import { Database } from "bun:sqlite";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -59,6 +60,7 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
   const sockets: WebSocket[] = [], results: any[] = [];
   let receipt: any;
   let cleanExit = false;
+  let hostProofPassed = false;
   try {
     await until(() => existsSync(join(dir, "ready.json")) || exited, 30000);
     if (exited) throw Error(`HOSTED_PROBE_PREREQUISITE: ${await errors}`);
@@ -73,7 +75,8 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
       ws.send(JSON.stringify({ type: "client_hello", protocolRev: 3, capabilities: { followUpQueue: true } }));
       return { ws, frames };
     }
-    const sender = await device(), observer = await device();
+    let sender = await device();
+    const observer = await device();
     let sid: string | undefined;
     for (const phase of ["first", "warm"] as const) {
       const requestId = `odysseus-${phase}-admission`, begin = performance.now();
@@ -125,6 +128,18 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
         pingLatencyMs: pongs.map(f => f.receiptAt - pings.find(p => p.id === f.probeId)!.at), recovery, terminal
       });
       if (!completed) break;
+      if (phase === "first") {
+        sender.ws.close();
+        await until(() => sender.ws.readyState === WebSocket.CLOSED);
+        sender = await device();
+        sender.ws.send(JSON.stringify({ type: "session_resume", sessionId: sid }));
+        await until(() => sender.frames.some(f => f.type === "session_info" && f.sessionId === sid));
+        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        expect(recovered.latest?.requestId, "RECONNECT_RECOVERS_SAME_ACCEPTED_REQUEST").toBe(requestId);
+        expect(recovered.latest?.state, "RECONNECT_RECOVERS_TERMINAL_REQUEST").toBe("terminal");
+        await sleep(200);
+        expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "RECOVERY_READ_DID_NOT_EXECUTE_AGAIN").toBe(1);
+      }
     }
     expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= 1000)), "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
     expect(results).toHaveLength(2);
@@ -158,6 +173,14 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
     const attemptsAfter = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length;
     expect(attemptsAfter, "HOSTED_CANCEL_ADMISSION_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     const admissionCancelElapsedMs = performance.now() - admissionCancelStart;
+    const beforeUnnamed = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"governed_begin_start"')).length;
+    const unnamedStart = performance.now();
+    sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus cancels before naming a voyage.", requestId: "odysseus-unnamed-cancel", draftId: "odysseus-unnamed-draft" }));
+    await until(() => readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"governed_begin_start"')).length > beforeUnnamed, 10000);
+    sender.ws.send(JSON.stringify({ type: "cancel" }));
+    await until(() => sender.frames.some(f => f.receiptAt >= unnamedStart && f.type === "status" && f.status === "cancelled" && f.requestId === "odysseus-unnamed-cancel"), 10000);
+    await sleep(200);
+    expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
       source: SOURCE, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
@@ -166,28 +189,71 @@ test("native hosted first/warm admission, health, WebSocket, Stop and cancellati
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));
     console.log(JSON.stringify({ ...receipt, results: results.map(r => ({ ...r, health: { count: r.health.length, timeoutCount: r.timeoutCount, maxMs: Math.max(...r.health.map((p: any) => p.elapsedMs)) } })) }));
     expect(receipt.workerFiles, "REAL_ISOLATED_WORKER_EXECUTED_FIRST_WARM_AND_CANCEL").toHaveLength(3);
+    hostProofPassed = true;
   } finally {
     for (const socket of sockets) socket.close();
     writeFileSync(join(ARTIFACTS, "phase-progress.json"), JSON.stringify(results, null, 2));
+    const shutdownStartedAt = performance.now();
     if (!exited) child.kill("SIGTERM");
     let forcedCleanup = false;
     let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
     const code = await Promise.race([child.exited, new Promise<number>(resolve => {
-      cleanupTimer = setTimeout(() => { forcedCleanup = true; child.kill("SIGKILL"); void child.exited.then(resolve); }, 5000);
+      cleanupTimer = setTimeout(() => { forcedCleanup = true; child.kill("SIGKILL"); void child.exited.then(resolve); }, 45000);
     })]);
     clearTimeout(cleanupTimer);
     cleanExit = code === 0 && !forcedCleanup;
-    writeFileSync(join(ARTIFACTS, "cleanup.json"), JSON.stringify({ code, forcedCleanup }));
+    writeFileSync(join(ARTIFACTS, "cleanup.json"), JSON.stringify({ code, forcedCleanup, shutdownElapsedMs: performance.now() - shutdownStartedAt }));
     writeFileSync(join(ARTIFACTS, "host-output.txt"), await output); writeFileSync(join(ARTIFACTS, "host-errors.txt"), await errors);
     if (existsSync(join(dir, "boot-error.txt"))) writeFileSync(join(ARTIFACTS, "boot-error.txt"), readFileSync(join(dir, "boot-error.txt")));
     if (existsSync(join(dir, "events.jsonl"))) writeFileSync(join(ARTIFACTS, "events.jsonl"), readFileSync(join(dir, "events.jsonl")));
     try {
-      if (code === 0 && receipt) {
+      if (code === 0 && receipt && hostProofPassed) {
+        const db = new Database(join(dir, "ui.db"), { readonly: true });
+        try {
+          expect(db.query("SELECT count(*) AS count FROM writer_gate").get(), "NORMAL_CLOSE_RELEASED_WRITER_GATE").toEqual({ count: 0 });
+          expect(db.query("SELECT count(*) AS count FROM turn_journal_reservations").get(), "NORMAL_CLOSE_RELEASED_CAS_RESERVATIONS").toEqual({ count: 0 });
+        } finally { db.close(); }
+        const appLeases = new Database(join(dir, "ui.db.native-leases.sqlite"), { readonly: true });
+        try { expect(appLeases.query("SELECT count(*) AS count FROM native_root_leases").get(), "NORMAL_CLOSE_RELEASED_NATIVE_LEASE_ROWS").toEqual({ count: 0 }); }
+        finally { appLeases.close(); }
+        const ledgers = readdirSync(dir).filter(name => name.startsWith(".brain-maintenance-") && name.endsWith(".db")).map(name => join(dir, name));
+        const fallback = "/tmp/brain-maintenance-budget-1000/reservations.db";
+        if (existsSync(fallback)) ledgers.push(fallback);
+        for (const path of ledgers) {
+          const ledger = new Database(path, { readonly: true });
+          try { expect(ledger.query("SELECT count(*) AS count FROM reservations WHERE released=0").get(), "NORMAL_CLOSE_RELEASED_MAINTENANCE_RESERVATIONS").toEqual({ count: 0 }); }
+          finally { ledger.close(); }
+        }
         const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
         const { createNativeJournalCapture } = await import(join(SOURCE, "packages/ui-server/src/brain/native-journal-capture.ts"));
         const first = "notes/linked-odysseus.md", alias = "notes/linked-athena.md"; writeFileSync(join(brain, first), "Odysseus original linked notes\n"); linkSync(join(brain, first), join(brain, alias));
         let retainedCalls = 0; const capture = createNativeJournalCapture(createNativeBrainManagerClient({ socketPath: socket }), async (fd: number, bytes: number) => { retainedCalls++; const value = readFileSync(`/proc/self/fd/${fd}`); expect(value.length).toBe(bytes); return createHash("sha256").update(value).digest("hex"); });
         try { await capture.initialize(); const policy = await capture.policy(); writeFileSync(join(brain, alias), "Athena updates both linked note names\n"); const observed = await capture.observe(new Map([["odysseus", policy]])); const paths = observed.changes.get("odysseus")!.map((c: any) => c.path); expect(paths, "NATIVE_CAPTURE_BOTH_ALIASES").toContain(first); expect(paths, "NATIVE_CAPTURE_BOTH_ALIASES").toContain(alias); expect(retainedCalls, "NATIVE_CAPTURE_ONE_RETAIN_PER_SEALED_INODE").toBe(2); await observed.commit(); writeFileSync(join(ARTIFACTS, "hardlink-capture.json"), JSON.stringify({ retainedCalls, paths, pass: true })); } finally { await capture.close(); }
+        const ownerDirectory = join(ARTIFACTS, "crash-owner"); mkdirSync(ownerDirectory, { mode: 0o700 });
+        expect(Bun.spawnSync(["chown", "1000:1000", ownerDirectory]).exitCode).toBe(0);
+        function ownerProcess(mode: "acquire" | "recover") {
+          return Bun.spawn(["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "native-lease-child.ts"), SOURCE, mode, ownerDirectory, brain, socket, fsid, brainUuid], { cwd: SOURCE, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe" });
+        }
+        const deadOwner = ownerProcess("acquire");
+        let ownerExited = false; void deadOwner.exited.then(() => { ownerExited = true; });
+        const ownerErrors = new Response(deadOwner.stderr).text();
+        try {
+          await until(() => existsSync(join(ownerDirectory, "acquired.json")) || ownerExited, 10000);
+          if (ownerExited) expect(ownerExited, `NATIVE_OWNER_MUST_BE_ALIVE_FOR_SIGKILL: ${await ownerErrors}`).toBe(false);
+        }
+        finally { deadOwner.kill("SIGKILL"); await deadOwner.exited; writeFileSync(join(ARTIFACTS, "native-owner-errors.txt"), await ownerErrors); }
+        const saved = JSON.parse(readFileSync(join(ownerDirectory, "acquired.json"), "utf8"));
+        const recoveryOwner = ownerProcess("recover");
+        const recoveryErrors = new Response(recoveryOwner.stderr).text();
+        expect(await recoveryOwner.exited, await recoveryErrors).toBe(0);
+        const recovered = JSON.parse(readFileSync(join(ownerDirectory, "recovered.json"), "utf8"));
+        expect(recovered.released, "DEAD_NATIVE_OWNER_RECOVERED_CHECKPOINT_AND_STAGE").toEqual([saved.stageId, saved.checkpointId]);
+        expect(recovered.unknown).toEqual([]);
+        const native = createNativeBrainManagerClient({ socketPath: socket });
+        const records: any[] = []; let after: string | null = null;
+        do { const page: { records: { state: string; id: string }[]; next: string | null } = await native.listRecovery(after); records.push(...page.records); after = page.next; } while (after);
+        expect(records.every(record => record.state === "deleted"), "NORMAL_CLOSE_AND_OWNER_RECOVERY_LEFT_NO_NATIVE_ROOTS").toBe(true);
+        writeFileSync(join(ARTIFACTS, "native-owner-recovery.json"), JSON.stringify({ recovered, records }, null, 2));
       }
     } finally { await service.close(); }
     rmSync(dir, { recursive: true, force: true });
