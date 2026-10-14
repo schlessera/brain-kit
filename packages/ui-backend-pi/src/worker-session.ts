@@ -100,6 +100,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   let child: ReturnType<typeof launchAgentWorker>;
+  let launchedChild: ReturnType<typeof launchAgentWorker> | undefined;
   let preparedOutput: PreparedWorkerOutput | undefined;
   let sandboxNote: string;
   let sandbox: WorkerSandbox;
@@ -129,10 +130,28 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
+    launchedChild = child;
     turnTemp = child.turnTemp;
     turnContext.configurationRoot = child.configurationRoot;
     workerStarted?.(child);
-  } catch (error) { try { await preparedOutput?.cleanup(); } finally { envelope?.relay.stop(); reservation.release(); } throw error; }
+  } catch (error) {
+    // A post-launch callback can fail before the ordinary lifecycle handlers
+    // exist. Stop and drain this owned child before deleting its native stage.
+    const cleanupErrors: unknown[] = [];
+    const attempt = async (cleanup: () => unknown | Promise<unknown>) => { try { await cleanup(); } catch (failure) { cleanupErrors.push(failure); } };
+    if (launchedChild) {
+      await attempt(() => launchedChild!.kill("SIGKILL"));
+      await attempt(() => launchedChild!.exited);
+      await attempt(() => launchedChild!.turnTemp?.close());
+    }
+    await attempt(() => preparedOutput?.cleanup());
+    await attempt(() => envelope?.relay.stop());
+    await attempt(() => reservation.release());
+    if (cleanupErrors.length) {
+      try { backend.log?.("warn", `Pi startup cleanup retained failures after its original refusal: ${cleanupErrors.map(String).join("; ")}`); } catch { /* Reporting cannot replace the startup error. */ }
+    }
+    throw error;
+  }
   const held = reservation;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
   const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };

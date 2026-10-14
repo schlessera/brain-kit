@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { PassThrough, Writable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 import { createPiBackend } from "../src/backend.js";
@@ -230,4 +230,38 @@ test("cancellation during native stage preparation never launches a late Pi work
     await expect(opening).rejects.toThrow("Odysseus cancelled native preparation");
     expect(launch, "PI_CANCELLED_PREPARATION_NEVER_LAUNCHES").not.toHaveBeenCalled();
   } finally {controller.abort();acquire.mockRestore();}
+});
+
+
+for (const profile of ["governed", "strict"] as const) test(`throwing workerStarted kills and drains real Pi child before ${profile === "strict" ? "native output" : "governed"} cleanup`, async () => {
+  const failure = Error("Fixture Pi scope freeze failed"), events: string[] = [];
+  let process: ReturnType<typeof Bun.spawn<"pipe", "pipe", "pipe">> | undefined, childExited = false;
+  const baseline = worker.processStateLedger().turnTempHeld;
+  let exited: Promise<number> | undefined;
+  const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
+  const prepared = { view, output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
+    async cleanup() { events.push("native-cleanup"); await exited; }, async publish() {}, async publishLocked() {} };
+  const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue(prepared);
+  launch.mockImplementation(() => {
+    process = Bun.spawn(["/bin/cat"], { cwd: root, env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    children.push(() => { process?.kill("SIGKILL"); });
+    exited = process.exited.then(code => { childExited = true; events.push("exited"); return code; });
+    return { stdin: process.stdin, stdout: Readable.fromWeb(process.stdout as never), stderr: Readable.fromWeb(process.stderr as never), exited,
+      kill() { events.push("killed"); process!.kill("SIGKILL"); }, limitReport: () => ({ hits: [], fatal: false }),
+      turnTemp: { close() { events.push("turn-temp-close"); } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+  });
+  const opening = openPiWorkerSession({ brainPath: brain }, sessionDir, { workerStartupView: profile === "strict" ? view : undefined,
+    workerSandbox: { profile, scratchAliasesRemoved: [], areas: profile === "strict" ? [{ name: "workspaces", rel: "workspaces", mount: { path: join(brain, "workspaces"), writable: true } }] : [] } as never,
+    workerStarted() { events.push("callback"); expect(worker.processStateLedger().turnTempHeld).toBeGreaterThan(baseline); throw failure; },
+    caps: { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false } });
+  const result = opening.then(() => undefined, error => error);
+  try {
+    const outcome = await Promise.race([result, Bun.sleep(1000).then(() => "pending")]);
+    expect(childExited, "PI_WORKER_START_FAILURE_DRAINS_REAL_CHILD").toBe(true);
+    expect(outcome, "PI_WORKER_START_FAILURE_PRESERVES_CALLBACK_ERROR").toBe(failure);
+    expect(worker.processStateLedger().turnTempHeld, "PI_WORKER_START_FAILURE_RELEASES_RESERVATION").toBe(baseline);
+    expect(events).toEqual(profile === "strict" ? ["callback", "killed", "exited", "turn-temp-close", "native-cleanup"] : ["callback", "killed", "exited", "turn-temp-close"]);
+    expect(native).toHaveBeenCalledTimes(profile === "strict" ? 1 : 0);
+    expect(receivedInit, "PI_WORKER_START_FAILURE_INITIALIZES_NO_PROVIDER").toBeUndefined();
+  } finally { process?.kill("SIGKILL"); await exited; await result; native.mockRestore(); }
 });
