@@ -21,7 +21,7 @@
     },
     "packages/common": {
       "name": "@schlessera/brain-common",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "gray-matter": "^4.0.3",
         "zod": "^4.4.3",
@@ -39,7 +39,7 @@
     },
     "packages/core": {
       "name": "@schlessera/brain",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "bin": {
         "brain": "./dist/cli/brain.js",
       },
@@ -83,7 +83,7 @@
     },
     "packages/geo": {
       "name": "@schlessera/brain-geo",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@resvg/resvg-js": "2.6.2",
         "fontkit": "2.0.4",
@@ -105,7 +105,7 @@
     },
     "packages/module-finance": {
       "name": "@schlessera/brain-module-finance",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "@schlessera/brain-common": "workspace:*",
@@ -124,7 +124,7 @@
     },
     "packages/module-images": {
       "name": "@schlessera/brain-module-images",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "@schlessera/brain-common": "workspace:*",
@@ -143,7 +143,7 @@
     },
     "packages/module-jobs": {
       "name": "@schlessera/brain-module-jobs",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "@schlessera/brain-common": "workspace:*",
@@ -165,7 +165,7 @@
     },
     "packages/module-speaking": {
       "name": "@schlessera/brain-module-speaking",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
@@ -183,7 +183,7 @@
     },
     "packages/module-travel": {
       "name": "@schlessera/brain-module-travel",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "@schlessera/brain-common": "workspace:*",
@@ -209,7 +209,7 @@
     },
     "packages/module-video": {
       "name": "@schlessera/brain-module-video",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
         "zod": "^4.4.3",
@@ -227,7 +227,7 @@
     },
     "packages/render-template": {
       "name": "@schlessera/brain-render-template",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "marked": "^18.0.4",
         "parse5": "^8.0.1",
@@ -239,7 +239,7 @@
     },
     "packages/scrape": {
       "name": "@schlessera/brain-scrape",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain-common": "workspace:*",
         "cheerio": "^1.2.0",
@@ -261,7 +261,7 @@
     },
     "packages/ui-backend-claude": {
       "name": "@schlessera/brain-backend-claude",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.293",
         "@schlessera/brain-common": "workspace:*",
@@ -275,7 +275,7 @@
     },
     "packages/ui-backend-pi": {
       "name": "@schlessera/brain-backend-pi",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@earendil-works/pi-agent-core": "0.99.2",
         "@earendil-works/pi-ai": "0.99.2",
@@ -299,7 +299,7 @@
     },
     "packages/ui-kit": {
       "name": "@schlessera/brain-ui-kit",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain-render-template": "workspace:*",
         "lucide-react": "^0.460",
@@ -344,7 +344,7 @@
     },
     "packages/ui-react": {
       "name": "@schlessera/brain-ui-react",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain-ui-kit": "workspace:*",
         "@schlessera/brain-ui-sdk": "workspace:*",
@@ -384,7 +384,7 @@
     },
     "packages/ui-render-puppeteer": {
       "name": "@schlessera/brain-render-puppeteer",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain-render-template": "workspace:*",
         "pdfjs-dist": "^6.3.289",
@@ -397,7 +397,7 @@
     },
     "packages/ui-sdk": {
       "name": "@schlessera/brain-ui-sdk",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "bin": {
         "brain-native-store": "./dist/bin/brain-native-store.js",
       },
@@ -428,7 +428,7 @@
     },
     "packages/ui-server": {
       "name": "@schlessera/brain-ui-server",
-      "version": "0.43.0",
+      "version": "0.43.1",
       "bin": {
         "brain-ui-cron": "./dist/bin/brain-ui-cron.js",
         "brain-ui-inbox": "./dist/bin/brain-ui-inbox.js",

@@ -297,8 +297,12 @@ ecosystem, loaded by default (`loadExtensions: true`):
   through this backend's gate — delegation itself is the reviewed act.
 
 Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter npm:pi-subagents`); a container deployment can do this on
-boot.
+npm:pi-mcp-adapter npm:pi-subagents`) before starting turns. Ordinary workers
+reuse the prepared global `npm/node_modules` tree read-only. SDK settings,
+models and login writes stay in bounded private per-turn state. A missing or
+mismatched configured package reports a setup error before loading. Keep the
+prepared package tree stable while turns initialize; it is trusted installed
+code, not a transactional snapshot of concurrent setup changes.
 
 ## Event mapping (pi → wire protocol)
 
