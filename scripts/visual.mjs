@@ -131,7 +131,7 @@ const status = run("docker", [
   "--rm",
   "--ipc=host",
   // The consumer layout project needs only the in-container Vite server.
-  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
+  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",

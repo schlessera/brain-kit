@@ -16,7 +16,7 @@ function receipt(selected = true): { changeset: { result: string; outputs: Recor
 }
 
 test("aggregate accepts actual selected passes and intentional exclusions only", () => {
-  expect(PROOF_JOBS.length).toBe(7);
+  expect(PROOF_JOBS.length).toBe(8);
   expect(proofProblems(receipt())).toEqual([]);
   expect(proofProblems(receipt(false))).toEqual([]);
   for (const name of PROOF_JOBS) for (const result of ["failure", "cancelled", "skipped", "queued", ""]) {
@@ -39,7 +39,7 @@ test("emitted aggregate executable fails a cancelled selected job and accepts it
   for (const result of ["cancelled", "success"]) {
     const needs = receipt(); needs.layout.result = result;
     const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
-      env: { ...process.env, PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
+      env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, err).toBe(result === "success" ? 0 : 1);
     if (result === "cancelled") expect(err).toContain("layout: selected proof did not pass (cancelled)");
@@ -75,11 +75,35 @@ test("hosted global commands retain the full local inventory and real offline na
   const selections = proofSelections(plan);
   expect(Object.values(selections).every(Boolean)).toBe(true);
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
-  const cmds = ["unit", "runtime", "browser", "layout", "captures"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
+  const cmds = ["unit", "runtime", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
   const argv = cmds.map(command => command.argv.join(" ")).join("\n");
-  for (const phase of ["test:browser", "test:layout", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts"]) expect(argv).toContain(phase);
+  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
   expect(unit.argv.filter(arg => arg.endsWith(".test.ts")).length).toBeGreaterThan(100);
   expect(categoryCommands("layout", plan, ROOT, "1/2").at(-1)!.argv.at(-1)).toBe("--shard=1/2");
+});
+
+
+test("the emitted hosted aggregate cannot accept an omitted required endurance selection", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "candidate-event-")); directories.push(directory);
+  const eventPath = join(directory, "event.json");
+  writeFileSync(eventPath, "{}");
+  const needs = receipt();
+  needs.changeset.outputs.cadence = "exhaustive";
+  needs.changeset.outputs.endurance = "false";
+  needs.endurance = { result: "skipped" };
+  const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
+    env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_EVENT_PATH: eventPath,
+      PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
+  const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code).toBe(1);
+  expect(err).toContain("endurance: required candidate selection differs from actual inputs");
+});
+
+
+test("required endurance proof cannot be absent even when every other job passes", () => {
+  const needs = receipt();
+  delete needs.endurance;
+  expect(proofProblems(needs)).toContain("endurance: selected proof did not pass (missing)");
 });

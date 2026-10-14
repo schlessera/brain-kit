@@ -17,6 +17,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
     "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
+    "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
     "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
     "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
@@ -68,11 +69,12 @@ export interface CheckPlan {
   changed: string[];
   affected: string[];
   global: boolean;
+  cadence?: ProofCadence;
   typecheck: boolean;
   tests: string[];
   pack: boolean;
   // Complete proof categories, shared by hosted CI and opt-in full local checks.
-  local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean };
+  local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
 }
 
 export function workspaces(root: string): Workspace[] {
@@ -142,15 +144,32 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
     tests, pack: global || ships,
     local: { fullTests: global || packageCode || changed.some(path => path.startsWith("template/") && !prose(path)), browser: (global || packageCode) && ui,
       layout: (global || packageCode) && ui, captures: captureInputs || ((global || packageCode) && ui),
+      endurance: (global || packageCode) && ui,
       runtime: global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+}
+
+export type ProofCadence = "draft" | "feedback" | "confirmation" | "integrated" | "exhaustive";
+
+/** A request is an event, never a sticky label that can approve a later head. */
+export function proofCadence(env: NodeJS.ProcessEnv, event: any): ProofCadence {
+  if (env.GITHUB_EVENT_NAME === "pull_request") {
+    if (event.pull_request?.draft === true) return "draft";
+    if (["opened", "reopened", "ready_for_review"].includes(event.action)) return "confirmation";
+    return "feedback";
+  }
+  if (env.GITHUB_EVENT_NAME === "push") return "integrated";
+  if (["schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return "exhaustive";
+  throw new Error("Unknown proof event: confirmation cannot be inferred");
 }
 
 /** Explicit false outputs distinguish intentional exclusions from missing proof. */
 export function proofSelections(plan: CheckPlan, draft = false): Record<string, boolean> {
+  const feedback = plan.cadence === "feedback";
+  draft ||= plan.cadence === "draft";
   return Object.fromEntries(Object.entries({
-    verify: plan.typecheck || (!plan.local.fullTests && plan.tests.length > 0), pack: plan.pack,
-    unit: plan.local.fullTests, browser: plan.local.browser, layout: plan.local.layout,
-    captures: plan.local.captures, runtime: plan.local.runtime,
+    verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
+    unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
+    captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
   }).map(([name, selected]) => [name, !draft && selected]));
 }
 
@@ -186,12 +205,17 @@ if (import.meta.main) {
   try {
     const root = resolve(import.meta.dir, "..");
     const plan = planFromEnvironment(root, process.env);
+    if (process.env.GITHUB_ACTIONS === "true" && !process.env.GITHUB_EVENT_PATH) throw new Error("Hosted proof requires GITHUB_EVENT_PATH");
+    // Standalone planner diagnostics preserve complete selection; only an actual
+    // event requests hosted confirmation, enforced again by the final gate.
+    const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : undefined;
+    if (event) plan.cadence = proofCadence(process.env, event);
     const path = process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json");
     await Bun.write(path, JSON.stringify(plan, null, 2) + "\n");
     const draft = process.env.PR_DRAFT === "true";
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-      Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
+      `cadence=${plan.cadence ?? "diagnostic"}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft }, null, 2));
   } catch (error) { console.error(error); process.exit(1); }
 }

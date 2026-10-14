@@ -9,7 +9,7 @@ type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
-  jobs?: Record<string, { "runs-on"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
+  jobs?: Record<string, { name?: string; "runs-on"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
 };
 
 export function workflowProblems(text: string, file: string): string[] {
@@ -29,7 +29,7 @@ export function workflowProblems(text: string, file: string): string[] {
   if (JSON.stringify(workflow.permissions) !== JSON.stringify(permissions)) fail("workflow permissions must be the specified read-only contents/actions scope");
   const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
-  const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "layout", "pack", "proof", "runtime", "unit", "verify"] : ["contract"];
+  const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "endurance", "layout", "pack", "proof", "runtime", "unit", "verify"] : ["contract"];
   if (JSON.stringify(Object.keys(workflow.jobs ?? {}).sort()) !== JSON.stringify(expectedJobs)) fail("missing or unexpected CI jobs");
   for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
     if (job["runs-on"] !== "ubuntu-24.04") fail(`${name}: unmapped GitHub-hosted runner`);
@@ -38,7 +38,10 @@ export function workflowProblems(text: string, file: string): string[] {
     if (!job.steps?.length) fail(`${name}: executable steps must be nonempty`);
     const checkouts = job.steps?.filter(step => step.uses?.startsWith("actions/checkout@")) ?? [];
     if (!checkouts.length) fail(`${name}: checkout is missing`);
-    for (const step of checkouts) if (step.with?.["persist-credentials"] !== false) fail(`${name}: checkout credentials must not persist`);
+    for (const step of checkouts) {
+      if (step.with?.["persist-credentials"] !== false) fail(`${name}: checkout credentials must not persist`);
+      if (file === "ci.yml" && ["ref", "repository", "path"].some(key => step.with?.[key] !== undefined)) fail(`${name}: proof checkout must use the event candidate`);
+    }
     for (const step of job.steps ?? []) {
       for (const match of (step.run ?? "").matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) {
         if (!RUN_EXPRESSIONS.has(match[1]!)) fail(`${name}: untrusted expression in run script: ${match[1]}`);
@@ -46,7 +49,7 @@ export function workflowProblems(text: string, file: string): string[] {
     }
   }
   if (file === "ci.yml") {
-    const names = ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"];
+    const names = ["verify", "pack", "unit", "runtime", "browser", "layout", "captures", "endurance"];
     for (const name of names) {
       const job = workflow.jobs?.[name];
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
@@ -54,9 +57,10 @@ export function workflowProblems(text: string, file: string): string[] {
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
     const proof = workflow.jobs?.proof;
+    if (proof?.name !== "${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}") fail("proof: manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
-    for (const category of ["unit", "runtime", "browser", "layout", "captures"]) {
+    for (const category of ["unit", "runtime", "browser", "layout", "captures", "endurance"]) {
       if (!workflow.jobs?.[category]?.steps?.some(step => step.run?.startsWith(`bun scripts/ci-proof.ts ${category}`))) fail(`${category}: complete proof command is missing`);
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
