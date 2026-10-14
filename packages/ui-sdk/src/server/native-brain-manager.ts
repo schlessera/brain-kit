@@ -303,7 +303,13 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       }
       if (request.operation === "release") {
         let intent = readIntent(request.id);
-        if (!intent) throw new NativeBrainManagerError("unknown", "Only a recorded owned checkpoint can be released.");
+        if (!intent) {
+          // Fence a lost/never-arrived creation request using its fixed UUID.
+          // An unrecorded existing root still has no verified deletion authority.
+          if (existsSync(rootPath(request.id))) throw new NativeBrainManagerError("unknown", "An unrecorded native root cannot be released.");
+          await writeIntent({ version: 1, id: request.id, sourceUuid: fixed.brainUuid, state: "deleted" });
+          return Response.json({ id: request.id, state: "deleted" });
+        }
         intent = await reconcile(intent, signal);
         if (intent.state === "deleted") return Response.json({ id: request.id, state: "deleted" });
         if (intent.state === "creating" && !existsSync(rootPath(request.id))) { await writeIntent({ ...intent, state: "deleted" }); return Response.json({ id: request.id, state: "deleted" }); }
