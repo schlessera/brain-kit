@@ -24,7 +24,8 @@ if (import.meta.main) {
     // One owned loop at a time: the first backend must prove cleanup before the next.
     for (const uid of appUid ? [appUid] : ["1000", "0"]) for (const backend of backends ? [backends] : ["claude", "pi"]) {
       const artifact = mkdtempSync(join(output, `run-${backend}-uid${uid}-`));
-      if (uid === "0") chmodSync(artifact, 0o755); // Root workers have no DAC override over the operator-owned artifact directory.
+      // The operator may differ from either fixed app UID; cap0 children need traversal.
+      chmodSync(artifact, 0o755);
       writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ backend, appUid: Number(uid), apparmor, profile: apparmor ? "brain-kit-native-proof" : null }));
       if (!apparmor) console.log("AppArmor unavailable: this runtime provides no enforced AppArmor qualification.");
       const lease = join(root, "tmp", "workspace-operation"); mkdirSync(lease, { recursive: true, mode: 0o700 });
