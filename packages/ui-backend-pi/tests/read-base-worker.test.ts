@@ -78,7 +78,8 @@ for (const mode of ["default", "narrowed", "absent", "forged-tool", "mismatched-
       // by treating every signal's null exit code as a successful exit.
       await Promise.all(exits);
       expect(terminations).toHaveLength(1);
-      expect([{ code: 0, signal: null }, { code: null, signal: "SIGKILL" }]).toContainEqual(terminations[0]);
+      if (terminations[0]!.signal === null) expect(terminations[0]!.code).toBe(0);
+      else expect(terminations[0]).toEqual({ code: null, signal: "SIGKILL" });
     } finally {
       controller.abort();
       for (const stop of stopChildren) stop();

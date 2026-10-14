@@ -29,7 +29,7 @@ async function run(mode: string) {
       result = await rpc("readBase", name, id, mode === "mismatched-path" ? { path: "notes/athena.md" } : input);
     } else {
       const turn = createTurnContext();
-      turn.bridge = { emit() {}, requestPermission: async () => ({ behavior: "deny" }),
+      turn.bridge = { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "No fixture approval surface" }),
         readBrainBase: path => rpc("readBase", name, id, { path }) };
       const tools = createBrainTools({ brain: createBrainAccess(brainPath), turn, lock: toolLockFromKeyed(createKeyedLock()) });
       result = await tools.find(tool => tool.name === name)!.execute(id, input, undefined, undefined, {} as never);
