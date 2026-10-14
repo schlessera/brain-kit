@@ -37,18 +37,18 @@ const AT = Date.UTC(2026, 6, 12, 12), YEAR = 365 * 86_400_000;
 const operation: InboxOperation = { toolName: "write", targetPath: "notes/harbor.md", input: { path: "notes/harbor.md", content: "Odysseus returned." } };
 beforeEach(() => { const clock = spyOn(Date, "now").mockReturnValue(AT); cleanup.push(() => clock.mockRestore()); });
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-function directory() {
+function directory(owner = cleanup) {
   const root = mkdtempSync(join(tmpdir(), "brain-snapshot-"));
-  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  owner.push(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
-function connect(path: string) { const db = createUiDb(path); cleanup.push(() => db.close()); return db; }
+function connect(path: string, owner = cleanup) { const db = createUiDb(path); owner.push(() => db.close()); return db; }
 const config = { spendUsd: 100, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 };
 const pricing = { resolve: () => ({ input: 0.001, output: 0.001, cacheRead: 0.001, cacheWrite: 0.001, estimate: false, source: "snapshot" as const }) };
-async function world() {
-  const root = directory(), path = join(root, "ui.sqlite"), db = connect(path), store = createInboxStore(db);
+async function world(owner = cleanup) {
+  const root = directory(owner), path = join(root, "ui.sqlite"), db = connect(path, owner), store = createInboxStore(db);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: YEAR / 1000 });
-  const intake = createInboxIntake(db, root); cleanup.push(() => intake.close());
+  const intake = createInboxIntake(db, root); owner.push(() => intake.close());
   const budget = createInboxBudget(db, { config, pricing, maxAutonomousRuns: 20 });
   const activity = createActivityStore(db, { pricing });
   const records = new Map<string, { itemId: string; threadId: string; stagingId: string; actionId?: string }>();
@@ -131,6 +131,43 @@ function editImage(snapshot: InboxBackup, edit: (db: Database) => void): InboxBa
   const db = Database.deserialize(Buffer.from(snapshot.database.data, "base64"));
   try { edit(db); const bytes = db.serialize(); return resign({ ...snapshot, database: { data: bytes.toString("base64"), sha256: hash(bytes) } }); }
   finally { db.close(); }
+}
+
+// Only immutable JSON survives preparation. No live database, staging path or
+// cleanup callback crosses into a refusal case; parsing owns every nested value.
+// The module lifetime bounds the cache, and a failed preparation is not cached.
+let refusalBaseline: Promise<string> | undefined;
+async function prepareRefusalBaseline(): Promise<string> {
+  const owner: typeof cleanup = [];
+  const errors: unknown[] = [];
+  let serialized: string | undefined;
+  try {
+    const f = await world(owner);
+    for (const rows of Object.values(f.store.exportState())) expect(rows.length).toBeGreaterThan(0);
+    for (const table of ["principals", "activity_spans", "activity_run_rollups"])
+      expect(f.db.query(`SELECT * FROM ${table}`).all().length).toBeGreaterThan(0);
+    const snapshot = await exportInboxSnapshot(f.db, f.root, AT);
+    expect(snapshot.database.data.length).toBeGreaterThan(0);
+    expect(snapshot.directories.length).toBeGreaterThan(0);
+    expect(snapshot.files.filter(file => file.path.endsWith("harbor.png"))).toHaveLength(7);
+    serialized = JSON.stringify(snapshot);
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    for (const close of owner.reverse()) {
+      try { await close(); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length) throw new AggregateError(errors, "Snapshot fixture preparation or cleanup failed");
+  return serialized!;
+}
+async function refusalSnapshot(): Promise<InboxBackup> {
+  refusalBaseline ??= prepareRefusalBaseline().catch(error => {
+    refusalBaseline = undefined;
+    throw error;
+  });
+  return JSON.parse(await refusalBaseline) as InboxBackup;
 }
 
 test("operational backup includes a versioned database image instead of audit-only rows", async () => {
@@ -222,7 +259,7 @@ test.each([
   ["missing-sequence", "inbox_snapshot_relations"], ["missing-resolution", "inbox_snapshot_relations"],
   ["schema", "inbox_snapshot_schema"],
 ])("refuses %s snapshot before writing a target", async (kind, error) => {
-  const f = await world(); let snapshot = await exportInboxSnapshot(f.db, f.root, AT);
+  let snapshot = await refusalSnapshot();
   if (kind === "unsupported") snapshot = { ...snapshot, version: 2 } as unknown as InboxBackup;
   if (kind === "database") snapshot.database.data = snapshot.database.data.slice(0, -4);
   if (kind === "staging") snapshot.files[0]!.data = Buffer.from("tampered").toString("base64");
@@ -241,6 +278,25 @@ test.each([
   const target = directory(), path = join(target, "ui.sqlite");
   await expect(restoreInboxSnapshot(snapshot, path, target, AT)).rejects.toThrow(error);
   expect(existsSync(path)).toBe(false); expect(existsSync(join(target, SHARE_STAGING_DIR))).toBe(false);
+});
+
+test("corruption fixture copies keep nested bytes and metadata private after a dirty copy", async () => {
+  const pristine = await refusalSnapshot(), dirty = await refusalSnapshot();
+  const expected = JSON.stringify(pristine);
+  dirty.createdAt--;
+  dirty.database.data = "tampered database";
+  dirty.database.sha256 = "0".repeat(64);
+  dirty.directories.push("tampered directory");
+  dirty.files[0]!.data = "tampered staging";
+  dirty.files[0]!.sha256 = "0".repeat(64);
+  dirty.files[0]!.path = "tampered path";
+  dirty.files.pop();
+  expect(JSON.stringify(pristine)).toBe(expected);
+  const next = await refusalSnapshot();
+  expect(JSON.stringify(next)).toBe(expected);
+  const target = directory(), path = join(target, "ui.sqlite");
+  expect(await restoreInboxSnapshot(next, path, target, AT)).toEqual({ recovered: 1, resumed: false });
+  for (const file of pristine.files) expect(hash(readFileSync(join(target, SHARE_STAGING_DIR, file.path)))).toBe(file.sha256);
 });
 
 test("nonempty targets and staging symlinks are refused without changing existing bytes", async () => {
