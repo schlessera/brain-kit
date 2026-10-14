@@ -2415,7 +2415,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   border-left: 1px solid var(--bk-color-edge);
   border-radius: 0;
 }
-.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; }
+/* Destination paint belongs to the content region, including surface shadows
+ * and entry transforms; the live bar and rail must never inherit its veil. */
+.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; overflow: clip; }
 .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface {
   bottom: auto;
   top: 110px;
