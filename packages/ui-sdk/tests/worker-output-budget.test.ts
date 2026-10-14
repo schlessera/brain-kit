@@ -2,9 +2,9 @@ import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
-import { prepareWorkerOutput } from "../src/server/worker-output.js";
+import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { launchMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker.js";
-import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { createStateLedger, processStateLedger } from "../src/server/worker-state-budget.js";
 import { hostOutputStagingLimits, resolveOutputStagingLimits, outputStagingLimit } from "../src/server/worker-state-limits.js";
 const cleanup: (() => void)[] = [];
@@ -25,7 +25,7 @@ for (const profile of ["strict", "maintenance"] as const) test(`${profile} refus
     console.log(fs.statfsSync(${JSON.stringify(path.replace("/proof.bin", ""))}).blocks * fs.statfsSync(${JSON.stringify(path.replace("/proof.bin", ""))}).bsize);`];
   const worker = launchAgentWorker({ brainPath: brain, env: {}, command,
     ...(outputs ? { startupView: outputs.view, maintenance: { network: false, credentials: false, readPaths: [process.execPath], output: outputs.output } }
-      : { sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] }), turnTempBytes: 1024 ** 2 }) });
+      : { startupView: createWorkerStartupView(brain), sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] }), turnTempBytes: 1024 ** 2 }) });
   cleanup.push(() => worker.kill("SIGKILL"));
   let stdout = "", stderr = "";
   worker.stdout.on("data", data => { stdout += String(data); }); worker.stderr.on("data", data => { stderr += String(data); });

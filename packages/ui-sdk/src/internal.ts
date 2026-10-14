@@ -42,7 +42,7 @@ export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
 export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
-export { createWorkerStartupView } from "./server/worker-startup-view.js";
+export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";

@@ -45,6 +45,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
     req: StartTurnRequest
   ): Promise<{ entry: SessionEntry; isNew: boolean }> {
     const env: SessionEnv = {
+      ...(req.workerStartupView ? { workerStartupView: req.workerStartupView } : {}),
       ...(req.workerStarted ? { workerStarted: req.workerStarted } : {}),
       ...(req.workerSandbox ? { workerSandbox: req.workerSandbox } : {}),
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),

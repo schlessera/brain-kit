@@ -61,6 +61,8 @@ export interface MaintenanceCommand {
 
 /** Trusted helper configuration shared by hosted startup and short Git checks. */
 export interface MaintenanceHost {
+  /** A host-prepared immutable input lease, acquired before a synchronous reader. */
+  startupView?: WorkerStartupView;
   tempLimits?: WorkerStateLimits;
   tempDomain?: MaintenanceTempDomain;
   maskPaths?: readonly string[];
@@ -291,10 +293,10 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
  * private network namespace) starts on this host for this brain. The
  * ordinary worker host probe does not cover the private network namespace.
  */
-export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain): { ok: true } | { ok: false; requirement: string } {
+export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain, startupView?: WorkerStartupView): { ok: true } | { ok: false; requirement: string } {
   let outputs: ReturnType<typeof prepareWorkerOutput> | undefined;
   try {
-    outputs = prepareWorkerOutput(realpathSync(brainPath));
+    outputs = prepareWorkerOutput(realpathSync(brainPath), { startupView });
     const result = runMaintenanceWorkerSync({ brainPath, startupView: outputs.view, output: outputs.output,
       command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" },
       credentials: false, ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });

@@ -20,6 +20,7 @@ import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -445,7 +446,9 @@ function maintenanceEnvMasks(source: string, brain: string, copies: readonly { f
       if (covered.has(destination)) continue;
       covered.add(destination);
       if (resolved.info.isDirectory()) argv.push("--tmpfs", destination, "--remount-ro", destination);
-      else if (resolved.info.isFile()) argv.push("--ro-bind", "/dev/null", destination);
+      // Native checkpoints retain special inodes too. Never leave a FIFO,
+      // socket or device reachable through an environment-secret alias.
+      else argv.push("--ro-bind", "/dev/null", destination);
     }
   }
   return argv;
@@ -560,9 +563,15 @@ export function workerCommand(input: WorkerLaunch): string[] {
         argv[i + 1] = argv[i + 1] === storage.root ? storage.mount : `${storage.mount}/${argv[i + 1]!.slice(storage.root.length + 1)}`;
       }
     }
-    return [nsenter, "--user", "--mount", "--preserve-credentials", "--target", String(storage.namespacePid), "--", ...argv];
+    return filtered([nsenter, "--user", "--mount", "--preserve-credentials", "--target", String(storage.namespacePid), "--", ...argv]);
   }
-  return argv;
+  return filtered(argv);
+
+  function filtered(command: string[]): string[] {
+    if (input.transport) return command;
+    try { return workerFilesystemFilter(brain, command); }
+    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+  }
 }
 
 /** Whether `path` is `dir` or lies below it. */
@@ -959,7 +968,12 @@ function launchDiagnostics(stderr: number): string {
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let startupView = input.startupView;
   let areaOutput: ReturnType<typeof prepareWorkerOutput> | undefined;
-  const plan = launchLimits(input);
+  let plan: WorkerLimitsPlan;
+  try { plan = launchLimits(input); }
+  catch (error) {
+    void Promise.resolve(startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+    throw error;
+  }
   let cgroup: WorkerCgroup | undefined;
   if (plan.cgroup.available) {
     try { cgroup = createWorkerCgroup(plan.cgroup, plan.limits); } catch (error) {
@@ -967,6 +981,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       // them. Later plans, the status and the agent's note say they are absent.
       const reason = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       workerCgroupHostFailed(reason);
+      void Promise.resolve(startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
       throw new WorkerHostError(`the worker's cgroup could not be created (${reason}); the next turn runs without cgroup limits and says so`);
     }
   }
@@ -1048,7 +1063,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
         else areaOutput?.publish();
       }
-      finally { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
+      finally { try { areaOutput?.cleanup(); } finally { await startupView?.cleanup(); } }
       return code;
     });
     return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -1062,8 +1077,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
-    if (child) void child.exited.finally(() => { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } });
-    else { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
+    if (child) void child.exited.finally(async () => { try { areaOutput?.cleanup(); } finally { await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
+    else { try { areaOutput?.cleanup(); } finally { void Promise.resolve(startupView?.cleanup()).catch(() => { /* No child ran; native broker retains release intent. */ }); } }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`
@@ -1184,6 +1199,8 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden
         || (options.profile === "governed" && !options.restricted && (!existsSync(writableTarget) || readFileSync(writableTarget, "utf8") !== "Odysseus: governed works."))) {
         const detail = errors.trim().slice(0, 400);
+        const filesystemRefusal = workerFilesystemFilterRefusal(errors);
+        if (filesystemRefusal) throw new WorkerHostError(filesystemRefusal);
         if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
         if (gated(options) && NO_TMPFS_SIZE.test(errors)) {
           throw new Error(`bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`);
