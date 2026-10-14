@@ -16,6 +16,15 @@ function asBtrfs(root: string) {
 }
 
 describe("Btrfs worker filesystem filter selection", () => {
+  test("a governed worker cannot accidentally replace its live writable root with a startup view", () => {
+    const f = fixture();
+    try {
+      expect(() => workerCommand({ brainPath: f.root, command: ["/bin/true"], env: {},
+        sandbox: { brain: f.root, restricted: false, profile: "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] } },
+        startupView: { brain: f.root, root: f.root, storage: { root: f.root, retain() {}, release() {} }, cleanup() {} },
+      }), "GOVERNED_LIVE_ROOT_CANNOT_BE_REPLACED").toThrow("shared live brain");
+    } finally { f.cleanup(); }
+  });
   test("ordinary filesystems preserve the original launcher", () => {
     const f = fixture();
     try {

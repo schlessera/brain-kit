@@ -20,6 +20,10 @@ export interface WorkerStartupView {
 }
 
 const releasedViews = new WeakSet<WorkerStartupView>();
+const nativeRoots = new Set<string>();
+
+/** Output staging accepts only a checkpoint whose native owner is still held. */
+export function isNativeWorkerStartupRoot(root: string): boolean { return nativeRoots.has(root); }
 
 /** Synchronous callers must receive a view acquired by their trusted async host context. */
 export function createWorkerStartupView(_brain: string, _options: { omitGit?: boolean; storage?: WorkerStartupStorage } = {}): never {
@@ -72,12 +76,14 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
     throw error;
   }
   let refs = 0, closing = false, deletion: Promise<void> | undefined;
+  nativeRoots.add(expected);
   const storage: WorkerStartupStorage = { root: expected,
     retain() { if (closing) throw new Error("native startup checkpoint is closed"); refs++; },
     release() {
       if (closing) return deletion;
       if (--refs > 0) return;
       closing = true;
+      nativeRoots.delete(expected);
       deletion = manager.release(id).then(() => {});
       return deletion;
     },

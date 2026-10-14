@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { createWorkerStartupView, isNativeWorkerStartupRoot, prepareNativeWorkerStartupView, retainWorkerStartupView } from "../src/server/worker-startup-view.js";
 
 function fixture() {
   const store = fs.mkdtempSync(join(tmpdir(), "odysseus-native-view-")), brain = join(store, "brain");
@@ -28,6 +28,7 @@ test("each consumer pins the complete prepared checkpoint until its final awaite
   const f = fixture();
   try {
     const owner = await prepareNativeWorkerStartupView(f.brain, f.manager), first = retainWorkerStartupView(owner), last = retainWorkerStartupView(owner);
+    expect(isNativeWorkerStartupRoot(owner.root), "NATIVE_OUTPUT_LOWER_IS_HELD").toBe(true);
     let deleted = false;
     const gate = Promise.withResolvers<void>(), release = f.manager.release;
     f.manager.release = async (...args) => { await gate.promise; deleted = true; return release(...args); };
@@ -37,6 +38,7 @@ test("each consumer pins the complete prepared checkpoint until its final awaite
     const completion = last.cleanup(); expect(deleted).toBe(false);
     gate.resolve(); await completion;
     expect(f.releases.length).toBe(1); expect(deleted).toBe(true);
+    expect(isNativeWorkerStartupRoot(owner.root), "NATIVE_OUTPUT_LOWER_CANNOT_OUTLIVE_LEASE").toBe(false);
     await last.cleanup(); expect(f.releases.length).toBe(1);
     expect(() => retainWorkerStartupView(owner)).toThrow("closed");
   } finally { f.cleanup(); }

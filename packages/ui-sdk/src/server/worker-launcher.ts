@@ -19,7 +19,7 @@ import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
-import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -456,6 +456,9 @@ function maintenanceEnvMasks(source: string, brain: string, copies: readonly { f
 
 /** The only argv builder used by both live workers and the actual host probe. */
 export function workerCommand(input: WorkerLaunch): string[] {
+  if (input.startupView && input.sandbox?.profile === "governed" && !input.restricted && !input.maintenance) {
+    throw new WorkerHostError("governed workers require their shared live brain; an immutable startupView cannot be mounted over that writable root");
+  }
   if (process.platform !== "linux") throw new WorkerHostError("Linux namespaces are required");
   const bwrap = Bun.which("bwrap");
   if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
@@ -887,9 +890,10 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
     validWorkerStateBytes(limits.allowanceBytes, "output staging allowance");
     const bwrap = Bun.which("bwrap");
     if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
-    if (lowerRoot && !/^\/tmp\/brain-startup-input-[A-Za-z0-9]+\/startup-[A-Za-z0-9]+\/brain$/.test(lowerRoot)) {
+    if (lowerRoot && !isNativeWorkerStartupRoot(lowerRoot) && !/^\/tmp\/brain-startup-input-[A-Za-z0-9]+\/startup-[A-Za-z0-9]+\/brain$/.test(lowerRoot)) {
       throw new WorkerHostError("output staging requires a server-owned immutable lower path");
     }
+    if (lowerRoot && /[,:\\]/.test(lowerRoot)) throw new WorkerHostError("native output staging requires a managed store path without colon, comma or backslash mount-option delimiters");
     const mountProgram = lowerRoot ? Bun.which("mount") : undefined;
     if (lowerRoot && !mountProgram) throw new WorkerHostError("util-linux mount is required for bounded copy-on-write output staging");
     pipes = createWorkerPipes();
