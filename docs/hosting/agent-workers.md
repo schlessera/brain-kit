@@ -770,6 +770,16 @@ and the app shows a standing notice above the composer that links this
 section. The warning names what a root-run worker keeps: it can read
 root-owned files and connect to root-owned and abstract Unix sockets.
 
+Native storage accepts the server's fixed UID/GID, including UID 0 under this
+same warning (`validateNativeBrainManagerConfig`,
+`packages/ui-sdk/src/server/native-brain-manager.ts:60-81`). This does not give
+the worker capabilities or remove its masks, filesystem filter or read-only
+root `/proc`. The host still has to qualify for user namespaces. Since Linux
+5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
+namespace setup boundary; see the
+[Linux user-namespace mapping rules](https://man7.org/linux/man-pages/man7/user_namespaces.7.html).
+An unqualified root context remains a named worker-host refusal.
+
 ## Resource limits
 
 Every agent worker runs under resource limits (#1660), so one runaway turn

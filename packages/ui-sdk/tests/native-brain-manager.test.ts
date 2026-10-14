@@ -128,10 +128,11 @@ test("unreadable successful response does not erase mutation uncertainty", async
   expect(error.code, "NATIVE_UNREADABLE_RECEIPT_RETAINS_UNKNOWN_OWNERSHIP").toBe("unknown");
 });
 
-test("stage authority has a fixed non-root app owner and finite allowance/aggregate budget", () => {
+test("stage authority has a fixed app owner and finite allowance/aggregate budget", () => {
   const stage = { ...config(), appUid: 1000, stageAllowanceBytes: 4096, stageBudgetBytes: 8192 };
   expect(() => validateNativeBrainManagerConfig(stage)).not.toThrow();
-  for (const bad of [{ ...stage, appUid: 0 }, { ...stage, appUid: undefined }, { ...stage, stageBudgetBytes: Infinity },
+  expect(() => validateNativeBrainManagerConfig({ ...stage, appUid: 0 }), "NATIVE_ROOT_APP_KEEPS_WARNING_POLICY").not.toThrow();
+  for (const bad of [{ ...stage, appUid: -1 }, { ...stage, appUid: 0xffffffff }, { ...stage, appUid: undefined }, { ...stage, stageBudgetBytes: Infinity },
     { ...stage, stageAllowanceBytes: 4097 }, { ...stage, stageBudgetBytes: 4096, stageAllowanceBytes: 8192 }]) {
     expect(() => validateNativeBrainManagerConfig(bad as never), "NATIVE_STAGE_FIXED_FINITE_AUTHORITY").toThrow();
   }

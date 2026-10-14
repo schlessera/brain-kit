@@ -45,7 +45,7 @@ export interface NativeBrainManagerConfig {
   brainUuid: string;
   socketPath: string;
   appGid: number;
-  /** Fixed unprivileged app identity and existing configured output-staging bounds. */
+  /** Fixed app identity and existing configured output-staging bounds. */
   appUid?: number;
   stageAllowanceBytes?: number;
   stageBudgetBytes?: number;
@@ -69,8 +69,8 @@ export function validateNativeBrainManagerConfig(config: NativeBrainManagerConfi
     throw new NativeBrainManagerError("invalid", "Native manager recovery reserve must be whole pages smaller than the configured capacity.");
   if (!Number.isSafeInteger(config.appGid) || config.appGid < 0) throw new NativeBrainManagerError("invalid", "Native manager needs an explicit app group identity.");
   if ([config.appUid, config.stageAllowanceBytes, config.stageBudgetBytes].some(value => value !== undefined)) {
-    if (!Number.isSafeInteger(config.appUid) || config.appUid! <= 0 || config.appUid! >= 0xffffffff)
-      throw new NativeBrainManagerError("invalid", "Native staging requires a fixed non-root app UID.");
+    if (!Number.isSafeInteger(config.appUid) || config.appUid! < 0 || config.appUid! >= 0xffffffff)
+      throw new NativeBrainManagerError("invalid", "Native staging requires a fixed app UID.");
     for (const value of [config.stageAllowanceBytes, config.stageBudgetBytes])
       if (!Number.isSafeInteger(value) || value! <= 0 || value! % 4096 !== 0) throw new NativeBrainManagerError("invalid", "Native staging requires the explicit finite page-aligned output allowance and aggregate budget.");
     if (config.stageAllowanceBytes! > config.stageBudgetBytes!) throw new NativeBrainManagerError("invalid", "Native stage allowance exceeds its configured aggregate budget.");

@@ -2,7 +2,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 type Event = (kind:string,data?:object)=>void;
-export function startPiNativeInference(agentDirectory:string,event:Event) {
+export function startPiNativeInference(agentDirectory:string,event:Event,authorityCommand:string) {
   let attempts=0;const seen=new Map<string,number>();
   const model="claude-sonnet-4-6";
   const server=Bun.serve({hostname:"127.0.0.1",port:0,maxRequestBodySize:16*1024**2,async fetch(request){
@@ -17,7 +17,7 @@ export function startPiNativeInference(agentDirectory:string,event:Event) {
     const frames:object[]=[{type:"message_start",message:{id:`odysseus-native-${attempt}-${completed?"done":"tool"}`,type:"message",role:"assistant",model,content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
     if(!completed){
       const bash=body.tools?.find(tool=>tool.name.toLowerCase()==="bash");if(!bash)throw Error("Actual Pi SDK did not expose its configured bash tool");
-      const command=`printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual Pi worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt===3?"10":"0.05"}`;
+      const command=`${authorityCommand} > .brain/worker-authority-${attempt}.json && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual Pi worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt===3?"10":"0.05"}`;
       frames.push({type:"content_block_start",index:0,content_block:{type:"tool_use",id:toolId,name:bash.name,input:{}}},
         {type:"content_block_delta",index:0,delta:{type:"input_json_delta",partial_json:JSON.stringify({command})}});
     }else frames.push({type:"content_block_start",index:0,content_block:{type:"text",text:""}},{type:"content_block_delta",index:0,delta:{type:"text_delta",text:"Odysseus records the voyage."}});

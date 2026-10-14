@@ -9,6 +9,8 @@ const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
 const BACKEND = process.env.BRAIN_NATIVE_PROOF_BACKEND ?? "claude";
 if (!["claude","pi"].includes(BACKEND)) throw Error("Unknown native backend proof selection");
+const APP_UID = Number(process.env.BRAIN_NATIVE_PROOF_APP_UID ?? "1000");
+if (![0,1000].includes(APP_UID)) throw Error("Unknown native app UID proof selection");
 const recordedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n")); } return child; }) as typeof Bun.spawn;
 afterAll(() => { Bun.spawn = recordedSpawn; });
@@ -19,7 +21,7 @@ async function until(check: () => boolean, deadlineMs = 20000) {
   const end = performance.now() + deadlineMs;
   while (!check()) { if (performance.now() > end) throw Error("Probe wait deadline exceeded"); await sleep(10); }
 }
-test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
+test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
   mkdirSync(ARTIFACTS, { recursive: true });
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
   const brain = "/brain-fixture/brain";
@@ -30,7 +32,9 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
   writeFileSync(join(brain, "brain.config.ts"), 'export default {profile:{name:"Odysseus",cliTitle:"Odysseus notebook"}};\n');
   // Real installed CLI source; this executable shim adds no mock logic.
   const cli = join(brain, "node_modules/.bin/brain");
-  writeFileSync(cli, `#!/usr/bin/env bun\nimport ${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))};\n`); chmodSync(cli, 0o755);
+  const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
+  // The fixed witness runs inside the actual automatic index maintenance worker.
+  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
   const FILES = 2000, BYTES = 16384;
   for (let i = 0;i < FILES;i++) {
     const header = `---\ntype: note\ntitle: Odysseus voyage ${i}\nupdated: 2026-07-12\n---\nOdysseus charts Ithaca ${i}.\n`;
@@ -50,10 +54,10 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
   mkdirSync("/native-runtime", { mode: 0o755, recursive: true });
   const socket = "/native-runtime/manager.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: socket,
-    appUid: 1000, appGid: 1000, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
+    appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
     capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
-  const permissions = Bun.spawnSync(["chown", "-R", "1000:1000", dir, brain]); expect(permissions.exitCode).toBe(0);
-  const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
+  const permissions = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, dir, brain]); expect(permissions.exitCode).toBe(0);
+  const child = Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe"
   });
@@ -67,8 +71,11 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
     await until(() => existsSync(join(dir, "ready.json")) || exited, 30000);
     if (exited) throw Error(`HOSTED_PROBE_PREREQUISITE: ${await errors}`);
     const ready = JSON.parse(readFileSync(join(dir, "ready.json"), "utf8"));
+    expect(ready.rootWarnings.length, "NATIVE_ROOT_APP_WARNED_ONCE_AT_BOOT").toBe(APP_UID === 0 ? 1 : 0);
     const origin = `http://127.0.0.1:${ready.port}`;
     const cookie = await serializeSigned("brain_ui_session", ready.principalId, ready.secret);
+    const status = await fetch(origin + "/api/status", { headers: { cookie } }).then(r => r.json()) as any;
+    expect(status.runtime.workerHost.rootServer?.warning ?? null, "NATIVE_ROOT_APP_PRESERVES_STATUS_WARNING").toBe(APP_UID === 0 ? ready.rootWarnings[0] : null);
     async function device() {
       const frames: any[] = [];
       const ws: WebSocket = new NativeWebSocket(origin.replace("http", "ws") + "/ws", { headers: { cookie, origin } }); sockets.push(ws);
@@ -153,7 +160,11 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
       expect(result.recovery?.latest?.state, "FIRST_AND_WARM_DURABLE_TERMINAL_RECOVERY").toBe("terminal");
       expect(result.recovery?.latest?.requestId, "FIRST_AND_WARM_RECOVERY_MATCHES_REQUEST").toBe(requestId);
       expect(result.recovery?.latest?.outcome, "FIRST_AND_WARM_SUCCESSFUL_RECOVERY").toBe("success");
-      expect(existsSync(join(brain, `notes/worker-${result.phase === "first" ? 1 : 2}.md`)), "REAL_ISOLATED_WORKER_WROTE_FIRST_AND_WARM_NOTES").toBe(true);
+      const attempt = result.phase === "first" ? 1 : 2;
+      expect(existsSync(join(brain, `notes/worker-${attempt}.md`)), "REAL_ISOLATED_WORKER_WROTE_FIRST_AND_WARM_NOTES").toBe(true);
+      const authority = JSON.parse(readFileSync(join(brain, `.brain/worker-authority-${attempt}.json`), "utf8"));
+      expect(authority.namespaceUid, "NATIVE_AGENT_NAMESPACE_UID").toBe(APP_UID);
+      expect(authority.ioctlsDenied).toHaveLength(7);
     }
     const cancelStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests a cancellable voyage record on 2026-07-12.", requestId: "odysseus-stop", sessionId: sid }));
@@ -167,7 +178,8 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
     expect(performance.now() - cancelSentAt, "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(2000);
     const stoppedWorker = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).find(row => row.kind === "worker_exit" && row.attempt === 3);
     expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBe(BACKEND === "pi" ? 137 : null);
-    await sleep(500);
+    const stoppedTurnId = sender.frames.find(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart)!.turnId;
+    await until(() => readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line)).some(row => row.kind === "session_slot_released" && row.turnId === stoppedTurnId),10000);
     const admissionCancelStart = performance.now(), attemptBefore = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length;
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests an immediately cancelled voyage record.", requestId: "odysseus-cancel-admission", sessionId: sid }));
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
@@ -186,7 +198,7 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
     expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
-      source: SOURCE, backend: BACKEND, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
+      source: SOURCE, backend: BACKEND, appUid: APP_UID, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
       workerFiles: readdirSync(join(brain, "notes")).filter(name => name.startsWith("worker-")), events: readFileSync(join(dir, "events.jsonl"), "utf8").trim().split("\n").map(value => JSON.parse(value))
     };
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));
@@ -211,6 +223,14 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
     if (existsSync(join(dir, "events.jsonl"))) writeFileSync(join(ARTIFACTS, "events.jsonl"), readFileSync(join(dir, "events.jsonl")));
     try {
       if (code === 0 && receipt && hostProofPassed) {
+        expect(existsSync(join(brain,".brain/maintenance-authority.json")), "NATIVE_AUTOMATIC_INDEX_AUTHORITY_PUBLISHED").toBe(true);
+        const maintenanceAuthority = JSON.parse(readFileSync(join(brain,".brain/maintenance-authority.json"),"utf8"));
+        expect(maintenanceAuthority.namespaceUid, "NATIVE_MAINTENANCE_NAMESPACE_UID").toBe(0);
+        expect(maintenanceAuthority.ioctlsDenied).toHaveLength(7);
+        const workerLaunches = readFileSync(join(ARTIFACTS,"events.jsonl"),"utf8").trim().split("\n").map(line=>JSON.parse(line)).filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
+        expect(workerLaunches.length, "NATIVE_REAL_AGENT_AND_MAINTENANCE_WORKERS_LAUNCHED").toBeGreaterThanOrEqual(3);
+        expect(workerLaunches.every(row=>row.kernelUid===APP_UID), "NATIVE_WORKERS_KEEP_FIXED_KERNEL_UID").toBe(true);
+        writeFileSync(join(ARTIFACTS, "worker-authority.json"), JSON.stringify({maintenance: maintenanceAuthority, agents: [1,2,3].map(attempt => JSON.parse(readFileSync(join(brain, `.brain/worker-authority-${attempt}.json`), "utf8")))}, null, 2));
         const db = new Database(join(dir, "ui.db"), { readonly: true });
         try {
           expect(db.query("SELECT count(*) AS count FROM writer_gate").get(), "NORMAL_CLOSE_RELEASED_WRITER_GATE").toEqual({ count: 0 });
@@ -220,7 +240,7 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
         try { expect(appLeases.query("SELECT count(*) AS count FROM native_root_leases").get(), "NORMAL_CLOSE_RELEASED_NATIVE_LEASE_ROWS").toEqual({ count: 0 }); }
         finally { appLeases.close(); }
         const ledgers = readdirSync(dir).filter(name => name.startsWith(".brain-maintenance-") && name.endsWith(".db")).map(name => join(dir, name));
-        const fallback = "/tmp/brain-maintenance-budget-1000/reservations.db";
+        const fallback = `/tmp/brain-maintenance-budget-${APP_UID}/reservations.db`;
         if (existsSync(fallback)) ledgers.push(fallback);
         for (const path of ledgers) {
           const ledger = new Database(path, { readonly: true });
@@ -233,9 +253,9 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
         let retainedCalls = 0; const capture = createNativeJournalCapture(createNativeBrainManagerClient({ socketPath: socket }), async (fd: number, bytes: number) => { retainedCalls++; const value = readFileSync(`/proc/self/fd/${fd}`); expect(value.length).toBe(bytes); return createHash("sha256").update(value).digest("hex"); });
         try { await capture.initialize(); const policy = await capture.policy(); writeFileSync(join(brain, alias), "Athena updates both linked note names\n"); const observed = await capture.observe(new Map([["odysseus", policy]])); const paths = observed.changes.get("odysseus")!.map((c: any) => c.path); expect(paths, "NATIVE_CAPTURE_BOTH_ALIASES").toContain(first); expect(paths, "NATIVE_CAPTURE_BOTH_ALIASES").toContain(alias); expect(retainedCalls, "NATIVE_CAPTURE_ONE_RETAIN_PER_SEALED_INODE").toBe(2); await observed.commit(); writeFileSync(join(ARTIFACTS, "hardlink-capture.json"), JSON.stringify({ retainedCalls, paths, pass: true })); } finally { await capture.close(); }
         const ownerDirectory = join(ARTIFACTS, "crash-owner"); mkdirSync(ownerDirectory, { mode: 0o700 });
-        expect(Bun.spawnSync(["chown", "1000:1000", ownerDirectory]).exitCode).toBe(0);
+        expect(Bun.spawnSync(["chown", `${APP_UID}:${APP_UID}`, ownerDirectory]).exitCode).toBe(0);
         function ownerProcess(mode: "acquire" | "recover") {
-          return Bun.spawn(["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "native-lease-child.ts"), SOURCE, mode, ownerDirectory, brain, socket, fsid, brainUuid], { cwd: SOURCE, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe" });
+          return Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "native-lease-child.ts"), SOURCE, mode, ownerDirectory, brain, socket, fsid, brainUuid], { cwd: SOURCE, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe" });
         }
         const deadOwner = ownerProcess("acquire");
         let ownerExited = false; void deadOwner.exited.then(() => { ownerExited = true; });
@@ -258,8 +278,7 @@ test(`native hosted ${BACKEND} first/warm admission, health, WebSocket, Stop and
         expect(records.every(record => record.state === "deleted"), "NORMAL_CLOSE_AND_OWNER_RECOVERY_LEFT_NO_NATIVE_ROOTS").toBe(true);
         writeFileSync(join(ARTIFACTS, "native-owner-recovery.json"), JSON.stringify({ recovered, records }, null, 2));
       }
-    } finally { await service.close(); }
-    rmSync(dir, { recursive: true, force: true });
+    } finally { try { await service.close(); } finally { rmSync(dir, { recursive: true, force: true }); rmSync(join(ARTIFACTS,"crash-owner"), { recursive: true, force: true }); } }
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
 }, 120000);

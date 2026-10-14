@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync, statSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const [source, dir, brain, socket, selectedBackend = "claude"] = process.argv.slice(2);
@@ -7,7 +7,7 @@ const firstImportStartedAt = performance.now();
 const { createApp } = await import(join(source!, "packages/ui-server/src/app.ts"));
 const { resolveServerConfig } = await import(join(source!, "packages/ui-server/src/config/env.ts"));
 const { createStaticBackendRegistry } = await import(join(source!, "packages/ui-server/src/agent/backend.ts"));
-const { createSilentObservability } = await import(join(source!, "packages/ui-server/src/observability/index.ts"));
+const { createRecordingObservability } = await import(join(source!, "packages/ui-server/src/observability/index.ts"));
 const { createPrincipal } = await import(join(source!, "packages/ui-server/src/db/principals.ts"));
 const { createPiBackend } = await import(join(source!, "packages/ui-backend-pi/src/backend.ts"));
 const { startPiNativeInference } = await import("./pi-inference.js");
@@ -21,9 +21,12 @@ const tracedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd, start = performance.now(), child = Reflect.apply(tracedSpawn, Bun, args); const tail = argv.slice(-8);
  const options=Array.isArray(args[0])?args[1]:args[0];let piAttempt:number|undefined;
  if(options?.env?.BRAIN_WORKER_LAUNCH){const launch=JSON.parse(options.env.BRAIN_WORKER_LAUNCH);if(launch.command?.some((part:string)=>part.endsWith("/ui-backend-pi/src/worker-entry.ts"))){piAttempt=++piWorkerCount;event("worker_start",{attempt:piAttempt,pid:child.pid,backend:"pi"});}}
- event("app_spawn_start", { pid: child.pid, tail }); void child.exited.then((code: number) => {event("app_spawn_end", { pid: child.pid, tail, code, elapsedMs: performance.now() - start });if(piAttempt)event("worker_exit",{attempt:piAttempt,code,pid:child.pid,backend:"pi"});}); return child; }) as typeof Bun.spawn;
+ event("app_spawn_start", { pid: child.pid, tail, kernelUid:Number(/^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${child.pid}/status`,"utf8"))![1]) }); void child.exited.then((code: number) => {event("app_spawn_end", { pid: child.pid, tail, code, elapsedMs: performance.now() - start });if(piAttempt)event("worker_exit",{attempt:piAttempt,code,pid:child.pid,backend:"pi"});}); return child; }) as typeof Bun.spawn;
 let count = 0;
-const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event) : undefined;
+const observability = createRecordingObservability();
+const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
+const authorityCommand = `/usr/bin/python3 -I -S -c '${authorityProgram.replaceAll("'", "'\\''")}' ${process.getuid!()}`;
+const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand) : undefined;
 const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
   profiles: [{
@@ -37,7 +40,7 @@ const backend = inference ? createPiBackend({brainPath:brain!,model:inference.mo
     let child: any; try {
 child = params.options.spawnClaudeCodeProcess({
         command: "/bin/sh", args: ["-c",
-          `printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
+          `${authorityCommand} > .brain/worker-authority-${attempt}.json && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
         env: { PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") },
         signal: params.options.abortController.signal
       });
@@ -77,8 +80,11 @@ try {
       HOST: "127.0.0.1", DB_PATH: dbPath, BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: selectedBackend,
       PI_CODING_AGENT_DIR: join(dir!, "pi"), BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0",
       BRAIN_UI_TURN_TIMEOUT_MS: "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
-    }), registry: createStaticBackendRegistry([backend], selectedBackend), observability: createSilentObservability()
+    }), registry: createStaticBackendRegistry([backend], selectedBackend), observability
   });
+  // Observe the actual final slot release, rather than guessing cleanup duration.
+  const releaseSlot = app.wsHost.coordinator.running.delete.bind(app.wsHost.coordinator.running);
+  app.wsHost.coordinator.running.delete = (turn: any) => { const released = releaseSlot(turn); event("session_slot_released", {sessionId:turn.sessionId,turnId:turn.turnId}); return released; };
   event("app_create_complete", { elapsedMs: performance.now() - appCreateStartedAt });
   // Timing wrappers call the original methods unchanged. No admission path is replaced.
   for (const [owner, method, label] of [[app.wsHost.governedTurns, "begin", "governed_begin"], [app.wsHost.journal, "begin", "journal_begin"],
@@ -107,6 +113,7 @@ try {
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   writeFileSync(join(dir!, "ready.json"), JSON.stringify({
+    rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
     port: server.port, principalId: principal.id, pid: process.pid, secret: SECRET,
     dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.()
   }));
@@ -114,7 +121,7 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); inference?.close(); event("closed"); process.exit(0); }
+    try { server.stop(true); await app.close(); inference?.close(); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {
