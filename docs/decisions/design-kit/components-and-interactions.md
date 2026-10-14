@@ -1152,8 +1152,10 @@ respective corners. Zero-padding Surface bodies carry that treatment for their
 grouped rows; scroll bodies inherit only the bottom corners when a header sits
 above them. The recording disclosure follows the tray's top corners while
 expanded and all four while collapsed. Controls in unpadded clipping strips
-and wrapped suggestions use `bk-control-inset`; a Surface with less than 4px
-of padding insets its child control and field indicators. The locked-model
+and wrapped suggestions use `bk-control-inset`. A positively padded Surface
+reserves at least 4px so controls keep their outside indicator on the
+contrasting surface, including solid buttons; zero padding remains a flush
+row stack. Padding does not change on focus. The locked-model
 action insets its existing control indicator inside its scroll panel, retaining
 its hover and pressed treatment. Padded controls retain their outside indicator.
 No-wrap suggestions use a 4px scroll margin and nearest scrolling to reveal

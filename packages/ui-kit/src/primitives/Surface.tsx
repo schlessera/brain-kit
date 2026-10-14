@@ -37,6 +37,7 @@ export interface SurfaceProps {
   labelIcon?: IconName;
   /** Right-aligned in the header row. */
   meta?: string;
+  /** Positive padding reserves at least 4px for outside focus indicators; 0 is a flush row stack. */
   pad?: number;
   radius?: number;
   /** Forces the tone tint on; `bold` implies it. */
@@ -81,7 +82,8 @@ const HOVER_TINTS: Record<Tone, string> = {
 export function Surface(p: SurfaceProps) {
   const t = TONES[p.tone || "neutral"] || TONES.neutral;
   const em = p.emphasis || "hairline";
-  const pad = Number(p.pad ?? 12);
+  const requestedPad = Number(p.pad ?? 12);
+  const pad = requestedPad > 0 ? Math.max(4, requestedPad) : requestedPad;
   const radius = Number(p.radius) || 14;
   const toned = Boolean(p.tone && p.tone !== "neutral");
   const tinted = p.tint === true || em === "bold";
@@ -137,7 +139,7 @@ export function Surface(p: SurfaceProps) {
   return (
     <div
       style={box}
-      className={[act && "bk-row", pad > 0 && pad < 4 && "bk-focus-tight"].filter(Boolean).join(" ") || undefined}
+      className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
       onClick={p.onClick}

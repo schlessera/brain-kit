@@ -1654,9 +1654,7 @@
 
 /* Controls in an unpadded clipping strip keep their own rounded identity,
  * with the same inside offset as rows rather than an invisible outside ring. */
-.bk-control-inset:focus-visible,
-.bk-focus-tight .bk-control:focus-visible,
-.bk-focus-tight .bk-field:has(:focus-visible) { outline-offset: -2px; }
+.bk-control-inset:focus-visible { outline-offset: -2px; }
 
 /* Opt in only on a flush row stack touching a rounded clipping boundary.
  * Inherit the containing surface's corners on its edge rows; inset alone

@@ -28,7 +28,7 @@ Each directory contains the same four theme/width cells for these states:
 | `locked-model-edges` | Full-width locked-model action inside its scroll panel |
 | `wrapped-enabled-edge`, `wrapped-disabled-edge` | Suggestion focus with and without an enabled callback |
 | `scrolling-last` | Native Tab reveals the last scrolling chip with room for its outside ring |
-| `tight-button-edge` | Full-width control inside a 3px-pad Surface |
+| `tight-button-edge` | Full-width solid control in a Surface requesting 3px padding; 4px preserves its outside ring and contrast |
 
 Runtime review captures additionally cover command first/last results and End
 scrolling, filter first/last focus, padded Surface, Composer and Other fields,
@@ -45,8 +45,7 @@ RelatedFiles, SessionStrip and PendingFollowUps rows have their own radii or
 square clipping boundaries. Rail and tab rows sit inside square boundaries.
 Button, Toggle, IconButton, TextButton, FeedbackRow, InlineToast, Disclosure,
 Placeholder, StreamingAnswer, AgentOrbit and tracker controls have space for
-outside indicators; tightly padded Surface descendants are the shared
-exception corrected here.
+outside indicators; positive Surface padding reserves the 4px minimum needed for those indicators.
 
 The shared edge-stack treatment also repairs attachment popovers, session
 actions, share menus, graph search/maintenance rows and graph node/unreachable

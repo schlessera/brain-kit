@@ -11,6 +11,7 @@ import { Surface } from "../../src/primitives/Surface.js";
 import { ListRow } from "../../src/rows/ListRow.js";
 import { Composer } from "../../src/chrome/Composer.js";
 import { CommandPalette as SlashPalette } from "../../../ui-react/src/components/chat/command-palette.js";
+import { contrast, parse } from "../_contrast.js";
 import { pixels, cornerInk } from "./focus-pixels.js";
 import { AskOtherField } from "../../src/internal/AskOtherField.js";
 import { ModelPicker } from "../../src/chrome/ModelPicker.js";
@@ -151,10 +152,27 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
     for (const [name, selector] of [["tight-button", "[data-tight-surface] .bk-control"], ["wrapped-enabled", "[data-wrapped-suggestions] .bk-control"], ["wrapped-disabled", '[data-wrapped-suggestions] [aria-disabled="true"]']] as const) {
       const el = host.querySelector<HTMLElement>(selector)!; el.focus();
       expect(el.matches(":focus-visible"), "native keyboard focus premise").toBe(true);
-      expect.soft(getComputedStyle(el).outlineOffset, "CLIPPED_CONTROL_USES_INSIDE_RING").toBe("-2px");
+      if (name === "tight-button") {
+        const css = getComputedStyle(el);
+        const ground = parse(parseFloat(css.outlineOffset) < 0 ? css.backgroundColor : getComputedStyle(el.parentElement!.parentElement!).backgroundColor);
+        expect.soft(contrast(parse(css.outlineColor).rgb, ground.rgb), "TIGHT_SOLID_FOCUS_CONTRAST").toBeGreaterThanOrEqual(3);
+      }
+      expect.soft(getComputedStyle(el).outlineOffset, "control indicator uses the safe offset for its pattern").toBe(name === "tight-button" ? "2px" : "-2px");
       el.dataset.focusProbe = name;
-      const png = await pixels(await commands.focusCapture(`[data-focus-probe="${name}"]`, `${theme}-${width}-${name}-edge`));
+      const png = await pixels(await commands.focusCapture(name === "tight-button" ? "[data-tight-surface]" : `[data-focus-probe="${name}"]`, `${theme}-${width}-${name}-edge`));
       const mid = Math.floor(png.width / 2);
+      if (name === "tight-button") {
+        const surface = el.parentElement!.parentElement!;
+        const child = el.getBoundingClientRect(); const box = surface.getBoundingClientRect();
+        expect.soft(child.left - box.left, "TIGHT_SURFACE_RESERVES_OUTSIDE_RING").toBeGreaterThanOrEqual(5);
+        expect.soft(child.top - box.top, "TIGHT_SURFACE_RESERVES_OUTSIDE_RING").toBeGreaterThanOrEqual(5);
+        const at = Math.floor(child.top - box.top - 3);
+        const i = (at * png.width + mid) * 4;
+        const ink = (png.data[i] + png.data[i + 1] + png.data[i + 2]) / 3;
+        expect.soft(theme === "dark" ? ink > 160 : ink < 60, "TIGHT_SURFACE_OUTSIDE_RING_VISIBLE_INK").toBe(true);
+        await commands.focusCapture('[data-focus-inventory]', `${theme}-${width}-${name}`);
+        continue;
+      }
       const ink = Array.from({ length: 3 }, (_, y) => {
         const i = (y * png.width + mid) * 4;
         const light = (png.data[i] + png.data[i + 1] + png.data[i + 2]) / 3;
