@@ -243,7 +243,7 @@ function expectIsolated(r: Record<string, unknown>): void {
  * expected-escape controls additionally await the actual hit. Shortening this
  * window needs native control measurements, not a quiet DOM (test-waits.md).
  */
-const observationMetrics = { calls: 0, elapsedMs: 0, rawCalls: 0, rawMs: 0, pollCalls: 0, pollMs: 0 };
+const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0 };
 async function observeDeniedBrowserActions(page: Page | Frame) {
   const started = performance.now();
   observationMetrics.calls++;
@@ -424,11 +424,9 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
     const opened = await openViewer("password", "voyage/report.html");
     try {
       const raw = await opened.context.newPage();
-      await raw.goto(`${served.password!.origin}/api/files/content?path=voyage%2Freport.html&raw=1`);
-      const started = performance.now();
-      observationMetrics.rawCalls++;
-      await raw.waitForTimeout(500);
-      observationMetrics.rawMs += performance.now() - started;
+      // REPORT writes #ran synchronously before its first await. Native load
+      // includes that inline-script opportunity, including when CSP is broken.
+      await raw.goto(`${served.password!.origin}/api/files/content?path=voyage%2Freport.html&raw=1`, { waitUntil: "load" });
       expect(await raw.locator("#ran").textContent()).toBe("Script did not run");
     } finally { await opened.context.close(); }
   }, 60_000);

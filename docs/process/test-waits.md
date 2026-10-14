@@ -452,7 +452,7 @@ Several boundaries explain why elapsed cost alone cannot select an optimization:
 - The retained HTML 1,500 ms windows follow acknowledged native actions and the
   established #1108/#1119 proof scope. Expected escapes await their actual hits
   independently. These are retained operational windows, not a measured physical
-  minimum. The raw-route 500 ms marker check has its own load boundary.
+  minimum. The raw-route marker check uses its own native load boundary.
 - Continuity's 500 ms windows guard delayed focus, save, queue, history and IME
   effects after their named acknowledgements. Two native frames or a completed
   animation do not establish that all later forbidden work is drained.
@@ -533,3 +533,77 @@ questions remain separate: a native negative window still needs the forbidden
 effect, actual opportunities, minimum justified duration and chosen margin. The
 source review does not complete those requirements or authorize moving proof
 to another tier.
+
+## Native child completion and deadline snapshots
+
+The [native child supplement](evidence/test-wait-native-child-observations.json)
+records fourteen further selected commands at frozen `04a6595`: nineteen passing
+case executions, 191 expectations and 9.72 seconds of command wall time. These
+observations cover nineteen source rows and overlap earlier full-file receipts.
+The historical inventories and source reviews remain unchanged. Original native
+streams, database operations, process exits and assertions remain intact inside
+the explicit offline namespace. Ordinary child sidecars use existing filesystem
+authority; their synchronous IO is included in command time but outside recorded
+wait spans. No worker permissions or inherited descriptors were added.
+
+The snapshot boundary matters as much as the count:
+
+- Native late output fires one 150 ms timer; a slow pipe consumer fires fifteen
+  2 ms resume callbacks. Two CI-runner 1,500 ms watchdogs and one 60-second
+  keepalive interval clear without firing. Those lifetimes are not completed
+  waits. The closed-input oracle completes one synchronous 1 ms poll.
+- Six ledger reads each create and clear the original 5,000 ms watchdog, with
+  one completed read and one chunk per call. Four are parent observations and
+  two are separate child observations. Their overlapping ages cannot be added
+  as elapsed test cost; other ledger callers are unmeasured by this selection.
+- Four eager race deadlines have registered but remain pending at `afterAll`.
+  That establishes no completion by the snapshot, not zero cost or what happens
+  during later teardown. The original races and their expected results remain.
+- The in-flight MCP gate completes seventeen 10 ms polls in 172.40 ms. The
+  broken-output child completes its 50 ms wait before the original native exit
+  code 7. Two unwind children complete their 50 ms waits in 100.20 ms combined;
+  the diagnostic writes precede their unchanged readiness JSON publication.
+  Their parents still assert native SIGKILL recovery and exact protocol output.
+- Nine inbox and schedule children complete nineteen condition polls and one
+  300 ms SQLite lock hold. Polling totals 157.06 ms and the hold takes 300.27 ms.
+  Counts describe the selected interleavings, not a minimum required iteration
+  count. The selected claim, restart and admission cases do not qualify the
+  earlier failed listener-interface cases or unselected crash modes.
+
+A separate pinned-browser observation logs the original canvas-load result:
+22 completed CPU-work frames and 396 ms of main-thread work in one selected
+979.40 ms case, within a 5.23-second command. The actual pointer, native encoder,
+no-idle provider flag and every matcher remain unchanged under Docker's disabled
+network. This is the helper's returned work count, not independent telemetry of
+all animation-frame registrations or callbacks. Its time overlaps the body and
+command; it is excluded from the fourteen-command child total.
+
+Two rejected diagnostic arrangements remain separately recorded: a 0.16-second
+observer recursion failure, caused by declaration hoisting in Bun's CommonJS
+child mode, and a 0.15-second passing pricing probe rejected by the strict raw
+matcher-identity check. The corrected observers preserve native callbacks and
+original matcher expressions. Neither rejected arrangement is a product failure
+or a behavior mutation; neither contributes accepted timer counts.
+
+The same artifact contains a separate raw-HTML load-boundary experiment. Its
+baseline observes the original 500 ms wait completing in 500.94 ms. With that
+wait removed and the existing native `load` boundary explicit, allowing inline
+script in the actual served CSP makes the unchanged marker assertion fail:
+`Script ran in the tab` replaces the expected `Script did not run`. Restoring
+the CSP makes the candidate pass. All source was then restored byte-identical.
+The three commands cost 157.12 seconds, including each mandatory fixture build;
+the 1,340.94 ms baseline and 571.14 ms passing candidate bodies are single
+samples, so their difference is not wholly attributable to removing 500 ms.
+
+The raw-route test now uses that explicit native load boundary and omits its
+500 ms wait and bookkeeping. The marker changes synchronously before the first
+await in its fixture script, so this boundary retains the original opportunity
+to detect broken CSP. The immutable experiment remains tied to its historical
+source; current-head qualification is recorded separately with the change.
+This establishes no equivalence for the separate 1,500 ms acknowledged native
+escape windows or continuity's delayed effects.
+The remaining native observation windows still need their forbidden effect,
+actual opportunities, minimum justified duration and chosen margin. Condition
+samplers, unexpired deadlines and killed fixture lifetimes have different roles;
+missing counters do not turn them into mandatory completed waits or excuse
+unrelated evidence gaps.
