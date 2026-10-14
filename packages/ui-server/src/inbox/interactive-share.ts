@@ -44,8 +44,11 @@ export function createInteractiveShares(db: Database, root: string) {
   }
   function start(principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean) {
     return db.transaction(() => {
-      authorize(principalId, current);
       let binding = sessionId ? bindingFor(sessionId) : null;
+      // Ordinary chat retains its existing admission path. Only a confirmed
+      // intake or an already bound session enters this additional lifecycle.
+      if (!stagingId && !binding) return;
+      authorize(principalId, current);
       if (stagingId) {
         const receipt = db.query("SELECT item_id FROM inbox_intake_receipts WHERE staging_id = ? AND principal_id = ? AND source = 'share' AND state = 'committed'")
           .get(stagingId, principalId) as { item_id: string } | null;
