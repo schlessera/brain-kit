@@ -1,6 +1,6 @@
 import { expect,test } from "bun:test";
-import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from "node:fs";
-import { join,resolve } from "node:path";
+import { mkdirSync,writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { reserveMaintenanceTemp } from "../../ui-sdk/src/server/maintenance-temp-budget";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { gitCheckIgnored } from "../src/schedules/service";

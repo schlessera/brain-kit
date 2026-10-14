@@ -315,7 +315,10 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         const page = ids.filter(id => request.after === null || id > request.after).slice(0, 64), records: NativeRecoveryRecord[] = [];
         let last: string | null = request.after;
         for (const id of page) {
-          const record = await reconcile(readIntent(id)!, signal); const { version, sourceUuid, ...publicRecord } = record;
+          const record = await reconcile(readIntent(id)!, signal);
+          const publicRecord: NativeRecoveryRecord = { id: record.id, state: record.state,
+            ...(record.checkpoint ? { checkpoint: record.checkpoint } : {}), ...(record.kind ? { kind: record.kind } : {}),
+            ...(record.stage ? { stage: record.stage } : {}), ...(record.stageRequest ? { stageRequest: record.stageRequest } : {}) };
           if (Buffer.byteLength(JSON.stringify({ records: [...records, publicRecord], next: id })) > NATIVE_CONTROL_BYTES) break;
           records.push(publicRecord); last = id;
         }

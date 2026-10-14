@@ -155,6 +155,12 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         // Changed-byte copies yield; the final inode/stat predicate immediately precedes publication.
         const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
+        let publicationError: unknown;
+        const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
+          const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
+          if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
+          fchmodSync(directory.fd,directory.mode);
+        };
         try {
           for (const rel of changed) {
             const next = after.get(rel)!.entry; if (!next || next.type === "directory") continue;
@@ -207,14 +213,20 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
             } finally { closeSync(destination.fd); }
           }
-        } finally {
-          for (const item of pending) { try { if (item.temporary) rmSync(item.temporary, { force: true }); } finally { closeSync(item.fd); } }
-          for (const directory of directoryModes.reverse()) { try {
-            const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
-            if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
-            fchmodSync(directory.fd,directory.mode);
-          } finally { closeSync(directory.fd); closeSync(directory.parent); } }
+        } catch (error) { publicationError = error; }
+        finally {
+          // Drain every retained descriptor; cleanup cannot replace the original refusal.
+          for (const item of pending) {
+            try { if (item.temporary) rmSync(item.temporary, { force: true }); } catch (error) { publicationError ??= error; }
+            try { closeSync(item.fd); } catch (error) { publicationError ??= error; }
+          }
+          for (const directory of directoryModes.reverse()) {
+            try { finalizeDirectory(directory); } catch (error) { publicationError ??= error; }
+            try { closeSync(directory.fd); } catch (error) { publicationError ??= error; }
+            try { closeSync(directory.parent); } catch (error) { publicationError ??= error; }
+          }
         }
+        if (publicationError) throw publicationError;
       } finally { for (const release of releases.reverse()) release(); }
     }
     prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup }; executionDrain.set(prepared, {}); return prepared;
