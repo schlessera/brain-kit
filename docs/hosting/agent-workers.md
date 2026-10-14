@@ -689,7 +689,7 @@ each was rejected are in the
 | Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
 | Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |
 | Mount the worker's fresh `/proc` | "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths; in Docker, run the container with --security-opt systempaths=unconfined" | `--security-opt systempaths=unconfined`. Inside a user namespace the kernel mounts a new procfs only when the parent `/proc` has no covered paths, and Docker covers several by default. No other option fixes this step. |
-| (AppArmor hosts) mounts inside the namespace | Not measured. Docker's `docker-default` profile contains `deny mount`. | `--security-opt apparmor=unconfined`, or an AppArmor profile that allows the worker's mounts. |
+| (AppArmor hosts) namespace setup | Docker's default profile denies mounts and the quota write used by maintenance's `--disable-userns`. | `--security-opt apparmor=unconfined`, or a derived profile that permits the worker's mounts, `pivot_root` and namespace-local quota setup at `/proc/sys/user/max_user_namespaces`. |
 
 Derive the seccomp profile from Docker's default profile for your Docker
 version, adding one rule:
