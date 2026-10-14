@@ -22,7 +22,7 @@ import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { sheetInput } from "./tests/visual/sheet-pointer.ts";
-import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
+import { overlayMouse, destinationPaint, destinationSafeArea } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
 import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
@@ -90,7 +90,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, focusCapture, overlayMouse, dictationMotion },
+      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, focusCapture, overlayMouse, destinationPaint, destinationSafeArea, dictationMotion },
       provider: playwright({
         launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },

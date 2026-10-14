@@ -53,7 +53,7 @@ Tailwind themes map these names to `z-raised` through `z-modal`.
 | Palette over the Settings or Files pane (≥900) | Palette | Top layer > `z-panel`. |
 | Connection banner vs a destination panel | Banner | `z-banner` 50 > `z-panel` 40. |
 | Connection banner vs any modal | Modal | The top layer is above the banner, and the banner is inert and dimmed under the scrim. Its live region is not announced while a modal is open. That is accepted: a modal is the current task, and the banner shows again when the modal closes. |
-| Phone tab bar vs destination panel | No overlap | The panel stops above the bar (`bottom: calc(60px + env(safe-area-inset-bottom))`). |
+| Phone tab bar vs destination panel | No overlap | The panel stops above the bar (`bottom: calc(60px + env(safe-area-inset-bottom))`) and clips descendant paint to that content region, including shadows and entry transforms (#1771). |
 | Phone tab bar vs act panel (Search, Sync…) | Act panel | Modal panel in the top layer covers the bar, as today ("an act's panel keeps covering them"). |
 | Anchored popover vs a panel | Panel | `z-panel` 40 > `z-popover` 20. A popover inside a panel lives in the panel's own stacking context. |
 | Toasts | n/a | There are no fixed toasts. `InlineToast` is in flow. |

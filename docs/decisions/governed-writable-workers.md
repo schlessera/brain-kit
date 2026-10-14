@@ -972,7 +972,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
