@@ -98,7 +98,10 @@ document.title = "Escape probe ready";
 
 const PAGES: Record<string, string> = {
   "voyage/report.html": REPORT,
-  "voyage/popup.html": escapePage(`window.open(A + "/popup?ctx=" + ctx);`),
+  "voyage/popup.html": escapePage(`
+    const popup = window.open(A + "/popup?ctx=" + ctx);
+    document.documentElement.dataset.popupResult = popup === null ? "null" : "window";
+    document.documentElement.dataset.popupReturned = "yes";`),
   "voyage/form.html": escapePage(`document.getElementById("f").submit();`,
     `<form id="f" action="ATTACKER/form" method="get"><input name="ctx" value="probe"></form>`),
   "voyage/download.html": escapePage(`document.getElementById("d").click();`,
@@ -237,10 +240,10 @@ function expectIsolated(r: Record<string, unknown>): void {
 
 /**
  * Native negative observation, not rendering readiness: an out-of-process
- * navigation, popup or download may surface after the renderer's click/DOM
+ * navigation or download may surface after the renderer's click/DOM
  * work completes. A page JS clock cannot advance those browser-process tasks.
  * Preserve the established 1500ms observation budget after a confirmed click;
- * positive navigation has its own exact-destination completion boundary below.
+ * positive navigation and the single popup attempt have native boundaries below.
  * Shortening a denied window needs native controls, not a quiet DOM (test-waits.md).
  */
 const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0 };
@@ -274,6 +277,36 @@ async function finishExpectedNavigation(target: Page | Frame, path: string, app?
   await until(`the destination ${path} completes or the app navigates`, async () => {
     if (app && app.page.url() !== app.url) return true;
     return target.evaluate((url) => location.href === url && document.readyState === "complete", destination).catch(() => false);
+  });
+}
+
+function observePopupDenials(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("allow-popups")) messages.push(message.text());
+  });
+  return messages;
+}
+
+/**
+ * This fixture makes one native window.open call without noopener/features.
+ * A null return alone is insufficient: successful noopener creation can also
+ * return null. Require the exact destination's native sandbox denial on the
+ * initiating page, plus the returned call. Chrome denies this action before
+ * auxiliary-context creation. This does not drain other browser actions.
+ * Any actual popup OR attacker hit instead returns to the original escape
+ * assertions, including a popup whose navigation never reaches the attacker.
+ */
+async function finishPopupAttempt(target: Page | Frame, path: string, denials: string[], escaped: () => boolean) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the actual popup attempt ${path} is denied or escapes`, async () => {
+    const result = await target.evaluate(() => ({
+      complete: document.documentElement.dataset.popupReturned === "yes",
+      isNull: document.documentElement.dataset.popupResult === "null",
+    }));
+    const denied = denials.some((message) => message.includes(`Blocked opening '${destination}'`)
+      && message.includes("frame whose 'allow-popups' permission is not set."));
+    return (result.complete && result.isNull && denied) || escaped();
   });
 }
 
@@ -331,7 +364,8 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * So the frame must first report the pointer, and each click must then be
    * seen to land, or to have navigated something, before its window starts.
    * Expected hits are awaited independently, then their exact inert destination
-   * must finish loading. Denied actions retain their native observation window.
+   * must finish loading. The single popup call requires its native denial;
+   * other denied actions retain their native observation window.
    */
   async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
@@ -347,12 +381,15 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         await frame.locator("#go").hover({ position: { x: 4 + (nudge++ % 8), y: 4 } });
         return (await mark(frame, "pointer")) === "in";
       });
+      const frameDenials = file === "voyage/popup.html" ? observePopupDenials(opened.page) : [];
       const pagesBefore = opened.context.pages().length;
       await frame.locator("#go").click({ noWaitAfter: true });
       await until("the click lands in the preview frame", async () =>
         (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
       if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
       if (expected.frame) await finishExpectedNavigation(frame, expected.frame, { page: opened.page, url: appUrl });
+      else if (file === "voyage/popup.html") await finishPopupAttempt(frame, "/popup?ctx=frame", frameDenials,
+        () => opened.context.pages().length > pagesBefore || hits().includes("/popup?ctx=frame"));
       else await observeDeniedBrowserActions(opened.page);
       const result = {
         opened,
@@ -366,11 +403,14 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         const tab = await openInTab(opened);
         const tabUrl = tab.url();
         await tab.waitForFunction(() => document.title === "Escape probe ready");
+        const tabDenials = file === "voyage/popup.html" ? observePopupDenials(tab) : [];
         const tabPagesBefore = opened.context.pages().length;
         await tab.locator("#go").click({ noWaitAfter: true });
         await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
         if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
         if (expected.tab) await finishExpectedNavigation(tab, expected.tab);
+        else if (file === "voyage/popup.html") await finishPopupAttempt(tab, "/popup?ctx=tab", tabDenials,
+          () => opened.context.pages().length > tabPagesBefore || hits().includes("/popup?ctx=tab"));
         else await observeDeniedBrowserActions(tab);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
