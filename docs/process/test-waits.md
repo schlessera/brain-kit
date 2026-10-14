@@ -70,14 +70,14 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. The scenario matrix and ten-cycle recovery assertions are independent of wait control. |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. All theme/width and ten-cycle cases remain. |
 | `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native negative windows per successful frame/tab pair, starting after the actual click lands | Retained. A browser-process navigation/download may arrive after the renderer's click handler or DOM settles; page JS clock does not drive it. 1500 ms is the existing bounded observation budget, not a newly measured universal browser latency guarantee. Expected escape controls await their actual hit independently. Candidate/runtime proof. |
 | Same preview file, raw endpoint 500 ms | Native denial observation, no scripts/remote arrival | Retained, same native-boundary rationale; no speedup claimed. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
 | `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Executed samples distinguish condition completion and fixed windows. Capture requires actual chunk commits; a deletion window needs writer completion plus all relevant delayed callbacks before removal. |
-| `auth-expiry-runtime.test.ts`, 400 ms entrances and 1800 ms post-restore observation | Startup rendering vs delayed navigation/restored-state observation | The measured helper has both startup and post-restore callers. Startup-only readiness is scoped in [#1912](https://github.com/schlessera/brain-kit/issues/1912); a global replacement would weaken later-effect observations. No common shortened timeout is selected. |
+| `auth-expiry-runtime.test.ts`, 400 ms entrances and 1800 ms post-restore observation | Login entrance settling vs no delayed navigation/restored-state observation | Unmeasured; no common shortened timeout is selected. |
 | `parallel-sessions-runtime.test.ts`, 300–1000 ms observations and polling | No-send/security windows, native pointer holds, host-stop drains, readiness and socket completion | Executed samples attribute each role separately. A physical gesture hold and a host transport drain are not renderer settling; preserve their actual boundaries and the later forbidden-effect assertions. |
 | Render/store suites' 0–30 ms ticks | Event-loop or React-effect drain; some are delayed negative checks | No large-duration claim. Prefer actual effects/receipts where available, preserving later forbidden work. |
 | Native worker fixtures with 60000/120000 ms sleep, shell hold loops | Hold until cancellation, not a mandatory full wait | Count actual child lifetime; assert termination/exit and retain independent native witnesses. |
@@ -129,6 +129,22 @@ queue adoption updates the follow-up/draft stores synchronously (`if (msg.type =
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
+
+## Measuring a replacement
+
+Record the source SHA and exact changed inputs, Bun/browser versions, resources
+and scenario count. Serialize comparable local runs; report uncontrolled host
+load. Keep test-body, whole-file, setup/build and actual awaited delay separate.
+A fixed wait's requested duration is only a lower bound on elapsed waiting;
+polling needs its execution count. CPU time and maximum RSS describe resource
+cost, while CI queue delay, runner consumption and critical path need their own
+receipts. Historical runs from another SHA are context, not controlled gains.
+
+For each changed temporal guarantee, preserve a named mutation/restoration
+receipt: early and late registration, wrong interval, lost cancellation, and
+premature readiness. A timeout or module-load failure alone does not demonstrate
+the intended assertion. The delivery PR holds measurements and mutation receipts;
+this document holds the durable rule and source attribution, not work status.
 
 ## Reading executed observations
 
@@ -184,19 +200,3 @@ DOM frame alone does not establish either. Scope's independent writer/observer
 opportunities have a different, explicit native rationale in its proof document.
 Execution ownership follows [required proof](testing.md#required-proof-for-a-pr);
 an expensive negative window is not automatically an endurance scenario.
-
-## Measuring a replacement
-
-Record the source SHA and exact changed inputs, Bun/browser versions, resources
-and scenario count. Serialize comparable local runs; report uncontrolled host
-load. Keep test-body, whole-file, setup/build and actual awaited delay separate.
-A fixed wait's requested duration is only a lower bound on elapsed waiting;
-polling needs its execution count. CPU time and maximum RSS describe resource
-cost, while CI queue delay, runner consumption and critical path need their own
-receipts. Historical runs from another SHA are context, not controlled gains.
-
-For each changed temporal guarantee, preserve a named mutation/restoration
-receipt: early and late registration, wrong interval, lost cancellation, and
-premature readiness. A timeout or module-load failure alone does not demonstrate
-the intended assertion. The delivery PR holds measurements and mutation receipts;
-this document holds the durable rule and source attribution, not work status.
