@@ -477,3 +477,59 @@ of required proof. Controlled-time children and native harness diagnostics keep
 their own source and mutation receipts. The execution-policy work in
 [#1854](https://github.com/schlessera/brain-kit/issues/1854) does not make unrelated
 measurement or equivalence gaps disappear.
+
+## Selected child and imported-helper observations
+
+The [child observations](evidence/test-wait-child-observations.json) add ten
+selected commands at the same frozen `04a6595` source: fourteen passing case
+executions, 72 expectations and 75.79 seconds of command wall time. They overlap
+the earlier whole-file records. The commands retain the original test wrapper,
+preload and assertions inside an explicit ordinary-UID network namespace with
+loopback only, no routes and dropped capabilities. This is attribution, not an
+optimization comparison or complete qualification of the selected files.
+
+The observations distinguish the work actually awaited:
+
+- Two fragmented native-result cases each completed 532 one-millisecond byte
+  waits and one ten-millisecond pre-exit wait. Their actual SDK transport,
+  stdout bytes, native exit and receipt assertions remain intact. In-memory
+  observations add one diagnostic file write at ordinary child exit, within
+  existing filesystem authority and without per-byte IO. Rejecting or killed
+  callers are not covered by those two snapshots.
+- Two real geo admission children completed their original 1,300 ms delays in
+  2,603.18 ms accumulated time. Their separate clock origins cannot be compared
+  as absolute timestamps. The parent still proves shared admission and native
+  connection ordering.
+- Six host-process helper calls completed 33 ten-millisecond polls, totaling
+  551.92 ms. The 687.32 ms helper spans also contain `/proc` scans; both are
+  included in the 14.42-second selected command total. Neither measures timers
+  inside the discovered children.
+- Five other selected cases observe a 30 ms fixture delay, two native zero-delay
+  turns, a 350 ms late-response fixture and an actual 1,000 ms watchdog cleared
+  after 0.40 ms without firing. The native browser case includes 49.88 seconds of
+  mandatory setup/build within its 51.54-second command, rather than attributing
+  that time to its 0.10 ms timer callback.
+
+The same artifact recovers eight original dispatch-frame callback events from
+two saved, two-device traces. These are earlier observations, excluded from the
+ten-command totals. Their capture points establish callback counts, not callback
+duration or later teardown completion. Original source, log and artifact hashes
+retain the association; file timestamps alone are not execution attestation.
+
+The [child source basis](evidence/test-wait-child-basis.json) gives causal roles
+for all 75 embedded-program rows and sixteen additional reviews covering 29
+imported, helper, race and control-input rows. The original 731-row artifact is
+unchanged. A fixture that keeps a process alive for cancellation has no required
+completed sleep duration. A watchdog is a failure ceiling; a denied shell string
+and a logical scheduler declaration are not native waits. Conversely, a ready
+file can precede timer registration or entry into an indefinite hold, and a
+reached polling loop can execute zero iterations. Those source distinctions do
+not manufacture missing runtime counts.
+
+Exact nested counters remain absent where the existing receipt does not expose
+them. Collecting those counters must preserve child authority, protocol streams,
+native handles and every original assertion. Numeric minimum and equivalence
+questions remain separate: a native negative window still needs the forbidden
+effect, actual opportunities, minimum justified duration and chosen margin. The
+source review does not complete those requirements or authorize moving proof
+to another tier.
