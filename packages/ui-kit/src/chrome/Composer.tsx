@@ -365,7 +365,7 @@ export function Composer(p: ComposerProps) {
         // with the connection must not change the composer's height, which
         // would move the field under the writer. Text that does not fit ends
         // in an ellipsis, and the hint gives way first.
-        <div id={hintId} data-composer-hint="" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minHeight: 14, minWidth: 0 }}>
+        <div id={hintId} className={p.hint === undefined && st === "ready" && !p.provider && !blockedWhy ? "bk-keyboard-hint" : undefined} data-composer-hint="" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minHeight: 14, minWidth: 0 }}>
           {p.provider ? (
             <span
               style={
@@ -398,7 +398,7 @@ export function Composer(p: ComposerProps) {
               {p.providerDetail ? <span style={{ color: accent.amber.ink }}> · {p.providerDetail}</span> : null}
             </span>
           ) : null}
-          {hint ? <span style={{ flex: "1 1 0", minWidth: 0, ...oneLine, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}
+          {hint ? <span className={p.hint === undefined && st === "ready" ? "bk-keyboard-hint" : undefined} style={{ flex: "1 1 0", minWidth: 0, ...oneLine, font: mono(400, 10), color: color.inkMute }}>{p.hint === undefined && st === "streaming" ? <><span className="bk-keyboard-hint">esc or </span>the stop button ends the run</> : hint}</span> : null}
           {blockedWhy ? <span style={{ flex: "0 1 auto", minWidth: 0, ...oneLine, font: mono(500, 10), color: accent.gold.ink }}>{blockedWhy}</span> : null}
         </div>
       ) : null}

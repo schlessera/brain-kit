@@ -388,7 +388,7 @@ function sameFact(a: string, b: string): boolean {
  */
 function frontmatterOf(root: string, path: string, onReadFailed: () => void): Record<string, unknown> {
   try {
-    return parseFrontmatter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
+    return parseFrontmatter(readFileSync(join(root, path), "utf8"), { dataOnly: true }).data as Record<string, unknown>;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") onReadFailed();
     return {};

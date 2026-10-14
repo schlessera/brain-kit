@@ -52,10 +52,13 @@ roots, including after an assertion failure. The default runner keeps file
 parallelism disabled; different projects have independent browser contexts.
 Mock responses and inventory rows prove presentation and action dispatch only.
 
-The following is the assertion map for the account and journal runtime files. **All
-runtime cases remain in this prerequisite.** A later reduction must retain the
-native oracles identified here; the central column names presentation coverage,
-not permission to remove a complete runtime test.
+The following maps the account and journal assertions to central presentation
+proof and native ownership. The account runtime uses 320px dark, 390px light,
+900px dark and 1280px light, each with both fine and coarse pointers. The journal
+runtime uses 320px dark and 1280px light, each with live and replay receipt
+arrival, and both widths for steering and conflict operations. These
+deterministic cells retain every native oracle below; the central stories own
+the additional theme presentation checks.
 
 | Source case and oracles | Central presentation oracle | Native boundary retained |
 | --- | --- | --- |
@@ -82,8 +85,8 @@ this map.
 The native helper and awaited-state assertions are part of this map even when
 they are not standalone `expect` calls. Native hit/zoom/media, storage/auth,
 HTTP/file bytes and operation execution are deliberately not approximated by
-Storybook callback assertions. Neither this map nor the new stories removes a
-runtime test or changes product/public interfaces.
+Storybook callback assertions. Central presentation coverage does not replace
+these native proofs or change product/public interfaces.
 
 ## What this map does not prove
 
@@ -109,6 +112,27 @@ a kit-only render cannot stand in for it. The shadow fixtures cover descendant
 `html`/`body` ancestor inside the consumer document require an application
 fixture, not an assumption that shadow isolation covers them. Reconnection, persistence or auth by
 themselves do not justify running an otherwise identical scenario twice.
+
+## Connection continuity runtime matrix
+
+`packages/ui-react/tests/connection-continuity-runtime.test.ts` runs missed
+progress, ten disconnect/reconnect cycles and native IME recovery at 320px in
+dark and 1280px in light. Each family removes only its 320px light and 1280px
+dark copies. The fixed themes keep both painted themes represented without
+multiplying the independent phone-strip and desktop-pane recovery paths.
+
+| Assertions in the removed copies | Coverage that remains |
+| --- | --- |
+| The selected theme paints; composer sizing, wrapping, editing, focus/selection, attachment rendering and send availability | The preview theme gate and `Conversation/Composer theme/Phone`, `Wide`, `Offline`, plus the composer sizing/action stories above, assert both themes with actual consumer styles. |
+| Phone/desktop tracker and follow-up row geometry and interaction | `Conversation/Session theme/Phone`, `DesktopPane`, plus the `ComposerRow`, `SessionStrip` and `PendingFollowUps` stories above, assert both themes. Runtime still selects the actual application branch at both widths. |
+| Composer/message geometry and scroll across recovery; textarea/message/image/pill identity; draft value, focus, alternating caret/selection and object URLs | Every `same` assertion remains in all three scenario families at both widths. Story geometry/editing checks do not replace recovery continuity. |
+| Real browser offline events, listener/socket interruption, delayed history and queue reports, upload interruption/retry/completion, no unsolicited sends, retained drafts/trackers/follow-ups and ordered missed deltas | The original scenario bodies and native barriers remain at both widths, including all ten stress cycles and terminal replay/queue draining. |
+| Native IME composition survives two outages and commits only when the user requests it | The original CDP composition/commit and host-saved draft assertions remain at both widths; Storybook input events are not an IME substitute. |
+
+The three stale-history variants and the finite-animation readiness control
+remain independently parameterized. This gives ten tests: six responsive
+scenario cases, three stale-history cases and one readiness control. Cleanup,
+negative observation windows and timing/deadline behavior are unchanged.
 
 ## Running and changing this coverage
 
