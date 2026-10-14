@@ -52,10 +52,13 @@ roots, including after an assertion failure. The default runner keeps file
 parallelism disabled; different projects have independent browser contexts.
 Mock responses and inventory rows prove presentation and action dispatch only.
 
-The following is the assertion map for the account and journal runtime files. **All
-runtime cases remain in this prerequisite.** A later reduction must retain the
-native oracles identified here; the central column names presentation coverage,
-not permission to remove a complete runtime test.
+The following maps the account and journal assertions to central presentation
+proof and native ownership. The account runtime uses 320px dark, 390px light,
+900px dark and 1280px light, each with both fine and coarse pointers. The journal
+runtime uses 320px dark and 1280px light, each with live and replay receipt
+arrival, and both widths for steering and conflict operations. These
+deterministic cells retain every native oracle below; the central stories own
+the additional theme presentation checks.
 
 | Source case and oracles | Central presentation oracle | Native boundary retained |
 | --- | --- | --- |
@@ -82,8 +85,8 @@ this map.
 The native helper and awaited-state assertions are part of this map even when
 they are not standalone `expect` calls. Native hit/zoom/media, storage/auth,
 HTTP/file bytes and operation execution are deliberately not approximated by
-Storybook callback assertions. Neither this map nor the new stories removes a
-runtime test or changes product/public interfaces.
+Storybook callback assertions. Central presentation coverage does not replace
+these native proofs or change product/public interfaces.
 
 ## What this map does not prove
 
