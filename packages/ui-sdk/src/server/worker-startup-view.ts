@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { lstatSync, realpathSync, statfsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { NativeCheckpoint } from "./native-brain-manager-protocol.js";
 import type { createNativeBrainManagerClient } from "./native-brain-manager-client.js";
 
 export interface WorkerStartupStorage {
@@ -19,6 +20,15 @@ export interface WorkerStartupView {
   cleanup(): void | Promise<void>;
 }
 
+type NativeClient = ReturnType<typeof createNativeBrainManagerClient>;
+const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">> }>();
+/** Trusted acquisition metadata; no request-supplied manager or checkpoint is accepted. */
+export function nativeWorkerStartupInput(view: WorkerStartupView) {
+  if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
+  const input = nativeInputs.get(view);
+  if (!input?.manager.prepareStage || !input.manager.inspectStage || !input.manager.releaseStage) throw new Error("Native output requires a manager-acquired immutable startup view and configured stage operations.");
+  return input as { checkpoint: NativeCheckpoint; manager: NativeClient };
+}
 const releasedViews = new WeakSet<WorkerStartupView>();
 const nativeRoots = new Set<string>();
 
@@ -39,6 +49,7 @@ export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupV
     if (!released) { released = true; releasedViews.add(retained); completion = view.storage.release(); }
     return completion;
   } };
+  const native = nativeInputs.get(view); if (native) nativeInputs.set(retained, native);
   return retained;
 }
 
@@ -50,7 +61,7 @@ export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupV
  * await the owner's cleanup. A lost RPC releases/reconciles the same identity.
  */
 export async function prepareNativeWorkerStartupView(brainPath: string,
-  manager: Pick<ReturnType<typeof createNativeBrainManagerClient>, "checkpoint" | "release">,
+  manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">>,
   signal?: AbortSignal): Promise<WorkerStartupView> {
   signal?.throwIfAborted();
   const brain = realpathSync(brainPath), id = randomUUID();
@@ -58,12 +69,13 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
     throw new Error("Immutable worker inputs require the configured native Btrfs managed brain; full-copy fallback is unavailable.");
   }
   const expected = join(dirname(brain), ".brain-native", "checkpoints", id);
+  let checkpoint: NativeCheckpoint;
   try {
-    const checkpoint = await manager.checkpoint(id, signal);
+    checkpoint = await manager.checkpoint(id, signal);
     signal?.throwIfAborted();
     if (checkpoint.id !== id || checkpoint.path !== expected || checkpoint.readOnly !== true
       || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(checkpoint.fsid)
-      || !/^[0-9a-f]{32}$/.test(checkpoint.uuid) || !/^[1-9][0-9]*$/.test(checkpoint.rootId)
+      || !/^[0-9a-f]{32}$/.test(checkpoint.sourceUuid) || !/^[0-9a-f]{32}$/.test(checkpoint.uuid) || !/^[1-9][0-9]*$/.test(checkpoint.rootId)
       || !/^[1-9][0-9]*$/.test(checkpoint.transaction)
       || !lstatSync(expected).isDirectory() || statfsSync(expected).type !== 0x9123683e) {
       throw new Error("Native manager did not return the expected complete immutable checkpoint identity.");
@@ -88,5 +100,7 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
       return deletion;
     },
   };
-  return retainWorkerStartupView({ brain, root: expected, storage, cleanup() {} });
+  const owner: WorkerStartupView = { brain, root: expected, storage, cleanup() {} };
+  nativeInputs.set(owner, { checkpoint, manager });
+  return retainWorkerStartupView(owner);
 }

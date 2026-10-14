@@ -20,6 +20,7 @@ import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
+import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -51,8 +52,10 @@ export interface WorkerLaunch {
   brainPath: string;
   /** Host-owned immutable execution view for snapshot consumers. */
   startupView?: WorkerStartupView;
+  /** Async-acquired stage and its owned startup reference, consumed by this launch. */
+  preparedOutput?: PreparedWorkerOutput;
   /** Private validated persistent outputs for snapshot consumers. */
-  areaOutput?: { source: string; storage?: ReturnType<typeof createOutputStagingStorage> };
+  areaOutput?: { source: string; storage?: WorkerOutputStorage };
   /** Server native-write locks held throughout strict output publication. */
   outputLock?: import("./keyed-lock.js").KeyedLock;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
@@ -128,7 +131,7 @@ export const MAINTENANCE_XDG_DIRS = { ...WORKER_XDG_DIRS, XDG_STATE_HOME: "/tmp/
 export interface MaintenanceEnvelope {
   git?: { source: string; target: string; entry: string; binary: string };
   /** The server's named output workspace, separate from all configuration inputs. */
-  output?: { source: string; target: string; storage?: ReturnType<typeof createOutputStagingStorage> };
+  output?: { source: string; target: string; storage?: WorkerOutputStorage };
   /** Agent profiles make the empty host masks read-only. */
   readOnlyMasks?: boolean;
   /** One sized /tmp for all maintenance temporary writes; never agent turn temp. */
@@ -894,6 +897,7 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
       throw new WorkerHostError("output staging requires a server-owned immutable lower path");
     }
     if (lowerRoot && /[,:\\]/.test(lowerRoot)) throw new WorkerHostError("native output staging requires a managed store path without colon, comma or backslash mount-option delimiters");
+    if (lowerRoot && isNativeWorkerStartupRoot(lowerRoot)) throw new WorkerHostError("native output staging requires asynchronously prepared trusted OverlayFS through the configured native manager; userxattr fallback is unavailable");
     const mountProgram = lowerRoot ? Bun.which("mount") : undefined;
     if (lowerRoot && !mountProgram) throw new WorkerHostError("util-linux mount is required for bounded copy-on-write output staging");
     pipes = createWorkerPipes();
@@ -970,12 +974,12 @@ function launchDiagnostics(stderr: number): string {
  * verified and populated.
  */
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
-  let startupView = input.startupView;
-  let areaOutput: ReturnType<typeof prepareWorkerOutput> | undefined;
+  let startupView = input.preparedOutput?.view ?? input.startupView;
+  let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
   let plan: WorkerLimitsPlan;
   try { plan = launchLimits(input); }
   catch (error) {
-    void Promise.resolve(startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+    void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
     throw error;
   }
   let cgroup: WorkerCgroup | undefined;
@@ -985,7 +989,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       // them. Later plans, the status and the agent's note say they are absent.
       const reason = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       workerCgroupHostFailed(reason);
-      void Promise.resolve(startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+      void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
       throw new WorkerHostError(`the worker's cgroup could not be created (${reason}); the next turn runs without cgroup limits and says so`);
     }
   }
@@ -996,7 +1000,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
-    if (startupView && areas.length) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
+    if (startupView && areas.length && !areaOutput) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
     input = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
     const brain = realpathSync(input.brainPath);
     const observeFile = createWorkerFileObserver({ brain, configurationRoot: startupView?.root ?? brain,
@@ -1007,6 +1011,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
     child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, child.exited);
     pipes.closeChild();
     let state: WorkerStateHandle | undefined, turnTemp: WorkerStateHandle | undefined;
     if (gated(input)) {
@@ -1065,9 +1070,9 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       cgroup?.remove();
       try {
         if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
-        else areaOutput?.publish();
+        else await areaOutput?.publish();
       }
-      finally { try { areaOutput?.cleanup(); } finally { await startupView?.cleanup(); } }
+      finally { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }
       return code;
     });
     return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -1081,8 +1086,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
-    if (child) void child.exited.finally(async () => { try { areaOutput?.cleanup(); } finally { await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
-    else { try { areaOutput?.cleanup(); } finally { void Promise.resolve(startupView?.cleanup()).catch(() => { /* No child ran; native broker retains release intent. */ }); } }
+    if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
+    else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`

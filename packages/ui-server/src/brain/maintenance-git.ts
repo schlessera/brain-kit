@@ -10,7 +10,7 @@ const hooks = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
   "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change"];
 
-export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: ReturnType<typeof prepareMaintenanceOutput>, signal?: AbortSignal): Promise<MaintenanceCommand["git"]> {
+export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, signal?: AbortSignal): Promise<MaintenanceCommand["git"]> {
   signal?.throwIfAborted();
   const metadata = join(outputs.view.root, ".git");
   if (!lstatSync(metadata, { throwIfNoEntry: false })?.isDirectory() || !existsSync(join(metadata, "config"))) return undefined;

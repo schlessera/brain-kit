@@ -9,7 +9,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView,
+import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -98,6 +98,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   let child: ReturnType<typeof launchAgentWorker>;
+  let preparedOutput: PreparedWorkerOutput | undefined;
   let sandboxNote: string;
   let sandbox: WorkerSandbox;
   // The worker's private /tmp, through the descriptor the server holds, so
@@ -117,15 +118,18 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
+    if (workerStartupView && sandbox.profile !== "governed" && sandbox.areas.some(area => area.mount.writable)) {
+      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel) });
+    }
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
-      ...(workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
+      ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
     turnTemp = child.turnTemp;
     turnContext.configurationRoot = child.configurationRoot;
     workerStarted?.(child);
-  } catch (error) { envelope?.relay.stop(); reservation.release(); throw error; }
+  } catch (error) { try { await preparedOutput?.cleanup(); } finally { envelope?.relay.stop(); reservation.release(); } throw error; }
   const held = reservation;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
   const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };

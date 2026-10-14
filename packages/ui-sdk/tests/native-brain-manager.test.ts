@@ -127,3 +127,29 @@ test("unreadable successful response does not erase mutation uncertainty", async
   const error = await client.checkpoint(ID).then(() => { throw Error("Expected unreadable receipt"); }, error => error as NativeBrainManagerError);
   expect(error.code, "NATIVE_UNREADABLE_RECEIPT_RETAINS_UNKNOWN_OWNERSHIP").toBe("unknown");
 });
+
+test("stage authority has a fixed non-root app owner and finite allowance/aggregate budget", () => {
+  const stage = { ...config(), appUid: 1000, stageAllowanceBytes: 4096, stageBudgetBytes: 8192 };
+  expect(() => validateNativeBrainManagerConfig(stage)).not.toThrow();
+  for (const bad of [{ ...stage, appUid: 0 }, { ...stage, appUid: undefined }, { ...stage, stageBudgetBytes: Infinity },
+    { ...stage, stageAllowanceBytes: 4097 }, { ...stage, stageBudgetBytes: 4096, stageAllowanceBytes: 8192 }]) {
+    expect(() => validateNativeBrainManagerConfig(bad as never), "NATIVE_STAGE_FIXED_FINITE_AUTHORITY").toThrow();
+  }
+  for (const extra of [{ uid: 0 }, { path: "/another/stage" }, { command: ["/bin/sh"] }]) {
+    expect(nativeManagerRequest.safeParse({ operation: "prepareStage", id: ID, checkpointId: SECOND, allowanceBytes: 4096, ...extra }).success).toBe(false);
+  }
+});
+
+test("stage metadata binds its lower checkpoint and requires framed completion", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-stage-")), socketPath = join(root,"manager.sock"), seen: unknown[] = [];
+  cleanups.push(() => rmSync(root,{recursive:true,force:true}));
+  const row = new TextEncoder().encode(JSON.stringify({pathHex:Buffer.from("notes/odysseus.md").toString("hex"),kind:"entry"})+"\n");
+  const service = Bun.serve({unix:socketPath, async fetch(request) { seen.push(await request.json()); return new Response(stream(
+    nativeManagerFrame(1,row),nativeManagerFrame(2,encode({ok:true,exitCode:0,bytes:row.length}))),{headers:{"content-type":"application/x-brain-native-stage","x-brain-stage-id":ID,"x-brain-stage-checkpoint":SECOND,"x-brain-stage-lower":"11111111111141118111111111111790"}}); }});
+  cleanups.push(() => service.stop(true));
+  const client=createNativeBrainManagerClient({socketPath}), receipt=await client.inspectStage(ID), changes=[];
+  for await (const change of receipt.changes) changes.push(change);
+  expect(changes).toEqual([{pathHex:Buffer.from("notes/odysseus.md").toString("hex"),kind:"entry"}]);
+  expect(receipt.checkpointId).toBe(SECOND);expect(await receipt.completed).toEqual({exitCode:0,bytes:row.length});
+  expect(seen).toEqual([{operation:"inspectStage",id:ID}]);
+});

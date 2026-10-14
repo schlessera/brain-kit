@@ -12,7 +12,7 @@ function fixture() {
   const manager = {
     async checkpoint(id: string, _signal?: AbortSignal) {
       const path = join(store, ".brain-native", "checkpoints", id); fs.mkdirSync(path, { recursive: true });
-      return { id, path, readOnly: true as const, fsid: "00000000-0000-0000-0000-000000000001",
+      return { id, path, readOnly: true as const, sourceUuid: "0123456789abcdef0123456789abcdef", fsid: "00000000-0000-0000-0000-000000000001",
         uuid: "00000000000000000000000000000002", rootId: "256", transaction: "12" };
     },
     async release(id: string, signal?: AbortSignal) { releases.push({ id, signal }); return { id, state: "deleted" as const }; },

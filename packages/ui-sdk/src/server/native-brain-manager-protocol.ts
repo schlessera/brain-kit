@@ -49,6 +49,7 @@ export interface NativeRecoveryRecord {
   checkpoint?: NativeCheckpoint;
   kind?: "stage";
   stage?: NativeStage;
+  stageRequest?: { checkpointId: string; checkpointUuid: string; allowanceBytes: number };
 }
 export interface NativeStage {
   id: string;

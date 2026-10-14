@@ -7,7 +7,7 @@ import * as workerSdk from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { createTestApp } from "./helpers/test-app";
-import { prepareMaintenanceOutput } from "../src/brain/maintenance-output.js";
+import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
 import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { createHostExecution } from "../src/brain/host-execution.js";

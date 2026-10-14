@@ -204,3 +204,18 @@ export function prepareFixtureWorkerOutput(brain: string, options: Parameters<ty
     return { ...output, cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } } };
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
 }
+
+/** Explicit copied-input/output fixture for non-storage tests; never a production fallback. */
+export async function prepareFixtureNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; signal?: AbortSignal }): Promise<import("../../src/server/worker-native-output.js").PreparedWorkerOutput> {
+  options.signal?.throwIfAborted();
+  const view = createFixtureWorkerStartupView(options.startupView.root);
+  let publication: ReturnType<typeof prepareWorkerOutput>;
+  try { publication = prepareWorkerOutput(brain, { startupView: view, areas: options.areas }); }
+  catch (error) { await view.cleanup(); throw error; }
+  let cleanup: Promise<void> | undefined;
+  return { view, output: publication.output,
+    async publish() { publication.publish(); },
+    async publishLocked(lock) { await publication.publishLocked(lock); },
+    cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { await view.cleanup(); } })(); },
+  };
+}

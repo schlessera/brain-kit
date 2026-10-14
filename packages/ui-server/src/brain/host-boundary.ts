@@ -24,7 +24,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, type WorkerStartupView,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -128,7 +128,7 @@ export const hostExecution = {
   /** The same probe a turn's gate runs, so a test double stands in for both. */
   probe: (brainPath: string): WorkerHostProbe => workerHostBoundary.probe(brainPath),
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
-  maintenanceProbe: (brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceCommand["tempDomain"], startupView?: WorkerStartupView): WorkerHostProbe => probeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView),
+  maintenanceProbe: (brainPath: string, tempLimits: WorkerStateLimits, tempDomain: MaintenanceCommand["tempDomain"] | undefined, startupView: WorkerStartupView, signal?: AbortSignal): WorkerHostProbe | Promise<WorkerHostProbe> => probeNativeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView, signal),
   cwd: () => process.cwd(),
 };
 
@@ -158,7 +158,7 @@ export interface HostBoundary {
   isolated(): boolean;
   governed(startupView?: WorkerStartupView): GovernedAvailability;
   /** Qualifies maintenance with a fresh native input lease, then awaits release. */
-  prepare(signal?: AbortSignal): Promise<GovernedAvailability>;
+  prepare(signal?: AbortSignal, startupView?: WorkerStartupView): Promise<GovernedAvailability>;
   /** Both, as `/api/status` reports them. */
   status(): GovernedStatus;
   /** Runs one command to completion, inside a maintenance worker while the boundary is in force. */
@@ -276,7 +276,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       try {
         const known = passedMaintenanceProbes.get(maintenanceKey);
         if (!known && !startupView) return { ok: false, requirement: "a prepared native maintenance probe input is required; await boundary.prepare() before admission" };
-        const checked = known ?? hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, startupView);
+        const checked = known ?? { ok: false as const, requirement: "native maintenance qualification requires awaited boundary.prepare()" };
         maintenanceResourceRefused = false;
         maintenance = { probe: checked, at: Date.now() };
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
@@ -373,10 +373,21 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     maintenance: {tempLimits:maintenanceTemp,maskPaths,...(tempDomain ? {tempDomain} : {})},
     isolated,
     governed,
-    async prepare(signal) {
-      const view = await prepareInput(signal);
-      try { signal?.throwIfAborted(); return governed(view); }
-      finally { await view.cleanup(); }
+    async prepare(signal, preparedView) {
+      return outputLock.withLock(brain, async () => {
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      if (!ordinary.ok) return governed();
+      if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
+      const view = preparedView ?? await prepareInput(signal);
+      try {
+        signal?.throwIfAborted();
+        const checked = await hostExecution.maintenanceProbe(brain, maintenanceTemp, tempDomain, view, signal);
+        maintenanceResourceRefused = false; maintenance = { probe: checked, at: Date.now() };
+        if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
+        return governed();
+      } catch (error) { if (error instanceof WorkerStateError) maintenanceResourceRefused = true; throw error; }
+      finally { if (!preparedView) await view.cleanup(); }
+      }, { signal });
     },
     status: () => {
       const availability = governed();
@@ -407,20 +418,20 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
         const run = async () => {
           const view = await prepareInput(execution.signal);
-          let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
+          let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
           try {
             execution.signal?.throwIfAborted();
-            outputs = prepareMaintenanceOutput(brain, { startupView: view });
+            outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
             const launch = command(execution);
             const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
               ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
             if (!result.killed) {
               if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
-              else outputs.publish();
+              else await outputs.publish();
             }
             return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
-          } finally { try { outputs?.cleanup(); } finally { await view.cleanup(); } }
+          } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
         };
         return outputLock.withLock(brain, () => execution.lock
           ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
@@ -466,29 +477,29 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         } catch (error) { try { releaseOutput(); } finally { hold?.release(); } throw error; }
       }
       let worker: ReturnType<typeof launchMaintenanceWorker>;
-      let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
+      let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
       let view: WorkerStartupView | undefined;
       try {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = prepareMaintenanceOutput(brain, { startupView: view });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
         const launch = command(execution);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
         execution.signal?.throwIfAborted();
         worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
       }
-      catch (error) { try { outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } throw error; }
+      catch (error) { try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
         if (!signalCode) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
-          else outputs!.publish();
+          else await outputs!.publish();
         }
         return code;
       })
-        .finally(async () => { try { outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
+        .finally(async () => { try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return { stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill };

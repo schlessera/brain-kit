@@ -40,7 +40,7 @@ export { DEFAULT_MAINTENANCE_TEMP_BYTES, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES, 
 export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
-export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
+export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
 export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
@@ -70,3 +70,5 @@ export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
 export { WORKER_AREA_ROOT } from "./server/worker-sandbox.js";
 export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
 export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
+
+export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutputStorage } from "./server/worker-native-output.js";

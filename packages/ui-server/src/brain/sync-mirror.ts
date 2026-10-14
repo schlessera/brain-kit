@@ -129,15 +129,15 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
 async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number }, nativeManager: Parameters<typeof prepareNativeWorkerStartupView>[1] | undefined): Promise<ExecutionResult> {
   if (!nativeManager) throw new Error("Local sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
   const view = await prepareNativeWorkerStartupView(command.brainPath, nativeManager, command.signal);
-  let outputs: ReturnType<typeof prepareMaintenanceOutput> | undefined;
+  let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
   try {
     command.signal?.throwIfAborted();
-    outputs = prepareMaintenanceOutput(command.brainPath, { startupView: view });
+    outputs = await prepareMaintenanceOutput(command.brainPath, { startupView: view, signal: command.signal });
     const git = await prepareMaintenanceGit(command, outputs, command.signal);
     const result = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
-    if (!result.killed) outputs.publish();
+    if (!result.killed) await outputs.publish();
     return result;
-  } finally { try { outputs?.cleanup(); } finally { await view.cleanup(); } }
+  } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
 }
 
 /** Full deterministic sync with the same local merge behavior; remote races repeat its existing re-pull flow. */
