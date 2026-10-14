@@ -72,7 +72,14 @@ for (const width of live ? [1280] : [320, 600, 1280]) {
       expect((page.getByRole("option", { name: "Graph" }).element() as HTMLElement).innerText.includes("⏎"), "selected-row generated fallback").toBe(fine);
       await page.getByRole("combobox").fill("");
       expect(el.scrollWidth, "picker fits").toBeLessThanOrEqual(el.clientWidth + 1);
-      await page.screenshot({ path: `../../.vitest-attachments/keyboard-hints/${width}-${inject("railPointer")}-palette.png` });
+      await page.screenshot({ path: `../../.vitest-attachments/keyboard-hints/${width}-${live ? "live-fine" : inject("railPointer")}-palette.png` });
+      if (!fine) {
+        const close = page.getByRole("button", { name: "Close commands" });
+        expect(close.element().getBoundingClientRect().height, "touch close target").toBeGreaterThanOrEqual(44);
+        await tap(close.element() as HTMLElement);
+        await expect.element(dialog).not.toBeInTheDocument();
+        await tap(all.element() as HTMLElement);
+      }
       await userEvent.keyboard("{Escape}");
       await expect.element(dialog).not.toBeInTheDocument();
       await tap(all.element() as HTMLElement);
@@ -112,7 +119,7 @@ for (const width of live ? [1280] : [320, 600, 1280]) {
       flushSync(() => ui!.stores.ui.getState().setFilePanelOpen(true));
       await expect.element(tree).toBeVisible();
     }
-    await page.screenshot({ path: `../../.vitest-attachments/keyboard-hints/${width}-${inject("railPointer")}-files.png` });
+    await page.screenshot({ path: `../../.vitest-attachments/keyboard-hints/${width}-${live ? "live-coarse" : inject("railPointer")}-files.png` });
     // Enter operates the real tree row even when its legend is suppressed.
     (tree.element() as HTMLElement).focus(); await userEvent.keyboard("{Enter}");
     await expect.poll(() => ui!.stores.file.getState().currentPath).toBe("voyage/return.md");
