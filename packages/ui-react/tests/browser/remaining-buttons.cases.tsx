@@ -32,7 +32,12 @@ async function mount(ctx: TestContext, width: number, theme: string) {
   document.head.append(style);
   const host = document.createElement("div"); host.style.cssText = "width:100%;background:var(--bk-color-canvas);color:var(--bk-color-ink)";
   document.body.append(host);
-  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ results: [{ path: "voyage/return.md", title: "Return to Ithaca" }], warnings: [] }) });
+  const ui = createBrainUiRoot({ storage: null, request: async url => {
+    if (new URL(url, location.href).pathname.endsWith("/graph/discovery")) {
+      return Response.json({ nodes: [{ id: 1, path: "voyage/return.md", title: "Return to Ithaca", type: "goal", distance: 0, inDegree: 0, outDegree: 0 }], edges: [], truncated: false });
+    }
+    return Response.json({ results: [{ path: "voyage/return.md", title: "Return to Ithaca" }], warnings: [] });
+  } });
   ui.stores.graph.setState({ mode: "discovery", sceneQuery: "Ithaca", discovery: { root: "voyage/return.md", maxDepth: 4 }, meta: { available: true, schemaVersion: 8, computedAt: "2026-07-12", stale: false, nodeCount: 1, edgeCount: 0, communities: [], defaultRoot: { path: "AGENTS.md", virtual: true } } });
   const react = createRoot(host);
   const draw = (children: ReactNode) => flushSync(() => react.render(<BrainUiProvider root={ui}>{children}</BrainUiProvider>));

@@ -224,8 +224,8 @@ for (const fixture of Object.keys(discoveryScenes))
           expect(host.textContent).toContain(selected.title);
           expect(
             host.querySelector('[aria-label="Graph nodes"]') !== null
-          ).toBe(width >= 1440);
-          if (width >= 1440) await userEvent.keyboard("{Escape}");
+          ).toBe(width >= 900);
+          if (width >= 900) await userEvent.keyboard("{Escape}");
           else {
             await userEvent.keyboard("{Enter}");
             await expect

@@ -18,7 +18,7 @@ import { useGraphStore } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { GraphControls, WIDE_QUERY } from "./graph-controls.js";
+import { GraphControls, LAPTOP_QUERY, WIDE_QUERY } from "./graph-controls.js";
 import { NodePopover } from "./node-popover.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { GraphEmptyState, Mono } from "./graph-empty-state.js";
@@ -668,7 +668,7 @@ function NodeList({ onClose }: { onClose: () => void }) {
   const select = useGraphStore((s) => s.select);
   const selectedId = useGraphStore((s) => s.selectedId);
   const discovery = useGraphStore(s => s.mode === "discovery");
-  const wide = useMediaQuery(WIDE_QUERY);
+  const laptop = useMediaQuery(LAPTOP_QUERY);
   const packing = useMemo(() => discovery ? discoveryLayout(subgraph.nodes, subgraph.edges) : null, [discovery, subgraph]);
 
   const sorted = useMemo(
@@ -702,7 +702,7 @@ function NodeList({ onClose }: { onClose: () => void }) {
           )}
           <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Two-line node list entry with selected paint. */
             key={node.id}
-            onClick={() => { select(node.id); if (!wide) onClose(); }}
+            onClick={() => { select(node.id); if (!laptop) onClose(); }}
             className={cn(
               "bk-row flex min-h-11 w-full flex-col justify-center px-3 py-1.5 text-left transition-colors",
               node.id === selectedId
