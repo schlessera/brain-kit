@@ -71,7 +71,7 @@ exceptions. Unmeasured means no saving is claimed.
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | 800–1200 ms windows protect forbidden delayed uploads; other waits poll acknowledgements | Unmeasured; [#1868](https://github.com/schlessera/brain-kit/issues/1868) owns this file's controlled debounce/retry boundaries. Do not replace with immediate no-call checks. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
 | `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Unmeasured. Await actual chunk commits for capture; a deletion window needs writer completion plus all delayed callbacks before it can be removed. |
-| `auth-expiry-runtime.test.ts`, 400 ms entrances and 1800 ms post-restore observation | Login entrance settling vs no delayed navigation/restored-state observation | Unmeasured; no common shortened timeout is selected. |
+| `auth-expiry-runtime.test.ts`, startup/staging rendering versus post-auth observation | Ten startup/staging calls await authoritative fixture state, fonts, finite animations and stable geometry. Six post-auth calls retain 400 ms; explicit 400/1800/500/300 ms windows still observe native auth/navigation/decode effects. | No helper-wide shortened timeout; delivery PR records actual awaited rendering and whole-file costs. |
 | `parallel-sessions-runtime.test.ts`, 300–1000 ms observations and polling | Mixed no-send/security windows, pointer holds, readiness and socket completion | Unmeasured. Preserve the distinct pointer/auth/backend assertions; source literals are not summed. |
 | Render/store suites' 0–30 ms ticks | Event-loop or React-effect drain; some are delayed negative checks | No large-duration claim. Prefer actual effects/receipts where available, preserving later forbidden work. |
 | Native worker fixtures with 60000/120000 ms sleep, shell hold loops | Hold until cancellation, not a mandatory full wait | Count actual child lifetime; assert termination/exit and retain independent native witnesses. |
@@ -123,6 +123,30 @@ queue adoption updates the follow-up/draft stores synchronously (`if (msg.type =
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
+
+## Auth startup rendering boundaries
+
+The auth fixture's `startupReady` helper waits for the connected account and
+expected selected-session transcript before `finishRender` observes fonts,
+finite animation completion and two stable geometry frames. Only the final
+`boot` call and two inactive-reference staging calls use it (ten executions
+across the original nine cases). It establishes a rendered starting point,
+not completion of arbitrary asynchronous auth, storage or navigation work.
+
+Cancelled animation promises trigger another inspection of animations and
+geometry; delayed finite entrances cannot pass because their initial frames
+look unchanged. Infinite decorative animations do not block readiness. The
+native controls assert the finished animation and final geometry, including a
+cancelled entrance's replacement.
+
+The existing post-auth `ready` helper retains its 400 ms window at all six
+executions. In particular, the repeated same-account restore checks for no
+navigation after that window. All nine explicit pre-login 400 ms waits, the
+two 1800 ms same-account no-navigation windows, the 500 ms different-account
+isolation window and the 300 ms late-image-decode window remain native. These
+allow later forbidden effects to occur before the original assertions; a
+stable rendered frame cannot replace them. The held snapshot/revocation case
+still checks its warning at the original locked/account-cleared boundary.
 
 ## Measuring a replacement
 

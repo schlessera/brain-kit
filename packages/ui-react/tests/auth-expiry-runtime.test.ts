@@ -205,6 +205,40 @@ async function ready(page: Page) {
   await page.waitForTimeout(400);
 }
 
+/** Only initial/staging rendering; this is not an auth or late-write barrier. */
+async function finishRender(page: Page) {
+  await page.evaluate(async () => {
+    const frame = () => new Promise<void>(done => requestAnimationFrame(() => done()));
+    const finiteAnimations = () => document.getAnimations().filter(animation =>
+      animation.playState !== "finished" && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+    const geometry = () => [...document.querySelectorAll("textarea[data-composer], [data-reading-column], [data-reading-column] > *")].map(el => {
+      const rect = el.getBoundingClientRect();
+      return [rect.x, rect.y, rect.width, rect.height, el.scrollHeight, el.parentElement?.scrollTop];
+    });
+    let previous = "";
+    let stable = 0;
+    while (stable < 2) {
+      await document.fonts.ready;
+      const animations = finiteAnimations();
+      // Cancellation may install a replacement. Reinspect after its frame;
+      // a rejected finished promise does not establish rendered completion.
+      await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+      await frame();
+      const current = JSON.stringify(geometry());
+      const quiet = animations.length === 0 && finiteAnimations().length === 0 && document.fonts.status === "loaded";
+      stable = quiet && current === previous ? stable + 1 : 0;
+      previous = current;
+    }
+  });
+}
+
+/** Authoritative fixture state precedes the startup/staging rendered baseline. */
+async function startupReady(page: Page) {
+  await until(page, "f.connected() && f.accountKey() !== null");
+  await until(page, `f.activeSessionId() === ${JSON.stringify(SESSION)} && f.messages() === ${transcript.length}`);
+  await finishRender(page);
+}
+
 /** Everything changed so far has been written, and committed. */
 async function committed(page: Page) {
   // An idle write queue can precede the initial asynchronous account binding (#1324).
@@ -265,7 +299,7 @@ async function boot(page: Page) {
   await signIn(page); await page.goto(origin);
   await until(page, "f.connected() && f.accountKey() !== null");
   await fixture(page, (f) => f.resume("odysseus-ithaca"));
-  await ready(page);
+  await startupReady(page);
 }
 async function loginForm(page: Page) {
   await page.getByRole("textbox", { name: "Password" }).or(page.locator('input[type="password"]')).fill(PASSWORD);
@@ -430,14 +464,14 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    await boot(page);
    const inactive:Array<{id:string;refs:unknown[]}>=[];
    for(let i=0;i<2;i++) {
-    if(i) { await page.evaluate(id=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await ready(page); }
+    if(i) { await page.evaluate(id=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await startupReady(page); }
     await page.getByRole("button",{name:"New chat",exact:true}).click(); await until(page,"f.activeSessionId() === null");
     await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx"));
     await until(page,"f.tracks().length === 1");
     if(!i) { const old=await fixture(page,f=>f.draftId()); await fixture(page,f=>f.rotateUnbound()); expect(await fixture(page,f=>f.draftId()),"rotated draft has a distinct identity").not.toBe(old); }
     inactive.push({id:await fixture(page,f=>f.draftId()),refs:await fixture(page,f=>f.tracks())});
    }
-   await page.evaluate((id)=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await ready(page);
+   await page.evaluate((id)=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await startupReady(page);
    await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx")); await until(page,"f.tracks().length === 1");
    const active=await fixture(page,f=>f.tracks()); expect(inactive[0]!.id).not.toBe(inactive[1]!.id); await committed(page);
    await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
@@ -574,4 +608,58 @@ describe.skipIf(!executablePath)("auth-expiry snapshot startup (#1324)", () => {
       await context.close();
     }
   }, 30_000);
+});
+
+
+describe.skipIf(!executablePath)("auth startup render readiness", () => {
+  test("initially quiet finite entrance finishes before the rendered baseline", async () => {
+    const context = await browser!.newContext();
+    try {
+      await context.route("**/*", route => route.abort());
+      const page = await context.newPage();
+      await page.setContent('<textarea data-composer style="position:absolute;top:0">Ithaca</textarea>');
+      await page.evaluate(() => {
+        const entrance = document.querySelector("textarea")!.animate([
+          { transform: "translateY(0)", offset: 0 },
+          { transform: "translateY(0)", offset: 0.8 },
+          { transform: "translateY(20px)", offset: 1 },
+        ], { delay: 100, duration: 300, fill: "forwards" });
+        Object.assign(window, { __entrance: entrance });
+      });
+      await finishRender(page);
+      expect(await page.evaluate(() => (window as unknown as { __entrance: Animation }).__entrance.playState),
+        "AUTH_FINITE_ANIMATION_FINISHED_BEFORE_GEOMETRY").toBe("finished");
+      expect(await page.locator("textarea").evaluate(el => el.getBoundingClientRect().top),
+        "AUTH_FINISHED_ENTRANCE_GEOMETRY").toBe(20);
+    } finally { await context.close(); }
+  });
+
+  test("cancelled entrance reinspects its finite replacement without waiting for decoration", async () => {
+    const context = await browser!.newContext();
+    try {
+      await context.route("**/*", route => route.abort());
+      const page = await context.newPage();
+      await page.setContent('<textarea data-composer style="position:absolute;top:0">Ithaca</textarea><span>Odysseus</span>');
+      await page.evaluate(() => {
+        const field = document.querySelector("textarea")!;
+        const entrance = field.animate({ transform: ["translateY(0)", "translateY(10px)"] }, { duration: 1000 });
+        const decoration = document.querySelector("span")!.animate({ opacity: [0.5, 1] }, { duration: 100, iterations: Infinity });
+        const probe = { entrance, decoration, replacement: null as Animation | null };
+        Object.assign(window, { __replacement: probe });
+        setTimeout(() => {
+          entrance.cancel();
+          probe.replacement = field.animate({ transform: ["translateY(0)", "translateY(30px)"] },
+            { delay: 100, duration: 200, fill: "forwards" });
+        }, 80);
+      });
+      await finishRender(page);
+      const states = await page.evaluate(() => {
+        const probe = (window as unknown as { __replacement: { entrance: Animation; replacement: Animation | null; decoration: Animation } }).__replacement;
+        return [probe.entrance.playState, probe.replacement?.playState, probe.decoration.playState];
+      });
+      expect(states, "AUTH_CANCELLED_ENTRANCE_REPLACEMENT_FINISHED").toEqual(["idle", "finished", "running"]);
+      expect(await page.locator("textarea").evaluate(el => el.getBoundingClientRect().top),
+        "AUTH_REPLACEMENT_GEOMETRY").toBe(30);
+    } finally { await context.close(); }
+  });
 });
