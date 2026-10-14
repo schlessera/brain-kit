@@ -1,7 +1,9 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { afterEach, expect, test } from "bun:test";
 import type { InboxActionItem, InboxOperation, AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createUiDb } from "../src/db/client.js";
@@ -13,8 +15,8 @@ import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { escalateInbox } from "../src/inbox/escalate.js";
 import { createInboxResolver } from "../src/inbox/resolve.js";
 
-const cleanup: Array<() => void> = [];
-afterEach(() => { for (const close of cleanup.splice(0).reverse()) close(); });
+const cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const operation: InboxOperation = { toolName: "write", input: { path: "notes/harbor.md", content: "Odysseus returned." }, targetPath: "notes/harbor.md" };
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "brain-action-"));
@@ -34,7 +36,10 @@ function setup() {
       { id: "later", label: "Later", effect: { kind: "snooze" } },
     ] };
   const escalation = { kind: "permission" as const, runId: "run", principalId: principal.id, stateMd: "Odysseus inspected the harbor.", request: { toolUseId: "write-harbor", toolName: operation.toolName, input: operation.input } };
-  return { path, db, store, budget, principal, now, action, escalation };
+  const brainPath = join(dir, "brain"); mkdirSync(brainPath);
+  const native = createNativeAppFixture(brainPath), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
+  cleanup.push(native.close);
+  return { path, db, store, budget, principal, now, action, escalation, brainPath, nativeManager };
 }
 
 test("real backend escalation commits checkpoint, Action and block before abort and settles its run", async () => {
@@ -50,7 +55,7 @@ test("real backend escalation commits checkpoint, Action and block before abort 
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
   } };
   const activity = createActivityStore(f.db, { writer: "fixture" });
-  await runAutonomousTurn({ db: f.db, store: activity, backend, checkpoint: (escalation) => {
+  await runAutonomousTurn({ brainPath: f.brainPath, nativeManager: f.nativeManager, db: f.db, store: activity, backend, checkpoint: (escalation) => {
     escalateInbox(f.db, { itemId: "share", expectedVersion: 2, escalation, action: f.action, allowedOperations: [operation] });
   } }, { turnId: "run", principalId: f.principal.id, prompt: "Inspect Odysseus's harbor", billingMode: "subscription", allowedTools: ["read"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   expect(starts).toBe(1);
@@ -92,7 +97,7 @@ test("a backend question commits its choices and checkpoint before unwinding wit
     expect(f.store.getItem("share")).toMatchObject({ status: "blocked", blockedByItemId: action.id });
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
   } };
-  await runAutonomousTurn({ db: f.db, store: createActivityStore(f.db), backend, checkpoint: escalation => {
+  await runAutonomousTurn({ brainPath: f.brainPath, nativeManager: f.nativeManager, db: f.db, store: createActivityStore(f.db), backend, checkpoint: escalation => {
     escalateInbox(f.db, { itemId: "share", expectedVersion: 2, escalation, action, allowedOperations: [] });
   } }, { turnId: "run", principalId: f.principal.id, prompt: "Choose Odysseus's destination", billingMode: "subscription", allowedTools: [], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   expect(starts).toBe(1);

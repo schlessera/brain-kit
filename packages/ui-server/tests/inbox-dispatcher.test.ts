@@ -1,3 +1,5 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 /**
  * #689: the production dispatcher composes intake, T0/T1 triage, the
  * restricted autonomous turn, durable escalation, resolution and one exact
@@ -32,10 +34,11 @@ const silentLog = { emit() {} } as never;
 
 type Script = (req: StartTurnRequest) => Promise<void>;
 function fixture(route = "needs_agent") {
-  const root = mkdtempSync(join(tmpdir(), "brain-dispatch-"));
+  const directory = mkdtempSync(join(tmpdir(), "brain-dispatch-")), root = join(directory, "brain");
+  mkdirSync(root);
   mkdirSync(join(root, "notes"), { recursive: true });
   writeFileSync(join(root, "notes/harbor.md"), "# Harbor\nThe ships of Ithaca.\n");
-  const dbPath = join(root, "ui.sqlite"), db = createUiDb(dbPath);
+  const dbPath = join(directory, "ui.sqlite"), db = createUiDb(dbPath);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const intake = createInboxIntake(db, root);
   const turns: StartTurnRequest[] = [];
@@ -59,14 +62,15 @@ function fixture(route = "needs_agent") {
   };
   const budget = { config: { spendUsd: 50, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.00001 },
     pricing: { resolve: () => ({ input: 0.000001, output: 0.000001, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" as const }) } };
+  const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   const activity = createActivityStore(db, { writer: "dispatch-test" });
-  const dispatcher = createInboxDispatcher(db, { brainRoot: root, budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
+  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
     select: async () => ({ backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" }) });
   const runtime = createInboxRuntime(db, { log: silentLog, brainRoot: root, budget,
     timers: { setInterval: () => 0 as never, clearInterval: () => {} }, ...dispatcher });
   const store = createInboxStore(db);
   const resolver = (handle = db) => createInboxResolver(handle, { allowedOperations: createInboxOperationEnvelope(handle) });
-  cleanup.push(async () => { await runtime.close(); await intake.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  cleanup.push(async () => { await runtime.close(); await intake.close(); await native.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
   const arrive = async (text: string) => (await intake.cli({ text, files: [] }, crypto.randomUUID(), principal)).itemId;
   const actions = () => store.snapshot().items.filter(item => item.queue === "actions" && item.type !== "fyi") as Array<Record<string, any>>;
   return { root, db, dbPath, principal, backend, turns, scripts, classifications, runtime, store, resolver, arrive, actions };
