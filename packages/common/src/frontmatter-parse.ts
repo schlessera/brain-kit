@@ -16,8 +16,8 @@ import matter from "gray-matter";
 
 /** gray-matter options plus the first-party YAML/data-only boundary. */
 export interface FrontmatterParseOptions extends matter.GrayMatterOption<string, FrontmatterParseOptions> {
-  /** Refuse non-YAML selection before any engine dispatch. Custom YAML engines remain supported. */
-  dataOnly?: boolean;
+  /** Refuse executable/unsupported selection before dispatch; only explicit legacy callers also permit JSON. */
+  dataOnly?: boolean | "yaml-json";
   /** Aliases accepted by gray-matter defaults but absent from its published types. */
   delims?: string | string[];
   lang?: string;
@@ -33,12 +33,12 @@ export type ParsedFrontmatter = matter.GrayMatterFile<string>;
  */
 export function parseFrontmatter(input: string, options?: FrontmatterParseOptions): ParsedFrontmatter {
   const { dataOnly, ...parserOptions } = options ?? {};
-  if (dataOnly) assertYamlLanguage(input, parserOptions);
+  if (dataOnly) assertDataLanguage(input, parserOptions, dataOnly === "yaml-json");
   return matter(input, { ...parserOptions });
 }
 
 /** Mirror gray-matter 4.0.3's selection, including BOM, delimiter aliases and no-newline input. */
-function assertYamlLanguage(input: string, options: FrontmatterParseOptions): void {
+function assertDataLanguage(input: string, options: FrontmatterParseOptions, allowJson: boolean): void {
   const delimiters = options.delims || options.delimiters || "---";
   const open = Array.isArray(delimiters) ? delimiters[0]! : delimiters;
   const text = input.replace(/^\uFEFF/, "");
@@ -48,6 +48,6 @@ function assertYamlLanguage(input: string, options: FrontmatterParseOptions): vo
   // language() uses slice(0, -1) when there is no newline. Preserve that edge too.
   const declared = rest.slice(0, rest.search(/\r?\n/)).trim();
   const language = declared || (options.language || options.lang || "yaml").toLowerCase();
-  if (!/^(yaml|yml)$/i.test(language))
-    throw new Error(`Unsupported frontmatter language ${JSON.stringify(language)}; use YAML data only`);
+  if (!/^(yaml|yml)$/i.test(language) && !(allowJson && language === "json"))
+    throw new Error(`Unsupported frontmatter language ${JSON.stringify(language)}; use ${allowJson ? "YAML or JSON" : "YAML"} data only`);
 }

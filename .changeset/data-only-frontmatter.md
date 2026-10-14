@@ -7,4 +7,4 @@
 "@schlessera/brain-module-travel": patch
 ---
 
-Refuse unsupported frontmatter languages before parser engine dispatch in data-only governance, skills, schedules and content workflows. Preserve supported YAML, policy last-valid fallback, approval checks, cache independence and travel's custom YAML date parser.
+Refuse unsupported frontmatter languages before parser engine dispatch in data-only governance, skills, schedules and content workflows. Preserve supported YAML, jobs' legacy JSON scoring input, policy last-valid fallback, approval checks, cache independence and travel's custom YAML date parser.

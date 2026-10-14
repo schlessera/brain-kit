@@ -67,9 +67,9 @@ maintainer chose option B on #142 on 2026-09-28.
 
 ## Data-only callers (#1830, 2026-10-14)
 
-First-party Markdown inputs are YAML data. They set `{ dataOnly: true }` at
+First-party Markdown inputs normally use YAML data. They set `{ dataOnly: true }` at
 this same boundary, which checks the delimiter-selected language before
-calling gray-matter (`assertYamlLanguage`,
+calling gray-matter (`assertDataLanguage`,
 `packages/common/src/frontmatter-parse.ts:41-53`). Unlabelled YAML and the
 case-insensitive `yaml`/`yml` declarations remain supported. Other declarations
 are refused before any engine callback, even on empty blocks. BOM, CRLF,
@@ -83,13 +83,17 @@ validation, old/new section comparison and post-approval revalidation; skill
 creation/update/discovery/archive installation; schedule files; core indexing,
 validation, ingestion, context assembly, rendering, export, briefing, audit,
 archive, tags, skills, registry, frontmatter editing and sync; and finance,
-jobs and travel content. These all consume the documented YAML format.
+jobs and travel content. Jobs' legacy scoring reader and lossless migration
+explicitly support both YAML and JSON source blocks; those three parses use
+`{ dataOnly: "yaml-json" }` to preserve that existing representation while
+refusing every executable engine before dispatch. The migration's pre-existing
+JSON preservation regression and an inert executable-slot regression cover it.
 `stringifyDocument` also passes an already guarded parsed object to the
 serializer so its content cannot select an engine during implicit parsing.
 Tests exercise real descriptor reads, native admission, proposal approval and
 publication, skill installation, schedule parsing, index parsing and serialization.
 
-The intentional custom-engine consumer is travel's YAML parser, which uses
+The intentional custom YAML engine consumer is travel's parser, which uses
 `js-yaml`'s JSON schema to retain written calendar days as strings. It combines
 that engine with `dataOnly`; it does not permit arbitrary language selection.
 The general internal helper retains its original options/custom-engine behavior

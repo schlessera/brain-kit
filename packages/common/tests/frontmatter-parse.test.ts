@@ -191,3 +191,17 @@ describe("data-only engine admission", () => {
     expect(() => parseFrontmatter('---\ntitle: "Odysseus\n---\n', { dataOnly: true })).toThrow();
   });
 });
+
+
+test("the explicit legacy data-only mode accepts real JSON and refuses executable selection", () => {
+  expect(parseFrontmatter('---json\n{"hero":"Odysseus"}\n---\n', { dataOnly: "yaml-json" }).data).toEqual({ hero: "Odysseus" });
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    for (const language of ["js", "javascript", "JS", "coffee", "odyssey"]) {
+      let error: unknown;
+      try { parseFrontmatter(`---${language}\nOdysseus\n---\n`, { dataOnly: "yaml-json" }); } catch (caught) { error = caught; }
+      expect(sentinel.dispatched, "LEGACY_DATA_ONLY_NO_EXECUTABLE_DISPATCH").toEqual([]);
+      expect(String(error)).toContain("use YAML or JSON data only");
+    }
+  } finally { sentinel.restore(); }
+});

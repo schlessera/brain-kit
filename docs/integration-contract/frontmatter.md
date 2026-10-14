@@ -231,7 +231,9 @@ exported from `@schlessera/brain` — and that test fails when this document, th
   case-insensitive `yaml`/`yml` declarations; other delimiter-selected languages
   are refused before engine dispatch. This restores the existing YAML guarantee
   for governance, skills, schedules, core and canonical module content without
-  changing supported YAML semantics or CLI/MCP/wire envelopes. The internal
+  changing supported YAML semantics or CLI/MCP/wire envelopes. Jobs' legacy
+  scoring reader/migration also retain their explicitly supported JSON source
+  blocks through a data-only YAML/JSON mode. The internal
   general parser's intentional custom-engine mode remains available; travel's
   custom YAML date parser remains in use.
 - Optional `generated_from` (additive in 0.38.0): a non-empty string, either a
