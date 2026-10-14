@@ -15,6 +15,13 @@ that hits something new is not finished until that lands here or in a test — s
 All eighteen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
+For a focused patch release, freeze a release branch at the recorded base and
+apply only its reviewed fixes. Run the normal complete proof on that candidate.
+Forward-integrate the release branch into main with a merge commit, preserving
+the tagged commit's ancestry and main's newer pending changesets. Equivalent
+squashed or cherry-picked bytes do not preserve that ancestry; the website
+requires its selected release commit to be an ancestor of main.
+
 The full sequence: changeset → `bun run version` → **read the version it
 produced** → `bun run build && bun run typecheck && bun run test` →
 `bun run test:experiments` → commit `chore: version packages to X.Y.Z` → push →
@@ -253,8 +260,9 @@ bun run release        # build, publish, `changeset tag`, publish the template
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
-  Use the unchanged verified publishing checkout, including a detached HEAD or
-  release worktree. Set `release_commit` to the SHA recorded for the published
+  Publication does not authorize pushing a stale local `main`. Use the exact
+  unchanged verified release checkout, including a detached HEAD or release
+  worktree. Set `release_commit` to the SHA recorded for the published
   candidate; the checkout must still have that HEAD. Derive only that version's
   package tags from its manifests and verify each annotated tag targets that
   commit. Run this block in Bash:
