@@ -58,6 +58,8 @@ const storyProject = (name: string, theme: string) => ({
   ],
   test: {
     name,
+    provide: { storyTheme: theme },
+    setupFiles: ["./tests/visual/story-theme-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright({}),
