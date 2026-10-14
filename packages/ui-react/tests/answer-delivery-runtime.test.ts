@@ -74,6 +74,14 @@ const histories = new Map<string, SessionHistoryMessage[]>();
 beforeAll(async () => {
   if (!executablePath) return;
   const repo = resolve(import.meta.dir, "../../..");
+  // Unit shards start without dist. Generate the real package styles (and
+  // their exported token dependency), as the sibling styled runtime fixtures
+  // do, instead of depending on another test having built them first.
+  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const [buildOut, buildErr, buildCode] = await Promise.all([
+    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
+  ]);
+  if (buildCode !== 0) throw new Error(`Answer delivery fixture build failed (${buildCode}): ${buildOut}\n${buildErr}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-answer-delivery-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
