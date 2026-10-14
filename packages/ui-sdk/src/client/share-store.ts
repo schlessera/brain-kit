@@ -27,8 +27,9 @@ export interface ShareStore {
   /**
    * Read a share and delete it in ONE transaction.
    *
-   * This is the claim operation, and its atomicity is what stops a share being
-   * processed twice. The app is reloaded by its own service-worker update path,
+   * This destructively consumes the original. Review admission must commit a
+   * recoverable copy first; it must never use deletion as an ownership lease.
+   * Atomicity stops two callers consuming the same record. The app is reloaded by its own service-worker update path,
    * and a reload preserves the query string — so `?share=<id>` can be read
    * again while the first upload is still in flight. Whoever takes the record
    * first owns it; the second reader gets undefined.
@@ -42,6 +43,64 @@ export interface ShareStore {
 const DB_NAME = "brain-ui-shares";
 const DB_VERSION = 1;
 const STORE_NAME = "shares";
+
+/** First-party transfer journal; never supplied by the sharing application. */
+type ReviewBinding = { account: string; generation: string };
+
+/**
+ * Bind the original before copying it into an authenticated account partition.
+ * A crash between the two databases must not let another account adopt it.
+ * Callers hold the origin-wide share lock until transfer has committed.
+ */
+export async function bindStoredShare(id: string, binding: ReviewBinding, isCurrent: () => boolean): Promise<StoredShare | undefined> {
+  const db = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const shares = tx.objectStore(STORE_NAME);
+      let result: StoredShare | undefined;
+      let failure: unknown;
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = tx.onerror = () => reject(failure ?? tx.error ?? new Error("indexeddb_transaction_failed"));
+      const read = shares.get(id);
+      read.onsuccess = () => {
+        try {
+          if (!isCurrent()) { tx.abort(); return; }
+          const row = read.result as (StoredShare & { reviewBinding?: ReviewBinding }) | undefined;
+          if (!row || (row.reviewBinding && (row.reviewBinding.account !== binding.account || row.reviewBinding.generation !== binding.generation))) return;
+          const { reviewBinding: _binding, ...record } = row;
+          result = record;
+          shares.put({ ...record, reviewBinding: binding });
+        } catch (error) { failure = error; tx.abort(); }
+      };
+    });
+  } finally { db.close(); }
+}
+
+/** Transfer remnants are included in intentional account sign-out. */
+export async function boundStoredShares(account: string): Promise<Array<{ id: string; generation: string }>> {
+  const rows = await withStore("readonly", store => store.getAll()) as Array<StoredShare & { reviewBinding?: ReviewBinding }>;
+  return rows.flatMap(row => row.reviewBinding?.account === account ? [{ id: row.id, generation: row.reviewBinding.generation }] : []);
+}
+
+/** Old writers are fenced before this atomic cleanup; fresh sign-ins stay intact. */
+export async function clearBoundStoredShares(account: string, generations: readonly string[]): Promise<void> {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const shares = tx.objectStore(STORE_NAME);
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("indexeddb_transaction_failed"));
+      const read = shares.getAll();
+      read.onsuccess = () => {
+        for (const row of read.result as Array<StoredShare & { reviewBinding?: ReviewBinding }>) {
+          if (row.reviewBinding?.account === account && generations.includes(row.reviewBinding.generation)) shares.delete(row.id);
+        }
+      };
+    });
+  } finally { db.close(); }
+}
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {

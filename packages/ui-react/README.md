@@ -198,9 +198,19 @@ no-line waypoint note. Live and replayed messages use the same mapping. These
 rows offer no open or playback action. Image attachments retain their live
 80px zoomable thumbnails and count-only history chip.
 
-System shares remain under review until **Add to brain** is tapped. Dismiss
-cancels an in-flight upload. A previously confirmed share may resume when the
-connection returns; a share the reader has not confirmed never starts itself.
+System shares remain under review until **Add to brain** is tapped. Their
+original text and files are committed to the authenticated account’s device-local
+partition before review admission; reload and same-account authentication restore
+them. A native browser lock gives one tab ownership and releases automatically
+when that tab closes. Other accounts cannot recover them. The existing stash TTL
+and intake size caps still apply. Explicit sign-out includes these originals in
+the deletion warning and clears them with the account’s other local work.
+Dismiss cancels an in-flight upload and commits deletion of the retained original. A previously confirmed share may resume when the
+connection returns, including after reload or same-account authentication; a share
+the reader has not confirmed never starts itself. A complete successful server
+intake response transfers ownership to the server’s durable Queue before chat
+starts. A failed, missing or partial response keeps the local original. Browser
+or storage failures report that the original is kept rather than deleting it.
 Generic share intake still retains ordinary originals without track labeling.
 
 `show_block`'s `track` kind names only a staged `source.path`. The server parses

@@ -7,7 +7,7 @@
 export { defaultAsrClientRegistry, speechUiHints } from "./client/asr.js";
 export { createToolRendererRegistry, defaultToolRendererRegistry } from "./client/renderers.js";
 export { canonicalModelId, describeRetry, resolveThinkingLevel } from "./protocol-helpers.js";
-export { pruneStoredShares } from "./client/share-store.js";
+export { pruneStoredShares, bindStoredShare, boundStoredShares, clearBoundStoredShares } from "./client/share-store.js";
 export { handleShareTargetRequest, isShareTargetRequest, type ShareTargetError } from "./client/share-target-handler.js";
 export { askUserFormPayload, askUserFormSpec, resolveAskUserFormLimits } from "./tool-contracts/form.js";
 export { rewriteLinkDestinations, rewriteLinkDestinationsWithEdits, rebaseMessageBlocks, type LinkEdit } from "./markdown-links.js";
