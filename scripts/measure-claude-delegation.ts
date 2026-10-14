@@ -1,6 +1,7 @@
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.
 import assert from "node:assert/strict";
+import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -94,11 +95,12 @@ for (const allowChild of [false, true]) {
     };
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 20000);
+    const worker = createMeasurementWorkerFixture(cwd, home);
     try {
         const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ...CLEARED_API_CREDENTIALS,
                 ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
-        const backend = createClaudeBackend({ brainPath: cwd, profiles: [profile], allowedTools: allowChild ? ["Agent", "Bash"] : ["Agent"], queryFn: observed, log: () => { } });
-        await backend.startTurn({ prompt: "Delegate the controlled fixture call.", profileId: "fixture", signal: controller.signal, enforceAllowedTools: true,
+        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: allowChild ? ["Agent", "Bash"] : ["Agent"], queryFn: observed, log: () => { } });
+        await backend.startTurn({ ...worker.request, prompt: "Delegate the controlled fixture call.", profileId: "fixture", signal: controller.signal, enforceAllowedTools: true,
             bridge: { emit: () => { }, requestPermission: async (request) => { approvals.push(request); return { behavior: "deny", message: "delegated-fixture-denied" }; } } });
         assert.equal(mainSent, true, "the main CLI must execute the planned Agent call");
         assert.equal(childSent, true, "the real child must request its planned Bash call");
@@ -124,6 +126,7 @@ for (const allowChild of [false, true]) {
         rows.push(JSON.parse(witness.sanitize(JSON.stringify({ allowChild, version, requests, callbacks, hooks, approvals, marker: witness.effects.marker, terminal, verdict: "pass" }).replaceAll(root, "<scratch>"))));
     }
     finally {
+        worker.cleanup();
         clearTimeout(deadline);
         server.stop(true);
         witness.stop();
