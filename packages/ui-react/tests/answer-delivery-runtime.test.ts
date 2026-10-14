@@ -311,8 +311,14 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
         const { context, net } = await newContext(width === 320);
         try {
           const page = await openPage(context);
+          // The delivery harness is otherwise deliberately unstyled. These
+          // layout cases need the real built consumer and kit stylesheets.
+          for (const css of ["../../ui-kit/dist/styles.css", "../dist/styles.css"]) {
+            await page.addStyleTag({ content: await Bun.file(resolve(import.meta.dir, css)).text() });
+          }
           await page.setViewportSize({ width, height: 900 });
           await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+          expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), "OTHER_LAYOUT_USES_REAL_THEME").toBe(theme);
           const id = await ask(page, "ask_user");
           await page.getByRole("radio", { name: /Other/ }).click();
           const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
