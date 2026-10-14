@@ -6,6 +6,26 @@ import { trackerViews } from "../../src/stores/tracker-state.ts";
 // ConnectionGate, the way a hosting shell composes them, on one root with a
 // stable storage prefix. The test drives it only through the browser and the
 // host; this probe reads state and never changes it.
+// Observe native frame delivery; tests read these counts on a later page task
+// and separately check committed replay state. The production history/status
+// handlers are synchronous; this does not drain arbitrary asynchronous handlers.
+const received = new Map<string, number>();
+const NativeSocket = WebSocket;
+class ObservedSocket extends NativeSocket {
+  constructor(url: string | URL, protocols?: string | string[]) {
+    super(url, protocols);
+    this.addEventListener("message", event => {
+      const frame = JSON.parse(event.data);
+      queueMicrotask(() => {
+        const key = `${frame.type}:${frame.sessionId ?? ""}`;
+        received.set(key, (received.get(key) ?? 0) + 1);
+        received.set(`${frame.type}:*`, (received.get(`${frame.type}:*`) ?? 0) + 1);
+      });
+    });
+  }
+}
+Object.assign(window, { WebSocket: ObservedSocket });
+
 const root = createBrainUiRoot({ storagePrefix: "odysseus-continuity", config: { appName: "Odysseus’s notebook", assistantName: "Brain" } });
 
 const mount = document.getElementById("app");
@@ -20,6 +40,8 @@ createRoot(mount).render(
 
 Object.assign(window, {
   __continuity: {
+    replayComplete: (sessionId: string) => !root.stores.chat.getState().buffers[sessionId]?.replay,
+    received: (type: string, sessionId: string) => received.get(`${type}:${sessionId}`) ?? 0,
     connected: () => root.stores.connection.getState().wsStatus === "connected",
     wsStatus: () => root.stores.connection.getState().wsStatus,
     vpnStatus: () => root.stores.connection.getState().vpnStatus,

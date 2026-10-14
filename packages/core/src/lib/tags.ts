@@ -60,7 +60,7 @@ export function collectTaggedDocuments(root: string, taxonomy: Taxonomy): Tagged
   for (const path of getMarkdownFiles(root, taxonomy)) {
     let data: Record<string, unknown>;
     try {
-      data = parseFrontmatter(readFileSync(resolve(root, path), "utf-8")).data;
+      data = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"), { dataOnly: true }).data;
     } catch {
       continue; // unreadable or invalid frontmatter: `brain validate` reports it
     }

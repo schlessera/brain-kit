@@ -535,3 +535,51 @@ test("More swipe restores its tab and leaves Files open", async ctx => {
   expect(s.overlay('[data-panel="Files"]'),"Files remains open").not.toBeNull();
   expect(document.activeElement,"More tab receives swipe return focus").toBe(s.tab("More"));
 });
+
+// #1771: pixel comparison catches shadows that never participate in hit tests.
+for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
+  test(`${theme} ${width}: destination effects never shade navigation`, async ctx => {
+    const s = await mount(ctx, width);
+    s.ui.stores.ui.getState().setTheme(theme);
+    await commands.destinationSafeArea(34);
+    await commands.dictationMotion("no-preference");
+    ctx.onTestFinished(async () => {
+      await commands.destinationSafeArea(0);
+      await commands.dictationMotion("reduce");
+    });
+    await frame();
+    const navigation = 'nav[aria-label="Primary"]:visible';
+    const nav = s.tab("Chat").closest("nav")!;
+    expect(getComputedStyle(nav).paddingBottom, "native bottom safe area").toBe("34px");
+    for (const name of ["Sessions", "Settings", "Files"]) {
+      if (name === "Settings") {
+        s.ui.stores.ui.getState().setSettingsTab("devices");
+        await userEvent.click(s.tab("More"));
+        await userEvent.click(page.getByRole("button", { name: "Settings", exact: true }));
+      } else await userEvent.click(s.tab(name));
+      await frame();
+      const selector = `[data-panel="${name}"]`;
+      const panel = s.overlay(selector);
+      const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
+      const animations = panel.getAnimations({ subtree: true });
+      expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
+      for (const animation of animations) animation.pause();
+      for (const time of [0, 150, 300]) {
+        for (const animation of animations) animation.currentTime = time;
+        const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
+        expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
+        expect(paint.same,
+          `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
+      }
+      expect(surface.getBoundingClientRect().bottom, "pane ends above safe-area bar").toBe(nav.getBoundingClientRect().top);
+      for (const tab of ["Chat", "Sessions", "Actions", "Files", "More"]) {
+        const target = s.tab(tab); const box = target.getBoundingClientRect();
+        expect(target.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)), `${tab} hit target above pane effects`).toBe(true);
+      }
+      // Native keyboard activation replaces the destination and closes instantly.
+      s.tab("Chat").focus();
+      await userEvent.keyboard("{Enter}"); await frame();
+      expect(s.host.querySelector(selector), "destination closes on keyboard Chat").toBeNull();
+      expect(s.tab("Chat").getAttribute("aria-selected"), "keyboard activation selects Chat").toBe("true");
+    }
+  });

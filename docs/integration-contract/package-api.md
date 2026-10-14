@@ -3087,3 +3087,82 @@ independent hard deadline. Kit `AskUserOption`/`ChoiceOptionProps.disabled`
 make pending/offline scope options inert with a readable reason supplied by
 the surrounding card. These additions ship in a minor; the wire behavior is
 [specified separately](wire.md#turn-scope-additive-1670).
+
+## Optional transcript diagnostics and recovery (additive, #1806)
+
+`@schlessera/brain-ui-sdk/server` exports `createTranscriptStore`, the existing
+`TranscriptStore` interface, and the additive `RecoverableTranscriptStore`,
+`TranscriptDiagnostic`, `TranscriptRecord`, `TranscriptMetaRecord`,
+`TranscriptMessageRecord`, `TranscriptFailure`, `TranscriptRecoveryProvenance`,
+`TranscriptCorruptionError` and `TranscriptRecoveryError`. The factory returns
+`RecoverableTranscriptStore`; existing third-party `TranscriptStore`
+implementations gain no required members. Healthy `create`, `append`, `list`
+and `history` signatures and results retain their existing shapes.
+
+A malformed JSON/UTF-8 line or unsupported record quarantines that file in
+place. Required metadata is the first nonblank record: `kind: "meta"`, an
+`id` matching the filename, nullable string `title` and finite nonnegative
+`createdAt`. Later records have `kind: "message"`, finite nonnegative `ts`, a
+supported `SessionHistoryMessage` and optional finite nonnegative `costUsd`.
+Unknown additive properties remain intact. Empty files, missing/wrong metadata
+and repeated metadata are corrupt. Blank lines are allowed. Valid final JSON
+without a newline is healthy; append supplies a separating newline.
+Admission also refuses malformed optional fields that the wire reader would
+normalize or discard: a verified raw prefix must remain valid without alteration.
+
+`list()` excludes quarantined files, without aborting healthy enumeration.
+`history()` and `append()` on a quarantined file throw
+`TranscriptCorruptionError` (`code: "TRANSCRIPT_CORRUPT"`, `diagnostic`). Unknown
+history remains empty; unknown append still refuses. Filesystem errors other
+than absence propagate rather than being classified as transcript corruption.
+No operation silently repairs, truncates, relocates or logs original content.
+
+- `diagnose(sessionId)` returns `{ sessionId, status: "missing" }` for absence.
+  Otherwise it returns `sessionId`, `sourceVersion` (SHA-256 of all source
+  bytes), `prefixBytes` (exclusive verified byte boundary), and `records`
+  (the contiguous admitted records, with original objects). Healthy results
+  have `status: "healthy", complete: true`; quarantined results have
+  `status: "quarantined", complete: false, failure`. The failure carries
+  one-based `line`, zero-based `byteOffset`, `position: "final" | "interior"`
+  and `reason: "invalid-json" | "invalid-record" | "invalid-utf8" | "missing-meta"`.
+  Position describes whether nonblank bytes follow the failed line, not a
+  guessed crash cause. No records after the first failure are admitted.
+- `quarantined()` explicitly enumerates only quarantined diagnostics, including
+  their qualified prefixes. Ordinary history never presents these as complete.
+- `recover(sessionId, { sourceVersion })` is explicit authorization for the
+  inspected version. It returns a **new** session id, with metadata title
+  `Recovered: <original title or source id>` and `recovery` provenance containing
+  `sourceSessionId`, `sourceVersion`, `prefixBytes`, `prefixRecords`, and the
+  original `failure`. The original identity/bytes remain unchanged. Message
+  lines, timestamps, costs and unknown properties are copied byte for byte;
+  only metadata is replaced, with a trailing separator added if needed.
+  Provenance persists in metadata and is accessible through diagnostics;
+  normal `ChatSession` and history shapes gain no required fields.
+
+Recovery refuses missing/changed source with `TranscriptRecoveryError`
+(`code: "SOURCE_CHANGED"`), healthy source or missing valid metadata with
+`"NOT_RECOVERABLE"`, and incompatible existing recovery content with
+`"RECOVERY_CONFLICT"` (corrupt existing recovery raises `TranscriptCorruptionError`).
+It hashes the full source at admission and again around publication, refusing
+observed concurrent edits. Callers must serialize external transcript edits
+with recovery: this is optimistic filesystem validation, not an OS lock against
+arbitrary writers. The store itself never appends to the quarantined source.
+
+Recovery validates its complete output, writes and fsyncs a hidden `.pending`
+file, atomically links it without replacing an existing target, then fsyncs the
+directory. The target identity is deterministic for source identity/version;
+concurrent attempts and retries converge on that identity, including after
+subsequent valid appends. Interrupted staging cannot appear in `list()`;
+a process crash can leave hidden staging evidence. A failure after publication
+may leave a complete labelled recovery, and retry validates it and syncs the
+directory instead of creating a duplicate. A different source version requires
+a new inspection/authorization and represents a distinct recovery.
+
+Only optional plain API-loop backends use this helper. No shipped backend
+currently calls it; Claude/pi keep native persistence. Adopting backends keep
+normal `listSessions`/`getHistory` delegation, catch the typed per-session
+corruption outcome, and invoke diagnostics/recovery only through deliberate
+host-owned actions. They expose the returned title unchanged and resume the
+new returned identity. No wire frame, HTTP route, UI destination or native
+backend recovery interface is added by this SDK change. These supported
+additions ship in a minor under the recorded #1806 rulings.

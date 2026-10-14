@@ -55,6 +55,126 @@ function fakeClock(): RateLimiterClock & { waits: number[] } {
   } as RateLimiterClock & { waits: number[] };
 }
 
+/**
+ * HTTP retry time is separate from the injected rate-limit clock. Capture the
+ * actual production timeout callbacks, leaving Date, fetch promises and native
+ * event-loop turns alone. This file only scripts responses; it has no socket or
+ * media clock that a logical advance could accidentally outrun.
+ */
+class RetryClock {
+  now = 0;
+  private nextId = 1;
+  private timers = new Map<number, { at: number; delay: number; callback: () => void }>();
+  readonly registered: number[] = [];
+  readonly cancelled: number[] = [];
+  readonly delivered: number[] = [];
+  readonly requests: { settled: boolean }[] = [];
+
+  setTimeout = (callback: (...args: unknown[]) => void, delay = 0, ...args: unknown[]) => {
+    const id = this.nextId++;
+    this.registered.push(delay);
+    this.timers.set(id, { at: this.now + delay, delay, callback: () => callback(...args) });
+    return id;
+  };
+  clearTimeout = (id: number) => {
+    const timer = this.timers.get(id);
+    if (timer) this.cancelled.push(timer.delay);
+    this.timers.delete(id);
+  };
+  get pending(): number[] {
+    return [...this.timers.values()].map(timer => timer.delay);
+  }
+  track<T>(promise: Promise<T>): Promise<T> {
+    const state = { settled: false };
+    this.requests.push(state);
+    // Observe both outcomes immediately, including during failure cleanup.
+    void promise.then(() => { state.settled = true; }, () => { state.settled = true; });
+    return promise;
+  }
+  async turn(): Promise<void> {
+    // Give these scripted promise chains a native event-loop opportunity.
+    // Pending-registration and tracked-settlement assertions below establish
+    // completion; a turn alone is not an arbitrary asynchronous-work barrier.
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  async advance(ms: number): Promise<void> {
+    const end = this.now + ms;
+    for (;;) {
+      const next = [...this.timers].filter(([, timer]) => timer.at <= end)
+        .sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+      if (!next) break;
+      this.now = next[1].at;
+      this.timers.delete(next[0]);
+      this.delivered.push(next[1].delay);
+      next[1].callback();
+      await this.turn();
+    }
+    this.now = end;
+    await this.turn();
+  }
+  async dispose(): Promise<void> {
+    // A failed assertion may leave a retry parked. Complete the finite scripted
+    // request while our globals still belong to it, then discard stray watchdogs.
+    try {
+      await this.turn();
+      for (let i = 0; this.requests.some(request => !request.settled) && i < 32; i++) {
+        const next = Math.min(...[...this.timers.values()].map(timer => timer.at));
+        if (!Number.isFinite(next)) break;
+        await this.advance(Math.max(0, next - this.now));
+      }
+      expect(this.requests.every(request => request.settled), "REQUEST_CLEANUP").toBe(true);
+    } finally {
+      this.timers.clear();
+    }
+  }
+}
+
+async function withRetryClock<T>(run: (clock: RetryClock) => Promise<T>, jitter = 0.5): Promise<T> {
+  const timers = {
+    setTimeout: Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!,
+    clearTimeout: Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")!,
+  };
+  const random = Object.getOwnPropertyDescriptor(Math, "random")!;
+  const clock = new RetryClock();
+  Object.defineProperties(globalThis, {
+    setTimeout: { configurable: true, writable: true, value: clock.setTimeout },
+    clearTimeout: { configurable: true, writable: true, value: clock.clearTimeout },
+  });
+  Object.defineProperty(Math, "random", { configurable: true, writable: true, value: () => jitter });
+  try {
+    return await run(clock);
+  } finally {
+    try { await clock.dispose(); }
+    finally {
+      Object.defineProperties(globalThis, timers);
+      Object.defineProperty(Math, "random", random);
+    }
+  }
+}
+
+async function retryAt(clock: RetryClock, calls: Call[], delay: number, attempts: number): Promise<void> {
+  await clock.turn();
+  expect(clock.cancelled, "WATCHDOG_CANCELLED_BEFORE_RETRY").toEqual(Array(attempts).fill(30_000));
+  expect(clock.pending, "RETRY_REGISTRATION").toEqual([delay]);
+  expect(calls.length).toBe(attempts);
+  await clock.advance(delay - 1);
+  expect(calls.length, "NO_EARLY_RETRY").toBe(attempts);
+  await clock.advance(1);
+  expect(calls.length, "RETRY_AT_DEADLINE").toBe(attempts + 1);
+}
+
+async function retriesFinished(clock: RetryClock, calls: Call[], attempts: number): Promise<void> {
+  await clock.turn();
+  expect(clock.requests.every(request => request.settled), "REQUEST_SETTLED").toBe(true);
+  expect(clock.cancelled, "FINAL_WATCHDOG_CANCELLED").toEqual(Array(attempts).fill(30_000));
+  expect(clock.pending, "NO_RETRY_AFTER_COMPLETION").toEqual([]);
+  // Cross the watchdog horizon and all expected retry deadlines: cancellation
+  // is observed through the real callback opportunity, not immediate absence.
+  await clock.advance(60_000);
+  expect(calls.length, "NO_EXTRA_REQUEST").toBe(attempts);
+  expect(clock.delivered.every(delay => delay < 30_000), "NO_STALE_WATCHDOG").toBe(true);
+}
+
 describe("identity", () => {
   test("sends an honest, identifying User-Agent by default", async () => {
     const calls = stubFetch([new Response("ok")]);
@@ -176,10 +296,16 @@ describe("retries", () => {
     ]);
     const client = new ScrapeClient({ respectRobots: false });
 
-    const res = await client.get("https://example.com/x", { retryDelayMs: 1 });
+    await withRetryClock(async clock => {
+      const request = clock.track(client.get("https://example.com/x", { retryDelayMs: 1 }));
+      await retryAt(clock, calls, 1000, 1);
+      const res = await request;
 
-    expect(res.status).toBe(200);
-    expect(calls.length).toBe(2);
+      expect(res.status).toBe(200);
+      expect(calls.length).toBe(2);
+      expect(clock.registered).toEqual([30_000, 1000, 30_000]);
+      await retriesFinished(clock, calls, 2);
+    });
   });
 
   test("does not retry a 404 — the answer will not change", async () => {
@@ -193,12 +319,97 @@ describe("retries", () => {
   });
 
   test("gives up after the configured retries, naming the status", async () => {
-    stubFetch([() => new Response("boom", { status: 503 })]);
+    const calls = stubFetch([() => new Response("boom", { status: 503 })]);
     const client = new ScrapeClient({ respectRobots: false });
 
-    await expect(
-      client.get("https://example.com/x", { retries: 2, retryDelayMs: 1 })
-    ).rejects.toThrow(/HTTP 503/);
+    await withRetryClock(async clock => {
+      const request = clock.track(client.get("https://example.com/x", { retries: 2, retryDelayMs: 1 }));
+      await retryAt(clock, calls, 251, 1);
+      await retryAt(clock, calls, 252, 2);
+      expect(clock.pending, "NO_RETRY_AFTER_EXHAUSTION").toEqual([]);
+      expect(clock.requests.every(request => request.settled), "EXHAUSTED_REQUEST_SETTLED").toBe(true);
+      await expect(request).rejects.toThrow(/HTTP 503/);
+      expect(clock.registered).toEqual([30_000, 251, 30_000, 252, 30_000]);
+      await retriesFinished(clock, calls, 3);
+    });
+  });
+
+  for (const [jitter, delay] of [[0, 1000], [0.5, 1250], [0.998, 1499]] as const) {
+    test(`default backoff uses a 1000 ms base plus jitter ${jitter} (deadline ${delay})`, async () => {
+      const calls = stubFetch([
+        () => new Response("unavailable", { status: 503 }),
+        () => new Response("ok"),
+      ]);
+      const client = new ScrapeClient({ respectRobots: false });
+      await withRetryClock(async clock => {
+        const request = clock.track(client.get("https://example.com/x"));
+        await retryAt(clock, calls, delay, 1);
+        expect((await request).status).toBe(200);
+        expect(clock.delivered).toEqual([delay]);
+        expect(clock.delivered[0]).toBeGreaterThanOrEqual(1000);
+        expect(clock.delivered[0]).toBeLessThan(1500);
+        await retriesFinished(clock, calls, 2);
+      }, jitter);
+    });
+  }
+
+  test("the request watchdog stays live until fetch settles, then is cancelled", async () => {
+    let release!: (response: Response) => void;
+    let signal!: AbortSignal;
+    const response = new Promise<Response>(resolve => { release = resolve; });
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      signal = init!.signal!;
+      return response;
+    }) as typeof fetch;
+    const client = new ScrapeClient({ respectRobots: false });
+    await withRetryClock(async clock => {
+      const request = clock.track(client.get("https://example.com/x", { retries: 0 }));
+      try {
+        await clock.turn();
+        expect(clock.registered, "DEFAULT_WATCHDOG").toEqual([30_000]);
+        expect(clock.pending, "WATCHDOG_LIVE_DURING_FETCH").toEqual([30_000]);
+        await clock.advance(29_999);
+        expect(signal.aborted).toBe(false);
+        expect(clock.requests[0]!.settled).toBe(false);
+        release(new Response("ok"));
+        expect((await request).status).toBe(200);
+        expect(clock.cancelled, "WATCHDOG_CANCELLED_AFTER_FETCH").toEqual([30_000]);
+        await clock.advance(1);
+        expect(signal.aborted, "SETTLED_FETCH_NOT_ABORTED").toBe(false);
+        expect(clock.delivered).toEqual([]);
+      } finally {
+        release(new Response("cleanup"));
+      }
+    });
+  });
+
+  test("a failed assertion drains the pending retry and restores global descriptors", async () => {
+    const descriptors = {
+      setTimeout: Object.getOwnPropertyDescriptor(globalThis, "setTimeout"),
+      clearTimeout: Object.getOwnPropertyDescriptor(globalThis, "clearTimeout"),
+      random: Object.getOwnPropertyDescriptor(Math, "random"),
+    };
+    const calls = stubFetch([
+      () => new Response("unavailable", { status: 503 }),
+      () => new Response("ok"),
+    ]);
+    const client = new ScrapeClient({ respectRobots: false });
+    let owned!: RetryClock;
+    let request!: Promise<Response>;
+    await expect(withRetryClock(async clock => {
+      owned = clock;
+      request = clock.track(client.get("https://example.com/x", { retryDelayMs: 1 }));
+      await clock.turn();
+      expect(clock.pending).toEqual([251]);
+      expect("fixture", "INTENTIONAL_ASSERTION_FAILURE").toBe("failure");
+    })).rejects.toThrow("INTENTIONAL_ASSERTION_FAILURE");
+    expect((await request).status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(owned.pending).toEqual([]);
+    expect(owned.requests.every(request => request.settled)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setTimeout")).toEqual(descriptors.setTimeout);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")).toEqual(descriptors.clearTimeout);
+    expect(Object.getOwnPropertyDescriptor(Math, "random")).toEqual(descriptors.random);
   });
 
   test("getJson throws on a non-2xx rather than parsing an error page", async () => {
@@ -268,11 +479,18 @@ describe("retries are paced", () => {
       rateLimiter: new RateLimiter({ clock }),
     });
 
-    const res = await client.get("https://example.com/a", { retryDelayMs: 1 });
+    await withRetryClock(async retryClock => {
+      const request = retryClock.track(client.get("https://example.com/a", { retryDelayMs: 1 }));
+      await retryClock.turn();
+      expect(clock.waits).toEqual([]);
+      await retryAt(retryClock, calls, 251, 1);
+      const res = await request;
 
-    expect(res.status).toBe(200);
-    expect(calls.length).toBe(2);
-    expect(clock.waits).toEqual([7000]);
+      expect(res.status).toBe(200);
+      expect(calls.length).toBe(2);
+      expect(clock.waits).toEqual([7000]);
+      await retriesFinished(retryClock, calls, 2);
+    });
   });
 });
 

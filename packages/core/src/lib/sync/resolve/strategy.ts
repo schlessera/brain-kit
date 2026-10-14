@@ -38,7 +38,7 @@ function typeOf(path: string, taxonomy: Taxonomy, sides: MergeSides): string | n
     if (text === null || frontmatterLength(text) === 0) continue;
     let declared: unknown;
     try {
-      declared = parseFrontmatter(text).data.type;
+      declared = parseFrontmatter(text, { dataOnly: true }).data.type;
     } catch {
       continue;
     }

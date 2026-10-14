@@ -24,6 +24,7 @@ import { useDictation } from "../../voice/use-dictation.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
 import { trackPending, trackReady } from "../../lib/track-uploads.js";
@@ -80,6 +81,7 @@ export interface ComposerHandle {
 
 export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
+  const finePointer = useFinePointer();
   const sessionId = useChatStore((s) => s.activeSessionId);
   // The selected session's history has not arrived (#1328): the draft stays
   // editable, and nothing is sent into a conversation the reader cannot see.
@@ -796,7 +798,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
               : wsStatus === "connected" && sessionProfile.awaitingDraftFacts ? "waiting for this chat profile · reopen the model picker to retry"

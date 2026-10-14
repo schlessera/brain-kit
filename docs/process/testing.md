@@ -86,6 +86,12 @@ persistence or auth alone does not justify a theme multiplier. Before reducing
 one, map every assertion to retained runtime or central coverage; preserve
 unique behavior, security, responsive and native-browser proof.
 
+## Deliberate waits
+
+Follow [the wait classification and clock rules](test-waits.md): distinguish
+actual awaited delays from failure caps and fixture holds, preserve negative
+temporal guarantees, and measure native exceptions separately.
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes

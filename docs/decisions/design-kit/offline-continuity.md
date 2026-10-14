@@ -30,12 +30,17 @@ separate from editing. Replayed history reconciles with drawn chronological
 parts, preserving answer/card/image identity rather than redrawing the reading
 area. Transport recovery restores capability without submitting new local work.
 The [real-host continuity proof](https://github.com/schlessera/brain-kit/pull/1232)
-drives repeated drop/reconnect cycles at phone and desktop widths in dark and
-paper Chromium cells, plus native IME and late-history cases. Its fixed initial
+originally drove repeated drop/reconnect cycles at phone and desktop widths in
+dark and paper Chromium cells, plus native IME and late-history cases. Its fixed initial
 geometry baseline detects cumulative movement of the field and first visible
 message; a cumulative geometry mutation fails it. This is pinned desktop
 Chromium runtime evidence,
 not Safari, Android or OS interruption coverage.
+
+**2026-10-14 — Theme matrix clarification.** The
+[central theme-parity map](../../process/theme-parity.md#connection-continuity-runtime-matrix)
+assigns one fixed theme per width while preserving every recovery assertion.
+Storybook owns the reusable light/dark layout and interaction checks.
 
 The device-local snapshot adopts the existing per-session draft identities
 from [#951](https://github.com/schlessera/brain-kit/issues/951#issuecomment-6028717821),

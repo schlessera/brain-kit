@@ -37,8 +37,8 @@ import { useDesktopRoutes } from "./desktop-routes.js";
  * landscape crosses `tablet:` with nothing to press ⌘ on, so the caps are
  * printed only while a fine pointer is present (#86). The bindings below
  * stay registered either way — a paired keyboard fires them even if the
- * query stays coarse. All commands prints ⌘K at every width and on every
- * pointer, which is the kit's (D36 addendum).
+ * query stays coarse. The kit gates All commands’ printed key too and
+ * keeps its touch control visible (#1774).
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app
