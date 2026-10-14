@@ -8,14 +8,15 @@ async function probe(scenario: string): Promise<any> {
   const root = mkdtempSync(join(tmpdir(), "brain-pi-worker-"));
   try {
     const home = join(root, "home");
-    if (scenario === "default-home-state") mkdirSync(home);
+    const defaultHome = scenario === "default-home-state" || scenario.startsWith("cached-package-");
+    if (defaultHome) mkdirSync(home);
     const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
       // Only the outer fixture can see this owned fictional default HOME.
       // The actual Pi worker still masks /root read-only, as it normally does.
-      ...(scenario === "default-home-state" ? ["--tmpfs", "/root", "--bind", home, "/root"] : []),
+      ...(defaultHome ? ["--tmpfs", "/root", "--bind", home, "/root"] : []),
       process.execPath, "--preload", join(ROOT, "scripts/test-network-child-preload.ts"),
       join(import.meta.dir, "fixtures/pi-worker-probe.ts"), scenario, root], {
-      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", ...(scenario === "default-home-state" ? { HOME: "/root" } : {}) }, stdout: "pipe", stderr: "pipe" });
+      cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", ...(defaultHome ? { HOME: "/root" } : {}) }, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(code, err || out).toBe(0);
     return JSON.parse(out.trim().split("\n").at(-1)!);
@@ -28,6 +29,36 @@ function policyUnchanged(r: any): void {
 }
 
 describe("ordinary pi isolated worker", () => {
+  test("configured cached npm extension starts offline from prepared parent resources", async () => {
+    const r = await probe("cached-package-state");
+    expect(r.failure, "PI_CACHED_PACKAGE_STARTS_WITHOUT_REINSTALL").toBeUndefined();
+    expect(r.frames.at(-1), "PI_CACHED_PACKAGE_STARTS_WITHOUT_REINSTALL").toMatchObject({ type: "result", outcome: "success" });
+    expect(r.frames.some((f: any) => f.type === "tool_result" && f.output?.includes("Odysseus cached extension ran.")), "PI_PREPARED_CACHED_EXTENSION_AVAILABLE").toBe(true);
+    expect(r.parentStateUnchanged).toBe(true);
+    expect(r.running).toEqual([]);
+    policyUnchanged(r);
+    const resourceFrames = r.frames.filter((f: any) => f.type === "tool_result" && f.output?.includes("cacheWriteDenied"));
+    expect(resourceFrames).toHaveLength(2);
+    for (const frame of resourceFrames) {
+      expect(JSON.parse(frame.output!.slice(frame.output!.indexOf("{")))).toMatchObject({
+        cacheWriteDenied:true,cacheWriteError:"EROFS",parentAuthHidden:true,parentSettingsHidden:true,agentDir:"/tmp/brain-worker-scratch/pi-state",
+      });
+    }
+    expect(r.resumedHistory.filter((m:any) => m.role === "user")).toHaveLength(2);
+  });
+
+  for (const scenario of ["cached-package-missing", "cached-package-version", "cached-package-offline-missing"]) {
+    test(`${scenario} refuses before installation and inference`, async () => {
+      const r=await probe(scenario);
+      expect(r.failure,"PI_MISSING_PREPARED_PACKAGE_REFUSED").toContain("Pi worker requires prepared package resources");
+      expect(r.failure).toContain("npm:odysseus-worker-extension@1.0.0");
+      expect(r.calls,"PI_MISSING_PREPARED_PACKAGE_HAS_NO_INFERENCE").toBe(0);
+      expect(r.parentStateUnchanged).toBe(true);
+      expect(r.running).toEqual([]);
+      policyUnchanged(r);
+    });
+  }
+
   test("default read-only HOME uses copied private Pi state and resumes without exposing parent files", async () => {
     const r = await probe("default-home-state");
     expect(r.frames.at(-1), "PI_DEFAULT_HOME_INITIALIZES_PRIVATE_STATE").toMatchObject({ type: "result", outcome: "success" });

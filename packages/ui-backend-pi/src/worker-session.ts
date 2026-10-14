@@ -1,6 +1,6 @@
 import { safeResolve } from "@schlessera/brain/internal";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { join, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { getAgentDir, SessionManager, CURRENT_SESSION_VERSION, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -77,9 +77,20 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
   const { workerSandbox, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
+  const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
+  let cachedNpmModules: string | undefined;
+  if (npmPath && existsSync(npmPath)) {
+    const npmRoot = realpathSync(join(agentDir, "npm"));
+    cachedNpmModules = realpathSync(npmPath);
+    const descendant = (root: string, path: string) => { const rel = relative(root, path); return rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel); };
+    if (!statSync(cachedNpmModules).isDirectory() || !descendant(agentDir, npmRoot)
+      || !descendant(npmRoot, cachedNpmModules)) {
+      throw new BackendRequestError("Pi prepared npm resources must be inside the selected agent directory's npm tree.");
+    }
+  }
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
-    resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
+    resume: Boolean(resumeId), entries, profileId, agentFiles, ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
   // holds the worker's session state too (#1703).
   const turnTempLimits = resolveTurnTempLimits({ ...backend.turnTemp,
@@ -100,6 +111,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   workerEnv.PI_CODING_AGENT_DIR = PI_WORKER_STATE;
+  // SDK offline mode silently skips missing sources. Validate prepared packages
+  // explicitly in the child; the parent's environment remains unchanged.
+  delete workerEnv.PI_OFFLINE;
   let child: ReturnType<typeof launchAgentWorker>;
   let launchedChild: ReturnType<typeof launchAgentWorker> | undefined;
   let preparedOutput: PreparedWorkerOutput | undefined;
@@ -114,6 +128,12 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
+    if (cachedNpmModules) {
+      if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return actual === cachedNpmModules || actual.startsWith(cachedNpmModules + "/"); } catch { return false; } })) {
+        throw new BackendRequestError("Pi prepared npm resources cannot contain a private worker mask.");
+      }
+      sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), cachedNpmModules] };
+    }
     const limits = launchLimits({});
     sandboxNote = [workerSandboxNote(sandbox, { hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),

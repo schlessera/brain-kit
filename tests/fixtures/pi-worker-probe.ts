@@ -1,7 +1,7 @@
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Real ordinary pi turns, confined by the caller's offline network namespace. */
-import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { WsHost } from "../../packages/ui-server/src/ws/host.js";
@@ -16,11 +16,16 @@ import { contentHash, createBrainApplication, readBrainApplicationBase } from ".
 import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
-const defaultHomeState = scenario === "default-home-state";
+const cachedPackageState = scenario.startsWith("cached-package-");
+const defaultHomeState = scenario === "default-home-state" || cachedPackageState;
 const brainPath = join(root, "brain"), agentDir = defaultHomeState ? "/root/.pi/agent" : join(root, "agent"), sessionDir = join(root, "sessions");
 cpSync(resolve("packages/core/fixtures/corpus"), brainPath, { recursive: true });
 const config = join(brainPath, "brain.config.ts");
 writeFileSync(config, readFileSync(config, "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
+if (cachedPackageState) {
+  mkdirSync("/root/prepared-pi", { recursive: true });
+  symlinkSync("/root/prepared-pi", "/root/.pi");
+}
 mkdirSync(agentDir, { recursive: true });
 mkdirSync(join(brainPath, "context/policies"), { recursive: true });
 mkdirSync(join(brainPath, "notes"), { recursive: true });
@@ -104,7 +109,23 @@ if (defaultHomeState) {
   writeFileSync("/root/parent-private", "Odysseus parent-only marker.");
   writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "offline-parent-key" } }));
 } else process.env.PI_CODING_AGENT_DIR = agentDir;
-writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
+writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off",
+  ...(cachedPackageState ? { packages: ["npm:odysseus-worker-extension@1.0.0"], npmCommand: ["bun"] } : {}) }));
+if (cachedPackageState) {
+  const packageRoot = join(agentDir, "npm/node_modules/odysseus-worker-extension");
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: "odysseus-worker-extension", version: scenario === "cached-package-version" ? "0.9.0" : "1.0.0", type: "module", pi: { extensions: ["./index.js"] } }));
+  writeFileSync(join(packageRoot, "index.js"), `import {writeFileSync,readFileSync} from "node:fs";
+import {getAgentDir} from ${JSON.stringify(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi")))};
+export default function(pi) { pi.registerTool({name:"probe_cached_extension",label:"Cached extension",description:"Fictional cache witness",parameters:{type:"object",properties:{}},async execute() {
+  let cacheWriteDenied=false,cacheWriteError,parentAuthHidden=false,parentSettingsHidden=false;
+  try {writeFileSync(getAgentDir()+"/npm/node_modules/odysseus-worker-extension/worker-write","forbidden");} catch (error) {cacheWriteDenied=true;cacheWriteError=error.code;}
+  try {readFileSync("/root/prepared-pi/agent/auth.json");} catch {parentAuthHidden=true;}
+  try {readFileSync("/root/prepared-pi/agent/settings.json");} catch {parentSettingsHidden=true;}
+  return {content:[{type:"text",text:"Odysseus cached extension ran."},{type:"text",text:JSON.stringify({cacheWriteDenied,cacheWriteError,parentAuthHidden,parentSettingsHidden,agentDir:getAgentDir()})}],details:null}; }}); }`);
+  if (scenario === "cached-package-missing") rmSync(packageRoot, {recursive:true});
+  if (scenario === "cached-package-offline-missing") { rmSync(packageRoot, {recursive:true}); process.env.PI_OFFLINE="1"; }
+}
 let calls = 0;
 const applicationReceipts: BrainApplicationResult[] = [];
 const frames: ServerMessage[] = [];
@@ -160,6 +181,7 @@ else if (scenario.startsWith("mask-")) toolCalls = [{ name: "request_image_mask"
 else if (scenario === "cancel-application") toolCalls = [{ name: "write_file", input: {
   path: "notes/worker-positive.md", content: "---\ntype: note\n---\nOdysseus committed the raft note.\n", expectedBaseHash: null } }];
 else if (scenario === "cancel") toolCalls = [{ name: "linger_worker", input: {} }];
+else if (cachedPackageState) toolCalls = [{ name: "probe_cached_extension", input: {} }];
 else toolCalls = [{ name: "probe_worker", input: {} }];
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
@@ -238,7 +260,7 @@ try {
   catch (error) { failure = String(error); }
   const sessions = await backend.listSessions();
   const histories = await Promise.all(sessions.map(s => backend.getHistory(s.id)));
-  if ((scenario === "resume" || defaultHomeState) && sessions[0]) {
+  if ((scenario === "resume" || scenario === "default-home-state" || scenario === "cached-package-state") && sessions[0]) {
     calls = defaultHomeState ? 0 : 2;
     await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge,
       ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
