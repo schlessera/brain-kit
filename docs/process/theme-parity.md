@@ -89,6 +89,27 @@ boundary justify retaining both themes here. Composer and session parity do
 not cover them. This bounded reduction removes two suffix executions only;
 it adds no central cases and changes no deliberate wait.
 
+## Connection continuity runtime matrix
+
+`packages/ui-react/tests/connection-continuity-runtime.test.ts` runs missed
+progress, ten disconnect/reconnect cycles and native IME recovery at 320px in
+dark and 1280px in light. Each family removes only its 320px light and 1280px
+dark copies. The fixed themes keep both painted themes represented without
+multiplying the independent phone-strip and desktop-pane recovery paths.
+
+| Assertions in the removed copies | Coverage that remains |
+| --- | --- |
+| The selected theme paints; composer sizing, wrapping, editing, focus/selection, attachment rendering and send availability | The preview theme gate and `Conversation/Composer theme/Phone`, `Wide`, `Offline`, plus the composer sizing/action stories above, assert both themes with actual consumer styles. |
+| Phone/desktop tracker and follow-up row geometry and interaction | `Conversation/Session theme/Phone`, `DesktopPane`, plus the `ComposerRow`, `SessionStrip` and `PendingFollowUps` stories above, assert both themes. Runtime still selects the actual application branch at both widths. |
+| Composer/message geometry and scroll across recovery; textarea/message/image/pill identity; draft value, focus, alternating caret/selection and object URLs | Every `same` assertion remains in all three scenario families at both widths. Story geometry/editing checks do not replace recovery continuity. |
+| Real browser offline events, listener/socket interruption, delayed history and queue reports, upload interruption/retry/completion, no unsolicited sends, retained drafts/trackers/follow-ups and ordered missed deltas | The original scenario bodies and native barriers remain at both widths, including all ten stress cycles and terminal replay/queue draining. |
+| Native IME composition survives two outages and commits only when the user requests it | The original CDP composition/commit and host-saved draft assertions remain at both widths; Storybook input events are not an IME substitute. |
+
+The three stale-history variants and the finite-animation readiness control
+remain independently parameterized. This gives ten tests: six responsive
+scenario cases, three stale-history cases and one readiness control. Cleanup,
+negative observation windows and timing/deadline behavior are unchanged.
+
 ## Running and changing this coverage
 
 Build the workspaces, then run both projects through the pinned runner. File

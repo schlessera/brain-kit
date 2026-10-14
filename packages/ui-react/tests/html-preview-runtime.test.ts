@@ -161,6 +161,7 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
+  console.log("[measure] HTML native observation", JSON.stringify(observationMetrics));
   await browser?.close();
   await served.password?.stop();
   await served.none?.stop();
@@ -235,17 +236,30 @@ function expectIsolated(r: Record<string, unknown>): void {
 }
 
 /**
- * The fixed window in which a negative assertion watches for an escape that
- * must not arrive. It starts only once the click is known to have landed.
+ * Native negative observation, not rendering readiness: an out-of-process
+ * navigation, popup or download may surface after the renderer's click/DOM
+ * work completes. A page JS clock cannot advance those browser-process tasks.
+ * Preserve the established 1500ms observation budget after a confirmed click;
+ * expected-escape controls additionally await the actual hit. Shortening this
+ * window needs native control measurements, not a quiet DOM (test-waits.md).
  */
-const settle = (page: Page | Frame) => page.waitForTimeout(1500);
+const observationMetrics = { calls: 0, elapsedMs: 0, rawCalls: 0, rawMs: 0, pollCalls: 0, pollMs: 0 };
+async function observeDeniedBrowserActions(page: Page | Frame) {
+  const started = performance.now();
+  observationMetrics.calls++;
+  await page.waitForTimeout(1500);
+  observationMetrics.elapsedMs += performance.now() - started;
+}
 
 /** Poll until `condition` holds, failing with `what` after a bounded deadline. */
 async function until(what: string, condition: () => boolean | Promise<boolean>, timeout = 15_000): Promise<void> {
   const deadline = Date.now() + timeout;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error(`Timed out after ${timeout} ms waiting until ${what}`);
+    const started = performance.now();
+    observationMetrics.pollCalls++;
     await Bun.sleep(25);
+    observationMetrics.pollMs += performance.now() - started;
   }
 }
 
@@ -323,7 +337,7 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
       await until("the click lands in the preview frame", async () =>
         (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
       if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
-      await settle(opened.page);
+      await observeDeniedBrowserActions(opened.page);
       const result = {
         opened,
         appUrlAfterFrame: opened.page.url(),
@@ -340,7 +354,7 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         await tab.locator("#go").click({ noWaitAfter: true });
         await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
         if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
-        await settle(tab);
+        await observeDeniedBrowserActions(tab);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
         result.tabUrl = tab.url();
@@ -411,7 +425,10 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
     try {
       const raw = await opened.context.newPage();
       await raw.goto(`${served.password!.origin}/api/files/content?path=voyage%2Freport.html&raw=1`);
+      const started = performance.now();
+      observationMetrics.rawCalls++;
       await raw.waitForTimeout(500);
+      observationMetrics.rawMs += performance.now() - started;
       expect(await raw.locator("#ran").textContent()).toBe("Script did not run");
     } finally { await opened.context.close(); }
   }, 60_000);
