@@ -36,6 +36,13 @@
       "basis": "16 ready calls measured; ten startup/staging calls belong to #1912, six post-restore calls retain negative/navigation opportunities. A global helper replacement would weaken later-effect assertions.",
       "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
       "line": 205
+    },
+    {
+      "file": "packages/ui-react/tests/track-drafts.test.ts",
+      "role": "timestamp separation before no-change and later-change assertions",
+      "basis": "The 5 ms delay separates the ready queue snapshot timestamp from subsequent synchronous actions: reopening must preserve changedAt, while adding another file must increase it. No asynchronous forbidden action is observed during this delay. The frozen 04a measurement records its actual execution separately; the literal is not proof that 5 ms is necessary.",
+      "source": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "line": 97
     }
   ]
 }
