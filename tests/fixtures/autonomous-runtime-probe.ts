@@ -1,3 +1,5 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
+import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Executed inside a network namespace with loopback fixture inference only. */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +23,7 @@ process.env.CLAUDE_CONFIG_DIR = configDir;
 process.env.PI_CODING_AGENT_DIR = piDir;
 process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 const db = createUiDb(join(root, "ui.sqlite"));
+const nativeHost = createFixtureTurnHost(brainPath, db);
 // Fictional rates for the loopback transport, shared by admission and rollup.
 const pricing = { resolve: () => ({ input: 0.001, output: 0.001, cacheRead: 0.001, cacheWrite: 0.001,
   estimate: false, source: "snapshot" as const }) };
@@ -113,10 +116,10 @@ if (scenario === "preaborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);
 try {
   if (scenario === "ordinary") {
-    await backend.startTurn({ prompt: "Odysseus fixture", profileId: "fixture", signal: controller.signal,
+    await startFixtureTurn(backend, brainPath, { prompt: "Odysseus fixture", profileId: "fixture", signal: controller.signal,
       bridge: { emit: (frame) => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "Fixture" }) } });
   } else {
-    try { await runAutonomousTurn({ db, store, backend, emit: (frame) => frames.push(frame), checkpoint: (intent) => { captured.push(intent);
+    try { await runAutonomousTurn({ db, store, backend, brainPath, nativeManager: nativeHost.nativeManager, emit: (frame) => frames.push(frame), checkpoint: (intent) => { captured.push(intent);
       // A real synchronous commit witnesses ordering before runtime abort.
       writeFileSync(join(root, "checkpoint.json"), JSON.stringify(intent));
     } }, { turnId: "fixture-run", principalId: principal.id, prompt: "Odysseus fixture", profileId: scenario === "unsupported" ? "unknown" : "fixture",
@@ -140,5 +143,5 @@ try {
 } finally {
   clearTimeout(deadline);
   server.stop(true);
-  db.close();
+  await nativeHost.close(); db.close();
 }

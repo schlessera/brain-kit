@@ -1,3 +1,4 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
 /** Actual ordinary adapter and server bridge behind kernel loopback isolation. */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -82,7 +83,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 const db = createUiDb(":memory:"); const store = createActivityStore(db, { writer: "claude-worker-test" }), stream = createActivityStream(store);
 const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
 const backend = createClaudeBackend({ brainPath, profiles: [profile], log: () => {} });
-host = new WsHost({ brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 25000 });
+const nativeHost = createFixtureTurnHost(brainPath, db);
+host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 25000 });
 // Simulate only the browser mask response, preserving the actual server bridge.
 host.clients.add({ send(text: string) {
   const frame = JSON.parse(text); frames.push(frame);
@@ -111,4 +113,4 @@ try {
     notebook: readFileSync(join(brainPath, "context/policies/crew.ipynb"), "utf8"),
     ordinary: existsSync(join(brainPath, "notes/worker-raft.md")) ? readFileSync(join(brainPath, "notes/worker-raft.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "assets/raft-mask.png")) ? [...readFileSync(join(brainPath, "assets/raft-mask.png"))] : null }));
-} finally { clearTimeout(abortTimer); host.close(); stream.close(); db.close(); server.stop(true); }
+} finally { clearTimeout(abortTimer); await host.close(); await nativeHost.close(); stream.close(); db.close(); server.stop(true); }

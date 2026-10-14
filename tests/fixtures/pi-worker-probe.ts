@@ -1,3 +1,5 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
+import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Real ordinary pi turns, confined by the caller's offline network namespace. */
 import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -155,7 +157,9 @@ writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthr
 const backend = createPiBackend({ brainPath, sessionDir,
   ...(scenario === "forge-bridge" ? { allowedTools: ["forge_worker"] } : {}),
   profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], confirmBashPatterns: [] });
-const apply = createBrainApplication({ root: brainPath, principalId: "odysseus", turnId: "worker-turn", signal: controller.signal,
+const db = createUiDb(":memory:");
+const nativeHost = createFixtureTurnHost(brainPath, db);
+const apply = createBrainApplication({ planner: nativeHost.applicationPlanner, root: brainPath, principalId: "odysseus", turnId: "worker-turn", signal: controller.signal,
   isAuthorized: () => authorized, policy: backend.brainApplicationPolicy!({})!,
   approve: async () => { approvals++; return true; }, record: receipt => {
     applicationReceipts.push(receipt);
@@ -174,8 +178,7 @@ const bridge = { emit(frame: ServerMessage) {
 };
 // Use the actual server bridge/application for mask turns. Browser submission
 // stays outside the worker; no mock writer can make the route assertion green.
-const db = createUiDb(":memory:");
-const host = new WsHost({ brainPath, registry: createStaticBackendRegistry([backend], "pi"),
+const host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegistry([backend], "pi"),
   catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => authorized });
 const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
 const maskTurn = { turnId: "worker-turn", principalId: "odysseus", authorization, startedAt: 1,
@@ -202,14 +205,14 @@ if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, r
 if (scenario === "pre-aborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);
 try {
-  try { await backend.startTurn({ prompt: "Odysseus worker proof", profileId: "fixture", signal: controller.signal, bridge: activeBridge,
+  try { await startFixtureTurn(backend, brainPath, { prompt: "Odysseus worker proof", profileId: "fixture", signal: controller.signal, bridge: activeBridge,
     ...(scenario === "forge-bridge" ? { enforceAllowedTools: true, noGrantSurface: true } : {}) }); }
   catch (error) { failure = String(error); }
   const sessions = await backend.listSessions();
   const histories = await Promise.all(sessions.map(s => backend.getHistory(s.id)));
   if (scenario === "resume" && sessions[0]) {
     calls = 2;
-    await backend.startTurn({ sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge });
+    await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge });
   }
   console.log(JSON.stringify({ frames, calls, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
@@ -218,4 +221,4 @@ try {
     voyageLog: existsSync(join(brainPath, "notes/voyage-log.md")) ? readFileSync(join(brainPath, "notes/voyage-log.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "notes/raft.mask.png")) ? [...readFileSync(join(brainPath, "notes/raft.mask.png"))] : null,
     running: [...hostPids].filter(pid => existsSync(`/proc/${pid}`)), hostPids: [...hostPids] }));
-} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); authorization.release(); host.close(); db.close(); }
+} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); authorization.release(); await host.close(); await nativeHost.close(); db.close(); }

@@ -179,7 +179,7 @@ cleanup or normal cleanup. Runtime proof observes actual filesystem creation
 calls without listing a real installation, retains owned unknown-state fixtures,
 and checks admission release after both successful and failed runtime starts
 (`STATE_ROOM_NO_NEW_LEGACY_HOST_DIRECTORY`,
-`packages/ui-backend-claude/tests/state-room-warning.test.ts:54-56`). Capacity,
+`packages/ui-backend-claude/tests/state-room-warning.test.ts:56-58`). Capacity,
 saved-state authority and the private-mount lifecycle remain unchanged.
 
 ## Known limits

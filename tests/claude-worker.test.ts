@@ -9,7 +9,7 @@ async function probe(scenario: string) {
   try {
     const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", process.execPath,
       "--preload", join(ROOT, "scripts/test-network-child-preload.ts"), join(ROOT, "tests/fixtures/claude-worker-probe.ts"), scenario, root],
-      { cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8" }, stdout: "pipe", stderr: "pipe" });
+      { cwd: ROOT, env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8" }, stdout: "pipe", stderr: "pipe" });
     const [exit, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, err || out).toBe(0);
     const receipt = JSON.parse(out.trim().split("\n").at(-1)!);
@@ -41,7 +41,7 @@ test("ordinary Claude worker protects policy bytes, applies and indexes permitte
   const namespaceOutput = outputs.find((out: string) => /pid:\[\d+\]/.test(out));
   expect(namespaceOutput).toBeDefined();
   const namespaceIds = namespaceOutput!.match(/pid:\[\d+\]/g);
-  expect(namespaceIds).toHaveLength(2); expect(namespaceIds![0]).toBe(namespaceIds![1]);
+  expect(namespaceIds, namespaceOutput).toHaveLength(2); expect(namespaceIds![0]).toBe(namespaceIds![1]);
   expect(r.requests[0].tools).not.toContain("mcp__brain__brain_add");
   expect(r.frames.filter((frame: any) => frame.type === "tool_approval_request"), "ordinary permitted writes add no confirmation").toEqual([]);
   expect(r.sessions).toHaveLength(1);
