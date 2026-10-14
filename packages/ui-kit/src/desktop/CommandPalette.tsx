@@ -307,7 +307,7 @@ export function CommandPalette(p: CommandPaletteProps) {
           readOnly={!editable}
           onChange={editable ? (e: ChangeEvent<HTMLInputElement>) => p.onQueryChange?.(e.target.value) : undefined}
         />
-        <span style={keyCap}>esc</span>
+        <span className="bk-keyboard-hint" style={keyCap}>esc</span>
       </div>
 
       <div
@@ -457,7 +457,7 @@ export function CommandPalette(p: CommandPaletteProps) {
                       ) : null}
                     </div>
                     {!it.why && (on || it.shortcut) ? (
-                      <span style={lineBox(chipped)}>
+                      <span className="bk-keyboard-hint" style={lineBox(chipped)}>
                         <span style={mono10}>{on ? it.shortcut || "⏎" : it.shortcut}</span>
                       </span>
                     ) : null}
@@ -479,8 +479,8 @@ export function CommandPalette(p: CommandPaletteProps) {
           background: token("palette-foot-bg"),
         }}
       >
-        <span style={{ ...footText, flex: 1, minWidth: 0 }}>{p.footHint ?? DEFAULT_FOOT_HINT}</span>
-        <span style={{ ...footText, flex: "none" }}>{p.footMeta ?? "4,812 docs · 0.2s"}</span>
+        <span className="bk-keyboard-hint" style={{ ...footText, flex: 1, minWidth: 0 }}>{p.footHint ?? DEFAULT_FOOT_HINT}</span>
+        <span style={{ ...footText, flex: "none", marginLeft: "auto" }}>{p.footMeta ?? "4,812 docs · 0.2s"}</span>
       </div>
     </div>
   );

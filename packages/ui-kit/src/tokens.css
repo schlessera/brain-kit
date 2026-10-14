@@ -2494,3 +2494,12 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 
 /* The profile picker keeps its Limits disclosure reachable at every pointer size. */
 .bk-model-chat-limits > div > [role="button"] { min-height: 44px; }
+
+/* D36: printed keys follow any fine pointer, never viewport width. CSS keeps
+ * kit-generated fallbacks live without browser state in presentational components.
+ * Display:none removes their flex slots; keyboard handlers are independent. */
+.bk-touch-command { display: none; }
+@media not (any-pointer: fine) {
+  .bk-keyboard-hint { display: none !important; }
+  .bk-touch-command { display: inline-flex; }
+}
