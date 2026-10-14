@@ -181,7 +181,7 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
       turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), close: () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const events: unknown[] = [], frames: ServerMessage[] = [];
-  await createPiBackend({ brainPath: brain, sessionDir, maintenance: { startupView: scratchReader } }).startTurn({
+  await createPiBackend({ brainPath: brain, sessionDir, maintenance: { startupView: scratchReader, tempDomain: { statePath: join(scratchReader.storage.root, "maintenance-state.db") } } }).startTurn({
     prompt: "Write up the voyage report", signal: new AbortController().signal, turnId,
     bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }), activity: event => events.push(event) },
   });

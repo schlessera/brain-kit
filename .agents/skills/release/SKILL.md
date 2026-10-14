@@ -58,6 +58,15 @@ inference call is needed.
    daemon surfaces late, as `Container did not attempt ownership: failed to
    connect to the docker API at unix:///var/run/docker.sock`, after the
    complete suite has already run.
+   A local `Maintenance temporary storage is busy` can come from another
+   checkout using the standalone per-UID ledger. Inspect the live reservation
+   owner before attributing it to command cleanup. Ordinary fixtures supply
+   their existing `tempDomain` or outside-brain `dbPath`; intentional default
+   and in-memory tests keep their semantics. Isolate only the default ledger
+   directory in an owned mount namespace for the complete proof, preserving
+   UID/GID, device access and host-visible Docker bind paths. Do not hide all
+   of `/tmp`, raise budgets or remove another process's reservations. Retain
+   the failed run and record the complete isolated proof separately.
 3. **New package added this cycle?** Build, publish, clean and the CI pack
    loop pick it up from its manifest: they all read
    `scripts/publishable-packages.ts`, which lists every non-private
