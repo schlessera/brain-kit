@@ -182,6 +182,8 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  /** Trusted host acquisition cancellation; removed before worker serialization. */
+  workerSignal?: AbortSignal;
   workerStartupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView;
   workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"];
   workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;

@@ -208,3 +208,21 @@ test("pi startup forwards trusted host admission and keeps it out of the worker 
   expect(JSON.stringify(receivedInit)).not.toContain(maintenance.tempDomain.statePath);
  }finally{capture.mockRestore();}
 });
+
+test("cancellation during native stage preparation never launches a late Pi worker", async () => {
+  const controller = new AbortController(), entered = Promise.withResolvers<void>();
+  const acquire = spyOn(worker,"prepareNativeWorkerOutput").mockImplementation(async (_brain, options) => {
+    entered.resolve();
+    expect(options.signal, "PI_NATIVE_PREPARATION_USES_TURN_CANCELLATION").toBe(controller.signal);
+    return await new Promise<never>((_resolve,reject) => options.signal!.addEventListener("abort",() => reject(options.signal!.reason),{once:true}));
+  });
+  try {
+    const startupView = {brain,root:brain,storage:{root:brain,retain(){},release(){}},cleanup(){}};
+    const opening = openPiWorkerSession({brainPath:brain},sessionDir,{workerSignal:controller.signal,workerStartupView:startupView,
+      workerSandbox:{profile:"strict",scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{path:join(brain,"workspaces"),writable:true}}]} as never,
+      caps:{askUser:false,askUserList:false,askUserRank:false,location:false,activity:false,mask:false}});
+    await entered.promise;controller.abort(new Error("Odysseus cancelled native preparation"));
+    await expect(opening).rejects.toThrow("Odysseus cancelled native preparation");
+    expect(launch, "PI_CANCELLED_PREPARATION_NEVER_LAUNCHES").not.toHaveBeenCalled();
+  } finally {controller.abort();acquire.mockRestore();}
+});

@@ -4,11 +4,12 @@ import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { hostOutputStagingLimits } from "./worker-state-limits.js";
-import { processStateLedger } from "./worker-state-budget.js";
+import { WorkerStateError, processStateLedger } from "./worker-state-budget.js";
 import { nativeWorkerStartupInput, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
-import type { NativeStage } from "./native-brain-manager-protocol.js";
+import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
 
 export interface WorkerOutputStorage {
   readonly root: string; readonly mount: string; readonly namespacePid: number; readonly allowanceBytes: number;
@@ -85,14 +86,15 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   options.signal?.throwIfAborted();
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
   const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
-  let prepared: PreparedWorkerOutput | undefined;
+  let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
   const cleanup = () => cleanupPromise ??= (async () => {
-    try { if (prepared) await executionDrain.get(prepared)?.exited; if (fd !== undefined) { closeSync(fd); fd = undefined; } await native.manager.releaseStage(id); }
+    try { if (prepared) await executionDrain.get(prepared)?.exited; if (fd !== undefined) { closeSync(fd); fd = undefined; } if (stageRequested) await native.manager.releaseStage(id); }
     finally { reservation?.release(); await view.cleanup(); }
   })();
   try {
     reservation = processStateLedger().reserve(undefined, undefined, limits);
+    stageRequested = true;
     stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal);
     options.signal?.throwIfAborted();
     const expected = join(dirname(brain), ".brain-native", "stages", id);
@@ -216,5 +218,10 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       } finally { for (const release of releases.reverse()) release(); }
     }
     prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup }; executionDrain.set(prepared, {}); return prepared;
-  } catch (error) { try { await cleanup(); } catch (releaseError) { throw new AggregateError([error, releaseError], `Native output ${id} has an unknown outcome; reconcile its durable ownership.`); } throw error; }
+  } catch (error) {
+    const refusal = error instanceof NativeBrainManagerError && error.code === "capacity"
+      ? new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, `Native worker output staging capacity refused before launch: ${error.message} Nothing was sent. Retry after another conversation finishes, or align the configured manager allowance and budget.`) : error;
+    try { await cleanup(); } catch (releaseError) { throw new AggregateError([refusal, releaseError], `Native output ${id} has an unknown outcome; reconcile its durable ownership.`); }
+    throw refusal;
+  }
 }

@@ -33,6 +33,7 @@ function grantedReadBasePath(granted: string): string | undefined {
 }
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
+  env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
   const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
@@ -65,6 +66,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const done = Promise.withResolvers<void>();
   // A rejection before prompt has no waiter yet; still retain it for prompt.
   void done.promise.catch(() => {});
+  void ready.promise.catch(() => {});
   const agentFiles: Record<string, string> = {};
   const agentDir = piSessionDirectory(backend.brainPath, getAgentDir());
   // A restricted autonomous turn copies no native state into the worker: no
@@ -74,7 +76,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerLock, workerStarted, workerStartupView, ...workerSessionEnv } = env;
+  const { workerSandbox, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) };
@@ -119,8 +121,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     if (workerStartupView && sandbox.profile !== "governed" && sandbox.areas.some(area => area.mount.writable)) {
-      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel) });
+      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), signal: workerSignal });
     }
+    workerSignal?.throwIfAborted();
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
@@ -460,11 +463,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }).catch(fail);
   // Copy only native state files over the control pipe. No extension code or
   // SDK session is initialized in the privileged process.
+  const abortInitialization = () => fail(workerSignal?.reason ?? new DOMException("Pi worker initialization cancelled", "AbortError"));
+  workerSignal?.addEventListener("abort", abortInitialization, { once: true });
   try {
+    workerSignal?.throwIfAborted();
     send({ ...init, sandboxNote });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }
+  finally { workerSignal?.removeEventListener("abort", abortInitialization); }
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
     sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },

@@ -2,6 +2,10 @@ import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { prepareNativeWorkerOutput } from "../src/server/worker-native-output.js";
+import { NativeBrainManagerError } from "../src/server/native-brain-manager-protocol.js";
+import { processStateLedger } from "../src/server/worker-state-budget.js";
+import { hostOutputStagingLimits } from "../src/server/worker-state-limits.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, prepareNativeWorkerStartupView, retainWorkerStartupView } from "../src/server/worker-startup-view.js";
 
 function fixture() {
@@ -69,4 +73,23 @@ test("failed ownership cleanup surfaces both errors and the recoverable identity
     f.manager.release = async () => { throw new Error("release reply lost"); };
     await expect(prepareNativeWorkerStartupView(f.brain, f.manager)).rejects.toThrow("unknown outcome; reconcile its durable manager intent");
   } finally { f.cleanup(); }
+});
+
+test("manager-wide stage capacity keeps the worker_state_busy refusal and reconciles its owned identity", async () => {
+  const f=fixture();let stages=0,releases=0;
+  const manager={...f.manager,async prepareStage(){stages++;throw new NativeBrainManagerError("capacity","aggregate budget busy");},async inspectStage():Promise<never>{throw Error("unused");},async releaseStage(id:string){releases++;return {id,state:"deleted" as const};}};
+  const view=await prepareNativeWorkerStartupView(f.brain,manager);
+  try {await expect(prepareNativeWorkerOutput(f.brain,{startupView:view}),"NATIVE_STAGE_CAPACITY_CLASS_IS_WORKER_STATE_BUSY").rejects.toMatchObject({errorClass:"worker_state_busy"});
+    expect(stages).toBe(1);expect(releases).toBe(1);expect(f.releases).toHaveLength(0);
+    expect(processStateLedger().outputStagingHeld).toBe(0);
+  } finally {await view.cleanup();f.cleanup();}
+});
+test("a process admission refusal never releases an unrequested stage or masks the busy error", async () => {
+  const f=fixture();let stages=0,releases=0;
+  const manager={...f.manager,async prepareStage():Promise<never>{stages++;throw Error("unused");},async inspectStage():Promise<never>{throw Error("unused");},async releaseStage():Promise<never>{releases++;throw Error("unowned stage cannot be released");}};
+  const view=await prepareNativeWorkerStartupView(f.brain,manager),limits=hostOutputStagingLimits();
+  const held=processStateLedger().reserve(undefined,undefined,{allowanceBytes:limits.budgetBytes,budgetBytes:limits.budgetBytes});
+  try {await expect(prepareNativeWorkerOutput(f.brain,{startupView:view}),"NATIVE_UNREQUESTED_STAGE_NEVER_RELEASED").rejects.toMatchObject({errorClass:"worker_state_busy"});
+    expect(stages).toBe(0);expect(releases).toBe(0);
+  } finally {held.release();await view.cleanup();f.cleanup();}
 });
