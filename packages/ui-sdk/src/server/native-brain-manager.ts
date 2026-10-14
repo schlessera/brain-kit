@@ -245,7 +245,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     const info = await inspect(rootPath(intent.id), signal);
     if (!info.readOnly || info.parentUuid !== fixed.brainUuid || (intent.checkpoint && (info.uuid !== intent.checkpoint.uuid || info.rootId !== intent.checkpoint.rootId || info.transaction !== intent.checkpoint.transaction)))
       throw new NativeBrainManagerError("unknown", "Recorded checkpoint native identity or immutability changed; no deletion or use is authorized.");
-    return { id: intent.id, path: rootPath(intent.id), fsid: fixed.fsid, rootId: info.rootId, uuid: info.uuid, transaction: info.transaction, readOnly: true };
+    return { id: intent.id, sourceUuid: info.parentUuid, path: rootPath(intent.id), fsid: fixed.fsid, rootId: info.rootId, uuid: info.uuid, transaction: info.transaction, readOnly: true };
   }
   async function reconcile(intent: Intent, signal?: AbortSignal): Promise<Intent> {
     if (intent.state === "creating" && existsSync(rootPath(intent.id))) {

@@ -16,6 +16,8 @@ export class NativeBrainManagerError extends Error {
 }
 export interface NativeCheckpoint {
   id: string;
+  /** Fixed live source identity; an app lease must remain bound across service restart. */
+  sourceUuid: string;
   /** Host-created sealed root; never supplied by the requester. */
   path: string;
   fsid: string;
