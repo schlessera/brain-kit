@@ -147,3 +147,8 @@ and 1280px. Space still collapses the tray, and its name, 44px target and visibl
 2px focus assertions remain. `focus-pixels.ts` decodes actual Chromium PNGs;
 `focus-browser.ts` captures them at CSS pixel scale without changing focus or
 injecting a replacement focus style.
+
+Native Tab additionally reveals the last no-wrap suggestion with the 4px space
+needed for its outside ring; both the visible bounds and real edge ink are
+asserted. The original keyboard callback and native panning cases remain in
+`nowrap-scroll.visual.tsx`, including labels wider than the viewport.

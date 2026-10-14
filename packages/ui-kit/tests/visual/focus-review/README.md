@@ -27,11 +27,14 @@ Each directory contains the same four theme/width cells for these states:
 | `graph-last-corners` | Actual graph form row at the Surface's bottom boundary |
 | `locked-model-edges` | Full-width locked-model action inside its scroll panel |
 | `wrapped-enabled-edge`, `wrapped-disabled-edge` | Suggestion focus with and without an enabled callback |
+| `scrolling-last` | Native Tab reveals the last scrolling chip with room for its outside ring |
 | `tight-button-edge` | Full-width control inside a 3px-pad Surface |
 
 Runtime review captures additionally cover command first/last results and End
 scrolling, filter first/last focus, padded Surface, Composer and Other fields,
-both edges of Settings/graph rows, and the padded scrolling suggestions. These
+both edges of Settings/graph rows, and the padded scrolling suggestions. No-wrap focus uses a 4px scroll margin
+and nearest scrolling to reveal the focused control without changing the layout
+or the behavior of long labels and native panning. These
 remain under `.vitest-attachments/focus-frames/` in hosted browser artifacts.
 
 The source audit covers every kit/react use of the shared field, row and

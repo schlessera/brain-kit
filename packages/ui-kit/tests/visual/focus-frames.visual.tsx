@@ -167,6 +167,23 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
     scrolling.focus(); expect(scrolling.matches(":focus-visible")).toBe(true);
     expect(getComputedStyle(scrolling).outlineOffset, "padded scrolling suggestions retain outside rings").toBe("2px");
     await commands.focusCapture('[data-focus-inventory]', `${theme}-${width}-scrolling-suggestions`);
+    const scrollingLast = [...host.querySelectorAll<HTMLElement>("[data-scrolling-suggestions] .bk-control")].at(-1)!;
+    scrolling.focus();
+    await userEvent.tab(); await userEvent.tab();
+    expect(document.activeElement, "native Tab reaches the last suggestion").toBe(scrollingLast);
+    const scrollPng = await pixels(await commands.focusCapture('[data-scrolling-suggestions] .bk-scroll-x', `${theme}-${width}-scrolling-last`));
+    await expect.poll(() => {
+      const clip = scrollingLast.parentElement!.getBoundingClientRect();
+      return clip.right - scrollingLast.getBoundingClientRect().right;
+    }, { message: "SCROLLING_LAST_CONTROL_RESERVES_RING" }).toBeGreaterThanOrEqual(3.5);
+    const clip = scrollingLast.parentElement!.getBoundingClientRect();
+    const target = scrollingLast.getBoundingClientRect();
+    const x = Math.floor(target.right - clip.left + 2);
+    const y = Math.floor((target.top + target.bottom) / 2 - clip.top);
+    const i = (y * scrollPng.width + x) * 4;
+    const ringLight = (scrollPng.data[i] + scrollPng.data[i + 1] + scrollPng.data[i + 2]) / 3;
+    expect(theme === "dark" ? ringLight > 160 : ringLight < 60, "SCROLLING_LAST_RING_PAINTED_INSIDE_VIEWPORT").toBe(true);
+    await commands.focusCapture('[data-focus-inventory]', `${theme}-${width}-scrolling-last-review`);
     const off = host.querySelector<HTMLElement>('[aria-disabled="true"]')!; off.focus();
     await userEvent.keyboard("{Enter} "); expect(click, "disabled suggestion stays inert").not.toHaveBeenCalled();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);

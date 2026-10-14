@@ -178,6 +178,8 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             border: `1px solid ${tone ? BORDERS[tone] || BORDERS.neutral : color.edge}`,
             background: tone ? TINTS[tone] || TINTS.neutral : "transparent",
             borderRadius: 999,
+            // Native focus scrolling must reserve the outside indicator too.
+            scrollMargin: p.wrap === false ? 4 : undefined,
             padding: "7px 12px",
             font: `500 11.5px/1.3 ${font.body}`,
             color: ink,
@@ -213,6 +215,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
               tabIndex={act ? 0 : undefined}
               aria-disabled={off ? true : undefined}
               onClick={off ? undefined : it.onClick}
+              onFocus={act && p.wrap === false ? (event) => event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
               onKeyDown={act ? onKeyDown : undefined}
             >
               {off ? (
