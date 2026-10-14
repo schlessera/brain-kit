@@ -72,7 +72,7 @@ exceptions. Unmeasured means no saving is claimed.
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native negative windows per successful frame/tab pair, starting after the actual click lands | Retained. A browser-process navigation/download may arrive after the renderer's click handler or DOM settles; page JS clock does not drive it. 1500 ms is the existing bounded observation budget, not a newly measured universal browser latency guarantee. Expected escape controls await their actual hit independently. Candidate/runtime proof. |
-| Same preview file, raw endpoint 500 ms | Native denial observation, no scripts/remote arrival | Retained, same native-boundary rationale; no speedup claimed. |
+| Same preview file, raw endpoint 500 ms | The raw route has reached `load`; the inline-script marker must remain unchanged | Retained. This is a separate load-boundary observation, not evidence that the iframe escape channels need the same duration. A missing-CSP mutation at the load boundary is needed before claiming equivalent completion; no speedup claimed. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `ws-session-recovery.test.ts`, stalled backend lookup | Actual 3000 ms recovery registration and callback delivery advance logically in the named case only | The empty backend and its wrapper complete before advancing; silent reads stay pending at 2999 ms and fail at 3000 ms. A winning aggregate can leave losing bounded probes pending. Timed-out backend reads remain reusable because they have no cancellation API; teardown releases fixture reads, drains wrappers and restores descriptors. Native finalization, admission and revocation cases retain their existing clocks. |
@@ -379,3 +379,101 @@ native duration. Native cancellation, publication and stdout ownership must
 remain proven even when a registered host timer can advance logically. Missing
 callback counts or imported-operation spans require their own scoped evidence;
 expense alone is not an exception or a reason to move proof to endurance.
+
+
+## Browser, callback and source-bound horizon observations
+
+The [browser observations](evidence/test-wait-browser-observations.json) retain
+70 selected project/file commands at frozen source
+`04a659593379a0c8da9c049fa649124d6fd54f70`, plus four explicitly overlapping
+leaf-observer supplements. The initial commands passed 5,599 case executions;
+this is not a distinct-source test count or complete browser qualification.
+Their 27 unexecuted cases are individually named: ten original fine-pointer
+keyboard skips, sixteen deliberately excluded existing failures, and one reused
+native endurance case. The supplements passed 102 case executions. All three
+pointer projects remain represented. The pinned offline image, actual selection,
+source hashes, per-case outcomes/body times, per-site observations and resources
+are recorded separately. Scenario-indexed observation arrays use the columns
+and label table supplied in each record.
+
+The [completion observations](evidence/test-wait-completion-observations.json)
+cover ten callback supplements, seven native host callers, five direct native
+browser files, one selected artifact-frame case, the tracker counter repeat,
+one selected delegated-cgroup case and one unchanged containment control.
+Original child streams, exit assertions, native handles and test awaits were
+retained. These are overlapping attribution records, not a new complete test
+suite or a before/after speedup. Native-browser commands preserve their recorded
+required-browser flags and explicit offline namespace; setup/build hooks are
+separate spans inside the whole command where applicable.
+
+Observation points matter. Bun's ordinary process-exit hook did not produce the
+first ten callback sidecars, despite passing tests. Those missing counts remain
+missing. The corrected `afterAll` records describe only that snapshot: later
+teardown or callbacks can still occur. Ordinary child exit hooks can likewise
+precede later exit listeners. A zero count means zero by the captured point;
+an actual original timer clear/fire is stronger lifecycle evidence. Multiple
+source candidates sharing a forwarded timer delay remain a candidate group,
+not one execution attributed to each source site. Registration ages, callback
+ages, operation completion and accumulated awaited time are different quantities.
+
+Two diagnostic limitations remain visible. The first tracker command passed
+12 cases and 128 expectations, but a post-run parser overwrote its direct
+sidecar. Its empty arrays are invalid telemetry, not zeros. The separate unchanged
+repeat passed the same assertions and records its own 78.47-second command (78.39 seconds reported by Bun),
+setup and counters. The observed containment command passed three cases and
+failed the Pi upstream-connection assertion; a separate unchanged selected
+control passed one case and 69 expectations, with three cases filtered. The
+six earlier listener counters do not cover the separate upstream, and the later
+route/header assertions were not reached in the failure. Neither the control
+nor a possible cross-namespace port collision establishes the cause;
+[#1945](https://github.com/schlessera/brain-kit/issues/1945) retains that diagnosis.
+
+The delegated-cgroup record is also selected proof: one case, 30 expectations,
+and 22 filtered siblings. The original availability gate passed. The scoped
+child recorded ordinary identity, loopback only, no routes and zero capabilities;
+there is no claim of injected Bun preload through `systemd-run`. Its original
+100 ms sampler fired twenty times and was cleared after 2,086.60 ms. The nested
+shell's two-second lifetime and the CPU workload are separate, uncounted paths.
+No cgroup capability or worker authority was broadened for the observation.
+
+The [operational basis](evidence/test-wait-operational-basis.json) reconciles all
+597 historical and 134 supplemental source rows, across 287 files. The original
+inventory remains immutable. These 731 rows are source lines, not executions;
+131 causal groups describe 309 rows sharing reviewed assertion paths. The other
+rows retain their individual timer, sampler, frame, watchdog or fixture roles.
+The records use epistemic classifications, source identities and missing
+equivalence evidence. A measured site is not automatically a justified native
+exception. A passing parent command does not count its embedded child's waits.
+Retired source, source-candidate ambiguity, failed commands and unobserved
+nested paths remain distinct from observed zero calls.
+
+Several boundaries explain why elapsed cost alone cannot select an optimization:
+
+- The retained HTML 1,500 ms windows follow acknowledged native actions and the
+  established #1108/#1119 proof scope. Expected escapes await their actual hits
+  independently. These are retained operational windows, not a measured physical
+  minimum. The raw-route 500 ms marker check has its own load boundary.
+- Continuity's 500 ms windows guard delayed focus, save, queue, history and IME
+  effects after their named acknowledgements. Two native frames or a completed
+  animation do not establish that all later forbidden work is drained.
+- Cold capture's 1,300 ms interval permits real audio capture and committed bytes;
+  its 350 ms entrance preparation has a different role. The 150 ms held-write
+  and no-premature-mount windows remain negative observations. A JavaScript
+  clock cannot produce native media samples.
+- The renderer phase-budget fixture uses browser doubles. Its production
+  2,000 ms cleanup timer, delayed fixture phases and 45 cleared outcome watchdogs
+  have separate owners. The 3,012.94 ms summed bodies, 642.85 ms fixture awaits
+  and 3,269.64 ms overlapping outcomes cannot be added together.
+- Native frame workloads, pipe backpressure, process freeze, filesystem
+  publication and child termination need their actual opportunities. Embedded
+  shell loops, killed fixture holds and imported helpers without telemetry retain
+  explicit missing counts; their source literals are not elapsed totals.
+
+A minimum justified observation window still needs its operational basis and
+chosen margin. Source arithmetic can explain an existing allowance without
+proving the smallest reliable scheduler bound. Where that evidence is absent,
+the records say so; they do not declare the exception complete or move it out
+of required proof. Controlled-time children and native harness diagnostics keep
+their own source and mutation receipts. The execution-policy work in
+[#1854](https://github.com/schlessera/brain-kit/issues/1854) does not make unrelated
+measurement or equivalence gaps disappear.
