@@ -269,6 +269,7 @@ jobs:
           path: |
             tmp/proof-checkout.json
             tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -313,6 +314,7 @@ jobs:
           path: |
             tmp/proof-checkout.json
             tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -393,6 +395,7 @@ jobs:
           path: |
             tmp/proof-checkout.json
             tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
