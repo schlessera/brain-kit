@@ -158,13 +158,18 @@ test("namespace freeze never signals the host or an unrelated worker", async () 
   try {
     await f.begin(); own = f.worker('while :; do printf x >> own-heartbeat; sleep 0.02; done');
     neighbor = launchAgentWorker({ brainPath: neighborBrain, sandbox: prepareWorkerSandbox(neighborBrain, { profile: "governed", areas: [] }),
-      command: ["/bin/sh", "-c", 'while :; do printf x >> neighbor-heartbeat; sleep 0.02; done'], env: { PATH: "/usr/bin:/bin" } });
+      command: ["/bin/sh", "-c", 'while :; do printf x >> neighbor-heartbeat; sleep 0.3; done'], env: { PATH: "/usr/bin:/bin" } });
     neighbor.stdout.resume(); neighbor.stderr.resume(); neighbor.stdin.end();
     await wait(() => Bun.file(join(f.brain, "own-heartbeat")).size > 0 && Bun.file(join(neighborBrain, "neighbor-heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom");
     const ownBytes = Bun.file(join(f.brain, "own-heartbeat")).size, neighborBytes = Bun.file(join(neighborBrain, "neighbor-heartbeat")).size;
-    await Bun.sleep(100);
-    expect(Bun.file(join(f.brain, "own-heartbeat")).size).toBe(ownBytes);
+    // A runnable neighbor may not be scheduled within 100ms on a shared host.
+    // Its deliberately slower heartbeat must advance while our namespace stays frozen.
+    const neighborDeadline = Date.now() + 5000;
+    do {
+      await Bun.sleep(10);
+      expect(Bun.file(join(f.brain, "own-heartbeat")).size, "SCOPE_OWN_NAMESPACE_STAYS_FROZEN").toBe(ownBytes);
+    } while (Bun.file(join(neighborBrain, "neighbor-heartbeat")).size <= neighborBytes && Date.now() < neighborDeadline);
     expect(Bun.file(join(neighborBrain, "neighbor-heartbeat")).size, "SCOPE_UNRELATED_NAMESPACE_STAYS_RUNNING").toBeGreaterThan(neighborBytes);
     expect(f.scope.decide(f.message("stop"), true).state, "SCOPE_UNRELATED_WORKER_STOP_ACKNOWLEDGED").toBe("accepted"); await own.exited;
   } finally { own?.kill("SIGKILL"); neighbor?.kill("SIGKILL"); if (own) await own.exited; if (neighbor) await neighbor.exited; await f.close(); rmSync(neighborBrain, { recursive: true, force: true }); }
