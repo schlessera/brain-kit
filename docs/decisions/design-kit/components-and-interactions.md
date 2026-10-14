@@ -1138,3 +1138,27 @@ allowlist drifts and a per-file count cannot explain a second button.
 Row and select sites use bk-row interaction, preserving selected/rest paint.
 The raw-button lint and consumer migrations are separate batches; this
 ruling approves only new primitive baselines for the kit batch.
+
+
+## 2026-10-14 — Focus frames follow rounded clipping boundaries (#1775)
+
+D20's 2px ink indicator and D21's theme parity remain the rule. An inside
+outline must also follow the containing surface's corners: moving a rectangular
+outline inward does not prevent a rounded ancestor from chopping its arc.
+
+The command query inherits the dialog's inner top geometry. Flush row stacks
+opt into `bk-focus-clip`, whose first and last rows inherit the surface's
+respective corners. Zero-padding Surface bodies carry that treatment for their
+grouped rows; scroll bodies inherit only the bottom corners when a header sits
+above them. The recording disclosure follows the tray's top corners while
+expanded and all four while collapsed. Controls in unpadded clipping strips
+and wrapped suggestions use `bk-control-inset`; a Surface with less than 4px
+of padding insets its child control and field indicators. The locked-model action uses the full-width row rule
+inside its scroll panel. Padded controls retain their outside indicator.
+
+These are geometry corrections, with no new component props, keyboard policy,
+focus suppression or overflow relaxation. Browser proof checks actual ink
+pixels at both upper query corners, filter edges, menu edges and the recording
+header in both themes at phone and desktop widths. Query traversal still
+reveals the last scrolling result; filter arrows and disclosure Space retain
+their existing behavior.

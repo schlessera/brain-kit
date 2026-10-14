@@ -208,7 +208,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             <span
               key={i}
               style={chip}
-              className={off ? "bk-suggestion" : act ? "bk-control bk-suggestion" : undefined}
+              className={act ? [off ? "bk-suggestion" : "bk-control bk-suggestion", p.wrap !== false && "bk-control-inset"].filter(Boolean).join(" ") : undefined}
               role={act ? "button" : undefined}
               tabIndex={act ? 0 : undefined}
               aria-disabled={off ? true : undefined}

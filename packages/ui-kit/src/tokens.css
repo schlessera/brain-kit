@@ -1652,6 +1652,25 @@
   outline-offset: -2px;
 }
 
+/* Controls in an unpadded clipping strip keep their own rounded identity,
+ * with the same inside offset as rows rather than an invisible outside ring. */
+.bk-control-inset:focus-visible,
+.bk-focus-tight .bk-control:focus-visible,
+.bk-focus-tight .bk-field:has(:focus-visible) { outline-offset: -2px; }
+
+/* Opt in only on a flush row stack touching a rounded clipping boundary.
+ * Inherit the containing surface's corners on its edge rows; inset alone
+ * cannot make a rectangular outline follow an ancestor's clipping curve.
+ * :first/last-of-type allow a status span beside a stack of button rows. */
+.bk-focus-clip > .bk-row:first-of-type {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.bk-focus-clip > .bk-row:last-of-type {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
 /* ── Native icon and text actions (D55, #1379) ─────────────────────────── */
 .bk-icon-btn, .bk-text-btn {
   appearance: none;
@@ -1797,6 +1816,8 @@
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: 2px;
 }
+/* Disabled wrapped suggestions retain the same inside ring as enabled ones. */
+.bk-suggestion.bk-control-inset:focus-visible { outline-offset: -2px; }
 @media (any-pointer: coarse) {
   .bk-suggestion { min-height: 44px; }
 }

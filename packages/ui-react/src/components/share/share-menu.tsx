@@ -124,7 +124,7 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
       {open && !single && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-popover mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg"
+          className="bk-focus-clip absolute right-0 top-full z-popover mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg"
         >
           {options.map((opt) => (
             <button

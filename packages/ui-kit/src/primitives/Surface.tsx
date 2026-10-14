@@ -124,7 +124,7 @@ export function Surface(p: SurfaceProps) {
     color: color.inkMute,
     fontWeight: 500,
   };
-  const body: CSSProperties = { padding: pad, paddingTop: p.label ? 9 : pad };
+  const body: CSSProperties = { padding: pad, paddingTop: p.label ? 9 : pad, ...(pad === 0 ? { borderRadius: "inherit" } : {}) };
 
   const act = Boolean(p.onClick);
 
@@ -137,7 +137,7 @@ export function Surface(p: SurfaceProps) {
   return (
     <div
       style={box}
-      className={act ? "bk-row" : undefined}
+      className={[act && "bk-row", pad > 0 && pad < 4 && "bk-focus-tight"].filter(Boolean).join(" ") || undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
       onClick={p.onClick}
@@ -150,7 +150,7 @@ export function Surface(p: SurfaceProps) {
           {p.meta ? <span style={metaStyle}>{p.meta}</span> : null}
         </div>
       ) : null}
-      <div style={body}>{p.children ?? null}</div>
+      <div style={body} className={pad === 0 ? "bk-focus-clip" : undefined}>{p.children ?? null}</div>
     </div>
   );
 }
