@@ -1,5 +1,20 @@
 # @schlessera/brain-ui-server
 
+## 0.43.0
+
+### Minor Changes
+
+- 4af7b2f: Replace repeated whole-brain journal and worker input copies with managed Btrfs checkpoints and changed-only retained history. Hosted apps now require a qualified native storage service and explicit finite volume capacity; unsupported storage refuses with setup guidance instead of a copy fallback. The retained history limit remains 10 GiB and staged worker outputs keep their existing allowance.
+
+### Patch Changes
+
+- b0c4a82: Notify session recovery clients after asynchronous turn finalization so trackers receive committed terminal timestamps.
+- Updated dependencies [4af7b2f]
+  - @schlessera/brain-ui-sdk@0.43.0
+  - @schlessera/brain-render-template@0.43.0
+  - @schlessera/brain-geo@0.43.0
+  - @schlessera/brain-common@0.43.0
+
 ## 0.42.1
 
 ### Patch Changes

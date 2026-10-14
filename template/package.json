@@ -11,6 +11,6 @@
     "eval:baseline": "brain eval --mode fts --out evals/baseline.json"
   },
   "dependencies": {
-    "@schlessera/brain": "^0.42.1"
+    "@schlessera/brain": "^0.43.0"
   }
 }

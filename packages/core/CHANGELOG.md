@@ -1,5 +1,13 @@
 # @schlessera/brain
 
+## 0.43.0
+
+### Patch Changes
+
+- @schlessera/brain-render-template@0.43.0
+- @schlessera/brain-geo@0.43.0
+- @schlessera/brain-common@0.43.0
+
 ## 0.42.1
 
 ### Patch Changes
