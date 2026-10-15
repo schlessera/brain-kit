@@ -2,8 +2,9 @@ import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { linkSync, openSync, closeSync } from "node:fs";
+import { linkSync, openSync, closeSync, readlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { observeIndexDescendants } from "./native-worker-lifetime.js";
 import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 
@@ -13,9 +14,13 @@ const BACKEND = process.env.BRAIN_NATIVE_PROOF_BACKEND ?? "claude";
 if (!["claude","pi"].includes(BACKEND)) throw Error("Unknown native backend proof selection");
 const APP_UID = Number(process.env.BRAIN_NATIVE_PROOF_APP_UID ?? "1000");
 if (![0,1000].includes(APP_UID)) throw Error("Unknown native app UID proof selection");
+const DESCENDANT_CONTROL = BACKEND === "pi" && APP_UID === 0;
+const RETAIN_INDEX_NAMESPACE = process.env.BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE === "1";
+if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retention reproduction requires Pi UID 0");
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
+let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
-Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const observeRelease = releaseObservations.prepare(argv); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); observeRelease?.(child); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n")); } return child; }) as typeof Bun.spawn;
+Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const observeRelease = releaseObservations.prepare(argv); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); observeRelease?.(child); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => { if (code !== 0 && argv[1] === "subvolume" && argv[2] === "sync") releasePinnedNamespace?.(); return appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n"); }); } return child; }) as typeof Bun.spawn;
 afterAll(async () => { try { await releaseObservations.close(); } finally { Bun.spawn = recordedSpawn; } });
 const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/utils/cookie.js"));
 const NativeWebSocket = WebSocket as any;
@@ -37,7 +42,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const cli = join(brain, "node_modules/.bin/brain");
   const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
   // The fixed witness runs inside the actual automatic index maintenance worker.
-  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance"],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance",${JSON.stringify(DESCENDANT_CONTROL ? "cwd-descendant" : "")}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
   const FILES = 2000, BYTES = 16384;
   for (let i = 0;i < FILES;i++) {
     const header = `---\ntype: note\ntitle: Odysseus voyage ${i}\nupdated: 2026-07-12\n---\nOdysseus charts Ithaca ${i}.\n`;
@@ -64,6 +69,8 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     cwd: SOURCE,
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe"
   });
+  const descendants = DESCENDANT_CONTROL ? observeIndexDescendants(ARTIFACTS, { retainMountNamespace: RETAIN_INDEX_NAMESPACE }) : undefined;
+  releasePinnedNamespace = () => descendants?.releaseNamespace();
   const output = new Response(child.stdout).text(), errors = new Response(child.stderr).text();
   let exited = false; void child.exited.then(() => { exited = true; });
   const sockets: WebSocket[] = [], results: any[] = [];
@@ -216,6 +223,12 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       return warm && events.some(start => start.kind === "automatic_index_started" && start.at > warm.at &&
         events.some(end => end.kind === "automatic_index_finished" && end.ordinal === start.ordinal));
     }, 90000);
+    if (descendants) {
+      const lifetime = descendants.result();
+      expect(lifetime.truncated, "NATIVE_INDEX_DESCENDANT_WITNESS_NOT_TRUNCATED").toBe(false);
+      expect(lifetime.records.length, "NATIVE_INDEX_ACTUALLY_STARTED_DETACHED_DESCENDANTS").toBeGreaterThanOrEqual(2);
+      expect(lifetime.records.every(row => row.deadObservedWallAt !== undefined), "NATIVE_INDEX_DESCENDANTS_DRAIN_BEFORE_RELEASE_COMPLETES").toBe(true);
+    }
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
       source: SOURCE, backend: BACKEND, appUid: APP_UID, bootWorkerHost: status.runtime.workerHost, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
@@ -236,6 +249,8 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       cleanupTimer = setTimeout(() => { forcedCleanup = true; child.kill("SIGKILL"); void child.exited.then(resolve); }, 45000);
     })]);
     clearTimeout(cleanupTimer);
+    descendants?.close();
+    releasePinnedNamespace = undefined;
     cleanExit = code === 0 && !forcedCleanup;
     writeFileSync(join(ARTIFACTS, "cleanup.json"), JSON.stringify({ code, forcedCleanup, shutdownElapsedMs: performance.now() - shutdownStartedAt }));
     writeFileSync(join(ARTIFACTS, "host-output.txt"), await output); writeFileSync(join(ARTIFACTS, "host-errors.txt"), await errors);
@@ -315,7 +330,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
 }, 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
-if (BACKEND === "pi" && APP_UID === 0) test("a retained native checkpoint reader records the actual release interruption and reconciles the same root", async () => {
+if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {
   const brain = "/brain-fixture/brain", name = "notes/worker-1.md";
   const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
@@ -327,10 +342,12 @@ if (BACKEND === "pi" && APP_UID === 0) test("a retained native checkpoint reader
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
     appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
-  let fd: number | undefined;
+  let fd: number | undefined, holder: ReturnType<typeof Bun.spawn> | undefined;
   try {
     const checkpoint = await client.checkpoint(id);
-    fd = openSync(join(checkpoint.path, name), "r");
+    if (held === "descriptor") fd = openSync(join(checkpoint.path, name), "r");
+    else { holder = Bun.spawn(["/bin/sh", "-c", "read line"], { cwd: checkpoint.path, env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+      await until(() => { try { return readlinkSync(`/proc/${holder!.pid}/cwd`) === checkpoint.path; } catch { return false; } }); }
     await expect(client.release(id), "PINNED_NATIVE_RELEASE_REMAINS_UNKNOWN").rejects.toThrow("Native manager outcome is unknown");
     await releaseObservations.drain();
     const path = join(ARTIFACTS, "native-release", `${id}.json`);
@@ -339,12 +356,52 @@ if (BACKEND === "pi" && APP_UID === 0) test("a retained native checkpoint reader
     expect(evidence.root.rootId, "NATIVE_RELEASE_DIAGNOSTIC_SAME_ROOT").toBe(checkpoint.rootId);
     expect(evidence.code, "NATIVE_RELEASE_DIAGNOSTIC_REAL_KILLED_COMMAND").toBe(137);
     expect(evidence.signals.some((signal: any) => signal.signal === "SIGKILL" && signal.abort?.reason === "AbortError: The connection was closed."), "NATIVE_RELEASE_DIAGNOSTIC_CONNECTION_ABORT").toBe(true);
-    expect(evidence.samples.some((sample: any) => sample.references.some((reference: any) => reference.pid === process.pid && reference.fd === fd)),
-      "NATIVE_RELEASE_DIAGNOSTIC_ACTUAL_PINNED_READER").toBe(true);
+    expect(evidence.samples.some((sample: any) => sample.references.some((reference: any) => held === "descriptor" ? reference.pid === process.pid && reference.fd === fd : reference.pid === holder?.pid && reference.kind === "cwd")),
+      `NATIVE_RELEASE_DIAGNOSTIC_ACTUAL_PINNED_${held.toUpperCase()}`).toBe(true);
     expect(evidence.samples.every((sample: any) => sample.coverage.processesTruncated === false && sample.coverage.referencesTruncated === false),
       "NATIVE_RELEASE_CONTROL_OBSERVATION_NOT_TRUNCATED").toBe(true);
-    closeSync(fd); fd = undefined;
+    if (fd !== undefined) { closeSync(fd); fd = undefined; }
+    if (holder) { holder.kill("SIGKILL"); await holder.exited; holder = undefined; }
     expect(await client.release(id), "NATIVE_RELEASE_SAME_ID_RECONCILES_AFTER_READER_CLOSE").toEqual({ id, state: "deleted" });
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    if (holder) { holder.kill("SIGKILL"); await holder.exited; }
+    try { await client.release(id); } finally { await service.close(); }
+  }
+}, 90_000);
+
+// A reference released just after the delete must not hold the root until the
+// next transaction-kthread pass, which equals the release deadline (#1967).
+if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor released just after its delete still completes release", async () => {
+  const brain = "/brain-fixture/brain", name = "notes/worker-1.md";
+  const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
+  const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
+  const show = Bun.spawnSync(["/usr/bin/btrfs", "subvolume", "show", brain]); expect(show.exitCode).toBe(0);
+  const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
+  const fs = Bun.spawnSync(["/usr/bin/btrfs", "filesystem", "show", "/brain-fixture"]); expect(fs.exitCode).toBe(0);
+  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  const socketPath = "/native-runtime/release-transient.sock";
+  const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
+  let fd: number | undefined;
+  try {
+    const checkpoint = await client.checkpoint(id);
+    fd = openSync(join(checkpoint.path, name), "r");
+    const release = client.release(id);
+    void release.catch(() => {});
+    // The recorded delete command, including its --commit-after wake, has
+    // exited while this descriptor still pins the root.
+    const deleted = () => readFileSync(join(ARTIFACTS, "native-operations.jsonl"), "utf8").split("\n").some(line => {
+      const row = line ? JSON.parse(line) : undefined;
+      return row?.stage === "end" && row.code === 0 && row.command.join(" ") === `subvolume delete --commit-after ${checkpoint.path}`;
+    });
+    await until(deleted, 20_000);
+    await sleep(100);
+    const closed = performance.now();
+    closeSync(fd); fd = undefined;
+    await expect(release, "NATIVE_RELEASE_SURVIVES_TRANSIENT_REFERENCE").resolves.toEqual({ id, state: "deleted" });
+    expect(performance.now() - closed, "NATIVE_RELEASE_TRANSIENT_REFERENCE_RECLAIMED_PROMPTLY").toBeLessThan(10_000);
   } finally {
     if (fd !== undefined) closeSync(fd);
     try { await client.release(id); } finally { await service.close(); }

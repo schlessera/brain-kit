@@ -95,6 +95,7 @@ test("host cancellation outranks refused copy-out", async () => {
   const { results } = await run("concurrent", true);
   expect(results).toHaveLength(1);
   expect(results[0]).not.toHaveProperty("failure.errorClass", "worker_state_save_refused");
+  expect(results[0]).toMatchObject({ outcome: "cancelled", isError: false, costUsd: 0.25 });
 });
 
 

@@ -98,10 +98,10 @@ ownership rather than being duplicated here.
 ## Continuity settling boundaries
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:298-323`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:332-342`)
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:394-404`)
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper is limited to the four pure-render call sites and its readiness control.
@@ -336,6 +336,13 @@ stories run in both Storybook theme projects. Chromium's
 input-orchestration exclusion and the 800 ms mutation that fails the cap.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
+
+On an intermediate-opacity assertion failure, the story emits a bounded native
+animation receipt for both widths, including the original sampled values,
+selected layers, commit times and current animation state. Extra computed-style
+and animation reads occur only after failure; capturing them before the oracle
+could start a pending animation. Capture errors preserve the original assertion.
+The receipt diagnoses recurrence; it does not establish a cause for #1946.
 
 ## Native fixtures, renderer effects and experiment transports
 
