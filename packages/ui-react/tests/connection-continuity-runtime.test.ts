@@ -707,7 +707,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         // Reuse the fixture's held-history recovery path. The read is allowed
         // to overlap turn completion; the original ten-drop cases still await
         // their ordinary early replay-completion barrier.
-        historyWaiters.set(s.A, { ...held, holdWhile: () => false });
+        historyWaiters.set(s.A, { promise: held.promise, release: held.release, reads: held.reads, holdWhile: () => false });
         await recover(s);
         await held.entered;
         expect(held.reads, "exactly one reconnect read is held").toBe(1);
