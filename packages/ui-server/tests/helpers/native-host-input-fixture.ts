@@ -11,7 +11,7 @@ export function createNativeHostInputFixture() {
   // acquisition-only spy left installed by another suite.
   spyOn(startup, "prepareNativeWorkerStartupView").mockRestore();
   const store = fs.mkdtempSync("/tmp/odysseus-native-host-"), brain = join(store, "brain");
-  fs.mkdirSync(brain); fs.writeFileSync(join(brain, "helper.txt"), "Odysseus initial input");
+  fs.mkdirSync(brain); fs.mkdirSync(join(store, "state")); fs.writeFileSync(join(brain, "helper.txt"), "Odysseus initial input");
   const actualStat = fs.statfsSync;
   const stat = spyOn(fs, "statfsSync").mockImplementation(((path: any, options: any) => {
     const value = actualStat(path, options);
@@ -41,7 +41,7 @@ export function createNativeHostInputFixture() {
   };
   const execution = { argv: [process.execPath, "--no-env-file", "-e", 'console.log(require("node:fs").readFileSync("helper.txt","utf8"))'],
     env: {}, credentials: false, gate: "none" as const, purpose: "Odysseus input reader" };
-  return { brain, checkpoints, released, manager, execution,
+  return { brain, statePath: join(store, "state/ui.db"), checkpoints, released, manager, execution,
     cleanup() { output.mockRestore(); probe.mockRestore(); stat.mockRestore(); fs.rmSync(store, { recursive: true, force: true }); } };
 }
 

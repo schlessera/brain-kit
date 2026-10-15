@@ -1,6 +1,6 @@
 import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,22 +16,25 @@ import { createTurnContext } from "../../ui-backend-pi/src/turn-context.js";
 import { boundaryPlanner, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
 import { openDatabase } from "@schlessera/brain/internal";
 
+let fixtureRoot: string;
 let root: string;
 let closes: (() => Promise<unknown>)[];
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "brain-hosted-adapters-"));
+  fixtureRoot = mkdtempSync(join(tmpdir(), "brain-hosted-adapters-"));
+  root = join(fixtureRoot, "brain");
+  mkdirSync(join(fixtureRoot, "state"));
   cpSync(resolve("packages/core/fixtures/corpus"), root, { recursive: true });
   const config = join(root, "brain.config.ts");
   writeFileSync(config, readFileSync(config, "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
   closes = [];
 });
-afterEach(async () => { for (const close of closes) await close(); rmSync(root, { recursive: true, force: true }); });
+afterEach(async () => { for (const close of closes) await close(); rmSync(fixtureRoot, { recursive: true, force: true }); });
 
 async function adapter(kind: "claude" | "pi", voice = false) {
   const backend = kind === "claude" ? createClaudeBackend({ brainPath: root }) : createPiBackend({ brainPath: root, loadExtensions: false });
   const policy = backend.brainApplicationPolicy!({ ...(voice ? { posture: "voice", enforceAllowedTools: true, noGrantSurface: true } : {}) });
   const approvals: unknown[] = []; const receipts: BrainApplicationResult[] = [];
-  const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })), principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
+  const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root, dbPath: join(fixtureRoot, "state/ui.db") })), principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
     isAuthorized: () => true, approve: async (input) => { approvals.push(input); return !voice; }, record: r => receipts.push(r) });
   const bridge: BackendBridge = { emit: () => {}, requestPermission: async () => { throw new Error("Duplicate runtime approval"); },
     applyBrain: input => apply({ principalId: "odysseus", turnId: "hosted-turn", input }),
