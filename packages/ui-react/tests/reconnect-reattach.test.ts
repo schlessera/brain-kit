@@ -936,6 +936,64 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", `${SIRENS} Landed.`]);
   });
 
+  for (const chunked of [false, true]) for (const proven of [false, true]) {
+    test(`history inserts a peer's missing user before the live answer (${chunked ? "split" : "single"}, ${proven ? "proven" : "legacy"})`, () => {
+      // Both answers have the same opening: only the live tail may move.
+      const { root, socket } = running("Bound.");
+      root.stores.chat.getState().stampTurn("s1", "turn-1");
+      const next = reconnect(root, socket);
+      next.deliver({ type: "result", sessionId: "s1", turnId: "turn-1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+      const before = buffer(root).messages;
+      const answer = before.at(-1)!;
+      const received = [
+        ...history("Bound."),
+        { role: "user", content: "Then bind me to the mast", toolCalls: [] },
+        { role: "assistant", content: "Bound.", toolCalls: [], ...(proven ? { turnId: "turn-2" } : {}) },
+      ];
+      let text = "Bound.";
+      next.deliver({ type: "session_history", sessionId: "s1", messages: chunked ? received.slice(0, -1) : received });
+      expect(buffer(root).messages.at(-1)!.id, "the inserted user cannot unmount the streaming answer").toBe(answer.id);
+      expect(buffer(root).isStreaming, "inserting the peer's user is not terminal evidence").toBe(true);
+      if (chunked) {
+        expect(buffer(root).messages.at(-1)!.turnId, "the unreceived answer carries no history proof").toBeUndefined();
+        next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rope held." });
+        text += " Rope held.";
+        next.deliver({ type: "session_history", sessionId: "s1", append: true, messages: received.slice(-1) });
+      }
+      expect(buffer(root).messages.slice(0, 2).map((m) => m.id), "repeated older text keeps its own rows").toEqual(before.slice(0, 2).map((m) => m.id));
+      expect(buffer(root).messages.at(-1)).toMatchObject({ id: answer.id, timestamp: answer.timestamp, content: text, isStreaming: true, streamTurnId: "turn-2" });
+      expect(buffer(root).messages.at(-1)!.turnId, "only history proves the turn for seen tracking").toBe(proven ? "turn-2" : undefined);
+      next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rowing again." });
+      expect(buffer(root).messages.at(-1)).toMatchObject({ id: answer.id, content: `${text} Rowing again.`, isStreaming: true });
+      expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", "Bound.", "Then bind me to the mast", `${text} Rowing again.`]);
+    });
+  }
+
+  for (const mismatch of ["turn", "prefix", "tools"] as const) {
+    test(`a peer's inserted user does not identify a live answer with a different ${mismatch}`, () => {
+      const { root, socket } = running();
+      root.stores.chat.getState().stampTurn("s1", "turn-1");
+      const next = reconnect(root, socket);
+      next.deliver({ type: "result", sessionId: "s1", turnId: "turn-1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+      if (mismatch === "tools") root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+      const answer = buffer(root).messages.at(-1)!;
+      const prefix = history(SIRENS);
+      if (mismatch === "prefix") prefix[0]!.content = "Hold: Sail past Scylla";
+      next.deliver({ type: "session_history", sessionId: "s1", messages: [
+        ...prefix,
+        { role: "user", content: "Then bind me to the mast", toolCalls: [] },
+        { role: "assistant", content: "Bound.", toolCalls: mismatch === "tools" ? [{ id: "wax-2", name: "Bash", input: {} }] : [], ...(mismatch === "turn" ? { turnId: "turn-3" } : {}) },
+      ] });
+      expect(buffer(root).messages.at(-1)!.id, "an incompatible replay keeps its own message identity").not.toBe(answer.id);
+      expect(buffer(root).isStreaming).toBe(false);
+      expect(buffer(root).messages).toHaveLength(4);
+      if (mismatch === "tools") expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id)).toEqual(["wax-2"]);
+    });
+  }
+
   test("a first chunk that stops early still leaves the turn's end to replay the whole", () => {
     const { root, socket } = running();
     root.stores.chat.getState().stampTurn("s1", "turn-1");

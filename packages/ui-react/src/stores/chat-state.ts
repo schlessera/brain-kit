@@ -784,6 +784,25 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     }
     return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
   });
+  // Another client can start a turn whose user message this page learns only
+  // from history. Its live answer moves across that one inserted user, but
+  // only when the whole earlier prefix repeats. Apply the same answer guards
+  // at its new position; this never searches older answers for matching text.
+  const live = previous.messages.at(-1);
+  const liveAt = previous.messages.length - 1;
+  if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
+    && next[liveAt]?.role === "user"
+    && messages.slice(0, liveAt).every((m, i) => m.id === previous.messages[i]!.id)) {
+    if (next.length === previous.messages.length + 1 && next.at(-1)?.role === "assistant") {
+      const answer = keepDrawnMessages([next.at(-1)!], { messages: [live], isStreaming: true }, false);
+      return { messages: [...messages.slice(0, -1), ...answer.messages], isStreaming: answer.isStreaming };
+    }
+    // A chunk can stop at the inserted user. Keep the answer mounted until
+    // its chunk arrives, including any deltas received between the chunks.
+    if (partial && next.length === previous.messages.length) {
+      return { messages: [...messages, { ...live, turnId: undefined, streamTurnId: live.turnId ?? live.streamTurnId }], isStreaming: true };
+    }
+  }
   // The first frame can be only a prefix. Keep its matching drawn suffix
   // until the host's post-history status settles the replay: otherwise a
   // painted frame between WS tasks unmounts it and loses the scroll anchor.
@@ -795,7 +814,6 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
   // A backend may keep an answer only once it ends, so a replay mid-turn can
   // stop just before the answer on screen. Everything else repeated: the
   // answer is still being written, and stays (the turn's end replays again).
-  const live = previous.messages.at(-1);
   if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
     && next.length === previous.messages.length - 1 && messages.every((m, i) => m.id === previous.messages[i]!.id)) {
     return { messages: [...messages, { ...live, turnId: undefined, streamTurnId: live.turnId ?? live.streamTurnId }], isStreaming: true };

@@ -44,6 +44,12 @@ let port = 0;
 let origin = "";
 let sequence = 0;
 let diagnosticSequence = 0;
+// One deliberately overlapped read, sampled at the original terminal and
+// delivered after its queued successor. Later reads use ordinary fresh history.
+type LateHistory = { sessionId: string; mode: "stale" | "fresh"; promise: Promise<void>; release(): void;
+  entered: Promise<void>; start(): void; reads: number; released: boolean;
+  snapshot?: SessionHistoryMessage[]; capturedAt?: number };
+let lateHistory: LateHistory | undefined;
 
 const transcripts = new Map<string, SessionHistoryMessage[]>();
 const titles = new Map<string, string>();
@@ -63,6 +69,7 @@ function describeFrame(value: string | Buffer) {
     const frame = JSON.parse(String(value));
     return { type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId, requestId: frame.requestId,
       status: frame.status, outcome: frame.outcome, code: frame.code, message: frame.message,
+      history: frame.messages?.slice(-4).map((message: SessionHistoryMessage) => ({ role: message.role, content: message.content.slice(-240) })),
       text: frame.text?.slice(-240), followUps: frame.followUps, started: frame.started, dropped: frame.dropped };
   } catch { return { type: "unreadable" }; }
 }
@@ -109,6 +116,17 @@ function scriptedBackend(): AgentBackend {
     listProfiles: () => [{ id: "continuity-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => {
+      if (lateHistory?.sessionId === sessionId && !lateHistory.released && lateHistory.reads === 0) {
+        const held = lateHistory;
+        held.reads++;
+        held.start();
+        recordLifecycle("late-history-read-pending", { sessionId, reads: held.reads });
+        await held.promise;
+        if (!held.snapshot) throw new Error("Late-history control released without its terminal snapshot");
+        const returned = held.mode === "fresh" ? transcripts.get(sessionId) ?? [] : held.snapshot;
+        recordLifecycle("late-history-return", { sessionId, mode: held.mode, messages: returned.length, tail: returned.at(-1)?.content.slice(-200) });
+        return structuredClone(returned);
+      }
       const waiting = historyWaiters.get(sessionId);
       if (waiting && (!waiting.holdWhile || waiting.holdWhile())) {
         waiting.reads++; await waiting.promise;
@@ -157,6 +175,19 @@ function scriptedBackend(): AgentBackend {
         emit({ type: "text_delta", sessionId, text: `Noted: ${title}.` });
       }
       emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      if (lateHistory?.sessionId === sessionId) {
+        if (prompt.startsWith("Hold: Sail past the Sirens")) {
+          lateHistory.snapshot = structuredClone(transcript);
+          lateHistory.capturedAt = Date.now();
+          recordLifecycle("late-history-captured-original-terminal", { sessionId, messages: lateHistory.snapshot.length,
+            tail: lateHistory.snapshot.at(-1)?.content.slice(-200), queue: app!.wsHost.followUpQueueFrame(sessionId) });
+        } else if (prompt.startsWith("Then bind me to the mast")) {
+          recordLifecycle("late-history-release-after-queued-result", { sessionId, messages: transcript.length,
+            tail: transcript.at(-1)?.content.slice(-200), queue: app!.wsHost.followUpQueueFrame(sessionId) });
+          lateHistory.released = true;
+          lateHistory.release();
+        }
+      }
     },
   };
 }
@@ -200,6 +231,8 @@ beforeAll(async () => {
 }, 240_000);
 
 afterEach(() => {
+  lateHistory?.release();
+  lateHistory = undefined;
   lifecycle.length = 0;
   observability.reset();
   for (const release of gates.values()) release();
@@ -594,7 +627,37 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
     });
     await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
     await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
+    if (lateHistory) {
+      await s.page.waitForFunction((sessionId) => {
+        const p = (window as unknown as { __continuity: { diagnostic(): {
+          frames: Array<{ type: string; sessionId?: string; text?: string; status?: string }>;
+          buffers: Record<string, { streaming: boolean; replay: boolean }>;
+        } } }).__continuity.diagnostic();
+        const frames = p.frames.filter(frame => frame.sessionId === sessionId);
+        const noted = frames.findLastIndex(frame => frame.type === "text_delta" && frame.text?.includes("Noted: Then bind me to the mast."));
+        const terminal = frames.findIndex((frame, index) => index > noted && frame.type === "result");
+        const history = frames.findIndex((frame, index) => index > terminal && frame.type === "session_history");
+        return noted >= 0 && terminal > noted && history > terminal &&
+          frames.some((frame, index) => index > history && frame.type === "status" && frame.status === "idle") &&
+          !p.buffers[sessionId]?.streaming && !p.buffers[sessionId]?.replay;
+      }, s.A);
+    }
+    // Keep the original negative observation after the causal history/status
+    // barrier, so an old React commit cannot masquerade as retained state.
     await settle(s.page);
+    if (lateHistory) {
+      const retained = await s.page.evaluate(sessionId => {
+        const p = (window as unknown as { __continuity: { diagnostic(): {
+          buffers: Record<string, { messages: Array<{ role: string; content: string }> }>;
+        } } }).__continuity.diagnostic();
+        return p.buffers[sessionId]!.messages.slice(-2);
+      }, s.A);
+      expect(retained.map(message => message.role), "the settled store keeps the queued exchange").toEqual(["user", "assistant"]);
+      expect(retained[0]!.content).toContain("Then bind me to the mast");
+      expect(retained[1]!.content).toBe("Noted: Then bind me to the mast.");
+      expect(await s.page.evaluate(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast.")),
+        "the queued reply remains visible after the late history and terminal status settle").toBe(true);
+    }
     expect(await s.page.evaluate(() => {
       const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
       const column = document.querySelector("[data-reading-column]")!;
@@ -607,6 +670,7 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
       return { state: state.diagnostic(), column: document.querySelector("[data-reading-column]")?.textContent?.slice(-2000) };
     }).catch(failure => ({ diagnosticError: String(failure) }));
     const evidence = { capturedAt: Date.now(), cell, sessionId: s.A,
+      lateHistory: lateHistory ? { mode: lateHistory.mode, reads: lateHistory.reads, released: lateHistory.released, capturedAt: lateHistory.capturedAt, snapshot: lateHistory.snapshot } : null,
       queue: app!.wsHost.followUpQueueFrame(s.A),
       slots: [...app!.wsHost.coordinator.running].map(turn => ({ sessionId: turn.sessionId, turnId: turn.turnId,
         cancelled: turn.cancelled, backendStarted: turn.backendStarted, queue: turn.queue.map(entry => ({ id: entry.followUpId, text: entry.text })) })),
@@ -628,6 +692,36 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
+  for (const cell of cells) for (const mode of ["stale", "fresh"] as const) {
+    test(`${cell.name}: a ${mode} late history read retains the settled queued reply`, async () => {
+      const s = await scene(cell);
+      let release!: () => void;
+      let start!: () => void;
+      const held: LateHistory = lateHistory = { sessionId: s.A, mode, reads: 0, released: false,
+        promise: new Promise<void>(done => { release = done; }), release: () => release(),
+        entered: new Promise<void>(done => { start = done; }), start: () => start() };
+      try {
+        await mark(s.page);
+        await drop(s);
+        s.net.holdTracks = false;
+        // Reuse the fixture's held-history recovery path. The read is allowed
+        // to overlap turn completion; the original ten-drop cases still await
+        // their ordinary early replay-completion barrier.
+        historyWaiters.set(s.A, { ...held, holdWhile: () => false });
+        await recover(s);
+        await held.entered;
+        expect(held.reads, "exactly one reconnect read is held").toBe(1);
+        await finishRecoveredTurn(s, cell);
+        expect(held.released, "queued completion released the read").toBe(true);
+        expect(lateHistory?.snapshot, "the old snapshot precedes the queued turn").toHaveLength(2);
+        expect(transcripts.get(s.A), "the backend retains both completed turns").toHaveLength(4);
+      } finally {
+        held.release();
+        historyWaiters.delete(s.A);
+        await s.context.close();
+      }
+    }, 300_000);
+  }
   test("render readiness waits for a finite entrance even when its initial geometry is quiet", async () => {
     const context = await browser!.newContext();
     try {
@@ -705,12 +799,15 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         const answer = document.querySelector("[data-reading-column]")!.lastElementChild!;
         Object.assign(window, { __snapshotMarks: { field, answer } });
       });
+      const currentTurn = frames.findLast((f) => f.type === "text_delta" && f.sessionId === sessionId)?.turnId;
+      expect(currentTurn, "the running answer has a host-proven turn").toBeTruthy();
+      if (newer) expect(currentTurn, "the successor has its own turn identity").not.toBe(oldTurn);
       const beforeStatus = frames.length; release(); historyWaiters.delete(sessionId);
       const statusDeadline = Date.now() + 5_000;
-      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
-      expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
+      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
+      expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress"), "the snapshot reports the current turn after its asynchronous read").toBe(true);
       await settle(page);
-      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the captured old snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
+      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the delayed snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
       expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
       expect(await page.evaluate(() => {
