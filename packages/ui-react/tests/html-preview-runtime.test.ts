@@ -239,11 +239,11 @@ function expectIsolated(r: Record<string, unknown>): void {
 }
 
 /**
- * Native negative observation, not rendering readiness: an out-of-process
- * navigation or download may surface after the renderer's click/DOM
- * work completes. A page JS clock cannot advance those browser-process tasks.
+ * Native download observation, not rendering readiness: a download may surface
+ * after the renderer's click/DOM work completes. A page JS clock cannot advance
+ * those tasks; this fixture has no demonstrated native denial terminal.
  * Preserve the established 1500ms observation budget after a confirmed click;
- * positive navigation and single popup/form attempts have native boundaries below.
+ * navigation and single popup/form attempts have native boundaries below.
  * Shortening a denied window needs native controls, not a quiet DOM (test-waits.md).
  */
 const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0 };
@@ -337,6 +337,26 @@ async function finishFormAttempt(target: Page | Frame, context: "frame" | "tab",
   });
 }
 
+function observeTopDenials(page: Page): { name: string; message: string }[] {
+  const errors: { name: string; message: string }[] = [];
+  page.on("pageerror", (error) => errors.push({ name: error.name, message: error.message }));
+  return errors;
+}
+
+/**
+ * Observe the original uncaught setter's native SecurityError on the app Page.
+ * Chrome denies this exact destination before issuing the navigation request.
+ * An actual changed app URL instead returns the escape to the original oracle;
+ * a hit, detached frame or unrelated error alone cannot complete this boundary.
+ */
+async function finishTopAttempt(page: Page, appUrl: string, errors: { name: string; message: string }[]) {
+  const destination = `${attackerOrigin}/top?ctx=frame`;
+  await until("the actual frame-to-top assignment is denied or the app navigates", () =>
+    errors.some((error) => error.name === "SecurityError"
+      && error.message.includes(`does not have permission to navigate the target frame to '${destination}'`))
+    || page.url() !== appUrl);
+}
+
 /** A mark the escape probe set on its root, or "" (also while it navigates). */
 const mark = (target: Page | Frame, name: "pointer" | "clicked") =>
   target.evaluate((key) => document.documentElement.dataset[key] ?? "", name).catch(() => "");
@@ -391,8 +411,8 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * So the frame must first report the pointer, and each click must then be
    * seen to land, or to have navigated something, before its window starts.
    * Expected hits are awaited independently, then their exact inert destination
-   * must finish loading. Single popup/form calls require their native denial;
-   * other denied actions retain their native observation window.
+   * must finish loading. Popup/form calls and frame-to-top assignment require
+   * their native denial; downloads retain their native observation window.
    */
   async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
@@ -411,6 +431,7 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
       const frameDenials = file === "voyage/popup.html" ? observePopupDenials(opened.page) : [];
       const frameFormDenials = file === "voyage/form.html" ? observeFormDenials(opened.page) : [];
       const frameFormHitCursor = attackerHits.length;
+      const topDenials = file === "voyage/top.html" ? observeTopDenials(opened.page) : [];
       const pagesBefore = opened.context.pages().length;
       await frame.locator("#go").click({ noWaitAfter: true });
       await until("the click lands in the preview frame", async () =>
@@ -421,6 +442,7 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         () => opened.context.pages().length > pagesBefore || hits().includes("/popup?ctx=frame"));
       else if (file === "voyage/form.html") await finishFormAttempt(frame, "frame", frameFormDenials,
         () => attackerHits.slice(frameFormHitCursor).includes("/form?ctx=probe"));
+      else if (file === "voyage/top.html") await finishTopAttempt(opened.page, appUrl, topDenials);
       else await observeDeniedBrowserActions(opened.page);
       const result = {
         opened,
