@@ -70,7 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle; recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native download windows after acknowledged clicks; three positive halves await exact native destination completion; popup/form calls and frame-to-top assignment require correlated native denial | Positive self-navigation retains actual hit and app-stability oracles, validated by held-body and wrong-target controls. Popup/form denial requires call return and the exact destination on the initiating page; frame-to-top denial requires its native SecurityError. Actual escape returns to original assertions. Null alone is insufficient for popup denial; form halves have independent hit cursors. The retained download budget is not a measured universal minimum. Candidate/runtime proof. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -942,3 +942,60 @@ attached-worker kill and death polling, and final recovery assertion. No pipe or
 permission is added. The ledger helper extends row 333's earlier caller evidence;
 the attached interval adds row 722. Together with the repeated RTK row 336,
 source-row overlap is explicit in the artifact rather than counted as new work.
+
+## Continuity snapshot slot completion
+
+The [slot-completion evidence](evidence/test-wait-continuity-slot-completion.json)
+records five native commands at source `1b2a2e81`. Only the two newer-turn
+snapshot preparations replace their fixed 500 ms window and following two
+frames. The original non-streaming UI predicate remains; a fresh native idle
+frame must match both the original session and old turn before the existing
+peer socket starts the successor. All three snapshot cases, every original
+matcher expression, and all later streaming, answer/field identity, focus,
+caret and no-extra-chat assertions remain.
+
+A result can finish the UI stream before the backend promise and host
+finalization finish. The scoped idle follows actual journal, governed and
+failure-recording completion. With no queued request, the rest of this slot's
+removal is synchronous before the host processes the later peer request. This
+matters because a queued successor mutates the old slot's turn identity; the
+held connection snapshot must retain the original identity. Neither unscoped
+connect idle nor a no-slot resume response can satisfy the exact old-turn
+predicate. This boundary does not establish general browser, React or storage
+quiescence.
+
+The control holds the actual production completion continuation for 2000 ms,
+after its existing failure-recording await and before scoped idle, only for the
+first snapshot prompt. Original preparation and the candidate with its boundary
+omitted both fail the unchanged assertion that the held snapshot reports its
+captured old turn. The intact candidate passes all later original assertions.
+Synchronous observations order the actual hold release, exact old-turn idle
+and readiness; the candidate awaits 2012.22 ms in that control. The temporary
+production hold is absent from the restored and final source.
+
+The selected baseline passes 3 cases / 30 expectations; the restored candidate
+passes 3 / 32. Seven other expanded cases are filtered in each selected run.
+These snapshot cases construct their own pages and do not call the initial
+upload scene; their receipts do not qualify that separate upload scenario.
+The two later new-text preparation windows and all three released-history
+negative windows remain, along with the original drop/recover observations.
+The selected window count changes from 13 to 11 and actual accumulated window
+time from 6513.12 to 5511.63 ms. Actual new boundary awaits are 10.38 and 10.14 ms;
+these are not whole-case durations. The corresponding post-window two-frame
+observations also change from 13 to 11.
+
+Command wall time is nearly flat: 82.85 to 82.69 seconds. Summed bodies change
+from 33.858 to 33.050 seconds, while mandatory setup/build increases from
+48.509 to 49.141 seconds. CPU increases from 93.14 to 94.22 seconds; maximum
+RSS changes from 1250024 to 1247624 KiB. All five commands cost 362.04 seconds.
+The artifact preserves ninety immutable receipt entries and actual per-case
+selection, source hashes, native namespace guards, failures and restoration.
+Observer timing/logging overhead is included. This single shared-host pair
+shows neither a whole-file/whole-CI gain nor a justified numeric minimum for
+the remaining negative windows.
+
+The fixture's explicit configuration object omits the classification key, so
+its classifier returns no blocks; that conclusion does not follow from auth
+mode alone. The scripted backend emits no promotion event. Native local-work,
+focus and render paths are not globally drained by the scoped idle, and their
+later observation windows are unchanged.

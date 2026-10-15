@@ -1,0 +1,1011 @@
+{
+  "schemaVersion": 1,
+  "issue": 1855,
+  "sourceBase": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+  "scope": "Only the two old-slot preparation observations in the three single-running-session snapshot cases. No scene-based case, other negative window, production behavior or global drain changes.",
+  "environment": {
+    "bun": "1.4.2",
+    "chrome": "140.0.7339.127",
+    "isolation": "Original preload, required Chrome, ordinary UID, loopback-only network namespace, capabilities dropped before test; mandatory build and shared benchmark lock retained.",
+    "scope": "Three existing snapshot cases only; seven expanded cases filtered in the baseline/final commands. No scene() caller executed.",
+    "overhead": "Identical synchronous setup stopwatch and actual native idle-frame logging in baseline/candidate. Held controls add one native2000ms production-continuation delay and synchronous hold logs. Candidate measurement includes synchronous boundary timing/logging. No additional sockets, outgoing frames or permissions.",
+    "limits": "Shared host uncontrolled. This is one selected-scope comparison, not whole-file/whole-CI gain. Native scoped idle is a host-slot boundary, not global browser/render/persistence completion."
+  },
+  "originalSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "originalSha256": "3b77a5695a32890662d561e795fa37675117095beaa803a647a1a55f1e891f18"
+    },
+    {
+      "path": "packages/ui-server/src/ws/run-session.ts",
+      "originalSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984"
+    },
+    {
+      "path": "packages/ui-server/src/ws/connection.ts",
+      "originalSha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+    },
+    {
+      "path": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
+      "originalSha256": "b0632f545a57a1a40bd3c7953bcbb4d424b267c7b53998adafc5e4d5b5ad294a"
+    },
+    {
+      "path": "packages/ui-server/src/classification/classify-turn.ts",
+      "originalSha256": "744d199c6d645c36b5408dfea2aea0f33d0e85e1fe9ddc91642dfd97177cdacc"
+    },
+    {
+      "path": "packages/ui-server/src/classification/jev-client.ts",
+      "originalSha256": "17f6e6797e4acd2b7669a84480bafd88a4d47c8c64df95e1c925bac0844f2a45"
+    },
+    {
+      "path": "packages/ui-server/src/config/env.ts",
+      "originalSha256": "90af1fc9fb878a365c3f9f1770fa6bdae1fb263bd7c569e33c5d06267342a4f8"
+    },
+    {
+      "path": "bun.lock",
+      "originalSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+    }
+  ],
+  "candidateSources": {
+    "testCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+    "productionSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+    "allFiveFinallyRestored": true
+  },
+  "astProof": {
+    "result": [
+      {
+        "file": "candidate.test.ts",
+        "awaitCounts": [
+          192,
+          192
+        ],
+        "missingAwaits": [
+          "await settle(page)"
+        ],
+        "addedAwaits": [
+          "await hostPoll(10)"
+        ],
+        "matcherCounts": [
+          61,
+          62
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [
+          "expect(oldCompleted(), \"the original host turn completes before the peer starts a new slot\").toBe(true)"
+        ],
+        "nameCounts": [
+          5,
+          5
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      },
+      {
+        "file": "omitted-boundary.test.ts",
+        "awaitCounts": [
+          192,
+          191
+        ],
+        "missingAwaits": [
+          "await settle(page)"
+        ],
+        "addedAwaits": [],
+        "matcherCounts": [
+          61,
+          61
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [],
+        "nameCounts": [
+          5,
+          5
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      },
+      {
+        "file": "measured-original.test.ts",
+        "awaitCounts": [
+          192,
+          192
+        ],
+        "missingAwaits": [],
+        "addedAwaits": [],
+        "matcherCounts": [
+          61,
+          61
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [],
+        "nameCounts": [
+          5,
+          5
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      },
+      {
+        "file": "measured-candidate.test.ts",
+        "awaitCounts": [
+          192,
+          192
+        ],
+        "missingAwaits": [
+          "await settle(page)"
+        ],
+        "addedAwaits": [
+          "await hostPoll(10)"
+        ],
+        "matcherCounts": [
+          61,
+          62
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [
+          "expect(oldCompleted(), \"the original host turn completes before the peer starts a new slot\").toBe(true)"
+        ],
+        "nameCounts": [
+          5,
+          5
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      },
+      {
+        "file": "measured-omitted-boundary.test.ts",
+        "awaitCounts": [
+          192,
+          191
+        ],
+        "missingAwaits": [
+          "await settle(page)"
+        ],
+        "addedAwaits": [],
+        "matcherCounts": [
+          61,
+          61
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [],
+        "nameCounts": [
+          5,
+          5
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      }
+    ],
+    "productionHold": {
+      "allOriginalAwaitsInOrder": true,
+      "addedAwaits": [
+        "await Bun.sleep(2000)"
+      ],
+      "parseErrors": [
+        0,
+        0
+      ]
+    }
+  },
+  "boundary": {
+    "native": "Fresh actually received idle status with exact original session and turn identity, observed by the existing native websocket listener. Preserve original non-streaming UI predicate before waiting.",
+    "sourceBasis": "Actual run-session finalization precedes scoped idle; with the original queue empty, slot removal follows synchronously before processing the later peer request. Resume idle lacks a turn ID when no slot exists; connect idle is unscoped.",
+    "preserved": "Original peer socket, every original matcher/name and all later native text, identity, focus, caret, streaming and no-extra-chat assertions. New-text preparation and released-history negative windows remain 500 ms.",
+    "classifierLimit": "The fixture supplies an explicit config env object without TYPESAFE_API_KEY; classification is disabled by that absent key. This is not an AUTH_MODE inference or a general application producer claim.",
+    "controls": "A temporary 2000 ms hold after actual failureRecording.finish and before scoped idle, restricted to the first snapshot prompt, exposes premature peer creation. Both original preparation and omitted candidate boundary fail the original captured-old-turn assertion; candidate passes every later original assertion with release, exact idle and readiness ordered.",
+    "limits": "The actual received frame establishes this host-slot boundary, not arbitrary asynchronous-handler, React, storage, focus or browser completion. The other eleven selected native windows remain. No numerical minimum is established for them."
+  },
+  "runs": [
+    {
+      "name": "baseline",
+      "pass": 3,
+      "fail": 0,
+      "filtered": 7,
+      "expectations": 30,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 11843.65
+        },
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 11737.9
+        },
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 10276.83
+        }
+      ],
+      "bodyMs": 33858.38,
+      "bunSeconds": 82.77,
+      "resources": {
+        "wallSeconds": 82.85,
+        "userSeconds": "85.15",
+        "systemSeconds": "7.99",
+        "maxRssKiB": "1250024",
+        "cpuSeconds": 93.14
+      },
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "envOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "restoredCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "executedSha256": "f23ed1c9cbae07f19b6327e4612f271bfb12d627a621d0144ef1e36d4ff107ca"
+        },
+        {
+          "file": "packages/ui-server/src/ws/run-session.ts",
+          "restoredCandidateSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+          "executedSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984"
+        }
+      ],
+      "restored": true,
+      "exitCode": 0,
+      "observations": {
+        "setupMs": 48509.399635,
+        "waitMetrics": {
+          "renderCalls": 6,
+          "renderMs": 1242.3034189999962,
+          "observationCalls": 13,
+          "observationMs": 6513.115590999994,
+          "retainedFrameCalls": 13,
+          "retainedFrameMs": 284.09158699999534,
+          "pollCalls": 3,
+          "pollMs": 30.323706000002858
+        }
+      }
+    },
+    {
+      "name": "original-held",
+      "pass": 0,
+      "fail": 1,
+      "filtered": 9,
+      "expectations": 6,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 17630.85
+        }
+      ],
+      "bodyMs": 17630.85,
+      "bunSeconds": 67.11,
+      "resources": {
+        "wallSeconds": 67.2,
+        "userSeconds": "85.07",
+        "systemSeconds": "7.68",
+        "maxRssKiB": "1247292",
+        "cpuSeconds": 92.75
+      },
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "envOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "restoredCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "executedSha256": "f23ed1c9cbae07f19b6327e4612f271bfb12d627a621d0144ef1e36d4ff107ca"
+        },
+        {
+          "file": "packages/ui-server/src/ws/run-session.ts",
+          "restoredCandidateSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+          "executedSha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b"
+        }
+      ],
+      "restored": true,
+      "exitCode": 1,
+      "observations": {
+        "setupMs": 49002.712747,
+        "holdMs": 2000.3150200000018,
+        "waitMetrics": {
+          "renderCalls": 2,
+          "renderMs": 410.99130799999693,
+          "observationCalls": 4,
+          "observationMs": 2003.020285999999,
+          "retainedFrameCalls": 4,
+          "retainedFrameMs": 116.60931699999492,
+          "pollCalls": 494,
+          "pollMs": 5003.212024000008
+        }
+      },
+      "intendedFailure": "Original captured-old-turn status assertion: expected true, received false. Later original assertions were not reached; no runner or module-load failure."
+    },
+    {
+      "name": "candidate-held",
+      "pass": 1,
+      "fail": 0,
+      "filtered": 9,
+      "expectations": 11,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 13358.65
+        }
+      ],
+      "bodyMs": 13358.65,
+      "bunSeconds": 62.41,
+      "resources": {
+        "wallSeconds": 62.49,
+        "userSeconds": "84.98",
+        "systemSeconds": "7.54",
+        "maxRssKiB": "1236688",
+        "cpuSeconds": 92.52000000000001
+      },
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "envOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "restoredCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "executedSha256": "840fd0b47be874b97d2be7224b9e10381e06b18c906bec02e8765c43e3b528a4"
+        },
+        {
+          "file": "packages/ui-server/src/ws/run-session.ts",
+          "restoredCandidateSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+          "executedSha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b"
+        }
+      ],
+      "restored": true,
+      "exitCode": 0,
+      "observations": {
+        "setupMs": 48633.833112,
+        "holdMs": 2000.1636930000022,
+        "boundaryMs": [
+          2012.2223589999994
+        ],
+        "waitMetrics": {
+          "renderCalls": 2,
+          "renderMs": 401.2411789999969,
+          "observationCalls": 4,
+          "observationMs": 2003.0360329999967,
+          "retainedFrameCalls": 4,
+          "retainedFrameMs": 104.58186000000569,
+          "pollCalls": 198,
+          "pollMs": 2018.9425220000849
+        }
+      },
+      "completionOrder": {
+        "holdReleaseAt": 60831.906795,
+        "exactOldIdleAt": 60836.947104,
+        "boundaryAt": 60845.15767,
+        "sameTurn": true,
+        "ordered": true
+      }
+    },
+    {
+      "name": "omitted-held",
+      "pass": 0,
+      "fail": 1,
+      "filtered": 9,
+      "expectations": 6,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 17688.44
+        }
+      ],
+      "bodyMs": 17688.44,
+      "bunSeconds": 66.73,
+      "resources": {
+        "wallSeconds": 66.81,
+        "userSeconds": "84.72",
+        "systemSeconds": "7.75",
+        "maxRssKiB": "1237888",
+        "cpuSeconds": 92.47
+      },
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "envOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "restoredCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "executedSha256": "4e79a15b860dd29b874bb44644ae9e1d6237af8eda80d5e1636fe1d3bd7cda7c"
+        },
+        {
+          "file": "packages/ui-server/src/ws/run-session.ts",
+          "restoredCandidateSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+          "executedSha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b"
+        }
+      ],
+      "restored": true,
+      "exitCode": 1,
+      "observations": {
+        "setupMs": 48588.183271999995,
+        "holdMs": 2000.2500750000036,
+        "waitMetrics": {
+          "renderCalls": 2,
+          "renderMs": 404.0707060000059,
+          "observationCalls": 3,
+          "observationMs": 1502.1119919999983,
+          "retainedFrameCalls": 3,
+          "retainedFrameMs": 90.2336709999945,
+          "pollCalls": 493,
+          "pollMs": 4994.780716000081
+        }
+      },
+      "intendedFailure": "Original captured-old-turn status assertion: expected true, received false. Later original assertions were not reached; no runner or module-load failure."
+    },
+    {
+      "name": "restored",
+      "pass": 3,
+      "fail": 0,
+      "filtered": 7,
+      "expectations": 32,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 11492.16
+        },
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 11302.16
+        },
+        {
+          "outcome": "pass",
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 10256.02
+        }
+      ],
+      "bodyMs": 33050.34,
+      "bunSeconds": 82.61,
+      "resources": {
+        "wallSeconds": 82.69,
+        "userSeconds": "86.19",
+        "systemSeconds": "8.03",
+        "maxRssKiB": "1247624",
+        "cpuSeconds": 94.22
+      },
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "envOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "restoredCandidateSha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "executedSha256": "840fd0b47be874b97d2be7224b9e10381e06b18c906bec02e8765c43e3b528a4"
+        },
+        {
+          "file": "packages/ui-server/src/ws/run-session.ts",
+          "restoredCandidateSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+          "executedSha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984"
+        }
+      ],
+      "restored": true,
+      "exitCode": 0,
+      "observations": {
+        "setupMs": 49141.044799999996,
+        "boundaryMs": [
+          10.379275999999663,
+          10.142288999995799
+        ],
+        "waitMetrics": {
+          "renderCalls": 6,
+          "renderMs": 1267.2707709999886,
+          "observationCalls": 11,
+          "observationMs": 5511.631064000001,
+          "retainedFrameCalls": 11,
+          "retainedFrameMs": 272.11514099999476,
+          "pollCalls": 5,
+          "pollMs": 50.59824999999546
+        }
+      }
+    }
+  ],
+  "allFiveCommandSeconds": 362.04,
+  "rawReceiptEntries": 90,
+  "rawReceipts": [
+    {
+      "file": "runs/baseline/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "file": "runs/baseline/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "file": "runs/baseline/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "runs/baseline/command.json",
+      "sha256": "532d7ffee171bf9f9e69e995a0560cc72daee362d782d7de2bfedbbb8fd0748a",
+      "bytes": 1376
+    },
+    {
+      "file": "runs/baseline/completion.json",
+      "sha256": "826c98db1e850694736516392d4fd6384b80ae877184fd42103d824730be3e5b",
+      "bytes": 83
+    },
+    {
+      "file": "runs/baseline/driver.py",
+      "sha256": "baf75c9ba430aeee40a65241f8ef854cc04c332529194fa1cf9467dde53843c2",
+      "bytes": 2939
+    },
+    {
+      "file": "runs/baseline/executed-connection-continuity-runtime.test.ts",
+      "sha256": "f23ed1c9cbae07f19b6327e4612f271bfb12d627a621d0144ef1e36d4ff107ca",
+      "bytes": 49965
+    },
+    {
+      "file": "runs/baseline/executed-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/baseline/restored-connection-continuity-runtime.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "runs/baseline/restored-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/baseline/run.log",
+      "sha256": "25b21615391d5939dafc1fae3ac034444aa540658990524d5b17ddf29e14a92b",
+      "bytes": 2036
+    },
+    {
+      "file": "runs/baseline/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "file": "runs/baseline/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "file": "runs/baseline/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "file": "runs/baseline/run.time",
+      "sha256": "2050f5c6d6a8cbc7da6ff8c9a3b934c70c6a7e5b052b84846d59300a35d5ee37",
+      "bytes": 985
+    },
+    {
+      "file": "runs/candidate-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "file": "runs/candidate-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "file": "runs/candidate-held/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "runs/candidate-held/command.json",
+      "sha256": "6220f28652a834b33177bcfa6611f072f730bfcbcc8fcf3e406e76f1b0e096bd",
+      "bytes": 1363
+    },
+    {
+      "file": "runs/candidate-held/completion.json",
+      "sha256": "50ccabc7a582da06cab17d7136d2bfed9b475bcb02dec68c283835b3926f741f",
+      "bytes": 83
+    },
+    {
+      "file": "runs/candidate-held/driver.py",
+      "sha256": "baf75c9ba430aeee40a65241f8ef854cc04c332529194fa1cf9467dde53843c2",
+      "bytes": 2939
+    },
+    {
+      "file": "runs/candidate-held/executed-connection-continuity-runtime.test.ts",
+      "sha256": "840fd0b47be874b97d2be7224b9e10381e06b18c906bec02e8765c43e3b528a4",
+      "bytes": 50894
+    },
+    {
+      "file": "runs/candidate-held/executed-run-session.ts",
+      "sha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b",
+      "bytes": 57382
+    },
+    {
+      "file": "runs/candidate-held/restored-connection-continuity-runtime.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "runs/candidate-held/restored-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/candidate-held/run.log",
+      "sha256": "3a21d632f6d274379cbbdc06a919edcd8d2d8898a19e271e91ffc7627817f4d3",
+      "bytes": 1632
+    },
+    {
+      "file": "runs/candidate-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "file": "runs/candidate-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "file": "runs/candidate-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "file": "runs/candidate-held/run.time",
+      "sha256": "837af392540e8411a779f43eea6c187946c22dca16a6601c8f88da8f1d99c4fd",
+      "bytes": 959
+    },
+    {
+      "file": "runs/omitted-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "file": "runs/omitted-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "file": "runs/omitted-held/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "runs/omitted-held/command.json",
+      "sha256": "c80717ee0755b2916aeb2f2b7127a504c18f1721c5994e043fe1b9a437ba0e16",
+      "bytes": 1359
+    },
+    {
+      "file": "runs/omitted-held/completion.json",
+      "sha256": "34fcda1059a10dbce7e573850ca60720b5c13f9ca937042245b305abb9f65e85",
+      "bytes": 83
+    },
+    {
+      "file": "runs/omitted-held/driver.py",
+      "sha256": "baf75c9ba430aeee40a65241f8ef854cc04c332529194fa1cf9467dde53843c2",
+      "bytes": 2939
+    },
+    {
+      "file": "runs/omitted-held/executed-connection-continuity-runtime.test.ts",
+      "sha256": "4e79a15b860dd29b874bb44644ae9e1d6237af8eda80d5e1636fe1d3bd7cda7c",
+      "bytes": 49994
+    },
+    {
+      "file": "runs/omitted-held/executed-run-session.ts",
+      "sha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b",
+      "bytes": 57382
+    },
+    {
+      "file": "runs/omitted-held/restored-connection-continuity-runtime.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "runs/omitted-held/restored-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/omitted-held/run.log",
+      "sha256": "270782655712b293a6e612bcc2e367e9fecac272eadaf484c15fad5909f660cf",
+      "bytes": 2532
+    },
+    {
+      "file": "runs/omitted-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "file": "runs/omitted-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "file": "runs/omitted-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "file": "runs/omitted-held/run.time",
+      "sha256": "a28ec92452951937f43a268df1ba07efa14a34a9402bd87c3fd4db6b789dcaf1",
+      "bytes": 997
+    },
+    {
+      "file": "runs/original-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "file": "runs/original-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "file": "runs/original-held/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "runs/original-held/command.json",
+      "sha256": "f6a936dddc73d0e517f77a83c3338cc8f61806d5ce85c5787be597a56d59750c",
+      "bytes": 1361
+    },
+    {
+      "file": "runs/original-held/completion.json",
+      "sha256": "f56f3a821de2fac90ea206e52ef89d2895b39e37789f41e328b36eb49ea5cabb",
+      "bytes": 83
+    },
+    {
+      "file": "runs/original-held/driver.py",
+      "sha256": "baf75c9ba430aeee40a65241f8ef854cc04c332529194fa1cf9467dde53843c2",
+      "bytes": 2939
+    },
+    {
+      "file": "runs/original-held/executed-connection-continuity-runtime.test.ts",
+      "sha256": "f23ed1c9cbae07f19b6327e4612f271bfb12d627a621d0144ef1e36d4ff107ca",
+      "bytes": 49965
+    },
+    {
+      "file": "runs/original-held/executed-run-session.ts",
+      "sha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b",
+      "bytes": 57382
+    },
+    {
+      "file": "runs/original-held/restored-connection-continuity-runtime.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "runs/original-held/restored-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/original-held/run.log",
+      "sha256": "20ccc7d853dd25de7b462fa978d856cc0037dfe118bafd451f27c314588cabfa",
+      "bytes": 2528
+    },
+    {
+      "file": "runs/original-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "file": "runs/original-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "file": "runs/original-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "file": "runs/original-held/run.time",
+      "sha256": "987e27e5eb6503d723696593e2274bf01ad04f5328f43cfa038cffc56cf6ef76",
+      "bytes": 997
+    },
+    {
+      "file": "runs/report.json",
+      "sha256": "2f9cb9604555abcddefc61bf3daedc4930bb7e6989f1df232da71f1ee15eaf28",
+      "bytes": 23808
+    },
+    {
+      "file": "runs/restored/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "file": "runs/restored/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "file": "runs/restored/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "runs/restored/command.json",
+      "sha256": "5545d17a266bafe20c2976818f3cab98b7f3a5c437db59dee790843341535090",
+      "bytes": 1376
+    },
+    {
+      "file": "runs/restored/completion.json",
+      "sha256": "ac1aef1ac7cbcc193a0f36f6c142a9c1a8992fcf8130d4565210d3c346d13442",
+      "bytes": 83
+    },
+    {
+      "file": "runs/restored/driver.py",
+      "sha256": "baf75c9ba430aeee40a65241f8ef854cc04c332529194fa1cf9467dde53843c2",
+      "bytes": 2939
+    },
+    {
+      "file": "runs/restored/executed-connection-continuity-runtime.test.ts",
+      "sha256": "840fd0b47be874b97d2be7224b9e10381e06b18c906bec02e8765c43e3b528a4",
+      "bytes": 50894
+    },
+    {
+      "file": "runs/restored/executed-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/restored/restored-connection-continuity-runtime.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "runs/restored/restored-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "runs/restored/run.log",
+      "sha256": "4a6e1d34fbd7367ea9aac294ded1df5e1eebabbb5c4ae5852baed4dfa6bbd882",
+      "bytes": 2368
+    },
+    {
+      "file": "runs/restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "file": "runs/restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "file": "runs/restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "file": "runs/restored/run.time",
+      "sha256": "dee1d7a7571546500ac83c8e88f29d20d47ef64e80040c48e9ec3cd22226aa7c",
+      "bytes": 986
+    },
+    {
+      "file": "review/ast-proof.json",
+      "sha256": "949c781b5459e45d3e24b14a6b442c961c4fe5f7fbc5dfa0c1cb60788be2f241",
+      "bytes": 2870
+    },
+    {
+      "file": "review/candidate.patch",
+      "sha256": "36c14ba36f643dd01d80d193a805e5747dd942a8c470d8bf1e6c8aa28d6cdd83",
+      "bytes": 1894
+    },
+    {
+      "file": "review/candidate.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "file": "review/held-completion-run-session.ts",
+      "sha256": "0720d534a4439968c42bcf07afc6752714d8da5192b84becbda29e347266590b",
+      "bytes": 57382
+    },
+    {
+      "file": "review/manifest.json",
+      "sha256": "455bdb94a1a99fe1d8f006fc6c7663ede28170649bc7db72d9df8ed0b25f6bec",
+      "bytes": 3089
+    },
+    {
+      "file": "review/measured-candidate.test.ts",
+      "sha256": "840fd0b47be874b97d2be7224b9e10381e06b18c906bec02e8765c43e3b528a4",
+      "bytes": 50894
+    },
+    {
+      "file": "review/measured-omitted-boundary.test.ts",
+      "sha256": "4e79a15b860dd29b874bb44644ae9e1d6237af8eda80d5e1636fe1d3bd7cda7c",
+      "bytes": 49994
+    },
+    {
+      "file": "review/measured-original.test.ts",
+      "sha256": "f23ed1c9cbae07f19b6327e4612f271bfb12d627a621d0144ef1e36d4ff107ca",
+      "bytes": 49965
+    },
+    {
+      "file": "review/omitted-boundary.test.ts",
+      "sha256": "886dec643583d60fcd439c656990ac6285db728bae2cc0d0797d49f4e5a6f444",
+      "bytes": 49525
+    },
+    {
+      "file": "review/original-run-session.ts",
+      "sha256": "761c138e4ba1a32a2360f01cf272bb38ad93551582cb3d4b8210337b3f8d3984",
+      "bytes": 56873
+    },
+    {
+      "file": "review/original.test.ts",
+      "sha256": "3b77a5695a32890662d561e795fa37675117095beaa803a647a1a55f1e891f18",
+      "bytes": 49496
+    },
+    {
+      "file": "1855-continuity-slot-completion-proposal.md",
+      "sha256": "abb2f2f5ba05b441bd71fbc2689d6ab4cf89a43ed7142b9dc3e3a8cdce6b0086",
+      "bytes": 6593
+    },
+    {
+      "file": "1855-continuity-slot-ast.ts",
+      "sha256": "02950f2ea6e003531edaedf3488814f5f029538ecd248096ebd0e6dbbae45ffa",
+      "bytes": 2747
+    },
+    {
+      "file": "1855-continuity-slot-report.py",
+      "sha256": "77b9b9f3574c996124fc1b3daff8a543b2e31249bbf10ac0fc6db83807ba99d5",
+      "bytes": 2061
+    }
+  ]
+}

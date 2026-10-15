@@ -627,9 +627,18 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       while (!waiting.reads && Date.now() < readDeadline) await hostPoll(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
       expect(gates.has(first)).toBe(true);
+      const beforeOldCompletion = frames.length;
       if (newer) { gates.get(first)!(); gates.delete(first); }
       if (newer) {
-        await until(page, `!p.streaming(${JSON.stringify(sessionId)})`); await settle(page);
+        await until(page, `!p.streaming(${JSON.stringify(sessionId)})`);
+        // Result ends the UI stream before asynchronous host finalization. With
+        // no queued request, this scoped idle is followed by synchronous slot
+        // removal; the peer must start a new slot rather than mutate the old one.
+        const oldCompleted = () => frames.slice(beforeOldCompletion).some((f) =>
+          f.type === "status" && f.status === "idle" && f.sessionId === sessionId && f.turnId === oldTurn);
+        const completionDeadline = Date.now() + 5_000;
+        while (!oldCompleted() && Date.now() < completionDeadline) await hostPoll(10);
+        expect(oldCompleted(), "the original host turn completes before the peer starts a new slot").toBe(true);
         // A different client starts a new slot after the captured turn ended.
         // Queued turns reuse the original slot, so its turnId mutates in place.
         peer = new HeaderWebSocket(socketUrl, { headers: { Origin: origin } });
