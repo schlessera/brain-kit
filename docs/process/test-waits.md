@@ -761,3 +761,114 @@ actual opportunities, minimum justified duration and chosen margin. Condition
 samplers, unexpired deadlines and killed fixture lifetimes have different roles;
 missing counters do not turn them into mandatory completed waits or excuse
 unrelated evidence gaps.
+
+
+## Query deadline and late-database completion
+
+The [search deadline evidence](evidence/test-wait-search-deadlines.json) records
+eight commands at source `bb4578a7`. The private search tests drive production's
+actual timeout registrations at 19/20 ms and, in a separate added control,
+2999/3000 ms. Real SQLite, provider promises, FTS fallback, hybrid fusion and
+all original assertions remain. Successful embedding crosses its cancelled
+deadline; removing the actual cancellation fails the original abort assertion.
+Both one-millisecond registration faults fail the configured and default checks.
+The production default remains 3000 ms.
+
+The original late-completion test passed a structural fault that moved the race
+around the whole vector search. Its closed-database exception was insufficient
+as an oracle. The candidate forwards the real database's `prepare` method after
+closing it and explicitly counts attempts. The same fault now fails with two
+attempts: the original KNN query and its existing fallback. After releasing the
+provider, one native event-loop turn covers the inspected promise continuation,
+which has no intervening timer or I/O before its first synchronous prepare. This
+is a source-specific completion boundary, not a global asynchronous drain.
+Timer and database property descriptors restore even on assertion failure.
+
+The full file changes from 34 tests / 145 expectations to 35 / 158. The matched
+command takes 0.50 → 0.43 seconds; summed bodies take 256.58 → 184.23 ms. The
+three original case bodies take 90.07 → 10.05 ms, and the added default control
+costs 3.33 ms. CPU increases from 0.53 to 0.56 seconds and peak RSS from 121520
+to 122788 KiB. These are one shared-host pair, not a whole-CI improvement.
+Setup and individual native-turn spans were not separately measured. The
+3070 ms advanced across four independent case clocks is source arithmetic,
+not elapsed time. Three native `setImmediate` boundaries remain; no native
+provider conformance proof is replaced.
+
+
+## Native robots-policy completion
+
+The [robots completion evidence](evidence/test-wait-browser-robots-completion.json)
+records five commands at source `a2b0cdb2`. The original 800 ms native robots
+fetch remains. The test waits for its original `forUrl` promise, the original
+matching main-frame interception handler, and destruction of the same native
+page target on the same attached connection. Synchronous observers return the
+original native operation promises. An actual forbidden HTTP arrival instead
+returns control to the original no-hit assertion; an absent destruction event
+does not conceal an escape.
+
+The original retained-window test and the candidate both fail that assertion
+when the real policy cancellation, post-policy abort guard and page closure are
+removed together. Both additionally report a leaked target in their original
+teardown check. Omitting the candidate completion fails an explicit diagnostic:
+the actual robots lookup started and remains pending even though its handler
+and page target have already finished. These controls establish this load's
+causal boundary, not a global network drain.
+
+The restored full file retains 14 tests / 66 expectations. The matched command
+takes 9.28 → 8.98 seconds; the selected case takes 1105.38 → 844.33 ms. Its
+actual completion wait is 561.22 ms, because the original fetch still has work
+to finish after budget expiry. The removed 820 ms observation is therefore not
+an 820 ms saving. CPU increases from 1.87 to 2.01 seconds and peak RSS from
+191952 to 193836 KiB. Setup and the baseline wait span were not separately
+measured; these are one shared-host pair, not a whole-CI claim.
+
+At that recorded source, the other case retained its 1300 ms native observation.
+It also allowed the real 1200 ms rate limit to become eligible before the original
+next load's 300 ms budget. Handler completion and target destruction alone do not
+establish that eligibility. The separate pacing evidence below covers both roles.
+
+
+## Native pacing cancellation and subsequent eligibility
+
+The [pacing completion evidence](evidence/test-wait-browser-pacing-completion.json)
+records six commands at source `ec381c94`, after the robots change. The pacing
+case retains its original native sleep, 300 ms page budget, Chrome interception,
+HTTP requests and capacity assertions. Synchronous timer observers return the
+actual native handle, preserve callback arguments and `this`, and restore full
+global property descriptors. The supplied rate-limiter clock forwards production's
+original sleep promise; no global clock or browser timer is advanced.
+
+Completion requires the matching policy and interception-handler promises, the
+same native page target's destruction, and the original pacing sleep's settlement.
+An actual forbidden HTTP arrival instead reaches the original no-hit assertion.
+That assertion precedes the added checks for native registration, cancellation
+and callback suppression. The actual remainder plus the preceding clock read
+minus the first grant must equal 1200 ms. Only afterward does the existing
+rate-limiter clock's `now` offset advance beyond that grant's eligibility, allowing
+the original next load to exercise real page capacity within its 300 ms budget.
+
+The original and candidate both reject the same compound production guard fault
+at the original late-request assertion; their independent teardown also detects
+leaked targets. Omitting the eligibility advance fails the original next load on
+its real 300 ms page budget, not the test runner watchdog. Removing production's
+native `clearTimeout` fails the explicit cancellation assertion. Only after that
+failure does cleanup clear the original outstanding handle, separately counted
+in the diagnostic receipt. All production mutations were restored.
+
+The full file retains all 14 cases and increases expectations from 66 to 73.
+The matched command takes 8.93 → 7.63 seconds, summed bodies 8572.97 → 7258.24 ms,
+and the pacing case 1664.57 → 366.44 ms. CPU takes 1.87 → 1.81 seconds, while peak
+RSS increases from 192036 to 192472 KiB. These are one shared-host pair; setup
+and the baseline 1300 ms span were not separately measured. The measured
+completion await is only 0.020529 ms because its native events had already
+arrived; it is not the whole case or native page-budget duration. The 879 ms
+eligibility offset is logical time, not additional elapsed savings.
+
+The restored observation records one native 1175 ms timer registration, one
+production clear, no callback, and rejection of the original sleep promise. The
+clock read occurred 25 ms after the first grant, preserving the full 1200 ms
+pacing rule. Other native delay/crawl-policy cases remain unchanged. The final
+source removes only diagnostic logging, timing and unused snapshot counters;
+all original matcher expressions and seven added assertions remain. This is a
+boundary for the inspected load and subsequent eligibility, not a universal
+minimum negative window or a global browser/network drain.

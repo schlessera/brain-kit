@@ -164,41 +164,172 @@ test("keeps the 500-chunk work cap on a pathological long document", async () =>
   expect(embedCalls).toBe(1);
 });
 
+/** Drive only this case's actual query deadline; SQLite and promise turns stay native. */
+function queryDeadlineClock() {
+  const descriptors = {
+    setTimeout: Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!,
+    clearTimeout: Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")!,
+  };
+  let now = 0;
+  let nextId = 1;
+  const delays: number[] = [];
+  const timers = new Map<number, { due: number; callback: () => void }>();
+  Object.defineProperty(globalThis, "setTimeout", {
+    ...descriptors.setTimeout,
+    value: (callback: (...args: unknown[]) => void, delay = 0, ...args: unknown[]) => {
+      const id = nextId++;
+      delays.push(delay);
+      timers.set(id, { due: now + delay, callback: () => Reflect.apply(callback, globalThis, args) });
+      return id;
+    },
+  });
+  Object.defineProperty(globalThis, "clearTimeout", {
+    ...descriptors.clearTimeout,
+    value: (id: number) => { timers.delete(id); },
+  });
+  return {
+    delays,
+    advance(milliseconds: number) {
+      const target = now + milliseconds;
+      for (;;) {
+        const next = [...timers].filter(([, timer]) => timer.due <= target)
+          .sort((a, b) => a[1].due - b[1].due || a[0] - b[0])[0];
+        if (!next) break;
+        timers.delete(next[0]);
+        now = next[1].due;
+        next[1].callback();
+      }
+      now = target;
+    },
+    restore() {
+      timers.clear();
+      Object.defineProperty(globalThis, "setTimeout", descriptors.setTimeout);
+      Object.defineProperty(globalThis, "clearTimeout", descriptors.clearTimeout);
+    },
+  };
+}
+
+// These continuations contain no further IO/timer before their first synchronous SQL call.
+const nextNativeTurn = () => new Promise<void>(resolve => setImmediate(resolve));
+
 test("a stalled embedder yields FTS results and receives cancellation", async () => {
   addDoc(1, 1, 0);
   let signal: AbortSignal | undefined;
+  let finish: ((value: Float32Array) => void) | undefined;
   provider.embedQuery = async (_query, opts) => {
     signal = opts?.signal;
-    return new Promise(() => {});
+    return new Promise(resolve => { finish = resolve; });
   };
-  const result = await hybridSearch(db, { query: "topic", mode: "hybrid" }, { embeddings: provider, queryTimeoutMs: 20 });
-  expect(result.results.map(r => r.path)).toEqual(["notes/1.md"]);
-  expect(result.warnings[0]).toContain("timed out");
-  expect(result.warnings[0]).toContain("FTS-only");
-  expect(signal?.aborted).toBe(true);
+  const clock = queryDeadlineClock();
+  const search = hybridSearch(db, { query: "topic", mode: "hybrid" }, { embeddings: provider, queryTimeoutMs: 20 });
+  let settled = false;
+  void search.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    expect(clock.delays).toEqual([20]);
+    clock.advance(19);
+    await nextNativeTurn();
+    expect(settled).toBe(false);
+    expect(signal?.aborted).toBe(false);
+    clock.advance(1);
+    const result = await search;
+    expect(result.results.map(r => r.path)).toEqual(["notes/1.md"]);
+    expect(result.warnings[0]).toContain("timed out");
+    expect(result.warnings[0]).toContain("FTS-only");
+    expect(signal?.aborted).toBe(true);
+  } finally {
+    try {
+      finish?.(new Float32Array([1, 0]));
+      await search;
+    } finally { clock.restore(); }
+  }
+});
+
+test("the default query deadline fires at 3000 ms", async () => {
+  addDoc(1, 1, 0);
+  let signal: AbortSignal | undefined;
+  let finish: ((value: Float32Array) => void) | undefined;
+  provider.embedQuery = (_query, opts) => {
+    signal = opts?.signal;
+    return new Promise(resolve => { finish = resolve; });
+  };
+  const clock = queryDeadlineClock();
+  const search = hybridSearch(db, { query: "topic", mode: "hybrid" }, { embeddings: provider });
+  let settled = false;
+  void search.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    expect(clock.delays).toEqual([3000]);
+    clock.advance(2999);
+    await nextNativeTurn();
+    expect(settled).toBe(false);
+    expect(signal?.aborted).toBe(false);
+    clock.advance(1);
+    const result = await search;
+    expect(result.results.map(r => r.path)).toEqual(["notes/1.md"]);
+    expect(result.warnings[0]).toContain("timed out after 3000ms");
+    expect(signal?.aborted).toBe(true);
+  } finally {
+    try {
+      finish?.(new Float32Array([1, 0]));
+      await search;
+    } finally { clock.restore(); }
+  }
 });
 
 test("late embedding completion never accesses the database after timeout", async () => {
   addDoc(1, 1, 0);
-  let finish!: (value: Float32Array) => void;
+  let finish: ((value: Float32Array) => void) | undefined;
   provider.embedQuery = () => new Promise(resolve => { finish = resolve; });
-  const result = await hybridSearch(db, { query: "topic", mode: "vector" }, { embeddings: provider, queryTimeoutMs: 20 });
-  expect(result.results).toEqual([]);
-  expect(result.warnings[0]).toContain("timed out");
-  db.close();
-  finish(new Float32Array([1, 0]));
-  await new Promise(resolve => setTimeout(resolve, 10));
+  const clock = queryDeadlineClock();
+  const search = hybridSearch(db, { query: "topic", mode: "vector" }, { embeddings: provider, queryTimeoutMs: 20 });
+  const prepareDescriptor = Object.getOwnPropertyDescriptor(db, "prepare");
+  const prepare = db.prepare;
+  let latePrepareCalls = 0;
+  try {
+    expect(clock.delays).toEqual([20]);
+    clock.advance(20);
+    const result = await search;
+    expect(result.results).toEqual([]);
+    expect(result.warnings[0]).toContain("timed out");
+    db.close();
+    Object.defineProperty(db, "prepare", {
+      configurable: true,
+      writable: true,
+      value: function (this: Database, ...args: Parameters<Database["prepare"]>) {
+        latePrepareCalls++;
+        return Reflect.apply(prepare, this, args);
+      },
+    });
+    finish!(new Float32Array([1, 0]));
+    await nextNativeTurn();
+    expect(latePrepareCalls).toBe(0);
+  } finally {
+    try {
+      finish?.(new Float32Array([1, 0]));
+      await search;
+    } finally {
+      try {
+        if (prepareDescriptor) Object.defineProperty(db, "prepare", prepareDescriptor);
+        else Reflect.deleteProperty(db, "prepare");
+      } finally { clock.restore(); }
+    }
+  }
 });
 
 test("fast embeddings retain hybrid fusion and cancel the deadline timer", async () => {
   addDoc(1, 1, 0);
   let signal: AbortSignal | undefined;
   provider.embedQuery = async (_query, opts) => { signal = opts?.signal; return new Float32Array([1, 0]); };
-  const result = await hybridSearch(db, { query: "topic", mode: "hybrid" }, { embeddings: provider, queryTimeoutMs: 20 });
-  expect(result.results).toHaveLength(1);
-  expect(result.warnings).toEqual([]);
-  await new Promise(resolve => setTimeout(resolve, 30));
-  expect(signal?.aborted).toBe(false);
+  const clock = queryDeadlineClock();
+  try {
+    const result = await hybridSearch(db, { query: "topic", mode: "hybrid" }, { embeddings: provider, queryTimeoutMs: 20 });
+    expect(result.results).toHaveLength(1);
+    expect(result.warnings).toEqual([]);
+    expect(clock.delays).toEqual([20]);
+    clock.advance(30);
+    expect(signal?.aborted).toBe(false);
+  } finally {
+    clock.restore();
+  }
 });
 
 test("a sliced embedding uses only its own bytes", async () => {
