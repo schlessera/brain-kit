@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { linkSync } from "node:fs";
 import { Database } from "bun:sqlite";
+import { NativeEventLog } from "./event-log.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -24,6 +25,7 @@ async function until(check: () => boolean, deadlineMs = 20000) {
 test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
   mkdirSync(ARTIFACTS, { recursive: true });
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
+  const eventLog = new NativeEventLog(join(dir, "events.jsonl"), ARTIFACTS);
   const brain = "/brain-fixture/brain";
   for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies"]) mkdirSync(join(brain, path), { recursive: true });
   for (const path of ["home", "agent", "pi"]) mkdirSync(join(dir, path));
@@ -126,7 +128,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
         await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
         // Visible result/journal frames precede final durable settlement and slot release.
         await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete") &&
-          readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line)).some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
+          eventLog.read("turn-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
         expect(sender.frames.filter(f => f.type === "turn_journal" && f.turnId === ack.turnId).every(f => f.journal?.profile === "governed"), "NATIVE_JOURNAL_GOVERNED_PROFILE").toBe(true);
         recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
       }
@@ -153,7 +155,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
         expect(recovered.latest?.requestId, "RECONNECT_RECOVERS_SAME_ACCEPTED_REQUEST").toBe(requestId);
         expect(recovered.latest?.state, "RECONNECT_RECOVERS_TERMINAL_REQUEST").toBe("terminal");
         await sleep(200);
-        expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "RECOVERY_READ_DID_NOT_EXECUTE_AGAIN").toBe(1);
+        expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "RECOVERY_READ_DID_NOT_EXECUTE_AGAIN").toBe(1);
       }
     }
     expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= 1000)), "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
@@ -172,10 +174,10 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       expect(authority.namespaceUid, "NATIVE_AGENT_NAMESPACE_UID").toBe(APP_UID);
       expect(authority.ioctlsDenied).toHaveLength(7);
     }
-    expect(readFileSync(join(dir,"events.jsonl"),"utf8").split("\n").filter(line => line.includes('"whole_brain_alias_scan"')), "NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
+    expect(eventLog.read("alias-scan").filter(row => row.kind === "whole_brain_alias_scan"), "NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
     const cancelStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests a cancellable voyage record on 2026-07-12.", requestId: "odysseus-stop", sessionId: sid }));
-    await until(() => existsSync(join(brain,"notes/worker-3.md")) && existsSync(join(dir, "events.jsonl")) && readFileSync(join(dir, "events.jsonl"), "utf8").includes('"attempt":3'), 15000);
+    await until(() => existsSync(join(brain,"notes/worker-3.md")) && existsSync(join(dir, "events.jsonl")) && eventLog.read("cancellable-worker").some(row => row.attempt === 3), 15000);
     const cancelSentAt = performance.now();
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= cancelStart && ((f.type === "status" && f.status === "idle") || f.type === "result" || f.type === "error")), 15000);
@@ -183,40 +185,40 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     expect(cancelElapsedMs, "HOSTED_STOP_INTERRUPT_WITHIN_DEADLINE").toBeLessThan(15000);
     await until(() => sender.frames.some(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart), 15000);
     expect(performance.now() - cancelSentAt, "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(2000);
-    const stoppedWorker = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).find(row => row.kind === "worker_exit" && row.attempt === 3);
+    const stoppedWorker = eventLog.read("stopped-worker").find(row => row.kind === "worker_exit" && row.attempt === 3);
     expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBe(BACKEND === "pi" ? 137 : null);
     const stoppedTurnId = sender.frames.find(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart)!.turnId;
-    await until(() => readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line)).some(row => row.kind === "session_slot_released" && row.turnId === stoppedTurnId),10000);
-    const admissionCancelStart = performance.now(), attemptBefore = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length;
+    await until(() => eventLog.read("cancel-settlement").some(row => row.kind === "session_slot_released" && row.turnId === stoppedTurnId),10000);
+    const admissionCancelStart = performance.now(), attemptBefore = eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length;
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests an immediately cancelled voyage record.", requestId: "odysseus-cancel-admission", sessionId: sid }));
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= admissionCancelStart && ((f.type === "status" && f.requestId === "odysseus-cancel-admission" && ["idle", "cancelled"].includes(f.status)) || (f.type === "request_dropped" && f.requestId === "odysseus-cancel-admission"))), 15000);
     await sleep(500);
-    const attemptsAfter = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length;
+    const attemptsAfter = eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length;
     expect(attemptsAfter, "HOSTED_CANCEL_ADMISSION_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     const admissionCancelElapsedMs = performance.now() - admissionCancelStart;
-    const beforeUnnamed = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"governed_begin_start"')).length;
+    const beforeUnnamed = eventLog.read("governed-admission").filter(row => row.kind === "governed_begin_start").length;
     const unnamedStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus cancels before naming a voyage.", requestId: "odysseus-unnamed-cancel", draftId: "odysseus-unnamed-draft" }));
-    await until(() => readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"governed_begin_start"')).length > beforeUnnamed, 10000);
+    await until(() => eventLog.read("governed-admission").filter(row => row.kind === "governed_begin_start").length > beforeUnnamed, 10000);
     sender.ws.send(JSON.stringify({ type: "cancel" }));
     await until(() => sender.frames.some(f => f.receiptAt >= unnamedStart && f.type === "status" && f.status === "cancelled" && f.requestId === "odysseus-unnamed-cancel"), 10000);
     await sleep(200);
-    expect(readFileSync(join(dir, "events.jsonl"), "utf8").split("\n").filter(line => line.includes('"fake_provider_enter"')).length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
+    expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     // Drain the real queued refresh before shutdown intentionally discards pending work.
     await until(() => {
-      const events = readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line => JSON.parse(line));
+      const events = eventLog.read("queued-refresh");
       const failed = events.find(row => row.kind === "automatic_index_failed");
       if (failed) throw Error(`NATIVE_AUTOMATIC_INDEX_COMPLETED: ${failed.error}`);
       const warm = events.find(row => row.kind === "worker_exit" && row.attempt === 2);
       // index() acquires its complete native input after this observed invocation.
-      return warm && events.some(start => start.kind === "automatic_index_started" && start.at > warm.at &&
+      return warm !== undefined && events.some(start => start.kind === "automatic_index_started" && start.at > warm.at &&
         events.some(end => end.kind === "automatic_index_finished" && end.ordinal === start.ordinal));
     }, 90000);
     const sizes = Object.fromEntries(["ui.db", "ui.db-wal", "ui.db-shm"].map(name => [name, existsSync(join(dir, name)) ? statSync(join(dir, name)).size : 0]));
     receipt = {
       source: SOURCE, backend: BACKEND, appUid: APP_UID, bootWorkerHost: status.runtime.workerHost, cancelElapsedMs, cancelFrames, admissionCancelElapsedMs, files: FILES, generatedBytes: FILES * BYTES, sizes, results,
-      workerFiles: readdirSync(join(brain, "notes")).filter(name => name.startsWith("worker-")), events: readFileSync(join(dir, "events.jsonl"), "utf8").trim().split("\n").map(value => JSON.parse(value))
+      workerFiles: readdirSync(join(brain, "notes")).filter(name => name.startsWith("worker-")), events: eventLog.read("host-receipt")
     };
     writeFileSync(join(ARTIFACTS, "receipt.json"), JSON.stringify(receipt, null, 2));
     console.log(JSON.stringify({ ...receipt, results: results.map(r => ({ ...r, health: { count: r.health.length, timeoutCount: r.timeoutCount, maxMs: Math.max(...r.health.map((p: any) => p.elapsedMs)) } })) }));
@@ -239,6 +241,8 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     if (existsSync(join(dir, "boot-error.txt"))) writeFileSync(join(ARTIFACTS, "boot-error.txt"), readFileSync(join(dir, "boot-error.txt")));
     if (existsSync(join(dir, "events.jsonl"))) writeFileSync(join(ARTIFACTS, "events.jsonl"), readFileSync(join(dir, "events.jsonl")));
     try {
+      // The writer has exited: an unterminated tail is now a proof failure.
+      const finalEvents = existsSync(join(dir, "events.jsonl")) ? eventLog.read("shutdown", true) : [];
       if (code === 0 && receipt && hostProofPassed) {
         // The closed app has drained refresh work; no live reader can mutate SQLite sidecars.
         const index = new Database(join(brain, "brain.db"), { readonly: true });
@@ -255,7 +259,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
         expect(maintenanceAuthority.nestedUsernsDenied, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED").toBe(true);
         expect(maintenanceAuthority.quotaWriteDenied, "NATIVE_MAINTENANCE_QUOTA_WRITE_DENIED").toBe(true);
         expect(maintenanceAuthority.siblingWriteDenied, "NATIVE_MAINTENANCE_SIBLING_SYSCTL_WRITE_DENIED").toBe(true);
-        const workerLaunches = readFileSync(join(ARTIFACTS,"events.jsonl"),"utf8").trim().split("\n").map(line=>JSON.parse(line)).filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
+        const workerLaunches = finalEvents.filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
         expect(workerLaunches.length, "NATIVE_REAL_AGENT_AND_MAINTENANCE_WORKERS_LAUNCHED").toBeGreaterThanOrEqual(3);
         expect(workerLaunches.every(row=>row.kernelUid===APP_UID), "NATIVE_WORKERS_KEEP_FIXED_KERNEL_UID").toBe(true);
         writeFileSync(join(ARTIFACTS, "worker-authority.json"), JSON.stringify({maintenance: maintenanceAuthority, agents: [1,2,3].map(attempt => JSON.parse(readFileSync(join(brain, `.brain/worker-authority-${attempt}.json`), "utf8")))}, null, 2));
