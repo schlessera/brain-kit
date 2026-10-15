@@ -12,10 +12,13 @@ if (import.meta.main) {
     const root = resolve(import.meta.dir, ".."), output = join(root, "tmp", "native-host-proof");
     mkdirSync(output, { recursive: true });
     const selected = process.argv.slice(2);
-    if (selected.some(value => !["--backend=claude", "--backend=pi", "--app-uid=0", "--app-uid=1000"].includes(value)) || new Set(selected.map(value => value.split("=")[0])).size !== selected.length)
-      throw Error("Usage: prove-native-host.ts [--backend=claude|--backend=pi] [--app-uid=0|--app-uid=1000]");
+    if (selected.some(value => !["--backend=claude", "--backend=pi", "--app-uid=0", "--app-uid=1000", "--retain-index-namespace"].includes(value)) || new Set(selected.map(value => value.split("=")[0])).size !== selected.length)
+      throw Error("Usage: prove-native-host.ts [--backend=claude|--backend=pi] [--app-uid=0|--app-uid=1000] [--retain-index-namespace]");
     const backends = selected.find(value => value.startsWith("--backend="))?.slice(10);
     const appUid = selected.find(value => value.startsWith("--app-uid="))?.slice(10);
+    const retainIndexNamespace = selected.includes("--retain-index-namespace");
+    if (retainIndexNamespace && (backends !== "pi" || appUid !== "0"))
+      throw Error("--retain-index-namespace requires explicit --backend=pi --app-uid=0; it intentionally reproduces a failed automatic index");
     const image = Bun.spawnSync(["docker", "image", "inspect", NATIVE_PROOF_IMAGE], { stdout: "ignore", stderr: "pipe" });
     if (image.exitCode !== 0) throw Error("Native proof image is absent; prepare scripts/native-proof/Dockerfile before entering offline runtime.");
     const security = Bun.spawnSync(["docker", "info", "--format", "{{json .SecurityOptions}}"], { stdout: "pipe", stderr: "pipe" });
@@ -30,6 +33,7 @@ if (import.meta.main) {
       if (!apparmor) console.log("AppArmor unavailable: this runtime provides no enforced AppArmor qualification.");
       const lease = join(root, "tmp", "workspace-operation"); mkdirSync(lease, { recursive: true, mode: 0o700 });
       const args = ["docker", "run", "--rm", "--pull=never", "--network=none",
+        ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
         "--cap-drop=ALL", ...(uid === "0" ? ["--cap-add=SETFCAP"] : []), ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
         "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
         ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),

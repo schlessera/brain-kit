@@ -12,12 +12,27 @@ function optional<T>(read: () => T): { value: T } | { error: string } {
 function processState(pid: number) {
   return optional(() => ({ stat: readFileSync(`/proc/${pid}/stat`, "utf8").trim().slice(0, 4096), wchan: readFileSync(`/proc/${pid}/wchan`, "utf8").trim().slice(0, 4096) }));
 }
+function pathReference(path: string) {
+  return optional(() => { const info = statSync(path, { bigint: true }); return { target: readlinkSync(path).slice(0, 4096), device: String(info.dev), inode: String(info.ino) }; });
+}
+function matchesRoot(root: Root, value: { target: string; device: string }) {
+  return value.device === root.device || value.target === root.path || value.target.startsWith(`${root.path}/`) || value.target === `${root.path} (deleted)`;
+}
 function snapshot(root: Root, pid: number) {
-  const began = performance.now(), errors: string[] = [], references: object[] = [], mounts: object[] = [];
+  const began = performance.now(), errors: string[] = [], references: object[] = [], mounts: object[] = [], processes: object[] = [], namespaceReferences: object[] = [];
   const names = readdirSync("/proc").filter(name => /^\d+$/.test(name));
-  let descriptorsTruncated = false, referencesTruncated = false, mountsTruncated = false;
+  let descriptorsTruncated = false, referencesTruncated = false, mountsTruncated = false, namespaceReferencesTruncated = false;
   for (const name of names.slice(0, LIMITS.processes)) {
     const processRoot = `/proc/${name}`;
+    const cwd = pathReference(`${processRoot}/cwd`), processRootPath = pathReference(`${processRoot}/root`);
+    const identity = optional(() => ({ comm: readFileSync(`${processRoot}/comm`, "utf8").trim().slice(0, 64),
+      status: readFileSync(`${processRoot}/status`, "utf8").split("\n").filter(line => /^(State|PPid|NSpid):/.test(line)), state: processState(Number(name)) }));
+    processes.push({ pid: Number(name), cwd, root: processRootPath, identity, mountNamespace: optional(() => readlinkSync(`${processRoot}/ns/mnt`)) });
+    for (const [kind, observation] of [["cwd", cwd], ["root", processRootPath]] as const) {
+      if (!("value" in observation) || !matchesRoot(root, observation.value)) continue;
+      if (references.length >= LIMITS.references) { referencesTruncated = true; continue; }
+      references.push({ kind, pid: Number(name), ...observation.value, identity });
+    }
     try {
       const mountState = optional(() => readFileSync(`${processRoot}/mountinfo`, "utf8").split("\n").filter(line => line.includes(root.id)));
       const matches = "value" in mountState ? mountState.value : [];
@@ -31,17 +46,21 @@ function snapshot(root: Root, pid: number) {
         try {
           const path = `${processRoot}/fd/${fd}`, info = statSync(path, { bigint: true });
           const target = readlinkSync(path);
+          if (/^mnt:\[[0-9]+\]$/.test(target)) {
+            if (namespaceReferences.length < LIMITS.references) namespaceReferences.push({ pid: Number(name), fd: Number(fd), namespace: target, device: String(info.dev), inode: String(info.ino) });
+            else namespaceReferencesTruncated = true;
+          }
           const deviceMatch = String(info.dev) === root.device, pathMatch = target === root.path || target.startsWith(`${root.path}/`) || target === `${root.path} (deleted)`;
           if (!deviceMatch && !pathMatch) continue;
           if (references.length >= LIMITS.references) { referencesTruncated = true; continue; }
-          references.push({ pid: Number(name), fd: Number(fd), device: String(info.dev), inode: String(info.ino), target: target.slice(0, 4096), deviceMatch, pathMatch,
+          references.push({ kind: "descriptor", pid: Number(name), fd: Number(fd), device: String(info.dev), inode: String(info.ino), target: target.slice(0, 4096), deviceMatch, pathMatch,
             fdinfo: optional(() => readFileSync(`${processRoot}/fdinfo/${fd}`, "utf8").slice(0, 4096)), process: processState(Number(name)) });
         } catch (error) { if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) errors.push(String(error)); }
       }
     } catch (error) { if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) errors.push(String(error)); }
   }
-  return { at: began, wallAt: Date.now(), elapsedMs: performance.now() - began, sync: processState(pid), pathExists: existsSync(root.path), references, mounts,
-    coverage: { processesSeen: names.length, processesTruncated: names.length > LIMITS.processes, descriptorsTruncated, referencesTruncated, mountsTruncated }, errors: errors.slice(0, 16).map(error => error.slice(0, 512)) };
+  return { at: began, wallAt: Date.now(), elapsedMs: performance.now() - began, sync: processState(pid), pathExists: existsSync(root.path), references, mounts, processes, namespaceReferences,
+    coverage: { processesSeen: names.length, processesTruncated: names.length > LIMITS.processes, descriptorsTruncated, referencesTruncated, mountsTruncated, namespaceReferencesTruncated, errorsTruncated: errors.length > 16 }, errors: errors.slice(0, 16).map(error => error.slice(0, 512)) };
 }
 
 /** Called only by the real native fixture's existing spawn observer, never production. */
