@@ -80,7 +80,7 @@ in `packages/ui-kit/vite.config.ts`.
 
 Keep this bounded native regression recipe when changing browser optimizer
 inputs. Use an isolated checkout with its own frozen dependencies, completed
-build and no generated `packages/ui-kit/node_modules/.vite` cache. Run from
+build and no generated `packages/ui-kit/node_modules/.vite/**` cache. Run from
 the repository root, using the pinned offline runner and its locked fonts:
 
 1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
