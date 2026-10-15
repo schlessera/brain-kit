@@ -646,3 +646,35 @@ actual opportunities, minimum justified duration and chosen margin. Condition
 samplers, unexpired deadlines and killed fixture lifetimes have different roles;
 missing counters do not turn them into mandatory completed waits or excuse
 unrelated evidence gaps.
+
+
+## Query deadline and late-database completion
+
+The [search deadline evidence](evidence/test-wait-search-deadlines.json) records
+eight commands at source `bb4578a7`. The private search tests drive production's
+actual timeout registrations at 19/20 ms and, in a separate added control,
+2999/3000 ms. Real SQLite, provider promises, FTS fallback, hybrid fusion and
+all original assertions remain. Successful embedding crosses its cancelled
+deadline; removing the actual cancellation fails the original abort assertion.
+Both one-millisecond registration faults fail the configured and default checks.
+The production default remains 3000 ms.
+
+The original late-completion test passed a structural fault that moved the race
+around the whole vector search. Its closed-database exception was insufficient
+as an oracle. The candidate forwards the real database's `prepare` method after
+closing it and explicitly counts attempts. The same fault now fails with two
+attempts: the original KNN query and its existing fallback. After releasing the
+provider, one native event-loop turn covers the inspected promise continuation,
+which has no intervening timer or I/O before its first synchronous prepare. This
+is a source-specific completion boundary, not a global asynchronous drain.
+Timer and database property descriptors restore even on assertion failure.
+
+The full file changes from 34 tests / 145 expectations to 35 / 158. The matched
+command takes 0.50 → 0.43 seconds; summed bodies take 256.58 → 184.23 ms. The
+three original case bodies take 90.07 → 10.05 ms, and the added default control
+costs 3.33 ms. CPU increases from 0.53 to 0.56 seconds and peak RSS from 121520
+to 122788 KiB. These are one shared-host pair, not a whole-CI improvement.
+Setup and individual native-turn spans were not separately measured. The
+3070 ms advanced across four independent case clocks is source arithmetic,
+not elapsed time. Three native `setImmediate` boundaries remain; no native
+provider conformance proof is replaced.
