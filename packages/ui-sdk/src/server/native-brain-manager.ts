@@ -14,6 +14,8 @@ import { startNativeStage } from "./native-brain-stage.js";
 const BTRFS = "/usr/bin/btrfs", PYTHON = "/usr/bin/python3", FALLOCATE = "/usr/bin/fallocate";
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" });
 const BTRFS_MAGIC = 0x9123683e;
+/** Interval between transaction-thread wakes while a deleted root awaits its cleaner. */
+const RECLAIM_WAKE_MS = 1_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Kernel UAPI: GET_SUBVOL_INFO supplies ctransid independently of generation/otransid. */
 const INSPECT = `import os,sys,fcntl,struct,json,uuid
@@ -163,6 +165,28 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       return { code, text, errors: detail };
     } catch (error) { running.kill(); await running.finished; throw error; }
   }
+  // Btrfs queues a deleted root for its cleaner only once the root's last
+  // in-memory reference drops. A reference released after delete's
+  // --commit-after wake otherwise waits a whole commit interval (30 s by
+  // default) for the next transaction-thread pass, and `subvolume sync` only
+  // polls. Waking that thread while waiting reclaims a transiently held root
+  // promptly; a retained reference still reaches the unchanged deadline.
+  async function syncDeleted(rootId: string, signal?: AbortSignal): Promise<void> {
+    let settled = false;
+    const sync = command([BTRFS, "subvolume", "sync", fixed.storePath, rootId], signal);
+    const done = sync.then(() => { settled = true; }, () => { settled = true; });
+    // Wakes only accelerate reclamation: their failure never decides the outcome,
+    // and one still running is cancelled and reaped once the sync settles.
+    const wakes = new AbortController(), wakeSignal = signal ? AbortSignal.any([signal, wakes.signal]) : wakes.signal;
+    while (!settled) {
+      await Promise.race([done, Bun.sleep(RECLAIM_WAKE_MS)]);
+      if (settled) break;
+      const wake = command([BTRFS, "filesystem", "sync", fixed.storePath], wakeSignal, true).then(() => {}, () => {});
+      await Promise.race([done, wake]);
+      if (settled) { wakes.abort(); await wake; }
+    }
+    await sync;
+  }
   async function inspect(path: string, signal?: AbortSignal): Promise<RootInfo> {
     const result = await command([PYTHON, "-I", "-S", "-c", INSPECT, path], signal), info = JSON.parse(result.text) as RootInfo;
     if (info.fsid !== fixed.fsid || info.devices !== 1 || !/^[0-9a-f]{32}$/.test(info.uuid) || !/^\d+$/.test(info.rootId) || !/^\d+$/.test(info.transaction) || info.receivedUuid !== "0".repeat(32))
@@ -291,7 +315,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     }
     if (intent.state === "deleting" && !existsSync(rootPath(intent.id))) {
       if (!intent.checkpoint) throw new NativeBrainManagerError("unknown", "Deletion intent lacks its native root identity.");
-      await command([BTRFS, "subvolume", "sync", fixed.storePath, intent.checkpoint.rootId], signal);
+      await syncDeleted(intent.checkpoint.rootId, signal);
       intent = { ...intent, state: "deleted" }; await writeIntent(intent);
     }
     return intent;
@@ -434,7 +458,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         await writeIntent({ ...intent, state: "deleting", checkpoint });
         signal?.throwIfAborted();
         await command([BTRFS, "subvolume", "delete", "--commit-after", rootPath(request.id)], signal);
-        await command([BTRFS, "subvolume", "sync", fixed.storePath, checkpoint.rootId], signal);
+        await syncDeleted(checkpoint.rootId, signal);
         await writeIntent({ ...intent, state: "deleted", checkpoint });
         return Response.json({ id: request.id, state: "deleted" });
       }

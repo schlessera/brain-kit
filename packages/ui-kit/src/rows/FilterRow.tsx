@@ -122,9 +122,10 @@ export function FilterRow(p: FilterRowProps) {
             key={`${item.label}-${i}`}
             style={style}
             // A pill is control-shaped, not row-shaped: it moves all three hover
-            // properties and its ring sits OUTSIDE it, so it takes wave 1's
-            // `.bk-control` rather than `.bk-row`.
-            className={act ? "bk-control" : undefined}
+            // properties, so it takes wave 1's `.bk-control` rather than
+            // `.bk-row`. The unpadded strip clips,
+            // so its ring is inset rather than extending beyond the pill.
+            className={act ? "bk-control bk-control-inset" : undefined}
             role={act ? "tab" : undefined}
             aria-selected={act ? on : undefined}
             tabIndex={act ? roving.tabIndexFor(i) : undefined}

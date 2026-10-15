@@ -61,9 +61,10 @@ const rule = { height: 1, background: color.line, width: "100%" } as const;
 
 /** Four states, single and multi, stacked the way the catalog draws them. */
 function TheCards() {
+  const [otherText, setOtherText] = useState("File it with the omens.");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
-      <AskUserCard {...ask} id="pending" options={options} otherOpen onOtherSubmit={fn()} onPrimary={fn()} onSecondary={fn()} />
+      <AskUserCard {...ask} id="pending" options={options} otherOpen otherText={otherText} onOtherChange={setOtherText} onOtherSubmit={fn()} onPrimary={fn()} onSecondary={fn()} />
       <div style={rule} />
       <AskUserCard
         id="multi-pending"
@@ -850,11 +851,17 @@ export const SingleQuestionUnchanged = meta.story({
   render: () => <AskUserCard {...ask} options={options} otherOpen onOtherSubmit={singleOtherSubmit} onPrimary={fn()} onSecondary={fn()} />,
   play: async ({ canvas, userEvent }) => {
     await expect(canvas.getAllByRole("radiogroup")).toHaveLength(1);
-    await expect(canvas.queryAllByRole("button")).toHaveLength(0);
+    const submit = canvas.getByRole("button", { name: "Submit" });
+    await expect(submit).toHaveAttribute("aria-disabled", "true");
+    await expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible();
     const field = canvas.getByRole("textbox", { name: "Your own answer" });
-    await userEvent.type(field, "keep the omens{Enter}");
+    await userEvent.type(field, "keep the omens");
+    await expect(submit).not.toHaveAttribute("aria-disabled");
+    await userEvent.click(submit);
     await expect(singleOtherSubmit).toHaveBeenCalledTimes(1);
     await expect(singleOtherSubmit).toHaveBeenCalledWith("keep the omens");
+    await userEvent.type(field, "{Enter}");
+    await expect(singleOtherSubmit).toHaveBeenCalledTimes(2);
   },
 });
 

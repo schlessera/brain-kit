@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "scope": "Two unchanged native browser politeness cases, with synchronous boundary observations; no mutation or equivalent replacement established.",
+  "sources": [
+    {
+      "file": "packages/scrape/tests/browser-politeness.test.ts",
+      "originalSha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef",
+      "observedSha256": "5560bc2b6ff123fc59fa0076809cf646c4a97c2e3ca2a92bb24083b0ea02ad7f"
+    },
+    {
+      "file": "packages/scrape/src/browser/session.ts",
+      "originalSha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec",
+      "observedSha256": "2206841c7a92085299964cc813ab2d7ae7ba503f2077754aa1d8aa90e281bc00"
+    }
+  ],
+  "commandArgs": [
+    "bun",
+    "run",
+    "test",
+    "packages/scrape/tests/browser-politeness.test.ts",
+    "--test-name-pattern",
+    "policy waits time out|a timed-out pacing wait"
+  ],
+  "harness": {
+    "runtime": "Bun 1.4.2, Chrome 140.0.7339.127, Linux x86_64",
+    "offline": "Original preload and explicit ordinary-UID user/network namespace, loopback only with no external routes; capabilities dropped before timed test.",
+    "measurement": "GNU time starts inside the shared benchmark lock. Original promises, timers, waits, native Chrome path and assertions retained. Synchronous console observer overhead and uncontrolled shared-host load apply."
+  },
+  "outcome": {
+    "pass": 2,
+    "fail": 0,
+    "filtered": 12,
+    "expectCalls": 11,
+    "bodyMilliseconds": [
+      1111.88,
+      1666.98
+    ],
+    "bunSeconds": 3.08,
+    "commandSeconds": 3.15,
+    "userSeconds": 0.49,
+    "systemSeconds": 0.38,
+    "maxRssKiB": 191572
+  },
+  "observedMilliseconds": {
+    "robotsFixture800": 800.174438,
+    "negativeWindow820": 820.118044,
+    "negativeWindow1300": 1302.762114
+  },
+  "events": [
+    {
+      "kind": "handler-start",
+      "detail": "/late",
+      "at": 406.206899
+    },
+    {
+      "kind": "robots-start",
+      "detail": null,
+      "at": 406.487208
+    },
+    {
+      "kind": "close-start",
+      "detail": "/late",
+      "at": 454.53862
+    },
+    {
+      "kind": "handler-end",
+      "detail": "/late",
+      "at": 455.241063
+    },
+    {
+      "kind": "close-end",
+      "detail": "/late",
+      "at": 460.133138
+    },
+    {
+      "kind": "window-start",
+      "detail": 820,
+      "at": 460.219808
+    },
+    {
+      "kind": "robots-end",
+      "detail": null,
+      "at": 1206.661646
+    },
+    {
+      "kind": "window-end",
+      "detail": 820,
+      "at": 1280.337852
+    },
+    {
+      "kind": "handler-start",
+      "detail": "/next",
+      "at": 1295.49239
+    },
+    {
+      "kind": "handler-end",
+      "detail": "/next",
+      "at": 1296.170099
+    },
+    {
+      "kind": "close-start",
+      "detail": "/next",
+      "at": 1306.535569
+    },
+    {
+      "kind": "close-end",
+      "detail": "/next",
+      "at": 1310.386789
+    },
+    {
+      "kind": "handler-start",
+      "detail": "/first",
+      "at": 1330.632586
+    },
+    {
+      "kind": "handler-end",
+      "detail": "/first",
+      "at": 1331.355298
+    },
+    {
+      "kind": "close-start",
+      "detail": "/first",
+      "at": 1338.039144
+    },
+    {
+      "kind": "close-end",
+      "detail": "/first",
+      "at": 1341.990584
+    },
+    {
+      "kind": "handler-start",
+      "detail": "/late-paced",
+      "at": 1358.892472
+    },
+    {
+      "kind": "close-start",
+      "detail": "/late-paced",
+      "at": 1642.440572
+    },
+    {
+      "kind": "handler-end",
+      "detail": "/late-paced",
+      "at": 1642.950877
+    },
+    {
+      "kind": "close-end",
+      "detail": "/late-paced",
+      "at": 1648.673735
+    },
+    {
+      "kind": "window-start",
+      "detail": 1300,
+      "at": 1648.761852
+    },
+    {
+      "kind": "window-end",
+      "detail": 1300,
+      "at": 2951.523966
+    },
+    {
+      "kind": "handler-start",
+      "detail": "/next",
+      "at": 2969.411943
+    },
+    {
+      "kind": "handler-end",
+      "detail": "/next",
+      "at": 2969.694209
+    },
+    {
+      "kind": "close-start",
+      "detail": "/next",
+      "at": 2977.210443
+    },
+    {
+      "kind": "close-end",
+      "detail": "/next",
+      "at": 2980.875017
+    }
+  ],
+  "eventScope": "All event timestamps use one native performance clock. URL details retain only fixture path; original local-origin values remain in the hashed raw receipt.",
+  "interpretation": {
+    "latePolicy": "The handler ended at 455.241063 ms before awaited page.close completed at 460.133138 ms. The delayed robots fetch only finished at 1206.661646 ms, after close and before the 820 ms observation ended.",
+    "pacing": "The late-paced handler ended at 1642.950877 ms before page.close ended at 1648.673735 ms. Its 1300 ms window began at 1648.761852 ms and ended at 2951.523966 ms.",
+    "limits": "These are handler, awaited close, fetch and test-window observations. No TargetDestroyed event or whole-network drain was observed. A close result or fetch completion alone is not proved equivalent to the retained no-late-request window.",
+    "minimum": "No numeric minimum, margin, savings or replacement is established; both original negative windows remain unchanged."
+  },
+  "rawSnapshotIndex": [
+    {
+      "receipt": "browser-politeness.test.ts.observed",
+      "sha256": "5560bc2b6ff123fc59fa0076809cf646c4a97c2e3ca2a92bb24083b0ea02ad7f",
+      "bytes": 10909
+    },
+    {
+      "receipt": "browser-politeness.test.ts.original",
+      "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef",
+      "bytes": 10534
+    },
+    {
+      "receipt": "report.json",
+      "sha256": "5164316b47daf7ead3646102f5b56c8a5f38f8fec9b151bce4c25c0cb5953320",
+      "bytes": 1249
+    },
+    {
+      "receipt": "run.log",
+      "sha256": "7808b8f311e608101fb23f13e3e4dfbe7baedcf3201dabcf6ffc45e158956980",
+      "bytes": 3148
+    },
+    {
+      "receipt": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "run.time",
+      "sha256": "8db67657c3e5166c475bb4fc8475080b3340926a3a6271278f701931e8ba2baf",
+      "bytes": 853
+    },
+    {
+      "receipt": "session.ts.observed",
+      "sha256": "2206841c7a92085299964cc813ab2d7ae7ba503f2077754aa1d8aa90e281bc00",
+      "bytes": 12513
+    },
+    {
+      "receipt": "session.ts.original",
+      "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec",
+      "bytes": 12128
+    }
+  ],
+  "restored": true
+}

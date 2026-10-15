@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { AskOtherField } from "../internal/AskOtherField.js";
 import { useRoving } from "../internal/roving.js";
@@ -47,9 +47,9 @@ import { accent, color, font, token } from "../tokens.js";
  * chosen, and `answers` lists every choice as its own row with the meta on
  * the first. "Other" toggles like any other row.
  *
- * **"Other" opens a real field in place of the Submit row** (`otherOpen`)
+ * **"Other" opens a real field above the Submit row** (`otherOpen`)
  * rather than a modal — a free-text answer is the same exchange, not a new
- * one. Enter in that field fires `onOtherSubmit` with the text; the field is
+ * one. Submit and Enter fire `onOtherSubmit` with the current text; the field is
  * only ever drawn while pending, because a closed exchange takes no answer.
  *
  * **It renders the `radiogroup` its options need.** `ChoiceOption` is a `radio`
@@ -106,10 +106,13 @@ export interface AskUserCardProps {
   tag?: string;
   tone?: "teal" | "amber" | "purple";
   options?: AskUserOption[];
-  /** Draws the free-text field in place of the Submit row. Pending only. */
+  /** Draws the free-text field above the actions. Pending only. */
   otherOpen?: boolean;
   otherPlaceholder?: string;
-  /** Enter in the "Other" field. */
+  /** Controlled custom-answer draft; omitted, the card keeps a local draft. */
+  otherText?: string;
+  onOtherChange?: (text: string) => void;
+  /** Submit or Enter in the "Other" field, with nonblank current text. */
   onOtherSubmit?: (text: string) => void;
   /** What was taken as the answer: the chosen option, or the quoted message. */
   answer?: string;
@@ -190,7 +193,13 @@ export function AskUserCard(p: AskUserCardProps) {
   // answered yet. `-1` then falls through to `useRoving`'s first-eligible rule.
   const roving = useRoving(eligible, options.findIndex((o) => o.selected === true));
 
+  const [localOtherText, setLocalOtherText] = useState("");
+  const otherText = p.otherText ?? localOtherText;
   const otherOpen = pending && p.otherOpen === true;
+  const otherBlank = otherOpen && !otherText.trim();
+  function submitOther(text: string) {
+    if (text.trim()) p.onOtherSubmit?.(text);
+  }
   const answers: string[] = answered || typed
     ? (p.answers ?? [p.answer ?? (answered ? "life/health/appointments.md" : "“put it with the other appointments”")])
     : [];
@@ -203,9 +212,8 @@ export function AskUserCard(p: AskUserCardProps) {
         : "you chose this · 2m ago");
   const prompt = (answered || typed) && p.recordHead ? p.recordHead : p.prompt ?? (answered && multi ? `Answered · ${answers.length} chosen` : PROMPTS[state]);
   const lapsedNote = lapsed ? (p.lapsedNote ?? "the run ended before you answered · nothing was filed") : null;
-  // The field stands IN PLACE OF the Submit row (the README's ruling; the
-  // DC's renderVals draws both, the ruling wins): Enter is the submit.
-  const showActions = pending && !otherOpen && p.showActions !== false;
+  // Other keeps an explicit action; Enter is an additional route (#1887).
+  const showActions = pending && p.showActions !== false;
 
   const box: CSSProperties = {
     border: `1px solid ${
@@ -316,7 +324,9 @@ export function AskUserCard(p: AskUserCardProps) {
         </div>
       ) : null}
       {otherOpen ? (
-        <AskOtherField placeholder={p.otherPlaceholder} onSubmit={p.onOtherSubmit} />
+        <AskOtherField placeholder={p.otherPlaceholder} value={otherText}
+          onChange={(text) => { setLocalOtherText(text); p.onOtherChange?.(text); }}
+          onSubmit={submitOther} touchTarget />
       ) : null}
       {answers.map((text, i) => (
         <div key={`${text}-${i}`} style={i ? answerRow : { ...answerRow, marginTop: 0 }}>
@@ -334,6 +344,11 @@ export function AskUserCard(p: AskUserCardProps) {
           {p.onAskAgain ? <Button label="Ask again" tone="quiet" size="sm" block={false} onClick={p.onAskAgain} /> : null}
         </div>
       ) : null}
+      {showActions && otherBlank ? (
+        <div style={{ marginTop: 8, font: `400 10px/1.4 ${font.mono}`, color: color.inkMute }}>
+          Type an answer to submit.
+        </div>
+      ) : null}
       {showActions ? (
         <div style={actions}>
           <Button
@@ -342,8 +357,12 @@ export function AskUserCard(p: AskUserCardProps) {
             size="sm"
             block={false}
             onClick={p.onSecondary}
+            style={otherOpen ? { minHeight: 44 } : undefined}
           />
-          <Button label={p.primaryLabel || "Submit"} tone="affirm" size="sm" block={false} onClick={p.onPrimary} />
+          <Button label={p.primaryLabel || "Submit"} tone="affirm" size="sm" block={false}
+            disabled={otherBlank}
+            onClick={otherOpen ? p.onOtherSubmit ? () => submitOther(otherText) : undefined : p.onPrimary}
+            style={otherOpen ? { minHeight: 44 } : undefined} />
         </div>
       ) : null}
     </div>

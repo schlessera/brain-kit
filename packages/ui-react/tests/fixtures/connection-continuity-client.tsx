@@ -10,6 +10,7 @@ import { restorationOf } from "../../src/stores/chat-state.ts";
 // Observe native frame delivery; tests read these counts on a later page task
 // and separately check committed replay state. The production history/status
 // handlers are synchronous; this does not drain arbitrary asynchronous handlers.
+const frames: unknown[] = [];
 const received = new Map<string, number>();
 const NativeSocket = WebSocket;
 const observePreparation = (window as unknown as { __observeContinuityPreparation?: boolean }).__observeContinuityPreparation === true;
@@ -30,6 +31,9 @@ class ObservedSocket extends NativeSocket {
     if (recording) socketIds.set(this, socket);
     this.addEventListener("message", event => {
       const frame = JSON.parse(event.data);
+      frames.push({ at: Date.now(), type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId,
+        status: frame.status, text: frame.text?.slice(-240), followUps: frame.followUps, started: frame.started, dropped: frame.dropped });
+      if (frames.length > 256) frames.shift();
       queueMicrotask(() => {
         recordPreparation(socket, "received", frame);
         const key = `${frame.type}:${frame.sessionId ?? ""}`;
@@ -96,6 +100,15 @@ try {
 
   Object.assign(window, {
     __continuity: {
+      diagnostic: () => {
+        const chat = root.stores.chat.getState();
+        return { activeSessionId: chat.activeSessionId, queueNotes: chat.queueNotes, frames,
+          buffers: Object.fromEntries(Object.entries(chat.buffers).map(([id, buffer]) => [id, {
+            streaming: buffer.isStreaming, replay: Boolean(buffer.replay),
+            messages: buffer.messages.slice(-4).map(message => ({ id: message.id, turnId: message.turnId,
+              role: message.role, streaming: message.isStreaming, content: message.content.slice(-2000) })),
+          }])) };
+      },
       preparation: observePreparation ? {
         restoring: () => root.localWork!.restoring(),
         recovered: (sessionId: string, text: string) => {

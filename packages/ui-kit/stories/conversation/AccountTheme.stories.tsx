@@ -30,7 +30,7 @@ function AccountTheme({ onAssign, onSignOut }: { width: number; onAssign: (id: s
     }) as unknown as RecordingStore;
     const dispose = root.dispose;
     root.dispose = () => { root.recordings = recordings; dispose(); };
-    root.localWorkFlow.loss = async () => ({ account: "odysseus", epoch: 0, recordings: 2, bytes: 1048576, transcripts: 1, accepted: 1, drafts: 1, tracks: 1, review: false, unassigned: 2, unknown: false, otherTabs: false, otherUnknown: false });
+    root.localWorkFlow.loss = async () => ({ account: "odysseus", epoch: 0, recordings: 2, bytes: 1048576, transcripts: 1, accepted: 1, drafts: 1, tracks: 1, shares: 0, review: false, unassigned: 2, unknown: false, otherTabs: false, otherUnknown: false });
     root.localWorkFlow.signOut = onSignOut;
     return root;
   });

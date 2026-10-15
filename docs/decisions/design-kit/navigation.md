@@ -119,3 +119,29 @@ Genuine voice and autonomous sessions have no proposal tool. Dictation remains
 ordinary interactive work, but speech grants nothing. Session/account switches
 cannot transfer actions; copy wraps at 320px and 200% zoom, with bounded diffs,
 44px effective targets and existing dark/paper tokens.
+
+## 2026-10-13 — approved Settings organization (#1773)
+
+The [complete maintainer approval](https://github.com/schlessera/brain-kit/issues/1773#issuecomment-6152749522)
+amends D37's fifth-drop Settings placement: Appearance & input is a pane at
+every width. Its theme, single-key switch and banner appear only there.
+The seven logical panes are Appearance & input, Models, Accounts, Skills,
+Modules, Security, and Devices & agents. Desktop groups them under This device,
+This brain and Access; below 900px the same inventory is a horizontal tab strip.
+Models owns the picker roster; Accounts owns existing provider sign-in and
+web-search settings; Security owns passkeys, standing tool grants and sign-out.
+
+The default remains Models and selection stays in memory across width changes.
+Arrows and Home/End move focus only; Enter/Space activate. Traversal makes no
+pane request and invokes no leave guard. Activation resets the new pane to its
+start and keeps focus on its tab. The compact strip reveals selected/focused
+tabs through its own horizontal scroll, with an overflow cue and 44px targets.
+Modules draft guards, credential-mint dismissal/navigation protection, opener
+focus return and D52 N3 remain binding. D36 shortcut policy is unchanged.
+
+Fictional Chromium review captures show the [previous compact allocation](../../assets/settings-1773/phone-before-dark.png),
+[Models with the recovered space and a long roster](../../assets/settings-1773/phone-models-dark.png),
+[Appearance & input on paper](../../assets/settings-1773/phone-appearance-paper.png),
+and [the grouped desktop Accounts pane](../../assets/settings-1773/desktop-accounts-paper.png).
+The original capture has an empty roster; the final capture uses long content
+to prove scrolling. These illustrate the organization, not pixel baselines.
