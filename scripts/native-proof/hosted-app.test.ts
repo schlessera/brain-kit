@@ -369,3 +369,41 @@ if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] 
     try { await client.release(id); } finally { await service.close(); }
   }
 }, 90_000);
+
+// A reference released just after the delete must not hold the root until the
+// next transaction-kthread pass, which equals the release deadline (#1967).
+if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor released just after its delete still completes release", async () => {
+  const brain = "/brain-fixture/brain", name = "notes/worker-1.md";
+  const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
+  const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
+  const show = Bun.spawnSync(["/usr/bin/btrfs", "subvolume", "show", brain]); expect(show.exitCode).toBe(0);
+  const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
+  const fs = Bun.spawnSync(["/usr/bin/btrfs", "filesystem", "show", "/brain-fixture"]); expect(fs.exitCode).toBe(0);
+  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  const socketPath = "/native-runtime/release-transient.sock";
+  const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
+  let fd: number | undefined;
+  try {
+    const checkpoint = await client.checkpoint(id);
+    fd = openSync(join(checkpoint.path, name), "r");
+    const release = client.release(id);
+    void release.catch(() => {});
+    // The recorded delete command, including its --commit-after wake, has
+    // exited while this descriptor still pins the root.
+    const deleted = () => readFileSync(join(ARTIFACTS, "native-operations.jsonl"), "utf8").split("\n").some(line => {
+      const row = line ? JSON.parse(line) : undefined;
+      return row?.stage === "end" && row.code === 0 && row.command.join(" ") === `subvolume delete --commit-after ${checkpoint.path}`;
+    });
+    await until(deleted, 20_000);
+    await sleep(100);
+    const closed = performance.now();
+    closeSync(fd); fd = undefined;
+    await expect(release, "NATIVE_RELEASE_SURVIVES_TRANSIENT_REFERENCE").resolves.toEqual({ id, state: "deleted" });
+    expect(performance.now() - closed, "NATIVE_RELEASE_TRANSIENT_REFERENCE_RECLAIMED_PROMPTLY").toBeLessThan(10_000);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { await client.release(id); } finally { await service.close(); }
+  }
+}, 90_000);
