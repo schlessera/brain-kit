@@ -75,6 +75,7 @@ exceptions. Unmeasured means no saving is claimed.
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
+| `ghost-text.test.tsx`, nine arrival settlements | Actual `useArrival` callbacks at the unchanged 600 ms default; 599/600 ms DOM, identity/state, restart, StrictMode and cancellation assertions | [Ghost handoff boundaries](#ghost-handoff-boundaries) use logical time with native React commits. Storybook and Chromium retain CSS opacity, geometry and elapsed animation proof. |
 | `draft-runtime.test.ts`, consumed host draft | Exact accepted saved revision and real host consumption replace the final fixed observation; both native clients stay live | All original native assertions remain. Registered-client cases separately cover retired saves, stale reads and clean second-client deletion across actual save callbacks and backoff horizons. This fixture does not bind account-local persistence; see [the source-specific proof](#consumed-host-draft-completion). |
 | `ws-session-recovery.test.ts`, stalled backend lookup | Actual 3000 ms recovery registration and callback delivery advance logically in the named case only | The empty backend and its wrapper complete before advancing; silent reads stay pending at 2999 ms and fail at 3000 ms. A winning aggregate can leave losing bounded probes pending. Timed-out backend reads remain reusable because they have no cancellation API; teardown releases fixture reads, drains wrappers and restores descriptors. Native finalization, admission and revocation cases retain their existing clocks. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
@@ -294,6 +295,46 @@ independent process observations and experiment readers require their own
 attribution. Higher measurement cost is not itself a reason to exempt them from
 the rule or move them out of required proof.
 
+## Ghost handoff boundaries
+
+The nine former 640 ms settlements in `packages/ui-kit/tests/ghost-text.test.tsx`
+retain their assertions. The test captures every global timeout registered by
+these mounted components, including a wrongly configured delay. Its independent
+600 ms oracle checks the actual `useArrival` effect (`useArrival`,
+`packages/ui-kit/src/internal/GhostText.tsx:181-194`). At 599 ms the same outgoing
+and incoming nodes must remain; at 600 ms the real callback runs inside React
+`act`, whose committed result must remove both handoff classes. Neither an
+arbitrary microtask nor immediate absence proves completion.
+
+| Original settlement case | Retained guarantee after the committed deadline |
+| --- | --- |
+| Placeholder: flips the opacities | Ghosts and handoff classes leave; arrived text remains. The DOM test observes classes, not computed opacity. |
+| Placeholder: ending the handoff does not remount content | Clicked counter state and mount count survive; button identity also survives. |
+| Refetch starts mid-handoff | The newest ready value sizes the next loading ghost. |
+| Foot dot reserved only when one is coming | The ready dot and subsequent loading reservation still follow the supplied metadata. |
+| QueueItemRow arrival | The row loses its ghost layers and refetch preserves the previous value's length. |
+| SearchResultCard arrival | The card loses its ghost layers and refetch preserves the previous value's length. |
+| FileRow arrival | The row loses its ghost layers and refetch preserves the previous value's length. |
+| ActionCard arrival | The card loses its ghost layers and refetch preserves the previous value's length. |
+| StreamingAnswer first token | Text remains above the outgoing ghost, minimum height holds and the ghost leaves. |
+
+Additional controls cross a cancelled old deadline during the next arrival,
+then its fresh 599/600 ms boundary; exercise actual StrictMode effect
+setup/cleanup/setup with a live arrival; cross deadlines after unmount; and
+induce a failed assertion before mounting a clean successor. Every root is
+owned before rendering and unmounted in teardown. Full global property
+descriptors are restored even on failure, and cancelled callbacks cannot run
+in the successor. The original glyph, role, style, accessibility, inertness,
+interaction, ordering and loaded-state assertions stay in this file.
+
+Native proof remains unchanged and required: `playHandoff` in
+`packages/ui-kit/stories/_ghost.tsx` observes 300 ms mid-handoff opacity,
+320/720 px geometry and actual arrival/removal under 700 ms. LoadingToReady
+stories run in both Storybook theme projects. Chromium's
+`packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
+input-orchestration exclusion and the 800 ms mutation that fails the cap.
+Logical component time proves none of CSS rasterization, native elapsed
+animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 
 ## Native fixtures, renderer effects and experiment transports
 
