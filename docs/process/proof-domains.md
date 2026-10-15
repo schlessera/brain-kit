@@ -20,13 +20,13 @@ These IDs are receipt-local navigation, not stable identities across source move
 
 Hosted browser/layout/endurance commands retain the normal human reporter and
 publish `tmp/proof-cases.json` with their existing artifacts. It records the Git
-checkout, selected files, cases observed at collection, final case states and
+checkout, requested files before sharding, cases observed at collection, final case states and
 durations, and module/unhandled errors. Unlike `vitest list --json`, it retains
 skipped cases. The outer wrapper captures and rechecks host Git identity; its
 internal `BRAIN_PROOF_CASE_CHECKOUT` transport lets a mounted worktree report
 identity without resolving host-only `.git` paths inside the container.
 `caseReportProblems` compares the report with the independently
-selected project/file partition and expected checkout, then refuses missing or
+requested project/file domain, executed partition and expected checkout, then refuses missing or
 duplicate files/cases, skipped or unfinished cases, errors and stale identity as
 complete reconciliation evidence. This diagnostic does not replace the runner's
 exit status or make a skipped required assertion passing.
@@ -37,13 +37,20 @@ After downloading a job's artifacts, run the diagnostic explicitly:
 node scripts/proof-case-report.mjs --check proof-cases.json selected-specs.json proof-checkout.json
 ```
 
-`selected-specs.json` is an array of `{ "project": "…", "file": "packages/…" }`.
-Derive it independently from the metadata inventory and the actual installed
-sequencer's selected partition (also recorded in reusable browser/layout input
-receipts). For endurance, take every endurance row from the metadata inventory.
-For an explicitly focused local command, intersect that inventory with the
-recorded project/file filter. Never copy the case report's own `selected` field
-as the independent expected selection. `proof-checkout.json` is the command's
+`selected-specs.json` uses a versioned object with `version: 1`, `requested`
+and `executed` arrays of `{ "project": "…", "file": "packages/…" }`. Derive
+`requested` independently from the metadata inventory and recorded project/file
+filter, and `executed` from the installed sequencer's selected partition (also
+recorded in reusable browser/layout input receipts). Vitest calls `onTestRunStart`
+before sharding, so the raw report's `selected` field describes the whole
+requested domain; `collected` and `modules` describe the executed shard. The
+diagnostic checks both domains separately, requires unique nonempty selections,
+and rejects execution outside the requested domain. Never derive either expected
+selection from the report being checked.
+
+For unsharded endurance, take every endurance row from the metadata inventory;
+requested and executed are equal. The original array input remains shorthand
+only for unsharded commands, with that same equality requirement. `proof-checkout.json` is the command's
 separate Git checkout receipt. The diagnostic exits nonzero on unresolved
 evidence; the candidate aggregate does not invoke it automatically.
 

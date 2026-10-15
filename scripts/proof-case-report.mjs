@@ -20,14 +20,26 @@ const checkout = () => {
 };
 
 /** A complete report is evidence to reconcile, never a replacement for runner exit status. */
-export function caseReportProblems(report, expectedSpecs, expectedCheckout) {
+export function caseReportProblems(report, selection, expectedCheckout) {
   const problems = [];
-  if (!expectedSpecs.length) problems.push("missing independent case-report selection");
+  // Vitest emits onTestRunStart before the sequencer applies --shard. Keep
+  // that requested domain separate from independently expected execution.
+  const input = Array.isArray(selection) ? { version: 1, requested: selection, executed: selection } : selection;
+  if (input?.version !== 1) return ["unknown independent case-report selection version"];
+  const key = (value) => `${value.project}::${value.file}`;
+  for (const name of ["requested", "executed"]) {
+    const specs = input[name];
+    if (!Array.isArray(specs) || !specs.length || specs.some(spec => !spec ||
+        typeof spec.project !== "string" || !spec.project.trim() || typeof spec.file !== "string" || !spec.file.trim())) {
+      problems.push(`missing or invalid independent ${name} case-report selection`);
+    } else if (new Set(specs.map(key)).size !== specs.length) problems.push(`duplicate independent ${name} case-report selection`);
+  }
+  if (problems.length) return problems;
+  const requested = input.requested.map(key).sort(), executed = input.executed.map(key).sort();
+  if (executed.some(key => !requested.includes(key))) problems.push("executed case-report selection is outside requested domain");
   if (report.version !== 1 || JSON.stringify(report.checkout) !== JSON.stringify(expectedCheckout)) problems.push("stale or unknown case-report identity");
   if (report.reason !== "passed" || report.unhandledErrors.length) problems.push("case run did not finish successfully");
-  const key = (value) => `${value.project}::${value.file}`;
-  const expected = expectedSpecs.map(key).sort();
-  for (const [name, rows] of [["selected", report.selected], ["collected", report.collected], ["reported", report.modules]]) {
+  for (const [name, rows, expected] of [["selected", report.selected, requested], ["collected", report.collected, executed], ["reported", report.modules, executed]]) {
     const actual = rows.map(key).sort();
     if (new Set(actual).size !== actual.length) problems.push(`duplicate ${name} case-report ownership`);
     if (JSON.stringify(actual) !== JSON.stringify(expected)) problems.push(`omitted or unexpected ${name} case-report ownership`);
