@@ -37,6 +37,19 @@ without DAC override. Source and Bun mounts are read-only. Receipts include
 app phases, worker authority, native operations and
 exact owned-resource cleanup under `tmp/native-host-proof/`.
 
+The hosted runtime job also records a root-only btrfs kernel trace around the
+proof (`dead-root-trace.sh start <file>` / `stop`). Btrfs queues a deleted
+checkpoint for its cleaner only when the last in-memory reference goes away.
+If that happens after `subvolume delete --commit-after` has woken the cleaner,
+reclamation waits for the next commit-interval pass, about 30 s later. A
+reference that outlives the delete by even 1 ms therefore exhausts the
+manager's release deadline. `dead-root-trace.ts` matches each delete to its
+root and writes `dead-root-summary.json`, which records whether the delete
+itself queued the root or another task did, before or after the commit, with
+that task's kernel stack. The deliberate descriptor, cwd and namespace
+controls appear as `after-commit`. The trace is diagnostic evidence, not a
+proof gate. Locally it needs root, tracefs, kprobes and kernel BTF.
+
 `seccomp.json` derives from Moby's Apache-2.0 profile at the revision recorded in
 `seccomp-source.json`; `LICENSE.seccomp` preserves its license. The derivation
 adds the namespace calls needed by the real worker harness and removes the

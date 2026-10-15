@@ -43,6 +43,13 @@ let scratch: string | undefined;
 let port = 0;
 let origin = "";
 let sequence = 0;
+let diagnosticSequence = 0;
+// One deliberately overlapped read, sampled at the original terminal and
+// delivered after its queued successor. Later reads use ordinary fresh history.
+type LateHistory = { sessionId: string; mode: "stale" | "fresh"; promise: Promise<void>; release(): void;
+  entered: Promise<void>; start(): void; reads: number; released: boolean;
+  snapshot?: SessionHistoryMessage[]; capturedAt?: number };
+let lateHistory: LateHistory | undefined;
 
 const transcripts = new Map<string, SessionHistoryMessage[]>();
 const titles = new Map<string, string>();
@@ -50,6 +57,22 @@ const titles = new Map<string, string>();
 const gates = new Map<string, () => void>();
 const advance = new Map<string, () => void>();
 const missed = new Map<string, () => void>();
+// Bounded fixture-only evidence. Record without changing delivery or awaiting it.
+const lifecycle: Array<{ at: number; stage: string; detail: unknown }> = [];
+const observability = createRecordingObservability();
+function recordLifecycle(stage: string, detail: unknown) {
+  lifecycle.push({ at: Date.now(), stage, detail });
+  if (lifecycle.length > 256) lifecycle.shift();
+}
+function describeFrame(value: string | Buffer) {
+  try {
+    const frame = JSON.parse(String(value));
+    return { type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId, requestId: frame.requestId,
+      status: frame.status, outcome: frame.outcome, code: frame.code, message: frame.message,
+      history: frame.messages?.slice(-4).map((message: SessionHistoryMessage) => ({ role: message.role, content: message.content.slice(-240) })),
+      text: frame.text?.slice(-240), followUps: frame.followUps, started: frame.started, dropped: frame.dropped };
+  } catch { return { type: "unreadable" }; }
+}
 const historyWaiters = new Map<string, { promise: Promise<void>; release(): void; reads: number; mode?: "empty" | "failed"; holdWhile?: () => boolean }>();
 
 /** A long answer, so the transcript scrolls at every width. */
@@ -93,6 +116,17 @@ function scriptedBackend(): AgentBackend {
     listProfiles: () => [{ id: "continuity-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => {
+      if (lateHistory?.sessionId === sessionId && !lateHistory.released && lateHistory.reads === 0) {
+        const held = lateHistory;
+        held.reads++;
+        held.start();
+        recordLifecycle("late-history-read-pending", { sessionId, reads: held.reads });
+        await held.promise;
+        if (!held.snapshot) throw new Error("Late-history control released without its terminal snapshot");
+        const returned = held.mode === "fresh" ? transcripts.get(sessionId) ?? [] : held.snapshot;
+        recordLifecycle("late-history-return", { sessionId, mode: held.mode, messages: returned.length, tail: returned.at(-1)?.content.slice(-200) });
+        return structuredClone(returned);
+      }
       const waiting = historyWaiters.get(sessionId);
       if (waiting && (!waiting.holdWhile || waiting.holdWhile())) {
         waiting.reads++; await waiting.promise;
@@ -104,10 +138,15 @@ function scriptedBackend(): AgentBackend {
     async startTurn({ prompt: contextPrompt, bridge, sessionId: resumed, signal, attachments }) {
       // Route the fixture command independently of appended host budget context.
       const prompt = contextPrompt.split("\n", 1)[0]!;
+      recordLifecycle("backend-start", { prompt, resumed });
+      const emit: typeof bridge.emit = frame => {
+        recordLifecycle("backend-emit", describeFrame(JSON.stringify(frame)));
+        bridge.emit(frame);
+      };
       const sessionId = resumed ?? `odysseus-continuity-${++sequence}`;
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
       if (!titles.has(sessionId)) titles.set(sessionId, title);
-      bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
+      emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
       transcript.push({ role: "user", content: prompt, toolCalls: [], ...(attachments?.length ? { attachmentCount: attachments.length } : {}) });
@@ -115,27 +154,40 @@ function scriptedBackend(): AgentBackend {
         const opening = `Setting out: ${title}. ${LOG}\n\n`;
         const partial: SessionHistoryMessage = { role: "assistant", content: opening, toolCalls: [] };
         transcript.push(partial);
-        bridge.emit({ type: "text_delta", sessionId, text: opening });
+        emit({ type: "text_delta", sessionId, text: opening });
         await new Promise<void>((release) => {
           gates.set(prompt, release);
           missed.set(prompt, () => {
             partial.content += "Missed tide. ";
-            bridge.emit({ type: "text_delta", sessionId, text: "Missed tide. " });
+            emit({ type: "text_delta", sessionId, text: "Missed tide. " });
           });
           advance.set(prompt, () => {
             partial.content += "Rowing again. ";
-            bridge.emit({ type: "text_delta", sessionId, text: "Rowing again. " });
+            emit({ type: "text_delta", sessionId, text: "Rowing again. " });
           });
         });
         if (signal.aborted) return;
         const end = `Landed: ${title}.`;
         partial.content += end;
-        bridge.emit({ type: "text_delta", sessionId, text: end });
+        emit({ type: "text_delta", sessionId, text: end });
       } else {
         transcript.push({ role: "assistant", content: `Noted: ${title}.`, toolCalls: [] });
-        bridge.emit({ type: "text_delta", sessionId, text: `Noted: ${title}.` });
+        emit({ type: "text_delta", sessionId, text: `Noted: ${title}.` });
       }
-      bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      if (lateHistory?.sessionId === sessionId) {
+        if (prompt.startsWith("Hold: Sail past the Sirens")) {
+          lateHistory.snapshot = structuredClone(transcript);
+          lateHistory.capturedAt = Date.now();
+          recordLifecycle("late-history-captured-original-terminal", { sessionId, messages: lateHistory.snapshot.length,
+            tail: lateHistory.snapshot.at(-1)?.content.slice(-200), queue: app!.wsHost.followUpQueueFrame(sessionId) });
+        } else if (prompt.startsWith("Then bind me to the mast")) {
+          recordLifecycle("late-history-release-after-queued-result", { sessionId, messages: transcript.length,
+            tail: transcript.at(-1)?.content.slice(-200), queue: app!.wsHost.followUpQueueFrame(sessionId) });
+          lateHistory.released = true;
+          lateHistory.release();
+        }
+      }
     },
   };
 }
@@ -168,12 +220,21 @@ beforeAll(async () => {
   }
   backend = scriptedBackend();
   config = resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0", MAX_CONCURRENT_SESSIONS: "12" });
-  app = await createApp({ config, staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(), turnTimeoutMs: 600_000 });
+  app = await createApp({ config, staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability, turnTimeoutMs: 600_000 });
+  const originalSend = app.wsHost.sendToClients;
+  app.wsHost.sendToClients = function(frame) {
+    recordLifecycle("host-broadcast", describeFrame(JSON.stringify(frame)));
+    return originalSend.call(this, frame);
+  };
   listen();
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 240_000);
 
 afterEach(() => {
+  lateHistory?.release();
+  lateHistory = undefined;
+  lifecycle.length = 0;
+  observability.reset();
   for (const release of gates.values()) release();
   gates.clear();
   advance.clear();
@@ -265,6 +326,7 @@ type Net = {
   sent: string[];
   holdQueues: boolean;
   queues: Array<() => void>;
+  trace: Array<{ at: number; stage: string; frame: ReturnType<typeof describeFrame> }>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
 
@@ -344,7 +406,7 @@ async function settle(page: Page) {
 async function scene(cell: Cell): Promise<Scene> {
   const tag = `(${cell.name})`;
   const context = await browser!.newContext({ viewport: { width: cell.width, height: cell.height }, reducedMotion: "reduce" });
-  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [] };
+  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
   // Keep the real browser offline apart from this one local host.
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   await context.route("**/api/track-upload", (route) => {
@@ -357,7 +419,12 @@ async function scene(cell: Cell): Promise<Scene> {
   await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
     const host = socket.connectToServer();
     host.onMessage((message) => {
-      const send = () => socket.send(message);
+      const record = (stage: string) => {
+        net.trace.push({ at: Date.now(), stage, frame: describeFrame(message) });
+        if (net.trace.length > 256) net.trace.shift();
+      };
+      record("host-received");
+      const send = () => { record("client-forwarded"); socket.send(message); };
       if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
       else send();
     });
@@ -542,33 +609,119 @@ function same(label: string, now: Measure, base: Measure) {
 
 /** The restored socket must deliver into the retained answer, then drain the queue. */
 async function finishRecoveredTurn(s: Scene, cell: Cell) {
-  const prompt = `Hold: Sail past the Sirens (${cell.name})`;
-  const release = gates.get(prompt);
-  expect(release, "the real host still holds A's turn").toBeDefined();
-  advance.get(prompt)!();
-  await s.page.waitForFunction(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    return marks.nodes.at(-1)?.textContent?.includes("Rowing again.");
-  });
-  expect(await probe(s.page, (p) => p.streaming(p.activeSessionId()!)), "the resumed delta arrived before the terminal result").toBe(true);
-  release!();
-  gates.delete(prompt);
-  await s.page.waitForFunction(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    return marks.nodes.at(-1)?.textContent?.includes("Landed: Sail past the Sirens.");
-  });
-  await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
-  await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
-  await settle(s.page);
-  expect(await s.page.evaluate(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    const column = document.querySelector("[data-reading-column]")!;
-    return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
-  }), "recovered text and the terminal replay kept the original answer node").toBe(true);
-  expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
+  try {
+    const prompt = `Hold: Sail past the Sirens (${cell.name})`;
+    const release = gates.get(prompt);
+    expect(release, "the real host still holds A's turn").toBeDefined();
+    advance.get(prompt)!();
+    await s.page.waitForFunction(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      return marks.nodes.at(-1)?.textContent?.includes("Rowing again.");
+    });
+    expect(await probe(s.page, (p) => p.streaming(p.activeSessionId()!)), "the resumed delta arrived before the terminal result").toBe(true);
+    release!();
+    gates.delete(prompt);
+    await s.page.waitForFunction(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      return marks.nodes.at(-1)?.textContent?.includes("Landed: Sail past the Sirens.");
+    });
+    await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
+    await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
+    if (lateHistory) {
+      await s.page.waitForFunction((sessionId) => {
+        const p = (window as unknown as { __continuity: { diagnostic(): {
+          frames: Array<{ type: string; sessionId?: string; text?: string; status?: string }>;
+          buffers: Record<string, { streaming: boolean; replay: boolean }>;
+        } } }).__continuity.diagnostic();
+        const frames = p.frames.filter(frame => frame.sessionId === sessionId);
+        const noted = frames.findLastIndex(frame => frame.type === "text_delta" && frame.text?.includes("Noted: Then bind me to the mast."));
+        const terminal = frames.findIndex((frame, index) => index > noted && frame.type === "result");
+        const history = frames.findIndex((frame, index) => index > terminal && frame.type === "session_history");
+        return noted >= 0 && terminal > noted && history > terminal &&
+          frames.some((frame, index) => index > history && frame.type === "status" && frame.status === "idle") &&
+          !p.buffers[sessionId]?.streaming && !p.buffers[sessionId]?.replay;
+      }, s.A);
+    }
+    // Keep the original negative observation after the causal history/status
+    // barrier, so an old React commit cannot masquerade as retained state.
+    await settle(s.page);
+    if (lateHistory) {
+      const retained = await s.page.evaluate(sessionId => {
+        const p = (window as unknown as { __continuity: { diagnostic(): {
+          buffers: Record<string, { messages: Array<{ role: string; content: string }> }>;
+        } } }).__continuity.diagnostic();
+        return p.buffers[sessionId]!.messages.slice(-2);
+      }, s.A);
+      expect(retained.map(message => message.role), "the settled store keeps the queued exchange").toEqual(["user", "assistant"]);
+      expect(retained[0]!.content).toContain("Then bind me to the mast");
+      expect(retained[1]!.content).toBe("Noted: Then bind me to the mast.");
+      expect(await s.page.evaluate(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast.")),
+        "the queued reply remains visible after the late history and terminal status settle").toBe(true);
+    }
+    expect(await s.page.evaluate(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      const column = document.querySelector("[data-reading-column]")!;
+      return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
+    }), "recovered text and the terminal replay kept the original answer node").toBe(true);
+    expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
+  } catch (error) {
+    const client = await s.page.evaluate(() => {
+      const state = (window as unknown as { __continuity: { diagnostic(): unknown } }).__continuity;
+      return { state: state.diagnostic(), column: document.querySelector("[data-reading-column]")?.textContent?.slice(-2000) };
+    }).catch(failure => ({ diagnosticError: String(failure) }));
+    const evidence = { capturedAt: Date.now(), cell, sessionId: s.A,
+      lateHistory: lateHistory ? { mode: lateHistory.mode, reads: lateHistory.reads, released: lateHistory.released, capturedAt: lateHistory.capturedAt, snapshot: lateHistory.snapshot } : null,
+      queue: app!.wsHost.followUpQueueFrame(s.A),
+      slots: [...app!.wsHost.coordinator.running].map(turn => ({ sessionId: turn.sessionId, turnId: turn.turnId,
+        cancelled: turn.cancelled, backendStarted: turn.backendStarted, queue: turn.queue.map(entry => ({ id: entry.followUpId, text: entry.text })) })),
+      transcript: transcripts.get(s.A)?.slice(-4), lifecycle, transport: s.net.trace,
+      logs: observability.logs.records().slice(-64), client };
+    // A single large stderr line can interleave with the timeout report. Keep
+    // complete JSON in the existing unit artifact glob, with a short log pointer.
+    const name = `connection-continuity-${cell.width}-${++diagnosticSequence}-probe.json`;
+    try {
+      await mkdir(resolve(repo, "tmp"), { recursive: true });
+      await writeFile(resolve(repo, "tmp", name), JSON.stringify(evidence, null, 2));
+      console.error("QUEUED_FOLLOWUP_LIFECYCLE", JSON.stringify({ path: `tmp/${name}`, cell, sessionId: s.A,
+        pending: evidence.queue.followUps.length, lifecycle: lifecycle.length, transport: s.net.trace.length }));
+    } catch (captureError) {
+      console.error("QUEUED_FOLLOWUP_LIFECYCLE capture failed", String(captureError));
+    }
+    throw error;
+  }
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
+  for (const cell of cells) for (const mode of ["stale", "fresh"] as const) {
+    test(`${cell.name}: a ${mode} late history read retains the settled queued reply`, async () => {
+      const s = await scene(cell);
+      let release!: () => void;
+      let start!: () => void;
+      const held: LateHistory = lateHistory = { sessionId: s.A, mode, reads: 0, released: false,
+        promise: new Promise<void>(done => { release = done; }), release: () => release(),
+        entered: new Promise<void>(done => { start = done; }), start: () => start() };
+      try {
+        await mark(s.page);
+        await drop(s);
+        s.net.holdTracks = false;
+        // Reuse the fixture's held-history recovery path. The read is allowed
+        // to overlap turn completion; the original ten-drop cases still await
+        // their ordinary early replay-completion barrier.
+        historyWaiters.set(s.A, { promise: held.promise, release: held.release, reads: held.reads, holdWhile: () => false });
+        await recover(s);
+        await held.entered;
+        expect(held.reads, "exactly one reconnect read is held").toBe(1);
+        await finishRecoveredTurn(s, cell);
+        expect(held.released, "queued completion released the read").toBe(true);
+        expect(lateHistory?.snapshot, "the old snapshot precedes the queued turn").toHaveLength(2);
+        expect(transcripts.get(s.A), "the backend retains both completed turns").toHaveLength(4);
+      } finally {
+        held.release();
+        historyWaiters.delete(s.A);
+        await s.context.close();
+      }
+    }, 300_000);
+  }
   test("render readiness waits for a finite entrance even when its initial geometry is quiet", async () => {
     const context = await browser!.newContext();
     try {
@@ -598,7 +751,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const page = await context.newPage();
     const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
-    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
+    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
     let socketUrl = "";
     page.on("websocket", (ws) => {
       socketUrl = ws.url();
@@ -646,12 +799,15 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         const answer = document.querySelector("[data-reading-column]")!.lastElementChild!;
         Object.assign(window, { __snapshotMarks: { field, answer } });
       });
+      const currentTurn = frames.findLast((f) => f.type === "text_delta" && f.sessionId === sessionId)?.turnId;
+      expect(currentTurn, "the running answer has a host-proven turn").toBeTruthy();
+      if (newer) expect(currentTurn, "the successor has its own turn identity").not.toBe(oldTurn);
       const beforeStatus = frames.length; release(); historyWaiters.delete(sessionId);
       const statusDeadline = Date.now() + 5_000;
-      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
-      expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
+      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
+      expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress"), "the snapshot reports the current turn after its asynchronous read").toBe(true);
       await settle(page);
-      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the captured old snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
+      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the delayed snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
       expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
       expect(await page.evaluate(() => {
