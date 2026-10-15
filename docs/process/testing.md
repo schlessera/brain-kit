@@ -243,6 +243,9 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   keyless funnel, pinned browser proof, strict types and packaging on ready
   PRs. Agents keep focused local behavioral proof.
 - Run `bun run check:pr --base origin/main` before opening or marking ready.
+  For an upper stack layer, substitute its verified immediate parent ref;
+  see [stack rules](github.md#stacked-pull-requests). Each included PR needs
+  its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
   inputs. Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,

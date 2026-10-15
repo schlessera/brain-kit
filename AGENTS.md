@@ -141,7 +141,9 @@ on, links to or describes them.
 - A review finding is one instance of a bug class: grep the diff and its file
   for every other instance before calling it closed.
 - Before opening or marking a PR ready, run `bun run check:pr --base
-  origin/main` and keep focused failing-first/mutation receipts. Ready-PR CI
+  origin/main` (use the immediate parent ref for an upper stack layer;
+  [stack rules](docs/process/github.md#stacked-pull-requests)) and keep focused
+  failing-first/mutation receipts. Ready-PR CI
   supplies the complete affected proof; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
@@ -192,6 +194,7 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | --- | --- |
 | `release` | Versioning, publishing, or changing what a release ships. |
 | `github` | Filing, triaging, picking up or closing work in either tracker. |
+| `gh-stack` | Creating or working in stacked branches/PRs, including rebasing, submitting and merging a stack. Apply the [project stack rules](docs/process/github.md#stacked-pull-requests) alongside it. |
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
 

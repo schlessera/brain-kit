@@ -12,3 +12,6 @@ Repo-local skills live in `.agents/skills/` and are symlinked into
   release ships.
 - **`github`** — load it before filing, triaging, picking up or closing work in
   either issue tracker.
+- **`gh-stack`** — load it before creating or working in stacked branches or
+  pull requests. Follow the [project stack rules](docs/process/github.md#stacked-pull-requests)
+  alongside the skill.

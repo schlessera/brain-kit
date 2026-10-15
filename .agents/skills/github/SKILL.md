@@ -382,8 +382,17 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
+For stacked work, load `gh-stack` and follow
+[the project stack rules](../../../docs/process/github.md#stacked-pull-requests).
+Upper layers use their immediate parent ref for local `--base`. Submit with
+`gh stack submit --auto`, then edit every PR to the repository template and
+assign its labels/milestone. Partial slices use `Refs`; the completing layer
+uses `Closes`. Inspect proof and release assignments for every PR included in
+`gh stack merge`, and verify each result after landing.
+
 Before opening or marking ready, run `bun run check:pr --base origin/main`
-for focused local preflight and record actual behavioral/mutation receipts.
+(`--base <parent-ref>` for an upper stack layer) for focused local preflight
+and record actual behavioral/mutation receipts.
 Complete repeatable proof is authoritative in affected hosted jobs under #1326;
 `--full`/`--all` retain local fallback/release commands. Missing tools, failed or
 cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch

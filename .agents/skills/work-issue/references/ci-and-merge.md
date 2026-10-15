@@ -16,7 +16,8 @@ means CI has not started on that commit, which is not the same as green.
 ## Required evidence
 
 Before opening/marking ready, execute `bun run check:pr --base origin/main`
-for focused preflight. Record actual behavioral failing-first/restored mutation
+(`--base <parent-ref>` for an upper stack layer) for focused preflight.
+Record actual behavioral failing-first/restored mutation
 receipts and visual judgment. Complete repeatable proof runs in selected hosted
 jobs under #1326, including full affected discovery, pinned browser/layout/
 endurance/editorial and native runtime categories. Optional `--full` and `--all`
@@ -32,6 +33,9 @@ describe retained jobs as executions on the new SHA. Native/Git-dependent and
 unknown domains, main pushes and scheduled/manual coverage remain fresh.
 
 ## Read the actual head
+
+For stacked PRs, apply [Stacked PR evidence](#stacked-pr-evidence) below;
+the `main` commands in this reference describe an ordinary PR or bottom layer.
 
 Record the PR head and query live main independently. Run the comparison
 blocks with shell error checking enabled; a failed comparison stops the merge
@@ -173,6 +177,36 @@ Read new comments/reviews between rounds. Address actionable findings and
 verify affected behavior. A required unavailable review or new ruling is a
 blocker; an optional review is not a reason to invent an approval step.
 Never bypass required reviewers or use `--admin`.
+
+## Stacked PR evidence
+
+Load `gh-stack` and follow the
+[project stack rules](../../../../docs/process/github.md#stacked-pull-requests).
+Run local preflight against the immediate parent ref for each upper layer.
+For every PR in the intended merge prefix, record its head and declared base
+branch, independently query that base's live Git ref, and inspect its own
+selected jobs/checkouts. A two-parent synthetic checkout must have that recorded
+parent tip and PR head as parents. Keep contract head-only receipts separate.
+Do not substitute live `main` for an upper layer's base or claim its CI tested
+the eventual integrated trunk tree.
+
+Read back every included PR's release milestone and all issues it advances,
+along with current heads, bases, checks and review state. Confirm the resolved
+merge target: numeric arguments prefer stack numbers over PR numbers.
+Use `gh stack merge <target> --yes --squash` for a native stack. The installed
+CLI has no matching-head option; a final readback reduces the race window but
+does not lock heads. Retain the inspected heads and reconcile the actual result
+against them. Never substitute `gh pr merge` or `--admin` to bypass a refused
+stack merge.
+
+After landing, read each included PR's state and reported merge commit. Fetch
+main, prove those commits are ancestors, and inspect their actual parents,
+trees and delivered diffs against the inspected layers. Squashing can replace
+parent commit identities; do not require every upper squash to have its old
+parent branch SHA or apply the ordinary single-PR tree equality blindly.
+Reconcile any different integrated tree and verify automatic main-push proof,
+then read back issue closure and milestone assignments for every delivered
+slice. Queued PRs require actual merge-group and eventual landing evidence.
 
 ## Merge and verify
 

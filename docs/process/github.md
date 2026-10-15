@@ -269,7 +269,8 @@ sit in the Ready view as traps.
    stranger could implement it from the body alone. Task templates do not add
    it automatically; triage establishes readiness.
 4. **In progress.** Assign yourself, move the card. One issue at a time per
-   branch: `<type>/<issue-number>-<slug>`.
+   branch: `<type>/<issue-number>-<slug>`. A dependent slice may use a separate
+   branch under the [stack rules](#stacked-pull-requests).
 5. **In review.** Open the PR with `Closes #<n>` in the body when merging meets
    every acceptance criterion and verification step. If a required human step
    will remain, use `Refs #<n>` instead and name the step under "Anything left
@@ -296,6 +297,52 @@ body, a ruling is recorded where it unblocks the work, `blocked` comes off when
 its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
+
+## Stacked pull requests
+
+Use a stack when independently reviewable slices depend on each other. A single
+concern stays in one PR; unrelated work uses separate branches or stacks. Load
+the [gh-stack skill](../../.agents/skills/gh-stack/SKILL.md) for commands and
+non-interactive operation. These project rules apply alongside it:
+
+- Plan layers before implementation. Each branch owns one reviewable slice,
+  including its tests and required docs/changeset; every merged prefix must be
+  usable and satisfy the existing merge bar. Keep the issue branch naming
+  convention, adding a slice suffix when several layers advance one issue.
+- The bottom PR targets `main`; each upper PR targets its immediate parent.
+  Run `bun run check:pr --base origin/main` at the bottom and
+  `bun run check:pr --base <parent-ref>` above it, after fetching or verifying
+  that parent. CI and contract gates already use the PR's declared base.
+  Recheck the diff and affected proof after rebasing or retargeting.
+- Each PR uses the repository template and carries its own title, labels,
+  release milestone and proof. Replace generated titles/bodies after
+  `gh stack submit --auto`; inspect each layer's contract diff and changeset
+  requirement against its parent. Do not copy a lower layer's proof as an
+  upper layer's receipt.
+- A partial slice uses `Refs #N` and states what remains. Only the layer that
+  completes all criteria and required verification uses `Closes #N`.
+  [GitHub interprets closing keywords only for PRs targeting the default branch](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+  Verify actual issue state after the stack lands and reconcile closure with
+  completion evidence when automatic closure did not happen. Every merge
+  includes milestone readback for all included PRs and the issues each
+  completes or advances.
+- Edit the owning layer, commit, then rebase upstack and push with the skill's
+  commands. Inspect the resulting heads and current checks for every affected
+  PR. Respect clean worktree ownership and never push to a merged branch.
+- Merge stacked PRs with `gh stack merge <target> --yes --squash`. A target
+  includes its unmerged ancestors; a bare number resolves as a stack number
+  before a PR number. Confirm the resolved membership and inspect all included
+  PRs' current heads, bases, reviews, milestones and selected checks immediately
+  before merging. The installed command has no `--match-head-commit` flag;
+  do not describe that readback as an atomic head lock or bypass branch rules.
+  If native stacks are unavailable, report the CLI error and use ordinary PRs
+  only after deliberately reconciling their ancestry and bases.
+- Upper-layer CI proves a merge with its parent branch, not with live `main`.
+  Record that actual parent/head/checkout tree. After merging, verify every
+  included PR's merge result on `main`, the integrated commits/trees, issue
+  states and milestones, and automatic main-push proof. A queued stack is not
+  yet merged. Use the stack-specific guidance in
+  [CI and merge](../../.agents/skills/work-issue/references/ci-and-merge.md#stacked-pr-evidence).
 
 ## What an agent does before writing code
 
