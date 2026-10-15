@@ -53,6 +53,14 @@ const INPUT: Record<Kind, Record<string, unknown>> = {
   ask_user_form: { prompt: "Record raft supplies", nodes: [{ id: "note", kind: "text", prompt: "Supply note", required: true }] },
 };
 
+const ASK_VARIANTS: Record<string, Record<string, unknown>> = {
+  "ask_user:multi": { questions: [{ ...(INPUT.ask_user.questions as Array<Record<string, unknown>>)[0], multiSelect: true }] },
+  "ask_user:group": { questions: [
+    ...(INPUT.ask_user.questions as unknown[]),
+    { question: "Which supplies?", header: "Supplies", multiSelect: false, options: [{ label: "Rope", description: "For the raft" }] },
+  ] },
+};
+
 let browser: Browser | undefined;
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -66,6 +74,14 @@ const histories = new Map<string, SessionHistoryMessage[]>();
 beforeAll(async () => {
   if (!executablePath) return;
   const repo = resolve(import.meta.dir, "../../..");
+  // Unit shards start without dist. Generate the real package styles (and
+  // their exported token dependency), as the sibling styled runtime fixtures
+  // do, instead of depending on another test having built them first.
+  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const [buildOut, buildErr, buildCode] = await Promise.all([
+    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
+  ]);
+  if (buildCode !== 0) throw new Error(`Answer delivery fixture build failed (${buildCode}): ${buildOut}\n${buildErr}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-answer-delivery-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
@@ -91,14 +107,15 @@ beforeAll(async () => {
     async startTurn({ prompt: contextPrompt, bridge }) {
       // Route the fixture command independently of appended host budget context.
       const prompt = contextPrompt.split("\n", 1)[0]!;
-      const kind = prompt as Kind;
+      const kind = prompt.split(":", 1)[0] as Kind;
+      const input = ASK_VARIANTS[prompt] ?? INPUT[kind];
       const n = ++sequence;
       const sessionId = `odysseus-answers-${n}`;
       const requestId = `toolu_${kind}_${n}`;
       bridge.emit({ type: "session_info", sessionId, isNew: true });
       bridge.emit({ type: "tool_use_start", sessionId, toolUseId: requestId, toolName: TOOL[kind] });
-      bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: requestId, toolName: TOOL[kind], input: INPUT[kind] });
-      const call = { id: requestId, name: TOOL[kind], input: INPUT[kind] } as SessionHistoryMessage["toolCalls"][number];
+      bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: requestId, toolName: TOOL[kind], input });
+      const call = { id: requestId, name: TOOL[kind], input } as SessionHistoryMessage["toolCalls"][number];
       histories.set(sessionId, [
         { role: "user", content: prompt, toolCalls: [] },
         { role: "assistant", content: "", toolCalls: [call], parts: [{ kind: "tool", toolIndex: 0 }] },
@@ -109,7 +126,7 @@ beforeAll(async () => {
       try {
         result =
           kind === "ask_user"
-            ? await bridge.askUser!(requestId, INPUT.ask_user.questions as never)
+            ? await bridge.askUser!(requestId, input.questions as never)
             : kind === "ask_user_list"
               ? await bridge.askUserList!(requestId, INPUT.ask_user_list as never)
               : kind === "ask_user_rank"
@@ -175,8 +192,8 @@ interface Net {
 
 const networks = new WeakMap<BrowserContext, Net>();
 
-async function newContext(): Promise<{ context: BrowserContext; net: Net }> {
-  const context = await browser!.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "reduce" });
+async function newContext(hasTouch = false): Promise<{ context: BrowserContext; net: Net }> {
+  const context = await browser!.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "reduce", hasTouch });
   await context.route("**/*", (route) => (new URL(route.request().url()).origin === origin ? route.continue() : route.abort()));
   const net: Net = {
     mode: "pass",
@@ -237,9 +254,9 @@ async function openPage(context: BrowserContext, holdPrincipalRead = false): Pro
   return page;
 }
 
-async function ask(page: Page, kind: Kind): Promise<string> {
+async function ask(page: Page, kind: Kind, command: string = kind): Promise<string> {
   const composer = page.locator("textarea.bk-composer");
-  await composer.fill(kind);
+  await composer.fill(command);
   // Connected transport can precede the validated draft-profile response.
   await page.waitForFunction(() => {
     const send = document.querySelector<HTMLElement>('[role="button"][aria-label="Send"]');
@@ -296,6 +313,102 @@ async function waitForState(page: Page, requestId: string, wanted: string, timeo
 const online = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event("online")));
 
 describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
+  for (const theme of ["dark", "light"] as const) {
+    for (const width of [320, 1280]) {
+      test(`1887: Other has explicit current-text Submit at ${width}px in ${theme}`, async () => {
+        const { context, net } = await newContext(width === 320);
+        try {
+          const page = await openPage(context);
+          // The delivery harness is otherwise deliberately unstyled. These
+          // layout cases need the real built consumer and kit stylesheets.
+          for (const css of ["../../ui-kit/dist/styles.css", "../dist/styles.css"]) {
+            await page.addStyleTag({ content: await Bun.file(resolve(import.meta.dir, css)).text() });
+          }
+          await page.setViewportSize({ width, height: 900 });
+          await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+          expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), "OTHER_LAYOUT_USES_REAL_THEME").toBe(theme);
+          const id = await ask(page, "ask_user");
+          await page.getByRole("radio", { name: /Other/ }).click();
+          const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
+          const submit = page.getByRole("button", { name: "Submit", exact: true });
+          await field.fill("Scheria — Σχερίη");
+          expect(await submit.count(), "OTHER_CUSTOM_TEXT_HAS_EXPLICIT_SUBMIT").toBe(1);
+          await field.fill("   ");
+          expect(await submit.getAttribute("aria-disabled"), "BLANK_OTHER_SUBMIT_DISABLED").toBe("true");
+          await field.press("Enter");
+          expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(0);
+          await field.fill("Scheria — Σχερίη");
+          // Editing survives switching away and back; the predefined choice
+          // replaces Other in a single-select without submitting either draft.
+          await page.getByRole("radio", { name: new RegExp(HARBOUR) }).click();
+          expect(await field.count()).toBe(0);
+          await page.getByRole("radio", { name: /Other/ }).click();
+          expect(await field.inputValue()).toBe("Scheria — Σχερίη");
+          await field.fill("Aeaea — Αἰαίη");
+          await field.focus();
+          await page.keyboard.press("Tab");
+          await page.keyboard.press("Tab");
+          expect(await submit.evaluate(el => el === document.activeElement), "OTHER_SUBMIT_KEYBOARD_REACHABLE").toBe(true);
+          expect(await submit.evaluate(el => el.getBoundingClientRect().height), "OTHER_SUBMIT_TOUCH_HEIGHT").toBeGreaterThanOrEqual(44);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "OTHER_CARD_NO_OVERFLOW").toBe(true);
+          if (width === 320) await submit.tap();
+          else await submit.press("Space");
+          await waitForState(page, id, "answered");
+          expect(settlements.get(id), "OTHER_CURRENT_TEXT_SETTLES_ORIGINAL_REQUEST_ONCE").toEqual([
+            { answers: { "Which harbour first?": "Aeaea — Αἰαίη" } },
+          ]);
+          expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(1);
+        } finally { await context.close(); }
+      });
+    }
+  }
+
+  test("1887: multi-select Other retains predefined picks and refuses composing Enter", async () => {
+    const { context, net } = await newContext();
+    try {
+      const page = await openPage(context);
+      const id = await ask(page, "ask_user", "ask_user:multi");
+      await page.getByRole("checkbox", { name: new RegExp(HARBOUR) }).click();
+      await page.getByRole("checkbox", { name: /Other/ }).click();
+      const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
+      await field.fill("Scheria — Σχερίη");
+      await field.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+      expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response"), "COMPOSING_ENTER_DOES_NOT_SUBMIT").toHaveLength(0);
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await waitForState(page, id, "answered");
+      expect(settlements.get(id)).toEqual([{ answers: { "Which harbour first?": `${HARBOUR}, Scheria — Σχερίη` } }]);
+    } finally { await context.close(); }
+  });
+
+  test("1887: Other Enter still submits a single answer once", async () => {
+    const { context, net } = await newContext();
+    try {
+      const page = await openPage(context);
+      const id = await ask(page, "ask_user");
+      await page.getByRole("radio", { name: /Other/ }).click();
+      const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
+      await field.fill("Scheria — Σχερίη");
+      await field.press("Enter");
+      await waitForState(page, id, "answered");
+      expect(settlements.get(id)).toEqual([{ answers: { "Which harbour first?": "Scheria — Σχερίη" } }]);
+      expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(1);
+    } finally { await context.close(); }
+  });
+
+  test("1887: grouped Other draft submits with the sibling answer without Enter", async () => {
+    const { context } = await newContext();
+    try {
+      const page = await openPage(context);
+      const id = await ask(page, "ask_user", "ask_user:group");
+      await page.getByRole("radio", { name: /Other/ }).first().click();
+      await page.getByRole("textbox", { name: "Your own answer, Harbour", exact: true }).fill("Scheria — Σχερίη");
+      await page.getByRole("radio", { name: /Rope/ }).click();
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await waitForState(page, id, "answered");
+      expect(settlements.get(id)).toEqual([{ answers: { "Which harbour first?": "Scheria — Σχερίη", "Which supplies?": "Rope" } }]);
+    } finally { await context.close(); }
+  });
+
   test("a first send waits for actual draft-profile facts, independently of connected transport", async () => {
     const { context, net } = await newContext();
     const requested = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();

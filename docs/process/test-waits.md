@@ -76,6 +76,7 @@ exceptions. Unmeasured means no saving is claimed.
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
 | `ghost-text.test.tsx`, nine arrival settlements | Actual `useArrival` callbacks at the unchanged 600 ms default; 599/600 ms DOM, identity/state, restart, StrictMode and cancellation assertions | [Ghost handoff boundaries](#ghost-handoff-boundaries) use logical time with native React commits. Storybook and Chromium retain CSS opacity, geometry and elapsed animation proof. |
+| `draft-runtime.test.ts`, consumed host draft | Exact accepted saved revision and real host consumption replace the final fixed observation; both native clients stay live | All original native assertions remain. Registered-client cases separately cover retired saves, stale reads and clean second-client deletion across actual save callbacks and backoff horizons. This fixture does not bind account-local persistence; see [the source-specific proof](#consumed-host-draft-completion). |
 | `ws-session-recovery.test.ts`, stalled backend lookup | Actual 3000 ms recovery registration and callback delivery advance logically in the named case only | The empty backend and its wrapper complete before advancing; silent reads stay pending at 2999 ms and fail at 3000 ms. A winning aggregate can leave losing bounded probes pending. Timed-out backend reads remain reusable because they have no cancellation API; teardown releases fixture reads, drains wrappers and restores descriptors. Native finalization, admission and revocation cases retain their existing clocks. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
 | `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Unmeasured. Await actual chunk commits for capture; a deletion window needs writer completion plus all delayed callbacks before it can be removed. |
@@ -983,6 +984,158 @@ attached-worker kill and death polling, and final recovery assertion. No pipe or
 permission is added. The ledger helper extends row 333's earlier caller evidence;
 the attached interval adds row 722. Together with the repeated RTK row 336,
 source-row overlap is explicit in the artifact rather than counted as new work.
+
+## Consumed drafts: the native recreation fault
+
+The [consumed-draft observations](evidence/test-wait-consumed-draft-observations.json)
+keep a concrete failure and its controls separate from a clock-equivalence claim.
+Changing `beginSend` to clear consumed words only for an unbound draft made the
+original phone runtime case fail its final host-absence assertion. After the
+correlated acceptance, the real default 800 ms callback uploaded those words
+under a new draft id during the retained 1,500 ms observation window. Restoring
+that guard passed all 28 assertions in the selected native case.
+The other two pointer contexts were filtered, not newly qualified by this run.
+
+An additive lower-layer case catches the same mutation on an additional PUT
+under any draft id. It checks both sides of the default 800 ms save boundary,
+observes the actual acceptance callback's zero-delay registration and firing,
+and checks absence across backoff-sized horizons. It does not induce failures
+or observe retry callbacks; the existing retry cases retain that responsibility.
+The complete lower file passes 42 tests and 205 assertions, versus the original
+41 tests and 169 assertions. Both command measurements rounded to 0.20 seconds;
+the added case took 1.28 ms in the full run. These are additive proof costs,
+not a measured speedup.
+
+That source-bound experiment retained the native 1,500 ms window. Its initial
+interpretation attributed possible later work to account-bound IndexedDB commits.
+Subsequent source review establishes that this particular fixture does not mount
+the account-binding composition, so that attribution does not apply here; see
+[the combined completion proof](#consumed-host-draft-completion). The immutable
+observation remains unchanged. The failing mutation establishes sensitivity to
+one actual delayed recreation, not a minimum of 1,500 ms or a safety margin
+obtained by subtracting 800 ms. Account-bound native persistence tests retain
+their separate guarantees.
+
+## Native runner and late-navigation boundaries
+
+The [runner observations](evidence/test-wait-agent-runner-observations.json)
+retain the original native contract suite. Its outer case passes all three
+assertions requiring 24 passing child cases. Five normally exiting stand-ins
+registered no 20 ms polls: their release-file condition was already true. Eight
+other stand-ins registered actual 30-second hang ceilings. Their snapshots stop
+at registration, before native termination, so neither cancellation ages nor
+final callback counts are inferred. The 11.85-second command is not 240 seconds
+of accumulated sleep. The observer preserves native handles and protocol output;
+ordinary diagnostic file writes add disclosed overhead without new authority.
+
+The [politeness boundary observations](evidence/test-wait-politeness-boundaries.json)
+retain two native Chrome cases and their 820 ms and 1,300 ms no-late-request
+windows at their recorded source. Their handlers finished before awaited page closure, while the delayed
+robots fetch completed after closure in the first case. Those are distinct
+boundaries; neither awaited closure nor fetch completion proves that all browser
+network work has drained. The two cases passed 11 assertions in 3.15 seconds of
+command time. No target-destruction observation, mutation, minimum duration or
+equivalent replacement was established by that observation, and neither window
+was shortened in that source. Later native boundary replacements have their own
+separate source identities and mutation evidence above.
+
+The [maintenance gate observations](evidence/test-wait-maintenance-gates.json)
+use the existing stderr channel in three governed workers, preserving exact
+stdout, event files, permissions and error-context handling. The selected cases
+pass 19 assertions in 1.30 seconds; 18 completed predicate polls accumulate
+171.89 ms. That is observed gate latency, not a mandatory elapsed floor. The
+serialization case retains its 150 ms negative window. Callers that turn stderr
+into application progress events are outside this observation: injecting counters
+there would change the protocol being tested.
+
+Two [index observations](evidence/test-wait-index-observations.json) use stderr
+already captured in the successful CLI result. The native deferred-refresh case
+completed its original 700 ms fixture wait in 700.88 ms and passed its process
+drain and writer-gate assertions. Its startup also logged `EINVAL` from the
+version probe and governed-availability check, so this is selected native CLI
+attribution, not governed-availability qualification. The capture case completed
+its 30 ms overlap wait in 30.13 ms while retaining the exact operation log and
+three coalesced success responses. Both sources were restored; their original
+waits remain unchanged and no numerical minimum or savings is inferred.
+
+## Consumed host-draft completion
+
+The [combined draft evidence](evidence/test-wait-consumed-draft-completion.json)
+records a native three-case comparison and actual registered-client controls at
+source `1b2a2e81`. The browser captures the existing saved draft reference before
+Enter, requires a positive acknowledged revision, and observes one new accepted
+request naming that exact reference. It then awaits actual host consumption and
+the scripted backend's receipt of the prompt. Both browser contexts remain live
+through every original host-absence, empty-composer and exactly-one-prompt
+assertion. A correlated receipt alone is not treated as a global drain.
+
+The lower cases cover the temporal producers separately. The sending client's
+accepted bound draft is checked across its actual zero-delay callback, both sides
+of the default 800 ms save boundary and backoff-sized horizons. A held GET begun
+before this client's send must not restore stale text or issue any later PUT.
+A second live, clean client may receive an old GET after consumption, but neither
+that copy nor its subsequent deletion refresh may upload under any draft id.
+The fake host retains tombstones and actual request/body promise completion.
+These horizon advances do not induce retry callbacks; existing failed-request
+cases retain that responsibility.
+
+Three faults distinguish those guarantees. The earlier bound-clearing fault
+recreated words through the real 800 ms save and failed the original native
+host-absence assertion; the same fault fails the retained lower any-id PUT
+assertion. Source identities and the unchanged lower harness bind that historical
+receipt to this comparison. Removing the post-GET host sequence fence fails the
+original stale-text assertion before the new horizon checks. Removing the clean
+host-deletion branch registers an 800 ms save, but actual refresh cancels it and
+registers zero-delay work instead. That callback fires and uploads a rotated id,
+failing the new any-id PUT assertion. It is not falsely reported as an 800 ms
+callback firing. In Chrome, corrupting only the locally stored bound reference
+leaves the outbound reference unchanged and fails the new exact-reference
+assertion: saved revision 5 versus stored revision 6. All guards were restored.
+
+| Matched full native file | Original | Candidate |
+| --- | ---: | ---: |
+| Cases / expectations | 3 / 84 | 3 / 96 |
+| Command wall time | 97.54 s | 93.65 s |
+| Bun-reported time | 97.46 s | 93.56 s |
+| Summed case bodies | 48.514 s | 44.500 s |
+| Setup including mandatory builds | 48.530 s | 48.591 s |
+| Fixed final waits / accumulated time | 3 / 4.500 s | 0 / 0 s |
+| CPU user + system | 95.61 s | 96.06 s |
+| Maximum RSS | 1,235,444 KiB | 1,259,924 KiB |
+
+The single pair shows a wall-time reduction while CPU and peak RSS increase.
+Shared-host variation prevents attributing every command-time difference to the
+removed waits. Four native commands, including the selected positive and fault
+controls, cost 320.14 seconds. Four lower controls cost 0.75 seconds; both full
+controls pass 43 cases and 300 expectations. These are local source-bound
+receipts, not a claim about a later integrated tree's hosted qualification.
+
+A preceding passive observation retained the original 1,500 ms window and all
+native assertions. Its first 68.12-second run passed the test but captured
+incomplete browser JSON. A 0.08-second synthetic console/file probe did not
+reproduce the truncation and establishes no emitter cause or fixed output cap.
+The corrected 65.32-second run wrote complete observations only after the original
+assertions: both current documents, zero dropped records, and the original
+1,502.03 ms window. Generated bundle bytes were retained to identify actual timer
+owners. Added observers, promise reactions and synchronous diagnostic I/O have
+real overhead; this is not a speedup pair.
+
+Source review corrects an earlier interpretation of this particular fixture.
+It mounts `BrainUiProvider` and `ChatPage` without the account-binding composition;
+its account-bound local-work writes remain inactive. This follows the fixture,
+connection writers and local-work guards, not `AUTH_MODE=none` alone. No runtime
+account key was sampled. Real IndexedDB transactions occurred at startup, and
+their precise service ownership remains unattributed. Consequently, this minimal
+host-draft fixture does not establish account-bound local-work commit or hidden
+branch coverage for other browser tests.
+
+The final observed window contained SDK/turn-status timer activity and non-draft
+GET/body completions, even though no draft publication, observed transaction or
+focus/visibility/selection event occurred. Body settlement does not prove consumer
+completion, and the observer's pending sets are not universal quiescence. The
+replacement rests on the source-specific native and registered-client guarantees
+above, not quiet snapshots, disposal, a shortened production setting or an
+invented numerical minimum.
 
 ## Native sandbox download completion
 
