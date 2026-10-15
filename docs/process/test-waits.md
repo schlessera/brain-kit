@@ -70,7 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; scene drop/recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers; their final selection boundary requires all owned history/error completions and the actual native selected-context commit followed by its postcommit publication. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; scene drop/recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -104,9 +104,7 @@ all finite animations at these negative-observation sites. The finite-animation
 helper serves the four original rendering call sites, its readiness control,
 the two newer-turn preparations after their scoped resync acknowledgement,
 the three held-snapshot recoveries after current draft acknowledgement, and
-their drop preparations after the native offline/status/banner checkpoints, and
-the three released-snapshot cases after their native selection and history
-completion boundary.
+their drop preparations after the native offline/status/banner checkpoints.
 
 | Call site | Causal completion before measuring | Observation retained |
 | --- | --- | --- |
@@ -116,11 +114,11 @@ completion boundary.
 | Scene drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
 | Snapshot drop | Original native offline/status/visible-banner checkpoints; no held upload or immediate offline geometry oracle | Existing finite-native rendering. Current draft acknowledgement remains on recovery; final no-send and identity observations remain. This does not certify every Motion banner animation or drain future work. |
 | Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
-| Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. The released-history/selection boundary remains separate; no history or storage drain is claimed. |
+| Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Final negative windows remain; no history or storage drain is claimed. |
 | Released queues | Every held queue frame is observed by the receiving page; expected upload state is awaited before its assertion | 500 ms; pending-pill identity/removal remains guarded through delayed work. |
 | Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
-| Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; released-history/native-selection completion remains separate. |
-| Snapshot released old status | All held current-socket history/error completions plus the captured old-turn status; exact selected-context native commit and its associated postcommit publication | Scoped operation readiness then finite rendering, with original streaming, retained-node, focus, draft, selection and no-send assertions. Later context work can remain pending; this is not a global drain. See [selection completion](#continuity-snapshot-selection-completion). |
+| Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
+| Snapshot released old status | The native snapshot reports its captured old turn after explicit release | 500 ms; a late old status must not end the live turn or disturb focus. |
 | Recovered turn completion | Terminal text, non-streaming state and queued follow-up text | 500 ms; node identity and disappearance of the consumed pill are checked after delayed rendering. |
 | Native IME start/commit | CDP's real IME operation has returned; expected composition events, text and selection are checked afterward | 500 ms; no forced end/blur from a delayed reaction. Final committed draft also reaches the host. |
 
@@ -1141,9 +1139,8 @@ The [recovery evidence](evidence/test-wait-continuity-recovery.json) records the
 three held-snapshot recoveries at source `44d2aab6`. They await acknowledgement
 of the current draft edit, admission of the actual current-socket resume and
 connect-snapshot reads to their held backend gate, and finite rendering. At that
-recorded source, all three drop and three final negative windows remain, as do
-the scene recovery windows and every original action, matcher expression and
-test name.
+recorded source, all three drop and three final negative windows remain, as do the scene recovery
+windows and every original action, matcher expression and test name.
 
 The draft is filled immediately before drop; there is no assumed earlier save.
 Its actual 800 ms save, failed request or zero-delay reconnect retry may overlap
@@ -1191,9 +1188,8 @@ minimum for the remaining native windows.
 The [drop evidence](evidence/test-wait-continuity-drop.json) records a narrow
 change at source `7e5bfa2a`: three snapshot drop preparations use the existing
 finite-render helper after the original native offline, status and visible-banner
-checkpoints. At that recorded source, scene drop observations and all three
-snapshot final windows remain, as does every original matcher expression and
-test name.
+checkpoints. Scene drop observations remain unchanged, as do all three snapshot
+final windows and every original matcher expression and test name.
 
 These snapshots contain no held uploads, confirmed shares or held composer sends,
 and make no immediate offline geometry or banner-position assertion. The SDK
@@ -1234,97 +1230,45 @@ commands cost 138.88 seconds. The artifact indexes 125 entries: 68 new receipts,
 historical helper files. No remaining-window minimum, whole-file speedup or
 whole-CI gain is established.
 
-## Continuity snapshot selection completion
 
-The [selection evidence](evidence/test-wait-continuity-selection-completion.json)
-records the three captured-history cases at source `d7b10393`. Their final
-500 ms windows become an explicit native operation boundary followed by finite
-rendering. Every original matcher expression, test name, browser action and
-no-additional-chat assertion remains. Scene recovery, queues, scrolling, IME
-and ten-cycle negative windows are unchanged; these snapshot results do not
-resolve the separate initial-upload prerequisite in
-[#1956](https://github.com/schlessera/brain-kit/issues/1956).
+## Rejected snapshot selection observer
 
-The fixture observes existing partition operations and local-work status
-publication. It returns the original handles, plans and promises; only the
-mutation callback identity changes, with its original arguments and return
-preserved (`const open`,
-`packages/ui-react/tests/fixtures/continuity-selection-observer.ts:42-86`).
-Native IndexedDB transactions stay native. The observer correlates
-the selected tab/session/draft context at selection 6–12 with its actual commit
-and subsequent normal postcommit publication (`const setState`,
-`packages/ui-react/tests/fixtures/continuity-selection-observer.ts:87-102`).
-It includes operations already
-in flight before selection, rejects account/lock/error/fork transitions, and
-restores complete own-method descriptors and subscriptions on failure or cleanup
-(`replace`,
-`packages/ui-react/tests/fixtures/continuity-selection-observer.ts:16-27`).
-It neither flushes nor disposes work to manufacture readiness. Promise reactions,
-bounded diagnostic snapshots and logging add overhead inside the measured cost.
+The [fifth study](evidence/test-wait-continuity-selection-completion.json)
+remains immutable historical evidence for candidate `18451a1a`. The 2026-10-15
+complexity review withdraws that implementation from PR #1961. The runtime test
+and fixture return byte-for-byte to `d7b10393`, retaining the first four
+completion slices and all original product assertions. The three final snapshot
+observations again use their original 500 ms windows and frame pairs. This is
+preservation of existing proof, not a finding that 500 ms is a sufficient minimum
+or completion of #1855's remaining wait-design obligations.
 
-Completion also includes every held response on the current socket. Empty
-resumes deliver history then terminal status; failed resumes deliver only
-`SESSION_LOAD_ERROR`, without a request ID, turn ID or failure payload. The
-separate connect snapshot still reports its captured turn. Correlation uses
-that exact error shape, socket/session, the release cursor and the number of
-actual held resume requests; it does not invent a protocol request identifier.
-These synchronous handlers finish before the later page task reads readiness.
-An observed bad streaming state reaches the unchanged original assertion
-without a new render wait masking it; a supplementary assertion rejects healing.
+The observer proved a stronger, fixture-specific completion boundary: the exact
+selected native context commit, its local-work publication and every released
+history response. Its postcommit/error omission controls failed added completion
+diagnostics before the original product assertions; the selection cancellation
+control failed the added readiness gate. The original and candidate both caught
+the exercised terminal-policy defects at their original product assertions.
+Those results do not demonstrate additional product regression detection from
+the observer. The separate old-host completion slice does: delaying actual host
+finalization makes the original captured-turn assertion fail, while its explicit
+host-slot boundary preserves the intended race.
 
-The native commit alone is insufficient: a real 2000 ms postcommit hold and an
-omitted-publication control establish that the continuation matters. Cancelling
-the actual selection callback produces no matching commit and fails the named
-readiness cap. The unchanged captured-terminal fault still fails the original
-streaming assertion. These controls were first measured with the empty case;
-the same 127-line observer, including its measured version, is reused unchanged
-for the failed cases. A delayed real failed-resume error passes only after its
-completion. Omitting that requirement fails before rendering despite a completed
-native selection commit; its hold remains unfinished at the last teardown
-snapshot, with no later completion or cancellation inferred.
+The rejected slice added 177 net test/fixture lines, including a 127-line observer
+coupled to partition callbacks, context-key construction, fork counts and the
+exact `status.setState` publication shape. It also needed an escaped-stream path
+to keep its readiness gate from hiding a terminal fault. These costs outweigh
+the demonstrated benefit here. A plain `pending === false` check would lose the
+correlated commit/publication boundary, and forcing `snapshotNow()` would alter
+the background path being tested; neither is substituted. The
+[historical implementation](https://github.com/schlessera/brain-kit/blob/18451a1a252cddc2c6e9b121a0a2942dd6dbf201/packages/ui-react/tests/fixtures/continuity-selection-observer.ts)
+remains available with its recorded controls and limitations.
 
-An initial fault removed the entire special history-error guard. Both original
-cases passed their streaming checks but failed the original retained-node
-progress wait. Source inspection explains how an unscoped error can append a
-separate failed message while the original answer keeps the buffer streaming;
-the intermediate message array was not captured in that run. This contradicted
-the predicted oracle, so the sequence stopped. Its 128.35-second cost and checker rejection
-remain evidence. The revised fault instead calls the actual finish operation
-inside the unchanged special handler, incorrectly treating a history failure
-as terminal. It fails the original streaming assertions in both the original
-and candidate cases. No assertion or awaited text was weakened to obtain that
-failure.
-
-**Later work remains pending.** All three final lifecycle snapshots report
-`pending: true`, after the original success assertions and turn release. At
-the readiness boundary, the selected commits and their publications were
-complete with no fork. The exact single-writer, stable-account, clean-draft
-fixture and host-sequence fences make later context-only scroll/selection writes
-unable to fork or adopt a different draft: context changes pass through the
-planner, while draft changes compare actual stored versions/content
-(`const staleRecord`, `packages/ui-react/src/lib/local-work.ts:383-400`), and
-postcommit publication refreshes the committed versions (`const previousCommitted`,
-`packages/ui-react/src/lib/local-work.ts:467-508`). This is a source-specific argument,
-not an observation that all timers or native work drained. A second native
-writer, account transition or changed production publication shape requires
-review of this fixture boundary.
-
-The historical source-matched helper-plus-three-case baseline passes 4 cases /
-43 expectations; the restored candidate passes 4 / 49. All six other cases stay
-filtered. Snapshot bodies total 30.08234 → 29.36794 seconds; per-case changes are
-−224.38, −156.18 and −333.84 ms. Command time is 79.69 → 78.83 seconds, including
-setup 48.76674 → 48.61535 seconds. CPU is 93.82 → 93.49 seconds; maximum RSS
-**increases** from 1231080 to 1249220 KiB. Shared-host load is uncontrolled.
-Actual fixed windows change from three / 1501.63 ms to zero; the three semantic
-boundaries take 252.46, 251.73 and 270.06 ms, with finite-render calls increasing
-from fifteen to eighteen. Nominal removed time is not net saving.
-
-The one-case prototype added 166 net lines and was held from integration. A
-small failed-history predicate extension shares the observer across all three;
-the final implementation adds 177 net lines. Its source coupling is a deliberate
-maintenance cost for explicit causal proof and the modest measured improvement.
-The artifact indexes 429 receipt entries: 238 shared-study/historical entries,
-31 unexpected-fault entries and 160 revised-extension entries. New native command
-costs are 322.24, 128.35 and 332.68 seconds respectively; reused historical
-controls are not charged again. No whole-file/CI speedup, measured minimum for
-remaining windows, or completion of the broader wait audit is claimed.
+The historical equal-selection pair was 4 cases / 43 expectations versus 4 / 49:
+three snapshot bodies 30.08234 → 29.36794 seconds, whole command 79.69 → 78.83
+seconds, CPU 93.82 → 93.49 seconds, and peak RSS 1231080 → 1249220 KiB
+(+18140 KiB). The 783.27 seconds of new native command cost includes the rejected
+128.35-second fault attempt. All 429 receipt entries and failed controls remain
+preserved. Shared-host load was uncontrolled; no whole-CI gain or new performance
+measurement follows from withdrawing this slice. Later work was still pending
+in every final lifecycle snapshot, so the rejected observer never established
+global quiescence either.
