@@ -9,6 +9,7 @@ import { trackerViews } from "../../src/stores/tracker-state.ts";
 // Observe native frame delivery; tests read these counts on a later page task
 // and separately check committed replay state. The production history/status
 // handlers are synchronous; this does not drain arbitrary asynchronous handlers.
+const frames: unknown[] = [];
 const received = new Map<string, number>();
 const NativeSocket = WebSocket;
 class ObservedSocket extends NativeSocket {
@@ -16,6 +17,9 @@ class ObservedSocket extends NativeSocket {
     super(url, protocols);
     this.addEventListener("message", event => {
       const frame = JSON.parse(event.data);
+      frames.push({ at: Date.now(), type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId,
+        status: frame.status, text: frame.text?.slice(-240), followUps: frame.followUps, started: frame.started, dropped: frame.dropped });
+      if (frames.length > 256) frames.shift();
       queueMicrotask(() => {
         const key = `${frame.type}:${frame.sessionId ?? ""}`;
         received.set(key, (received.get(key) ?? 0) + 1);
@@ -40,6 +44,15 @@ createRoot(mount).render(
 
 Object.assign(window, {
   __continuity: {
+    diagnostic: () => {
+      const chat = root.stores.chat.getState();
+      return { activeSessionId: chat.activeSessionId, queueNotes: chat.queueNotes, frames,
+        buffers: Object.fromEntries(Object.entries(chat.buffers).map(([id, buffer]) => [id, {
+          streaming: buffer.isStreaming, replay: Boolean(buffer.replay),
+          messages: buffer.messages.slice(-4).map(message => ({ id: message.id, turnId: message.turnId,
+            role: message.role, streaming: message.isStreaming, content: message.content.slice(-2000) })),
+        }])) };
+    },
     replayComplete: (sessionId: string) => !root.stores.chat.getState().buffers[sessionId]?.replay,
     received: (type: string, sessionId: string) => received.get(`${type}:${sessionId}`) ?? 0,
     connected: () => root.stores.connection.getState().wsStatus === "connected",

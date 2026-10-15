@@ -98,10 +98,10 @@ ownership rather than being duplicated here.
 ## Continuity settling boundaries
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:298-323`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:332-342`)
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:394-404`)
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper is limited to the four pure-render call sites and its readiness control.
