@@ -551,17 +551,46 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
     const navigation = 'nav[aria-label="Primary"]:visible';
     const nav = s.tab("Chat").closest("nav")!;
     expect(getComputedStyle(nav).paddingBottom, "native bottom safe area").toBe("34px");
+    const motionTrace: unknown[] = [];
+    const traceMotion = (event: Event) => {
+      const animation = event as AnimationEvent;
+      const target = event.target as HTMLElement;
+      if (!target.matches(".bk-overlay-surface, .bk-overlay-scrim")) return;
+      motionTrace.push({ type: event.type, at: performance.now(), panel: target.closest("[data-panel]")?.getAttribute("data-panel"),
+        target: target.className, name: animation.animationName, elapsed: animation.elapsedTime,
+        connected: target.isConnected, animations: target.getAnimations().slice(0, 8).map(value => ({
+          state: value.playState, currentTime: value.currentTime, startTime: value.startTime, timing: value.effect?.getComputedTiming(),
+        })) });
+      if (motionTrace.length > 32) motionTrace.shift();
+    };
+    for (const type of ["animationstart", "animationend", "animationcancel"]) document.addEventListener(type, traceMotion, true);
+    ctx.onTestFinished(() => { for (const type of ["animationstart", "animationend", "animationcancel"]) document.removeEventListener(type, traceMotion, true); });
     for (const name of ["Sessions", "Settings", "Files"]) {
+      const activationAt = performance.now();
       if (name === "Settings") {
         s.ui.stores.ui.getState().setSettingsTab("devices");
         await userEvent.click(s.tab("More"));
         await userEvent.click(page.getByRole("button", { name: "Settings", exact: true }));
       } else await userEvent.click(s.tab(name));
+      const activationReturnedAt = performance.now();
       await frame();
       const selector = `[data-panel="${name}"]`;
       const panel = s.overlay(selector);
       const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
       const animations = panel.getAnimations({ subtree: true });
+      if (animations.length === 0) {
+        const state = { name, theme, width, activationAt, activationReturnedAt, sampledAt: performance.now(),
+        connected: panel.isConnected, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        styles: [panel, ...panel.querySelectorAll<HTMLElement>(".bk-overlay-surface, .bk-overlay-scrim")].map(element => {
+          const css = getComputedStyle(element);
+          return { target: element.className, name: css.animationName, duration: css.animationDuration, delay: css.animationDelay, fill: css.animationFillMode };
+        }), animations: animations.map(animation => ({ state: animation.playState, currentTime: animation.currentTime, startTime: animation.startTime,
+          timing: animation.effect?.getComputedTiming() })), events: [...motionTrace] };
+        const label = `${theme}-${width}-${name}`;
+        console.error("DESTINATION_MOTION", label, "empty animation set; preserving native state");
+        try { await commands.destinationMotion(label, state); }
+        catch (error) { console.error("DESTINATION_MOTION capture failed", String(error)); }
+      }
       expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
       for (const animation of animations) animation.pause();
       const originalTransform = nav.style.transform;
