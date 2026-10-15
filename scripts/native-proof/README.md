@@ -83,6 +83,36 @@ not replace the daemon default. The same Moby license applies. A host without
 AppArmor records that absence explicitly and provides no enforced AppArmor
 qualification.
 
+## Event observation
+
+The child app appends JSONL events; the newline commits a record for proof
+observers. A concurrent filesystem read can return an exact prefix ending
+inside the writer's valid JSON. Live observers validate every complete record
+and withhold the unterminated tail, including a valid JSON object whose newline
+has not arrived. They never trim or parse that tail as a committed event.
+After child exit, any remaining tail fails the proof. Malformed complete JSON,
+invalid UTF-8 and records without an object/string kind fail immediately.
+All live event counts and matching predicates share this rule. Final provider-entry
+and whole-brain-scan counts are checked again after shutdown, so a pending live
+tail cannot hide a forbidden event that commits later.
+
+The first pending observation is retained as `event-observation-pending.bin`
+and `.json`; the first malformed complete or incomplete final evidence is retained as
+`event-observation-failure.bin` and `.json`. These are exact read snapshots,
+separate from the later shutdown `events.jsonl`. Metadata records phase,
+live/final state, reader PID, byte boundaries, snapshot SHA-256 and file identity,
+size and modification time before/after the read. Pending captures are bounded
+to the first observation per fixture; an error capture remains mandatory and
+shutdown cannot overwrite the first failing read.
+These artifacts diagnose observations; they do not establish successful native
+admission, cancellation, refresh or cleanup on their own.
+
+`bun run test tests/native-event-log.test.ts` covers framing, a real child
+append barrier, exact retained evidence, malformed complete records and strict
+shutdown. The full native runtime still supplies the backend/UID qualification.
+
+## Native release observations
+
 When a checkpoint's real `btrfs subvolume sync` exits unsuccessfully, the
 fixture retains `run/native-release/<checkpoint-id>.json` beside its native
 operation log. The observer records the pre-delete root identity, command
