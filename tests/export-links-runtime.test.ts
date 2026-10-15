@@ -1,8 +1,7 @@
 import { trackDisplayFixture } from "../packages/ui-react/tests/track-fixtures.js";
 /** Actual Chrome PDF annotations, rather than predicates about input HTML (#558). */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { BLOCKS } from "../packages/ui-react/tests/block-fixtures.ts";
@@ -31,12 +30,13 @@ function record(event: string, detail: unknown) {
   if (lifecycle.length > 256) lifecycle.shift();
 }
 function caller() { return new Error().stack?.split("\n").slice(2, 9).join("\n").replaceAll(resolve(import.meta.dir, ".."), "<repo>"); }
-async function preserveLifecycle(error: unknown, stage = "failure") {
+// Failure-only writes must finish even from a late native exit callback.
+function preserveLifecycle(error: unknown, stage = "failure") {
   const evidence = { capturedAt: Date.now(), bun: Bun.version, chromePath, launches, lifecycle, error: String(error) };
   try {
     const path = resolve(import.meta.dir, `../tmp/export-links-browser-${stage}-probe.json`);
-    await mkdir(resolve(import.meta.dir, "../tmp"), { recursive: true });
-    await writeFile(path, JSON.stringify(evidence, null, 2));
+    mkdirSync(resolve(import.meta.dir, "../tmp"), { recursive: true });
+    writeFileSync(path, JSON.stringify(evidence, null, 2));
     console.error("EXPORT_BROWSER_LIFECYCLE", `tmp/export-links-browser-${stage}-probe.json`, String(error));
   } catch (failure) { console.error("EXPORT_BROWSER_LIFECYCLE capture failed", String(failure)); }
 }
@@ -54,6 +54,7 @@ beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: ch
     child?.stderr?.on("data", chunk => { state.stderr = (state.stderr + String(chunk)).slice(-4000); });
     child?.once("exit", (code, signal) => {
       state.exitCode = code; state.signal = signal; record("process-exit", { id, code, signal });
+      if (lifecycleFailure) preserveLifecycle(lifecycleFailure, "exit");
     });
     browser.on("disconnected", () => record("disconnected", { id, connected: browser.connected, exitCode: child?.exitCode, signal: child?.signalCode }));
     const close = browser.close.bind(browser);
@@ -74,7 +75,7 @@ beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: ch
       catch (error) {
         lifecycleFailure = error;
         record("page-failed", { id, connected: browser.connected, error: String(error), exitCode: child?.exitCode, signal: child?.signalCode });
-        await preserveLifecycle(error);
+        preserveLifecycle(error);
         throw error;
       }
       record("page-ready", { id });
@@ -155,7 +156,7 @@ afterAll(async () => {
   try { await renderer?.shutdown(); }
   finally {
     record("fixture-shutdown-finished", {});
-    if (lifecycleFailure) await preserveLifecycle(lifecycleFailure, "teardown");
+    if (lifecycleFailure) preserveLifecycle(lifecycleFailure, "teardown");
   }
 });
 
@@ -374,6 +375,6 @@ describe.skipIf(!chromePath)("finished PDF disclosure", () => {
       expect(pdf.text).toContain("odysseus@ithaca.example,crew@ithaca.example");
       expect(pdf.text).not.toContain("Private");
       record("final-case-pass", {});
-    } catch (error) { lifecycleFailure = error; record("final-case-failed", { error: String(error) }); await preserveLifecycle(error); throw error; }
+    } catch (error) { lifecycleFailure = error; record("final-case-failed", { error: String(error) }); preserveLifecycle(error); throw error; }
   });
 });
