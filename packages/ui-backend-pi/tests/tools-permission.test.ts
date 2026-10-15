@@ -79,6 +79,36 @@ describe("approval policy (approvalReason)", () => {
 });
 
 describe("tool_call permission gate", () => {
+  test("default brain_read_base executes in-process without an approval card", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      const mock = makeMockBridge({ decision: { behavior: "deny", message: "should not ask" } });
+      turn.bridge = { ...mock.bridge, readBrainBase: async () => ({ content: "Odysseus returns.\n", expectedBaseHash: "a".repeat(64) }) };
+      const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+      const input = { path: "notes/odysseus.md" };
+      expect(await handler({ toolName: "brain_read_base", toolCallId: "base", input })).toBeUndefined();
+      expect(mock.permissionCalls).toHaveLength(0);
+      const tools = createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) });
+      const result = await tools.find(tool => tool.name === "brain_read_base")!.execute("base", input, undefined, undefined, CTX);
+      expect(JSON.parse(resultText(result))).toMatchObject({ content: "Odysseus returns.\n", expectedBaseHash: "a".repeat(64) });
+    } finally { brain.cleanup(); }
+  });
+
+  test("explicit enforced allowlist still gates brain_read_base", async () => {
+    for (const noGrantSurface of [false, true]) {
+      const turn = createTurnContext();
+      const mock = makeMockBridge({ decision: { behavior: "deny", message: "operator excluded base reads" } });
+      turn.bridge = mock.bridge;
+      turn.enforceAllowedTools = true;
+      turn.noGrantSurface = noGrantSurface;
+      const handler = gateHandler({ turn, allowedTools: new Set(["brain_read"]), confirmPatterns: CONFIRM });
+      expect(await handler({ toolName: "brain_read_base", toolCallId: "base", input: { path: "notes/odysseus.md" } })).toMatchObject({ block: true });
+      expect(mock.permissionCalls).toHaveLength(noGrantSurface ? 0 : 1);
+      if (!noGrantSurface) expect(mock.permissionCalls[0]).toMatchObject({ toolName: "brain_read_base", outsideEnforcedAllowlist: true });
+    }
+  });
+
   test("allowlisted call passes with no bridge round-trip", async () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "should not ask" } });

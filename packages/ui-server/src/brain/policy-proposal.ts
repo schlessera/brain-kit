@@ -77,8 +77,8 @@ function split(text: string) {
 }
 function sections(before: string, after: string) {
   let a: Record<string, unknown> = {};
-  try { a = parseFrontmatter(before).data; } catch { /* Invalid current bytes are still reviewed exactly. */ }
-  const b = parseFrontmatter(after).data;
+  try { a = parseFrontmatter(before, { dataOnly: true }).data; } catch { /* Invalid current bytes are still reviewed exactly. */ }
+  const b = parseFrontmatter(after, { dataOnly: true }).data;
   const changed: string[] = [];
   const walk = (left: unknown, right: unknown, path: string) => {
     if (JSON.stringify(left) === JSON.stringify(right)) return;

@@ -1,0 +1,3158 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Historical executed wait attribution; not a whole-repository runtime census or a savings total.",
+  "reference": "https://github.com/schlessera/brain-kit/issues/1855#issuecomment-6174199777",
+  "method": {
+    "clock": "Native scheduling; synchronous timestamps/counters around original operations. No additional await or timer.",
+    "integrity": "All original awaited operations and assertions retained; diagnostic edits removed byte-for-byte after each run.",
+    "serialization": "Each whole command timed inside the shared benchmark lock; unrelated host load was not controlled.",
+    "environment": {
+      "os": "Linux x86-64 (WSL2)",
+      "cpuAffinity": 32,
+      "memoryKiB": 49325736,
+      "resourceScope": "GNU time command process tree; maximum RSS is not total simultaneous process memory."
+    },
+    "identity": "site is original line:column when available; named helper spans carry their anchor instead. contexts are captured at observation start, not dynamic execution counts.",
+    "zeroAndNull": "Zero is an observed count/completed-duration sum; null totalElapsedMs means at least one started observation did not finish. Missing metrics are unmeasured.",
+    "limits": "Spans may overlap and include IO. Source declarations, timeout maxima, logical time and fixture lifetimes are not interchangeable. Cases/assertions remain runner evidence, not a completeness proof."
+  },
+  "runs": [
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-react/tests/recording-transcription.test.ts",
+      "fileSha256": "b1dd0a70dfa12bd843bbdc47d2c6a802714d1167e347b2898659412baf4b374d",
+      "instrumentedFileSha256": "b0591653b85d567653d10d88c46782ae5c19df3c44557e1ec195d447337a2688",
+      "command": "bun run test packages/ui-react/tests/recording-transcription.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 30,
+        "expectations": 92,
+        "bodyMs": 410.16,
+        "wholeSeconds": 0.52,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.15,
+        "systemSeconds": 0.05,
+        "maximumRssKiB": 65916,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Actual wait/condition spans include scheduler delay and IO; internal Playwright poll counts are unknown.",
+        "Whole-command time includes build where indicated. No before/after saving is claimed."
+      ],
+      "observations": [
+        {
+          "site": "34:20",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 7.013266,
+          "totalElapsedMs": 7.013266,
+          "contextIds": [
+            0
+          ]
+        },
+        {
+          "site": "10:72",
+          "role": "native-sleep",
+          "started": 30,
+          "finished": 30,
+          "completedElapsedMs": 152.977392,
+          "totalElapsedMs": 152.977392,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29
+          ]
+        },
+        {
+          "site": "45:53",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 30.089019,
+          "totalElapsedMs": 30.089019,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "50:155",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.098908,
+          "totalElapsedMs": 10.098908,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "71:37",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.092173,
+          "totalElapsedMs": 5.092173,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "73:21",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.068282,
+          "totalElapsedMs": 1.068282,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "84:94",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.078848,
+          "totalElapsedMs": 1.078848,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "95:22",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.076294,
+          "totalElapsedMs": 1.076294,
+          "contextIds": [
+            7
+          ]
+        },
+        {
+          "site": "106:23",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.086699,
+          "totalElapsedMs": 5.086699,
+          "contextIds": [
+            8
+          ]
+        },
+        {
+          "site": "116:23",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.093614,
+          "totalElapsedMs": 5.093614,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "118:20",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.099359,
+          "totalElapsedMs": 1.099359,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "118:40",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.14064,
+          "totalElapsedMs": 10.14064,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "127:23",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.133682,
+          "totalElapsedMs": 5.133682,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "128:20",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.068973,
+          "totalElapsedMs": 1.068973,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "142:23",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.134061,
+          "totalElapsedMs": 5.134061,
+          "contextIds": [
+            11
+          ]
+        },
+        {
+          "site": "145:18",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.115209,
+          "totalElapsedMs": 20.115209,
+          "contextIds": [
+            11
+          ]
+        },
+        {
+          "site": "198:84",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.170682,
+          "totalElapsedMs": 20.170682,
+          "contextIds": [
+            21
+          ]
+        },
+        {
+          "site": "214:84",
+          "role": "native-sleep",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 60.40248,
+          "totalElapsedMs": 60.40248,
+          "contextIds": [
+            22,
+            23,
+            24
+          ]
+        },
+        {
+          "site": "227:118",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.217122,
+          "totalElapsedMs": 20.217122,
+          "contextIds": [
+            25
+          ]
+        },
+        {
+          "site": "237:84",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.172826,
+          "totalElapsedMs": 20.172826,
+          "contextIds": [
+            26
+          ]
+        },
+        {
+          "site": "142:100",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        }
+      ],
+      "contexts": [
+        "1: delayed status recovery cannot overwrite another tab's durable edit",
+        "2: offline discard replays only its explicit DELETE after reconnect without a mounted tray",
+        "3: transcribing receipt holds service worker update reloads",
+        "4: a request transport without transfer progress cannot claim lost audio was not sent (missing)",
+        "5: a request transport without transfer progress cannot claim lost audio was not sent (0)",
+        "6: a lost PUT reply cannot invalidate a transcript edited after status recovery",
+        "7: a delayed missing receipt cannot regress a newer transcript edit",
+        "8: a transcript edited during upload preflight cannot be replaced by provider work",
+        "9: the update hold is active before upload even while inventory reads are delayed",
+        "10: a stale inventory read cannot release the update hold during provider work",
+        "11: status recovery during a partial upload cannot claim a subsequently processed request was not sent",
+        "12: a deletion queued during status recovery is drained without another connection event",
+        "13: an ambiguous upload stays recoverable while the host has not claimed its body yet",
+        "14: definitive pre-claim 413 rejection leaves audio reviewable",
+        "15: definitive pre-claim 415 rejection leaves audio reviewable",
+        "16: definitive pre-claim 400 rejection leaves audio reviewable",
+        "17: definitive pre-claim 501 rejection leaves audio reviewable",
+        "18: a disconnect after the pending marker commits restores the known never-dispatched recording",
+        "19: unconfirmed HTTP 401 without a pre-claim proof stays recoverable",
+        "20: unconfirmed HTTP 500 without a pre-claim proof stays recoverable",
+        "21: unconfirmed HTTP 413 without a pre-claim proof stays recoverable",
+        "22: auth loss during the pending-marker commit recovers a known never-dispatched recording after sign-in",
+        "23: known cancellation recovery preserves a newer intent",
+        "24: known cancellation recovery preserves a newer generation",
+        "25: known cancellation recovery preserves a newer edit",
+        "26: prepared cancellation survives recreating the store after authentication returns",
+        "27: auth loss after clearing the prepared marker retains zero-dispatch proof for the live store",
+        "28: a retained recovery projection cannot hide newer transcription",
+        "29: a retained recovery projection cannot hide newer transcribeRequestId",
+        "30: a retained recovery projection cannot hide newer transcriptionMessage"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/recording-transcription.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "fileSha256": "a312b734c7287d79edb28c252c590d9d65e7c5f357429f9c010ff5ff8012d8bb",
+      "instrumentedFileSha256": "e2d80ded68867e5a55032498dc1672f8fe9b75413632ba25563343219055420b",
+      "command": "env BRAIN_REQUIRE_CHROME=1 bun run test packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "bun": "1.4.2",
+      "chrome": "140.0.7339.127",
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": true,
+        "browserRequestFence": "Loopback fixture and scripted backend; no blanket browser route fence in this source.",
+        "nativeSocketLimitation": "The recorded local invocation has no separate native network namespace/container; Bun preload does not instrument Chrome sockets.",
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 9,
+        "expectations": 126,
+        "bodyMs": 41058.81,
+        "wholeSeconds": 92.95,
+        "buildMs": 50209.755659,
+        "buildInsideWhole": true,
+        "userSeconds": 96.01,
+        "systemSeconds": 11.76,
+        "maximumRssKiB": 1244592,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Actual wait/condition spans include scheduler delay and IO; internal Playwright poll counts are unknown.",
+        "Whole-command time includes build where indicated. No before/after saving is claimed."
+      ],
+      "observations": [
+        {
+          "site": "186:5",
+          "role": "condition-poll-sleep",
+          "started": 299,
+          "finished": 299,
+          "completedElapsedMs": 7682.480363,
+          "totalElapsedMs": 7682.480363,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        },
+        {
+          "site": "205:3",
+          "role": "native-page-window",
+          "started": 16,
+          "finished": 16,
+          "completedElapsedMs": 6410.499646,
+          "totalElapsedMs": 6410.499646,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        {
+          "site": "343:7",
+          "role": "native-page-window",
+          "started": 2,
+          "finished": 2,
+          "completedElapsedMs": 805.995039,
+          "totalElapsedMs": 805.995039,
+          "contextIds": [
+            0,
+            1
+          ]
+        },
+        {
+          "site": "346:7",
+          "role": "native-page-window",
+          "started": 2,
+          "finished": 2,
+          "completedElapsedMs": 3600.899803,
+          "totalElapsedMs": 3600.899803,
+          "contextIds": [
+            0,
+            1
+          ]
+        },
+        {
+          "site": "365:9",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 400.667368,
+          "totalElapsedMs": 400.667368,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "381:4",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 2.54279,
+          "totalElapsedMs": 2.54279,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "392:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 400.616766,
+          "totalElapsedMs": 400.616766,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "409:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 453.430996,
+          "totalElapsedMs": 453.430996,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "411:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 500.443752,
+          "totalElapsedMs": 500.443752,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "444:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 400.463142,
+          "totalElapsedMs": 400.463142,
+          "contextIds": [
+            4
+          ]
+        },
+        {
+          "site": "461:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 400.578265,
+          "totalElapsedMs": 400.578265,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "466:4",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 28.948593,
+          "totalElapsedMs": 28.948593,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "486:4",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.682864,
+          "totalElapsedMs": 10.682864,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "489:4",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.193594,
+          "totalElapsedMs": 1.193594,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "489:71",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 300.281376,
+          "totalElapsedMs": 300.281376,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "492:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 402.932368,
+          "totalElapsedMs": 402.932368,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "506:4",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 400.366474,
+          "totalElapsedMs": 400.366474,
+          "contextIds": [
+            7
+          ]
+        },
+        {
+          "site": "550:7",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 26.303804,
+          "totalElapsedMs": 26.303804,
+          "contextIds": [
+            8
+          ]
+        },
+        {
+          "site": "561:7",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.323735,
+          "totalElapsedMs": 1.323735,
+          "contextIds": [
+            8
+          ]
+        }
+      ],
+      "contexts": [
+        "1: capture ends; snapshot commits before unmount; same account restores all context without navigation",
+        "2: capture ends; snapshot commits before unmount; same account restores all context without navigation",
+        "3: failed snapshot is reported; revocation uses signed-out copy",
+        "4: different account navigates and cannot read or restore prior drafts or audio",
+        "5: uploaded references in every inactive staged view survive same-account restoration",
+        "6: restored uploaded reference bytes still govern the mixed composer budget",
+        "7: an image decode finishing after lock cannot recreate account drafts",
+        "8: track-only New chat restores the same unbound composer identity",
+        "9: commit measurement waits for native account restoration"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "boundary": "Installed native Chrome, loopback host, scripted backend; no provider call.",
+      "browserLaunchArguments": [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
+        "--use-file-for-fake-audio-capture=<generated local fixture WAV>",
+        "--autoplay-policy=no-user-gesture-required"
+      ],
+      "buildCommand": "bun scripts/build.ts"
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "fileSha256": "9cc14518bd6a61c19eb2a55050619d75a14487b4164780ed1bf3e745ca3f067b",
+      "instrumentedFileSha256": "9d55ee13540f35c81bc203a11631509742aab3bcc1adf6214d895743dd36cce2",
+      "command": "env BRAIN_REQUIRE_CHROME=1 bun run test packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "bun": "1.4.2",
+      "chrome": "140.0.7339.127",
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": true,
+        "browserRequestFence": "Context HTTP routes abort requests outside the fixture origin.",
+        "nativeSocketLimitation": "The recorded local invocation has no separate native network namespace/container; Bun preload does not instrument Chrome sockets.",
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 46,
+        "expectations": 1570,
+        "bodyMs": 304681.64,
+        "wholeSeconds": 373.23,
+        "buildMs": 66666.02111900001,
+        "buildInsideWhole": true,
+        "userSeconds": 170.97,
+        "systemSeconds": 40.14,
+        "maximumRssKiB": 1241364,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Actual wait/condition spans include scheduler delay and IO; internal Playwright poll counts are unknown.",
+        "Whole-command time includes build where indicated. No before/after saving is claimed."
+      ],
+      "observations": [
+        {
+          "site": "270:5",
+          "role": "native-condition-completion",
+          "started": 607,
+          "finished": 607,
+          "completedElapsedMs": 61428.648983,
+          "totalElapsedMs": 61428.648983,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45
+          ]
+        },
+        {
+          "site": "594:9",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 1501.551382,
+          "totalElapsedMs": 1501.551382,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "620:9",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 901.245921,
+          "totalElapsedMs": 901.245921,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "626:9",
+          "role": "native-condition-completion",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 20.21184,
+          "totalElapsedMs": 20.21184,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "637:9",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 901.193462,
+          "totalElapsedMs": 901.193462,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "666:9",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 1202.818225,
+          "totalElapsedMs": 1202.818225,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "690:9",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 1201.271394,
+          "totalElapsedMs": 1201.271394,
+          "contextIds": [
+            1,
+            16,
+            27
+          ]
+        },
+        {
+          "site": "204:3",
+          "role": "native-sleep",
+          "started": 7,
+          "finished": 7,
+          "completedElapsedMs": 1403.027573,
+          "totalElapsedMs": 1403.027573,
+          "contextIds": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            17,
+            28
+          ]
+        },
+        {
+          "site": "774:67",
+          "role": "native-sleep",
+          "started": 62,
+          "finished": 62,
+          "completedElapsedMs": 6224.144983,
+          "totalElapsedMs": 6224.144983,
+          "contextIds": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            17,
+            28
+          ]
+        },
+        {
+          "site": "790:11",
+          "role": "native-page-window",
+          "started": 7,
+          "finished": 7,
+          "completedElapsedMs": 3509.040772,
+          "totalElapsedMs": 3509.040772,
+          "contextIds": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            17,
+            28
+          ]
+        },
+        {
+          "site": "802:11",
+          "role": "native-page-window",
+          "started": 7,
+          "finished": 7,
+          "completedElapsedMs": 3509.668749,
+          "totalElapsedMs": 3509.668749,
+          "contextIds": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            17,
+            28
+          ]
+        },
+        {
+          "site": "846:35",
+          "role": "native-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 151.204318,
+          "totalElapsedMs": 151.204318,
+          "contextIds": [
+            4
+          ]
+        },
+        {
+          "site": "285:5",
+          "role": "native-sleep",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 114.248278,
+          "totalElapsedMs": 114.248278,
+          "contextIds": [
+            9,
+            10,
+            11
+          ]
+        },
+        {
+          "site": "1147:59",
+          "role": "native-sleep",
+          "started": 6,
+          "finished": 6,
+          "completedElapsedMs": 198.312015,
+          "totalElapsedMs": 198.312015,
+          "contextIds": [
+            14,
+            25,
+            36
+          ]
+        },
+        {
+          "site": "1206:11",
+          "role": "native-condition-completion",
+          "started": 8,
+          "finished": 8,
+          "completedElapsedMs": 58.316296,
+          "totalElapsedMs": 58.316296,
+          "contextIds": [
+            15,
+            26,
+            37
+          ]
+        },
+        {
+          "site": "1309:7",
+          "role": "native-condition-completion",
+          "started": 8,
+          "finished": 8,
+          "completedElapsedMs": 178.984796,
+          "totalElapsedMs": 178.984796,
+          "contextIds": [
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45
+          ]
+        },
+        {
+          "site": "1363:9",
+          "role": "native-page-window",
+          "started": 4,
+          "finished": 4,
+          "completedElapsedMs": 2001.525672,
+          "totalElapsedMs": 2001.525672,
+          "contextIds": [
+            39,
+            41,
+            43,
+            45
+          ]
+        },
+        {
+          "site": "1369:86",
+          "role": "native-sleep",
+          "started": 4,
+          "finished": 4,
+          "completedElapsedMs": 100.489517,
+          "totalElapsedMs": 100.489517,
+          "contextIds": [
+            39,
+            41,
+            45
+          ]
+        },
+        {
+          "site": "1373:9",
+          "role": "native-page-window",
+          "started": 4,
+          "finished": 4,
+          "completedElapsedMs": 4003.147843,
+          "totalElapsedMs": 4003.147843,
+          "contextIds": [
+            39,
+            41,
+            43,
+            45
+          ]
+        },
+        {
+          "site": "1326:66",
+          "role": "native-sleep",
+          "started": 8,
+          "finished": 8,
+          "completedElapsedMs": 358.694075,
+          "totalElapsedMs": 358.694075,
+          "contextIds": [
+            40,
+            41,
+            44,
+            45
+          ]
+        },
+        {
+          "site": "291:55",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        },
+        {
+          "site": "310:5",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        },
+        {
+          "site": "855:74",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        },
+        {
+          "site": "871:76",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        },
+        {
+          "site": "1002:68",
+          "role": "native-sleep",
+          "started": 0,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": 0,
+          "contextIds": []
+        }
+      ],
+      "contexts": [
+        "1: a failing staged-track upload restores the preceding offline descriptor",
+        "2: 390 phone, light, coarse pointer, reduced motion: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen",
+        "3: 390 phone, light, coarse pointer, reduced motion: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "4: 390 phone, light, coarse pointer, reduced motion [native touch, 0ms, motion=reduce]: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "5: 390 phone, light, coarse pointer, reduced motion [native touch, 150ms, motion=reduce]: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "6: 390 phone, light, coarse pointer, reduced motion [native touch, 0ms, motion=no-preference]: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "7: 390 phone, light, coarse pointer, reduced motion [refused send recovery]: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "8: 390 phone, light, coarse pointer, reduced motion: Chat Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "9: 390 phone, light, coarse pointer, reduced motion: Chat Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "10: 390 phone, light, coarse pointer, reduced motion: Actions Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "11: 390 phone, light, coarse pointer, reduced motion: Actions Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "12: 390 phone, light, coarse pointer, reduced motion: Actions Always allow refuses a disconnected approval send and recovers for one explicit decision",
+        "13: 390 phone, light, coarse pointer, reduced motion: Subagent Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "14: 390 phone, light, coarse pointer, reduced motion: Subagent Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "15: 390 phone, light, coarse pointer, reduced motion: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+        "16: 390 phone, light, coarse pointer, reduced motion: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)",
+        "17: 1279 desktop, dark, fine pointer: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen",
+        "18: 1279 desktop, dark, fine pointer: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "19: 1279 desktop, dark, fine pointer: Chat Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "20: 1279 desktop, dark, fine pointer: Chat Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "21: 1279 desktop, dark, fine pointer: Actions Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "22: 1279 desktop, dark, fine pointer: Actions Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "23: 1279 desktop, dark, fine pointer: Actions Always allow refuses a disconnected approval send and recovers for one explicit decision",
+        "24: 1279 desktop, dark, fine pointer: Subagent Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "25: 1279 desktop, dark, fine pointer: Subagent Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "26: 1279 desktop, dark, fine pointer: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+        "27: 1279 desktop, dark, fine pointer: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)",
+        "28: 1440 desktop, light, fine pointer, reduced motion: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen",
+        "29: 1440 desktop, light, fine pointer, reduced motion: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "30: 1440 desktop, light, fine pointer, reduced motion: Chat Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "31: 1440 desktop, light, fine pointer, reduced motion: Chat Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "32: 1440 desktop, light, fine pointer, reduced motion: Actions Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "33: 1440 desktop, light, fine pointer, reduced motion: Actions Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "34: 1440 desktop, light, fine pointer, reduced motion: Actions Always allow refuses a disconnected approval send and recovers for one explicit decision",
+        "35: 1440 desktop, light, fine pointer, reduced motion: Subagent Allow refuses a disconnected approval send and recovers for one explicit decision",
+        "36: 1440 desktop, light, fine pointer, reduced motion: Subagent Deny refuses a disconnected approval send and recovers for one explicit decision",
+        "37: 1440 desktop, light, fine pointer, reduced motion: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+        "38: 1440 desktop, light, fine pointer, reduced motion: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)",
+        "39: 320 phone, dark, coarse pointer, reduced motion: a reload asks while A holds a staged track out of view, and not once it is removed",
+        "40: 320 phone, dark, coarse pointer, reduced motion: a waiting update holds while A holds a staged track, then reloads once without asking when it is removed",
+        "41: 320 phone, dark, coarse pointer, reduced motion: a reload asks while A holds a staged track out of view, and not once it is sent",
+        "42: 320 phone, dark, coarse pointer, reduced motion: a waiting update holds while A holds a staged track, then reloads once without asking when it is sent",
+        "43: 1280 desktop, light, fine pointer: a reload asks while A holds a staged track out of view, and not once it is removed",
+        "44: 1280 desktop, light, fine pointer: a waiting update holds while A holds a staged track, then reloads once without asking when it is removed",
+        "45: 1280 desktop, light, fine pointer: a reload asks while A holds a staged track out of view, and not once it is sent",
+        "46: 1280 desktop, light, fine pointer: a waiting update holds while A holds a staged track, then reloads once without asking when it is sent"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "boundary": "Installed native Chrome, loopback host, scripted backend; no provider call.",
+      "browserLaunchArguments": [
+        "--no-sandbox",
+        "--disable-dev-shm-usage"
+      ],
+      "buildCommand": "bun scripts/build.ts"
+    },
+    {
+      "source": "d6ad60a26119978e70a5ad1f1dbcb8fbbf3a9fae",
+      "file": "packages/ui-react/tests/association-signout-runtime.test.ts",
+      "fileSha256": "1e84ee668cdf3297aaab576df47a4037b5c3f0a2a64a63f5c1f9ab2312517eed",
+      "instrumentedFileSha256": "a174351eb171560ae2250647abbe3edb27bfa4108d20bcc233bf9ba39b8f264e",
+      "command": "env BRAIN_REQUIRE_CHROME=1 BRAIN_AUTH_FIXTURE_BUILT=1 bun run test packages/ui-react/tests/association-signout-runtime.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": true,
+        "browserRequestFence": "Context HTTP routes abort requests outside the fixture origin.",
+        "nativeSocketLimitation": "The recorded local invocation has no separate native network namespace/container; Bun preload does not instrument Chrome sockets.",
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 73,
+        "expectations": 831,
+        "bodyMs": 131914.31,
+        "wholeSeconds": 133.59,
+        "buildMs": 50960.0,
+        "buildInsideWhole": false,
+        "buildSharedWith": "turn-journal-runtime.test.ts",
+        "fixtureSetupMs": 1143.022048,
+        "userSeconds": 33.48,
+        "systemSeconds": 15.09,
+        "maximumRssKiB": 286288,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Shared unchanged-source observation from the account/journal owner; no duplicate run.",
+        "Build is separate and shared; do not add its full cost to both files. Browser version was not recorded in this receipt."
+      ],
+      "observations": [
+        {
+          "site": "164:3",
+          "role": "native-condition-completion",
+          "started": 73,
+          "finished": 73,
+          "completedElapsedMs": 2770.320594,
+          "totalElapsedMs": 2770.320594,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72
+          ]
+        },
+        {
+          "site": "150:3",
+          "role": "native-condition-completion",
+          "started": 574,
+          "finished": 574,
+          "completedElapsedMs": 27305.417605,
+          "totalElapsedMs": 27305.417605,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72
+          ]
+        },
+        {
+          "site": "174:3",
+          "role": "native-condition-completion",
+          "started": 78,
+          "finished": 78,
+          "completedElapsedMs": 2869.530689,
+          "totalElapsedMs": 2869.530689,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72
+          ]
+        },
+        {
+          "site": "218:28",
+          "role": "native-condition-completion",
+          "started": 16,
+          "finished": 16,
+          "completedElapsedMs": 382.128344,
+          "totalElapsedMs": 382.128344,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        {
+          "site": "223:7",
+          "role": "native-condition-completion",
+          "started": 16,
+          "finished": 16,
+          "completedElapsedMs": 56.666063,
+          "totalElapsedMs": 56.666063,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        {
+          "site": "231:7",
+          "role": "native-condition-completion",
+          "started": 16,
+          "finished": 16,
+          "completedElapsedMs": 459.564811,
+          "totalElapsedMs": 459.564811,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        {
+          "site": "260:61",
+          "role": "native-condition-completion",
+          "started": 16,
+          "finished": 16,
+          "completedElapsedMs": 180.153394,
+          "totalElapsedMs": 180.153394,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        },
+        {
+          "site": "284:99",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 13.261816,
+          "totalElapsedMs": 13.261816,
+          "contextIds": [
+            17
+          ]
+        },
+        {
+          "site": "286:98",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 149.908188,
+          "totalElapsedMs": 149.908188,
+          "contextIds": [
+            17
+          ]
+        },
+        {
+          "site": "314:5",
+          "role": "native-condition-completion",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 85.99394,
+          "totalElapsedMs": 85.99394,
+          "contextIds": [
+            20,
+            21,
+            22
+          ]
+        },
+        {
+          "site": "342:5",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 100.703453,
+          "totalElapsedMs": 100.703453,
+          "contextIds": [
+            24
+          ]
+        },
+        {
+          "site": "346:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 4.393944,
+          "totalElapsedMs": 4.393944,
+          "contextIds": [
+            24
+          ]
+        },
+        {
+          "site": "358:60",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 56.312875,
+          "totalElapsedMs": 56.312875,
+          "contextIds": [
+            25
+          ]
+        },
+        {
+          "site": "382:104",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 26.784263,
+          "totalElapsedMs": 26.784263,
+          "contextIds": [
+            26
+          ]
+        },
+        {
+          "site": "385:123",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 139.610011,
+          "totalElapsedMs": 139.610011,
+          "contextIds": [
+            26
+          ]
+        },
+        {
+          "site": "395:60",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 53.843974,
+          "totalElapsedMs": 53.843974,
+          "contextIds": [
+            27
+          ]
+        },
+        {
+          "site": "410:60",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 62.366256,
+          "totalElapsedMs": 62.366256,
+          "contextIds": [
+            28
+          ]
+        },
+        {
+          "site": "418:47",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1103.984754,
+          "totalElapsedMs": 1103.984754,
+          "contextIds": [
+            28
+          ]
+        },
+        {
+          "site": "426:60",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 48.827192,
+          "totalElapsedMs": 48.827192,
+          "contextIds": [
+            29
+          ]
+        },
+        {
+          "site": "427:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.116106,
+          "totalElapsedMs": 1.116106,
+          "contextIds": [
+            29
+          ]
+        },
+        {
+          "site": "434:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 28.521561,
+          "totalElapsedMs": 28.521561,
+          "contextIds": [
+            29
+          ]
+        },
+        {
+          "site": "451:35",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 17.700514,
+          "totalElapsedMs": 17.700514,
+          "contextIds": [
+            30
+          ]
+        },
+        {
+          "site": "477:82",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 48.791278,
+          "totalElapsedMs": 48.791278,
+          "contextIds": [
+            32
+          ]
+        },
+        {
+          "site": "478:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 3.003619,
+          "totalElapsedMs": 3.003619,
+          "contextIds": [
+            32
+          ]
+        },
+        {
+          "site": "479:80",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 149.508479,
+          "totalElapsedMs": 149.508479,
+          "contextIds": [
+            32
+          ]
+        },
+        {
+          "site": "488:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 47.313881,
+          "totalElapsedMs": 47.313881,
+          "contextIds": [
+            33
+          ]
+        },
+        {
+          "site": "489:45",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 300.350604,
+          "totalElapsedMs": 300.350604,
+          "contextIds": [
+            33
+          ]
+        },
+        {
+          "site": "505:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 63.208507,
+          "totalElapsedMs": 63.208507,
+          "contextIds": [
+            34
+          ]
+        },
+        {
+          "site": "506:45",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 300.411282,
+          "totalElapsedMs": 300.411282,
+          "contextIds": [
+            34
+          ]
+        },
+        {
+          "site": "517:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 42.564328,
+          "totalElapsedMs": 42.564328,
+          "contextIds": [
+            35
+          ]
+        },
+        {
+          "site": "517:158",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1102.768416,
+          "totalElapsedMs": 1102.768416,
+          "contextIds": [
+            35
+          ]
+        },
+        {
+          "site": "527:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 42.680563,
+          "totalElapsedMs": 42.680563,
+          "contextIds": [
+            36
+          ]
+        },
+        {
+          "site": "539:66",
+          "role": "native-condition-completion",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 158.504864,
+          "totalElapsedMs": 158.504864,
+          "contextIds": [
+            37,
+            38,
+            39
+          ]
+        },
+        {
+          "site": "561:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 25.868877,
+          "totalElapsedMs": 25.868877,
+          "contextIds": [
+            40
+          ]
+        },
+        {
+          "site": "589:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 51.242277,
+          "totalElapsedMs": 51.242277,
+          "contextIds": [
+            41
+          ]
+        },
+        {
+          "site": "602:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 0.977341,
+          "totalElapsedMs": 0.977341,
+          "contextIds": [
+            41
+          ]
+        },
+        {
+          "site": "649:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 30.630386,
+          "totalElapsedMs": 30.630386,
+          "contextIds": [
+            44
+          ]
+        },
+        {
+          "site": "661:66",
+          "role": "native-condition-completion",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 103.712637,
+          "totalElapsedMs": 103.712637,
+          "contextIds": [
+            45,
+            46,
+            47
+          ]
+        },
+        {
+          "site": "665:47",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 901.474212,
+          "totalElapsedMs": 901.474212,
+          "contextIds": [
+            45,
+            46,
+            47
+          ]
+        },
+        {
+          "site": "692:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 25.450726,
+          "totalElapsedMs": 25.450726,
+          "contextIds": [
+            52
+          ]
+        },
+        {
+          "site": "697:200",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 29.290587,
+          "totalElapsedMs": 29.290587,
+          "contextIds": [
+            52
+          ]
+        },
+        {
+          "site": "698:5",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 17.099353,
+          "totalElapsedMs": 17.099353,
+          "contextIds": [
+            52
+          ]
+        },
+        {
+          "site": "714:66",
+          "role": "native-condition-completion",
+          "started": 6,
+          "finished": 6,
+          "completedElapsedMs": 317.338954,
+          "totalElapsedMs": 317.338954,
+          "contextIds": [
+            53,
+            54,
+            55,
+            56,
+            57,
+            58
+          ]
+        },
+        {
+          "site": "716:123",
+          "role": "native-condition-completion",
+          "started": 6,
+          "finished": 6,
+          "completedElapsedMs": 170.239903,
+          "totalElapsedMs": 170.239903,
+          "contextIds": [
+            53,
+            54,
+            55,
+            56,
+            57,
+            58
+          ]
+        },
+        {
+          "site": "720:46",
+          "role": "native-page-window",
+          "started": 6,
+          "finished": 6,
+          "completedElapsedMs": 3010.126406,
+          "totalElapsedMs": 3010.126406,
+          "contextIds": [
+            53,
+            54,
+            55,
+            56,
+            57,
+            58
+          ]
+        },
+        {
+          "site": "735:41",
+          "role": "native-condition-completion",
+          "started": 2,
+          "finished": 2,
+          "completedElapsedMs": 13.426514,
+          "totalElapsedMs": 13.426514,
+          "contextIds": [
+            59,
+            60
+          ]
+        },
+        {
+          "site": "748:66",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 25.13932,
+          "totalElapsedMs": 25.13932,
+          "contextIds": [
+            61
+          ]
+        },
+        {
+          "site": "749:245",
+          "role": "native-condition-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 29.495061,
+          "totalElapsedMs": 29.495061,
+          "contextIds": [
+            61
+          ]
+        },
+        {
+          "site": "751:115",
+          "role": "native-page-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 300.538585,
+          "totalElapsedMs": 300.538585,
+          "contextIds": [
+            61
+          ]
+        },
+        {
+          "site": "764:73",
+          "role": "native-page-window",
+          "started": 6,
+          "finished": 6,
+          "completedElapsedMs": 3002.552198,
+          "totalElapsedMs": 3002.552198,
+          "contextIds": [
+            62,
+            63,
+            64,
+            65,
+            66,
+            67
+          ]
+        },
+        {
+          "site": "782:73",
+          "role": "native-page-window",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 1805.046023,
+          "totalElapsedMs": 1805.046023,
+          "contextIds": [
+            68,
+            69,
+            70
+          ]
+        }
+      ],
+      "contexts": [
+        "1: explicit association and scoped sign-out 320px dark fine",
+        "2: explicit association and scoped sign-out 320px dark coarse",
+        "3: explicit association and scoped sign-out 320px light fine",
+        "4: explicit association and scoped sign-out 320px light coarse",
+        "5: explicit association and scoped sign-out 390px dark fine",
+        "6: explicit association and scoped sign-out 390px dark coarse",
+        "7: explicit association and scoped sign-out 390px light fine",
+        "8: explicit association and scoped sign-out 390px light coarse",
+        "9: explicit association and scoped sign-out 900px dark fine",
+        "10: explicit association and scoped sign-out 900px dark coarse",
+        "11: explicit association and scoped sign-out 900px light fine",
+        "12: explicit association and scoped sign-out 900px light coarse",
+        "13: explicit association and scoped sign-out 1280px dark fine",
+        "14: explicit association and scoped sign-out 1280px dark coarse",
+        "15: explicit association and scoped sign-out 1280px light fine",
+        "16: explicit association and scoped sign-out 1280px light coarse",
+        "17: association failure keeps the selected recording and leaves other recordings untouched",
+        "18: ticked unassigned deletion clears it; no pending work signs out without a dialog",
+        "19: partition clearing failure still reaches real logout and reports the failure after reload",
+        "20: auth expiry makes an open sign-out authorization stale and preserves account work",
+        "21: sign-out warns about final dictation before deleting it",
+        "22: sign-out warns about partial dictation before deleting it",
+        "23: sign-out warns about draining dictation before deleting it",
+        "24: Escape cancels only the local-work dialog while Settings and Dictation stay open",
+        "25: sign-out waits for an in-flight transcript write then clears its account completely",
+        "26: another tab cannot resurrect deleted drafts or write through a stale account handle",
+        "27: failed logout reports its notice even when the next boot remains authenticated",
+        "28: an unrelated recording lock cannot delay scoped account sign-out",
+        "29: optional unassigned deletion stops a cold tab's capture and admits a new explicit capture",
+        "30: another tab's uncommitted draft requires a warning before any destructive sign-out",
+        "31: a background auth probe cannot cancel explicit sign-in completion or writer admission",
+        "32: cold sign-in confirmation failure reloads and verifies the account before admission and association",
+        "33: two idle account tabs still sign out without an unnecessary warning",
+        "34: expanded unassigned loss requires a refreshed unticked warning before deletion",
+        "35: expanded account loss requires refreshed counts before deletion",
+        "36: a paused administrative clear cannot delete a newer unassigned capture generation",
+        "37: a paused administrative admission cannot reopen a newer native sign-out fence",
+        "38: explicit associate recovers survivors of a failed unassigned clear without reviving old writers",
+        "39: explicit discard recovers survivors of a failed unassigned clear without reviving old writers",
+        "40: explicit transcript recovers survivors of a failed unassigned clear without reviving old writers",
+        "41: cold transcript staging reports native lock refusal before its read hook",
+        "42: cold reader mounting waits for native inventory recovery before transcript staging",
+        "43: recovering unassigned survivors never readmits an earlier transcript request in the same store (ordinary storage events)",
+        "44: recovering unassigned survivors never readmits an earlier transcript request in the same store (delayed storage events)",
+        "45: a queued unassigned close invalidates old playback even after recovery reopens its writer",
+        "46: a queued older close preserves a newly admitted capture",
+        "47: a queued older close preserves a newly admitted transcript",
+        "48: a queued older close preserves a newly admitted playback",
+        "49: sign-out retention notice survives a cached-offline boot",
+        "50: sign-out failure notice survives a cached-offline boot",
+        "51: sign-out retention notice survives a forbidden boot",
+        "52: sign-out failure notice survives a forbidden boot",
+        "53: unassigned clearing revokes idle peer playback, cancels its pending result and refreshes its tray",
+        "54: initial inventory includes durable recording committed during peer discovery",
+        "55: initial inventory includes durable transcript committed during peer discovery",
+        "56: initial inventory includes durable unassigned committed during peer discovery",
+        "57: refreshed inventory includes durable recording committed during peer discovery",
+        "58: refreshed inventory includes durable transcript committed during peer discovery",
+        "59: refreshed inventory includes durable unassigned committed during peer discovery",
+        "60: automatic association belongs to its requesting root and never carries selection into a replacement",
+        "61: tray association belongs to its requesting root and never carries selection into a replacement",
+        "62: committed deletion invalidates peer playback opened during its closed generation",
+        "63: initial loss inventory includes late dictation work before destructive consent",
+        "64: initial loss inventory includes late draft work before destructive consent",
+        "65: initial loss inventory includes late track work before destructive consent",
+        "66: refreshed loss inventory includes late dictation work before destructive consent",
+        "67: refreshed loss inventory includes late draft work before destructive consent",
+        "68: refreshed loss inventory includes late track work before destructive consent",
+        "69: pending destructive consent is invalidated by Keep working",
+        "70: pending destructive consent is invalidated by Escape",
+        "71: pending destructive consent is invalidated by uncheck",
+        "72: a full origin permits explicit unassigned discard in its initial admitted generation",
+        "73: a full origin permits explicit unassigned discard in its reopened admitted generation"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1",
+        "BRAIN_AUTH_FIXTURE_BUILT": "1"
+      },
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/association-signout-runtime.test.ts",
+      "boundary": "Installed native Chrome, loopback host, scripted backend; no provider call.",
+      "browserLaunchArguments": [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
+        "--use-file-for-fake-audio-capture=<generated local fixture WAV>",
+        "--autoplay-policy=no-user-gesture-required"
+      ],
+      "buildCommand": "bun run build"
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-sdk/tests/keyed-lock.test.ts",
+      "fileSha256": "985f48734a0da8f7f8895bd51bb7d6f53d64c699cabb02a90050f9d70598b73c",
+      "instrumentedFileSha256": "c5116b39c678c96003ac5ca48864005f70e19599f0587d782cd3e2314fa2b8e3",
+      "command": "bun run test packages/ui-sdk/tests/keyed-lock.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 8,
+        "expectations": 17,
+        "bodyMs": 58.01,
+        "wholeSeconds": 0.14,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.06,
+        "systemSeconds": 0.03,
+        "maximumRssKiB": 31912,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed."
+      ],
+      "observations": [
+        {
+          "site": "19:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.168216,
+          "totalElapsedMs": 1.168216,
+          "contextIds": [
+            0
+          ]
+        },
+        {
+          "site": "55:5",
+          "role": "native-operation-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.217731,
+          "totalElapsedMs": 10.217731,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "71:5",
+          "role": "native-direct-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 40.097449,
+          "totalElapsedMs": 40.097449,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "85:5",
+          "role": "native-operation-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 0.112012,
+          "totalElapsedMs": 0.112012,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "97:7",
+          "role": "native-operation-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.167931,
+          "totalElapsedMs": 5.167931,
+          "contextIds": [
+            4
+          ]
+        }
+      ],
+      "contexts": [
+        "1: same key serializes FIFO",
+        "4: a bounded wait rejects LockBusyError and leaves the queue intact",
+        "5: a waiter granted before its timeout keeps the lock (timer is disarmed)",
+        "7: withLock releases on throw",
+        "8: LockBusyError names the key and the wait"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-sdk/tests/keyed-lock.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-render-puppeteer/tests/phase-budgets.test.ts",
+      "fileSha256": "8a876ba637f733b4b27c21ff6d08206e26821403b679523a4b5b845f2a2e18ac",
+      "instrumentedFileSha256": "f85b93f2c5a251237a8e3c3a96884426b7a29fb2326487eae6f41a79959810d0",
+      "command": "bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 15,
+        "expectations": 82,
+        "bodyMs": 3012.94,
+        "wholeSeconds": 3.13,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.1,
+        "systemSeconds": 0.09,
+        "maximumRssKiB": 58296,
+        "exitCode": 0,
+        "watchdogCallbacks": 0
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed.",
+        "Outcome spans overlap each other and fixture sleeps; sums are not exclusive idle time. All 45 watchdogs were cleared without firing."
+      ],
+      "observations": [
+        {
+          "site": "outcome",
+          "role": "native-operation-completion-with-watchdog",
+          "started": 45,
+          "finished": 45,
+          "completedElapsedMs": 3269.639342,
+          "totalElapsedMs": 3269.639342,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ]
+        },
+        {
+          "site": "93:38",
+          "role": "native-helper-sleep",
+          "started": 2,
+          "finished": 2,
+          "completedElapsedMs": 120.313755,
+          "totalElapsedMs": 120.313755,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "101:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 60.116988,
+          "totalElapsedMs": 60.116988,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "112:93",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 80.129874,
+          "totalElapsedMs": 80.129874,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "110:34",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 80.143588,
+          "totalElapsedMs": 80.143588,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "170:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.11394,
+          "totalElapsedMs": 5.11394,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "187:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.118838,
+          "totalElapsedMs": 5.118838,
+          "contextIds": [
+            7
+          ]
+        },
+        {
+          "site": "199:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 50.104702,
+          "totalElapsedMs": 50.104702,
+          "contextIds": [
+            8
+          ]
+        },
+        {
+          "site": "221:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 70.135984,
+          "totalElapsedMs": 70.135984,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "216:41",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 161.440211,
+          "totalElapsedMs": 161.440211,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "238:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.120996,
+          "totalElapsedMs": 5.120996,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "256:5",
+          "role": "native-helper-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.110953,
+          "totalElapsedMs": 5.110953,
+          "contextIds": [
+            11
+          ]
+        }
+      ],
+      "contexts": [
+        "2: shutdown racing immediate acquisition cannot start a launch",
+        "3: idle closure waits for active renders and the next call relaunches",
+        "4: a slow launch leaves the full rendering allowance available",
+        "5: queue expiry rejects while the slot is held and removes the expired waiter",
+        "6: a never-resolving launch times out and the next render launches again",
+        "7: a never-resolving newPage times out in rendering and frees capacity",
+        "8: an abandoned late launch is closed without opening a page or replacing the recovery browser",
+        "9: a late page is closed without configuring or capturing it",
+        "10: one acquisition timeout does not abandon a shared launch needed by a newer waiter",
+        "11: one rendering timeout does not close another active render's browser",
+        "12: a timed-out content operation cannot later start a capture",
+        "13: shutdown rejects queued calls and drains a wedged acquisition within its phase bound",
+        "14: shutdown lets an active shared launch/render finish and closes the browser once",
+        "15: a wedged page close cannot retain capacity or block shutdown"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-react/tests/pdf-loader.test.ts",
+      "fileSha256": "59cbd1940196f014c9a6d4ba51555758d8aac8d13e1c10966678fc6d2134424e",
+      "instrumentedFileSha256": "b980d9113590b654bb3f8e29e3a9a58c972b986b9413d0524ee12e24d33ed220",
+      "command": "bun run test packages/ui-react/tests/pdf-loader.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 17,
+        "expectations": 55,
+        "bodyMs": 83.61,
+        "wholeSeconds": 0.16,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.03,
+        "maximumRssKiB": 33248,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed.",
+        "Fixture timer delivery is not separately awaited duration. Other PDF open completion spans were not instrumented."
+      ],
+      "observations": [
+        {
+          "site": "getDocument fixture 5ms",
+          "role": "fixture-registration-to-callback-delivery",
+          "started": 5,
+          "finished": 5,
+          "completedElapsedMs": 25.452695,
+          "totalElapsedMs": 25.452695,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "site": "216:5",
+          "role": "native-operation-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.190068,
+          "totalElapsedMs": 5.190068,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "230:5",
+          "role": "native-direct-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 5.080897,
+          "totalElapsedMs": 5.080897,
+          "contextIds": [
+            4
+          ]
+        },
+        {
+          "site": "279:5",
+          "role": "native-direct-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.089833,
+          "totalElapsedMs": 20.089833,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "304:3",
+          "role": "native-operation-completion",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 0.074225,
+          "totalElapsedMs": 0.074225,
+          "contextIds": [
+            5
+          ]
+        }
+      ],
+      "contexts": [
+        "9: a worker from another pdf.js version moves that URL to the main thread",
+        "10: documents opening together on a mismatched worker all reach the main thread",
+        "11: any other failure is the document's: its loading task is released, and the worker stays",
+        "15: a retired worker goes even while the retry on the main thread is still opening",
+        "12: a worker that dies after reporting ready moves the documents waiting on it to the main thread",
+        "16: a pdf.js that failed to load is loaded again on the next open"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/pdf-loader.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-react/tests/tracker-store.test.ts",
+      "fileSha256": "7cbbe37addf7459d597917f84081a439652505c2f9c248fbce8cc6780df5005a",
+      "instrumentedFileSha256": "98835ff02f01b711afe3f99cc9853fafebafcae2ce26d9107fd8a8d3e7b71358",
+      "command": "bun run test packages/ui-react/tests/tracker-store.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 66,
+        "expectations": 189,
+        "bodyMs": 124.85,
+        "wholeSeconds": 0.29,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.23,
+        "systemSeconds": 0.09,
+        "maximumRssKiB": 92540,
+        "exitCode": 0,
+        "nativeAbort": {
+          "configuredMs": 10000,
+          "fixtureMs": 10,
+          "observedDeliveryMs": 10.176318
+        }
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed.",
+        "The existing fixture still substitutes a native 10 ms abort for the asserted production 10000 ms configuration; this observation is not a controlled-clock replacement."
+      ],
+      "observations": [
+        {
+          "site": "285:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.256762,
+          "totalElapsedMs": 1.256762,
+          "contextIds": [
+            0
+          ]
+        },
+        {
+          "site": "316:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.102894,
+          "totalElapsedMs": 1.102894,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "316:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.117506,
+          "totalElapsedMs": 1.117506,
+          "contextIds": [
+            1
+          ]
+        },
+        {
+          "site": "336:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.082602,
+          "totalElapsedMs": 1.082602,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "339:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.036632,
+          "totalElapsedMs": 1.036632,
+          "contextIds": [
+            2
+          ]
+        },
+        {
+          "site": "392:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.076883,
+          "totalElapsedMs": 1.076883,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "392:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.128989,
+          "totalElapsedMs": 1.128989,
+          "contextIds": [
+            3
+          ]
+        },
+        {
+          "site": "671:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.084849,
+          "totalElapsedMs": 1.084849,
+          "contextIds": [
+            4
+          ]
+        },
+        {
+          "site": "759:7",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.168527,
+          "totalElapsedMs": 1.168527,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "855:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.082192,
+          "totalElapsedMs": 1.082192,
+          "contextIds": [
+            6
+          ]
+        },
+        {
+          "site": "870:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.076158,
+          "totalElapsedMs": 1.076158,
+          "contextIds": [
+            7
+          ]
+        },
+        {
+          "site": "885:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.083032,
+          "totalElapsedMs": 1.083032,
+          "contextIds": [
+            8
+          ]
+        },
+        {
+          "site": "885:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.098177,
+          "totalElapsedMs": 1.098177,
+          "contextIds": [
+            8
+          ]
+        },
+        {
+          "site": "904:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.078669,
+          "totalElapsedMs": 1.078669,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "904:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.087851,
+          "totalElapsedMs": 1.087851,
+          "contextIds": [
+            9
+          ]
+        },
+        {
+          "site": "917:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.084435,
+          "totalElapsedMs": 1.084435,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "920:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.084238,
+          "totalElapsedMs": 1.084238,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "937:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.078746,
+          "totalElapsedMs": 1.078746,
+          "contextIds": [
+            11
+          ]
+        },
+        {
+          "site": "937:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.099778,
+          "totalElapsedMs": 1.099778,
+          "contextIds": [
+            11
+          ]
+        },
+        {
+          "site": "954:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.08703,
+          "totalElapsedMs": 1.08703,
+          "contextIds": [
+            12
+          ]
+        },
+        {
+          "site": "954:21",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.093985,
+          "totalElapsedMs": 1.093985,
+          "contextIds": [
+            12
+          ]
+        },
+        {
+          "site": "970:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.079157,
+          "totalElapsedMs": 1.079157,
+          "contextIds": [
+            13
+          ]
+        },
+        {
+          "site": "986:7",
+          "role": "native-event-loop-turn",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 3.286816,
+          "totalElapsedMs": 3.286816,
+          "contextIds": [
+            14
+          ]
+        },
+        {
+          "site": "998:7",
+          "role": "native-event-loop-turn",
+          "started": 3,
+          "finished": 3,
+          "completedElapsedMs": 3.285076,
+          "totalElapsedMs": 3.285076,
+          "contextIds": [
+            15
+          ]
+        },
+        {
+          "site": "1012:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.082022,
+          "totalElapsedMs": 1.082022,
+          "contextIds": [
+            16
+          ]
+        },
+        {
+          "site": "1015:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.121901,
+          "totalElapsedMs": 1.121901,
+          "contextIds": [
+            16
+          ]
+        },
+        {
+          "site": "1038:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.123785,
+          "totalElapsedMs": 1.123785,
+          "contextIds": [
+            17
+          ]
+        },
+        {
+          "site": "1049:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.085615,
+          "totalElapsedMs": 1.085615,
+          "contextIds": [
+            18
+          ]
+        },
+        {
+          "site": "1053:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.086444,
+          "totalElapsedMs": 1.086444,
+          "contextIds": [
+            18
+          ]
+        },
+        {
+          "site": "1057:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.17087,
+          "totalElapsedMs": 1.17087,
+          "contextIds": [
+            18
+          ]
+        },
+        {
+          "site": "1067:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.072514,
+          "totalElapsedMs": 1.072514,
+          "contextIds": [
+            19
+          ]
+        },
+        {
+          "site": "1070:5",
+          "role": "native-event-loop-turn",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 1.100046,
+          "totalElapsedMs": 1.100046,
+          "contextIds": [
+            19
+          ]
+        },
+        {
+          "site": "1099:7",
+          "role": "native-direct-sleep",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 30.189078,
+          "totalElapsedMs": 30.189078,
+          "contextIds": [
+            20
+          ]
+        }
+      ],
+      "contexts": [
+        "14: a queue report for a session not in view is work: it is tracked and read",
+        "16: a card decided while a read held its approval is settled once the read lands",
+        "18: opening a tracked session reads it again",
+        "21: work held behind a read keeps an unconfirmed-only tracker through a turnless error",
+        "36: a tracker taken in while this tab writes is read too",
+        "42: a storage event from another tab reads the trackers it brought",
+        "48: a cold root reads each tracker's envelope only when the host advertises it, and never sends anything",
+        "49: after a reload, an envelope at the stored revision naming older work than the stored request is a rollback",
+        "50: a held acceptance the envelope does not name is not assumed newer: the envelope stands and is read again",
+        "51: a held turn other than the envelope's is not assumed newer either",
+        "52: a turnless error for a request this page never saw accepted still asks the host",
+        "53: a held turn's end still settles what it raised, even when its order waits for the reread",
+        "54: held progress after an ambiguous dispatch waits for the reread with it",
+        "55: live frames that arrive during a read are applied after it",
+        "56: each unavailable read prints its reason",
+        "57: an unauthorized read drops needs you; a failed one keeps the approval it knew",
+        "58: a turn-scoped error with no result after it asks the host how the turn ended",
+        "59: an acceptance held behind a read still proves the send, so its failure is not a refusal",
+        "60: an accepted request failing before its turn, or a dropped follow-up, asks the host again",
+        "61: a turn starting while the latest work is unknown asks the host which work it is",
+        "62: a read is bounded: its deadline aborts the request and frees live frames"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-react/tests/tracker-store.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-server/tests/ws-follow-up-startup.test.ts",
+      "fileSha256": "747137d7d5898741a403d5828118ac6408ac79cf0cc8820d3d010edc5e7e34a5",
+      "instrumentedFileSha256": "452ca16d66c6ae3976064145a425ac47fa457f48adfbfddb13f73698faadd09b",
+      "command": "bun run test packages/ui-server/tests/ws-follow-up-startup.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 16,
+        "expectations": 50,
+        "bodyMs": 1509.26,
+        "wholeSeconds": 1.69,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.82,
+        "systemSeconds": 0.48,
+        "maximumRssKiB": 106340,
+        "exitCode": 0
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed."
+      ],
+      "observations": [
+        {
+          "site": "109:5",
+          "role": "condition-poll-sleep",
+          "started": 49,
+          "finished": 49,
+          "completedElapsedMs": 1163.204122,
+          "totalElapsedMs": 1163.204122,
+          "contextIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+          ]
+        },
+        {
+          "site": "234:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.208426,
+          "totalElapsedMs": 10.208426,
+          "contextIds": [
+            4
+          ]
+        },
+        {
+          "site": "276:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.198785,
+          "totalElapsedMs": 10.198785,
+          "contextIds": [
+            5
+          ]
+        },
+        {
+          "site": "406:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.159356,
+          "totalElapsedMs": 20.159356,
+          "contextIds": [
+            10
+          ]
+        },
+        {
+          "site": "433:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.112499,
+          "totalElapsedMs": 10.112499,
+          "contextIds": [
+            11
+          ]
+        },
+        {
+          "site": "459:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.177336,
+          "totalElapsedMs": 10.177336,
+          "contextIds": [
+            12
+          ]
+        },
+        {
+          "site": "507:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 10.135106,
+          "totalElapsedMs": 10.135106,
+          "contextIds": [
+            14
+          ]
+        },
+        {
+          "site": "510:5",
+          "role": "negative-observation-window",
+          "started": 1,
+          "finished": 1,
+          "completedElapsedMs": 20.14418,
+          "totalElapsedMs": 20.14418,
+          "contextIds": [
+            14
+          ]
+        }
+      ],
+      "contexts": [
+        "1: async admission queues a follow-up until the backend actually owns its turn",
+        "2: cancelled async admission leaves local context pending and source unrecorded",
+        "3: revocation during native admission refuses the backend and preserves another principal's queued turn",
+        "4: expiry during native admission refuses the backend and preserves another principal's queued turn",
+        "5: a resumed turn still starting queues the follow-up, which runs after it",
+        "6: a dequeued follow-up turn still starting queues the next one too",
+        "7: a follow-up sent once the backend has the turn is still delivered natively",
+        "8: a follow-up the backend refuses for having no running turn is queued, not lost",
+        "9: a refused follow-up still runs ahead of messages queued after it",
+        "10: two refused follow-ups keep the order they were sent in",
+        "11: a later follow-up refused first still waits for the earlier one's answer",
+        "12: a refused follow-up rejoining ahead does not take over a later request's recovery record",
+        "13: a cancel while the slot waits for a delivery ends the slot at once",
+        "14: a refused follow-up that cannot be queued is reported, not thrown",
+        "16: a follow-up refused after its turn was cancelled does not run in the next one"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-server/tests/ws-follow-up-startup.test.ts",
+      "boundary": "In-process test doubles/stores with native JS scheduling; no browser launched.",
+      "buildCommand": null
+    },
+    {
+      "source": "6d9754d7fc40cb98fc6d8b8471038737b9c2b600",
+      "file": "packages/ui-sdk/tests/native-brain-manager.test.ts",
+      "fileSha256": "e437aa6f2e161368ccbc31bbe55fb454bbd80938c9cda40d229c973d65f9e953",
+      "instrumentedFileSha256": "867169f7f5253002c73344452d612edde7b6fc7fc077726f5a19c334853fc00c",
+      "command": "bun run test packages/ui-sdk/tests/native-brain-manager.test.ts",
+      "bun": "1.4.2",
+      "chrome": null,
+      "guards": {
+        "preload": "scripts/test-network-preload.ts",
+        "scope": "globalThis.fetch loopback/redirect/proxy checks plus Bun.spawn/spawnSync child-preload and real-curl refusal; asserts recorded escapes after tests.",
+        "namespaceOrContainerWrapper": null,
+        "nativeIsolationClaim": false,
+        "browserRequired": false,
+        "limits": "This preload does not intercept node:http, node:https or native browser sockets. Native network isolation was not measured by this direct diagnostic command."
+      },
+      "measurement": {
+        "pass": 13,
+        "expectations": 56,
+        "bodyMs": 62.38,
+        "wholeSeconds": 0.16,
+        "buildMs": 0,
+        "buildInsideWhole": false,
+        "userSeconds": 0.08,
+        "systemSeconds": 0.06,
+        "maximumRssKiB": 55820,
+        "exitCode": 0,
+        "userPrivilege": "unprivileged"
+      },
+      "limitations": [
+        "Whole file, no build or browser. Native event-loop work is preserved; no elapsed-time optimization is claimed.",
+        "The 100 ms fixture sleep started once but did not complete before process exit; total elapsed is unknown, not 0 ms or 100 ms. This run was unprivileged; the administrative-authority refusal guard executed."
+      ],
+      "observations": [
+        {
+          "site": "checkpoint",
+          "role": "native-Unix-operation-completion",
+          "started": 2,
+          "finished": 2,
+          "completedElapsedMs": 23.105832,
+          "totalElapsedMs": 23.105832,
+          "contextIds": [
+            0,
+            1
+          ]
+        },
+        {
+          "site": "113:77",
+          "role": "native-fixture-sleep",
+          "started": 1,
+          "finished": 0,
+          "completedElapsedMs": 0,
+          "totalElapsedMs": null,
+          "contextIds": [
+            0
+          ]
+        }
+      ],
+      "contexts": [
+        "10: lost Unix response is unknown and never an inferred absence or automatic retry",
+        "11: unreadable successful response does not erase mutation uncertainty"
+      ],
+      "environmentOverrides": {},
+      "expandedTestCommand": "bun test --preload scripts/test-network-preload.ts --timeout 30000 packages/ui-sdk/tests/native-brain-manager.test.ts",
+      "boundary": "Real local Unix HTTP transport plus in-process protocol doubles.",
+      "buildCommand": null
+    }
+  ]
+}

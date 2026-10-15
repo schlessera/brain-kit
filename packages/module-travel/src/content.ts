@@ -80,7 +80,7 @@ export type TravelDocument = Journey | Trip | Place;
 export function parseTravelDocument(source: string): TravelDocument {
   // Keep written calendar days as strings: YAML timestamp coercion can turn
   // an impossible date into a different real day before validation.
-  const raw = parseFrontmatter(source, { engines: { yaml: parseYaml } }).data;
+  const raw = parseFrontmatter(source, { dataOnly: true, engines: { yaml: parseYaml } }).data;
   const data = raw.type === "travel" ? journeySchema.parse(raw)
     : raw.type === "trip" ? tripSchema.parse(raw) : placeSchema.parse(raw);
   if (data.type === "place") return data;
@@ -111,7 +111,7 @@ export function readTravelCorpus(root: string, taxonomy: Taxonomy = buildTaxonom
   for (const path of getMarkdownFiles(root, taxonomy)) {
     try {
       const source = readFileSync(join(root, path), "utf8");
-      const type = parseFrontmatter(source).data.type;
+      const type = parseFrontmatter(source, { dataOnly: true }).data.type;
       if (type !== "travel" && type !== "trip" && type !== "place") continue;
       documents.set(path, parseTravelDocument(source));
     } catch (cause) { error(path, (cause as Error).message); }

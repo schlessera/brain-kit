@@ -8,7 +8,10 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.ts";
 
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
+// Recovery geometry is relative to the drawn baseline, not a theme-size
+// comparison. Keep both native widths; consumer composer parity lives in
+// Storybook. See docs/process/theme-parity.md for the assertion ownership map.
+for (const { theme, width } of [{ theme: "dark", width: 320 }, { theme: "light", width: 1280 }] as const) {
   test(`${theme} ${width}: an early replay chunk never unmounts the drawn suffix`, async (ctx) => {
     const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
     const outer = await commands.formViewport(width, 800);
@@ -84,6 +87,9 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
   });
 }
 
+// Keep both themes here: no central story proves this consumer's expanded
+// tool input and finished-summary/live timeline with the shipped stylesheet.
+// A kit-only disclosure story does not cover that presentation boundary.
 for (const finished of [false, true]) for (const splitRun of [false, true]) for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
   test(`${theme} ${width} ${finished ? "finished" : "live"}: recovery ${splitRun ? "splits a drawn tool run" : "splits text"} without remounting an expanded live card`, async (ctx) => {
     const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };

@@ -13,6 +13,7 @@
 
 import { describe, expect, test } from "bun:test";
 import matter from "gray-matter";
+import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel";
 
 import { parseFrontmatter } from "../src/frontmatter-parse";
 
@@ -153,4 +154,54 @@ describe("parsing behaviour is unchanged", () => {
     });
     expect(custom.data).toEqual({ seen: "anything" });
   });
+});
+
+
+describe("data-only engine admission", () => {
+  test("unsupported declarations never dispatch an engine before refusal", () => {
+    const sentinel = frontmatterEngineSentinel();
+    try {
+      for (const language of ["js", "javascript", "JS", "JavaScript", "json", "coffee", "cson", "odyssey", "unknown"]) {
+        for (const raw of [`---${language}\nschema_version: 1\n---\n`,
+          `\uFEFF--- ${language} \r\nschema_version: 1\r\n---\r\n`, `---${language}X`]) {
+          let error: unknown;
+          try { parseFrontmatter(raw, { dataOnly: true }); } catch (caught) { error = caught; }
+          expect(sentinel.dispatched, "DATA_ONLY_NO_ENGINE_DISPATCH").toEqual([]);
+          expect(String(error)).toContain("use YAML data only");
+        }
+      }
+    } finally { sentinel.restore(); }
+  });
+  test("YAML controls, custom YAML engine, delimiter and default-language overrides", () => {
+    for (const language of ["", "yaml", "yml", "YAML", "YML"]) {
+      expect(parseFrontmatter(`---${language}\nschema_version: 1\n---\n`, { dataOnly: true }).data.schema_version).toBe(1);
+    }
+    const sentinel = frontmatterEngineSentinel();
+    try {
+      for (const options of [{ language: "js" }, { lang: "JS" }, { delimiters: "~~~", language: "js" }, { delims: "~~~" }]) {
+        const raw = options.delimiters || options.delims ? "~~~js\nOdysseus\n~~~\n" : "---\nOdysseus\n---\n";
+        expect(() => parseFrontmatter(raw, { ...options, dataOnly: true })).toThrow("use YAML data only");
+        expect(sentinel.dispatched).toEqual([]);
+      }
+      expect(parseFrontmatter("----js\nOdysseus\n", { dataOnly: true }).data).toEqual({});
+      expect(parseFrontmatter("Body only", { dataOnly: true }).content).toBe("Body only");
+      expect(parseFrontmatter("---\nOdysseus\n---\n", { dataOnly: true,
+        engines: { yaml: text => ({ hero: text.trim() }) } }).data).toEqual({ hero: "Odysseus" });
+    } finally { sentinel.restore(); }
+    expect(() => parseFrontmatter('---\ntitle: "Odysseus\n---\n', { dataOnly: true })).toThrow();
+  });
+});
+
+
+test("the explicit legacy data-only mode accepts real JSON and refuses executable selection", () => {
+  expect(parseFrontmatter('---json\n{"hero":"Odysseus"}\n---\n', { dataOnly: "yaml-json" }).data).toEqual({ hero: "Odysseus" });
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    for (const language of ["js", "javascript", "JS", "coffee", "odyssey"]) {
+      let error: unknown;
+      try { parseFrontmatter(`---${language}\nOdysseus\n---\n`, { dataOnly: "yaml-json" }); } catch (caught) { error = caught; }
+      expect(sentinel.dispatched, "LEGACY_DATA_ONLY_NO_EXECUTABLE_DISPATCH").toEqual([]);
+      expect(String(error)).toContain("use YAML or JSON data only");
+    }
+  } finally { sentinel.restore(); }
 });

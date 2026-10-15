@@ -748,8 +748,13 @@ to press. #86 and #100 answered that by printing those keys — the rail's
 lines, and the Actions pane's `j` / `k` / `d` — only while
 `(any-pointer: fine)` matches (`useFinePointer()`,
 `packages/ui-react/src/hooks/use-fine-pointer.ts:13-15`). The palette's `⌘K`
-on the rail was left out of that and still prints everywhere. The
-**bindings** do not follow the pointer: every key stays registered in every
+on the rail was initially left out. #1774 extends the same print policy to
+that cap, the command picker’s Escape/Enter and footer, the Files pane’s
+footer, the composer’s key instructions and the answer field’s Enter glyph.
+The collapsed All commands button keeps a search icon when its cap is hidden;
+labels, status text and keyboard bindings remain available. Kit-generated
+hints use the same live CSS media query, without adding browser state to the
+presentational components. The **bindings** do not follow the pointer: every key stays registered in every
 state, and the Settings switch still decides whether single letters bind at
 all.
 

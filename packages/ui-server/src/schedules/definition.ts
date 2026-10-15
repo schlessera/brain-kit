@@ -353,7 +353,7 @@ export function parseDefinitionFile(text: string): StoredDefinition {
   if (bytes(text) > MAX_DEFINITION_FILE_BYTES) fail("definition file is too large");
   if (text.includes("\u0000")) fail("definition file contains NUL");
   let parsed;
-  try { parsed = parseFrontmatter(text); }
+  try { parsed = parseFrontmatter(text, { dataOnly: true }); }
   catch { fail("definition frontmatter is malformed or has duplicate keys"); }
   const data = parsed!.data as Record<string, unknown>;
   const keys = Object.keys(data);

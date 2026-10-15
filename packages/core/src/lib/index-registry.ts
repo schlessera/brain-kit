@@ -188,7 +188,7 @@ function readFile(root: string, path: string): Read {
     // gray-matter reads a block with no closing fence as frontmatter anyway;
     // the rewrite would then treat the whole file as body.
     splitFrontmatterBlock(raw);
-    return { raw, data: parseFrontmatter(raw).data as Record<string, unknown> };
+    return { raw, data: parseFrontmatter(raw, { dataOnly: true }).data as Record<string, unknown> };
   } catch (error) {
     return { raw, error: `frontmatter does not parse: ${firstLine(error)}` };
   }

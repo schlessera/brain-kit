@@ -98,10 +98,17 @@ document.title = "Escape probe ready";
 
 const PAGES: Record<string, string> = {
   "voyage/report.html": REPORT,
-  "voyage/popup.html": escapePage(`window.open(A + "/popup?ctx=" + ctx);`),
-  "voyage/form.html": escapePage(`document.getElementById("f").submit();`,
+  "voyage/popup.html": escapePage(`
+    const popup = window.open(A + "/popup?ctx=" + ctx);
+    document.documentElement.dataset.popupResult = popup === null ? "null" : "window";
+    document.documentElement.dataset.popupReturned = "yes";`),
+  "voyage/form.html": escapePage(`document.getElementById("f").submit(); document.documentElement.dataset.formReturned = "yes";`,
     `<form id="f" action="ATTACKER/form" method="get"><input name="ctx" value="probe"></form>`),
-  "voyage/download.html": escapePage(`document.getElementById("d").click();`,
+  "voyage/download.html": escapePage(`
+    performance.mark("odysseus-download:" + ctx + ":before");
+    document.getElementById("d").click();
+    performance.mark("odysseus-download:" + ctx + ":after");
+    document.documentElement.dataset.downloadReturned = ctx;`,
     `<a id="d" download="ithaca.txt" href="data:text/plain,ithaca">file</a>`),
   "voyage/top.html": escapePage(`window.top.location.href = A + "/top?ctx=" + ctx;`),
   "voyage/navigate.html": escapePage(
@@ -161,12 +168,14 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
-  console.log("[measure] HTML native observation", JSON.stringify(observationMetrics));
-  await browser?.close();
-  await served.password?.stop();
-  await served.none?.stop();
-  attacker?.stop(true);
-  if (fixture) await rm(fixture, { recursive: true, force: true });
+  try { await Promise.all([...activeDownloadTraces].map(stop => stop())); } finally {
+    console.log("[measure] HTML native observation", JSON.stringify(observationMetrics));
+    await browser?.close();
+    await served.password?.stop();
+    await served.none?.stop();
+    attacker?.stop(true);
+    if (fixture) await rm(fixture, { recursive: true, force: true });
+  }
 });
 
 type Opened = { page: Page; context: BrowserContext; app: Served; outside: string[]; downloads: string[] };
@@ -235,20 +244,86 @@ function expectIsolated(r: Record<string, unknown>): void {
   expect(r.violations).toEqual(["connect-src", "img-src"]);
 }
 
-/**
- * Native negative observation, not rendering readiness: an out-of-process
- * navigation, popup or download may surface after the renderer's click/DOM
- * work completes. A page JS clock cannot advance those browser-process tasks.
- * Preserve the established 1500ms observation budget after a confirmed click;
- * expected-escape controls additionally await the actual hit. Shortening this
- * window needs native control measurements, not a quiet DOM (test-waits.md).
+const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0, downloadBoundaryCalls: 0, downloadBoundaryMs: 0, downloadTraceMs: 0 };
+type DownloadTraceEvent = {
+  name?: string; cat?: string; pid?: number; tid?: number; ts?: number;
+  args?: { feature?: number; data?: { navigationId?: string } };
+};
+type DownloadTraceResult = { events: DownloadTraceEvent[]; dropped: number; dataLossOccurred: boolean };
+const activeDownloadTraces = new Set<() => Promise<DownloadTraceResult>>();
+
+/** Chromium emits feature 2975 only on the sandbox download-denial branch.
+ * Require that native event inside this exact synchronous anchor call, on the
+ * same renderer thread. The trace flush completes recording, not browser work.
+ * The source identities and delayed/guard controls are recorded in test-waits.md.
  */
-const observationMetrics = { calls: 0, elapsedMs: 0, rawCalls: 0, rawMs: 0, pollCalls: 0, pollMs: 0 };
-async function observeDeniedBrowserActions(page: Page | Frame) {
-  const started = performance.now();
-  observationMetrics.calls++;
-  await page.waitForTimeout(1500);
-  observationMetrics.elapsedMs += performance.now() - started;
+async function traceDownloadAttempt() {
+  const startedAt = performance.now();
+  const cdp = await browser!.newBrowserCDPSession();
+  const events: DownloadTraceEvent[] = [];
+  let dropped = 0;
+  const collect = (event: { value: DownloadTraceEvent[] }) => {
+    for (const value of event.value) { if (events.length < 10_000) events.push(value); else dropped++; }
+  };
+  cdp.on("Tracing.dataCollected", collect);
+  let started = false;
+  let stopped: Promise<DownloadTraceResult> | undefined;
+  const stop = () => stopped ??= (async () => {
+    try {
+      if (!started) return { events, dropped, dataLossOccurred: true };
+      let onComplete!: (event: { dataLossOccurred: boolean }) => void;
+      const complete = new Promise<{ dataLossOccurred: boolean }>(resolve => { onComplete = resolve; cdp.once("Tracing.tracingComplete", onComplete); });
+      let watchdog!: ReturnType<typeof setTimeout>;
+      const timeout = new Promise<never>((_, reject) => { watchdog = setTimeout(() => reject(new Error("native download trace completion timed out")), 5_000); });
+      try {
+        const result = await Promise.race([(async () => { await cdp.send("Tracing.end"); return complete; })(), timeout]);
+        return { events, dropped, dataLossOccurred: result.dataLossOccurred };
+      } finally { clearTimeout(watchdog); cdp.off("Tracing.tracingComplete", onComplete); }
+    } finally {
+      cdp.off("Tracing.dataCollected", collect);
+      try { await cdp.detach(); } finally {
+        activeDownloadTraces.delete(stop);
+        observationMetrics.downloadTraceMs += performance.now() - startedAt;
+      }
+    }
+  })();
+  activeDownloadTraces.add(stop);
+  try {
+    await cdp.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: {
+      recordMode: "recordUntilFull", excludedCategories: ["*"],
+      includedCategories: ["disabled-by-default-blink.feature_usage", "blink.user_timing"],
+    } });
+    started = true;
+  } catch (error) { await stop(); throw error; }
+  return stop;
+}
+
+async function finishDownloadAttempt(page: Page | Frame, context: "frame" | "tab", stop: () => Promise<DownloadTraceResult>, escaped: () => boolean) {
+  const startedAt = performance.now();
+  observationMetrics.downloadBoundaryCalls++;
+  try {
+    await until(`the native download call returns in the ${context}`, async () => (await mark(page, "downloadReturned")) === context);
+    const trace = await stop();
+    expect(trace.dataLossOccurred, "native download trace has no lost records").toBe(false);
+    expect(trace.dropped, "native download trace stays within its capture bound").toBe(0);
+    const markers = (part: string) => trace.events.filter(event => event.name === `odysseus-download:${context}:${part}` && event.cat?.split(",").includes("blink.user_timing"));
+    const before = markers("before"), after = markers("after");
+    expect(before, "the exact native download call has one start marker").toHaveLength(1);
+    expect(after, "the exact native download call has one return marker").toHaveLength(1);
+    const first = before[0]!, last = after[0]!;
+    expect([first.pid, first.tid, first.ts, last.ts].every(value => Number.isFinite(value)), "native download markers carry renderer/thread/timestamps").toBe(true);
+    expect(first.args?.data?.navigationId, "native download markers name their document").toBeTruthy();
+    expect([last.pid, last.tid, last.args?.data?.navigationId], "native download markers belong to one document and renderer thread").toEqual([first.pid, first.tid, first.args?.data?.navigationId]);
+    expect(last.ts! >= first.ts!, "native download call returns after its start").toBe(true);
+    const denials = trace.events.filter(event => event.name === "FeatureFirstUsed"
+      && event.cat?.split(",").includes("disabled-by-default-blink.feature_usage") && event.args?.feature === 2975
+      && event.pid === first.pid && event.tid === first.tid && event.ts! >= first.ts! && event.ts! <= last.ts!);
+    expect(denials.length <= 1, "the native download denial has one correlated witness").toBe(true);
+    // When policy regresses, wait for the actual download so the unchanged
+    // original count assertions fail; absence of a trace event never passes.
+    if (denials.length === 0) await until(`the ${context} produces native denial evidence or an actual download`, escaped);
+    expect(denials.length === 1 || escaped(), "the native download attempt has a witnessed outcome").toBe(true);
+  } finally { observationMetrics.downloadBoundaryMs += performance.now() - startedAt; }
 }
 
 /** Poll until `condition` holds, failing with `what` after a bounded deadline. */
@@ -263,8 +338,99 @@ async function until(what: string, condition: () => boolean | Promise<boolean>, 
   }
 }
 
+/**
+ * The fixture performs one synchronous navigation to a static, inert document.
+ * Observe that exact document's native completion; this is not a global drain.
+ * A changed app URL is an escape result for the caller's original assertions.
+ * Detaching the preview alone does not establish either outcome.
+ */
+async function finishExpectedNavigation(target: Page | Frame, path: string, app?: { page: Page; url: string }) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the destination ${path} completes or the app navigates`, async () => {
+    if (app && app.page.url() !== app.url) return true;
+    return target.evaluate((url) => location.href === url && document.readyState === "complete", destination).catch(() => false);
+  });
+}
+
+function observePopupDenials(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("allow-popups")) messages.push(message.text());
+  });
+  return messages;
+}
+
+/**
+ * This fixture makes one native window.open call without noopener/features.
+ * A null return alone is insufficient: successful noopener creation can also
+ * return null. Require the exact destination's native sandbox denial on the
+ * initiating page, plus the returned call. Chrome denies this action before
+ * auxiliary-context creation. This does not drain other browser actions.
+ * Any actual popup OR attacker hit instead returns to the original escape
+ * assertions, including a popup whose navigation never reaches the attacker.
+ */
+async function finishPopupAttempt(target: Page | Frame, path: string, denials: string[], escaped: () => boolean) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the actual popup attempt ${path} is denied or escapes`, async () => {
+    const result = await target.evaluate(() => ({
+      complete: document.documentElement.dataset.popupReturned === "yes",
+      isNull: document.documentElement.dataset.popupResult === "null",
+    }));
+    const denied = denials.some((message) => message.includes(`Blocked opening '${destination}'`)
+      && message.includes("frame whose 'allow-popups' permission is not set."));
+    return (result.complete && result.isNull && denied) || escaped();
+  });
+}
+
+function observeFormDenials(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("allow-forms")) messages.push(message.text());
+  });
+  return messages;
+}
+
+/**
+ * The fixture submits one GET form with its original fields. Chrome's exact
+ * sandbox denial returns before scheduling that submission. Require the
+ * native call's return as well; neither a quiet DOM nor another error suffices.
+ * Each context has a fresh hit cursor because both submit the same URL.
+ * Navigation may destroy the old document: only an actual new hit, never an
+ * evaluation failure, returns the escape result to the original assertions.
+ */
+async function finishFormAttempt(target: Page | Frame, context: "frame" | "tab", denials: string[], escaped: () => boolean) {
+  const destination = `${attackerOrigin}/form?ctx=probe`;
+  await until(`the actual form attempt in ${context} is denied or escapes`, async () => {
+    if (escaped()) return true;
+    const returned = await target.evaluate(() => document.documentElement.dataset.formReturned === "yes").catch(() => false);
+    const denied = denials.some((message) => message.includes(`Blocked form submission to '${destination}'`)
+      && message.includes("form's frame is sandboxed and the 'allow-forms' permission is not set."));
+    return (returned && denied) || escaped();
+  });
+}
+
+function observeTopDenials(page: Page): { name: string; message: string }[] {
+  const errors: { name: string; message: string }[] = [];
+  page.on("pageerror", (error) => errors.push({ name: error.name, message: error.message }));
+  return errors;
+}
+
+/**
+ * Observe the original uncaught setter's native SecurityError on the app Page.
+ * Chrome denies this exact destination before issuing the navigation request.
+ * An actual changed app URL instead returns the escape to the original oracle;
+ * a hit, detached frame or unrelated error alone cannot complete this boundary.
+ */
+async function finishTopAttempt(page: Page, appUrl: string, errors: { name: string; message: string }[]) {
+  const destination = `${attackerOrigin}/top?ctx=frame`;
+  await until("the actual frame-to-top assignment is denied or the app navigates", () =>
+    errors.some((error) => error.name === "SecurityError"
+      && error.message.includes(`does not have permission to navigate the target frame to '${destination}'`))
+    || page.url() !== appUrl);
+}
+
 /** A mark the escape probe set on its root, or "" (also while it navigates). */
-const mark = (target: Page | Frame, name: "pointer" | "clicked") =>
+const mark = (target: Page | Frame, name: "pointer" | "clicked" | "downloadReturned") =>
   target.evaluate((key) => document.documentElement.dataset[key] ?? "", name).catch(() => "");
 
 describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in an opaque origin", () => {
@@ -316,7 +482,9 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * page never sees it, and every negative assertion passes vacuously (#1108).
    * So the frame must first report the pointer, and each click must then be
    * seen to land, or to have navigated something, before its window starts.
-   * An expected hit is awaited rather than assumed to fit in the window.
+   * Expected hits are awaited independently, then their exact inert destination
+   * must finish loading. Popup/form calls and frame-to-top assignment require
+   * their native denial; downloads require a correlated native policy trace.
    */
   async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
@@ -332,12 +500,25 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         await frame.locator("#go").hover({ position: { x: 4 + (nudge++ % 8), y: 4 } });
         return (await mark(frame, "pointer")) === "in";
       });
+      const frameDenials = file === "voyage/popup.html" ? observePopupDenials(opened.page) : [];
+      const frameFormDenials = file === "voyage/form.html" ? observeFormDenials(opened.page) : [];
+      const frameFormHitCursor = attackerHits.length;
+      const topDenials = file === "voyage/top.html" ? observeTopDenials(opened.page) : [];
       const pagesBefore = opened.context.pages().length;
+      const downloadsBeforeFrame = opened.downloads.length;
+      const stopFrameDownload = file === "voyage/download.html" ? await traceDownloadAttempt() : null;
       await frame.locator("#go").click({ noWaitAfter: true });
       await until("the click lands in the preview frame", async () =>
         (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
       if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
-      await observeDeniedBrowserActions(opened.page);
+      if (expected.frame) await finishExpectedNavigation(frame, expected.frame, { page: opened.page, url: appUrl });
+      else if (file === "voyage/popup.html") await finishPopupAttempt(frame, "/popup?ctx=frame", frameDenials,
+        () => opened.context.pages().length > pagesBefore || hits().includes("/popup?ctx=frame"));
+      else if (file === "voyage/form.html") await finishFormAttempt(frame, "frame", frameFormDenials,
+        () => attackerHits.slice(frameFormHitCursor).includes("/form?ctx=probe"));
+      else if (file === "voyage/top.html") await finishTopAttempt(opened.page, appUrl, topDenials);
+      else if (stopFrameDownload) await finishDownloadAttempt(frame, "frame", stopFrameDownload, () => opened.downloads.length > downloadsBeforeFrame);
+      else throw new Error(`No native frame outcome is defined for ${file}`);
       const result = {
         opened,
         appUrlAfterFrame: opened.page.url(),
@@ -350,18 +531,33 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         const tab = await openInTab(opened);
         const tabUrl = tab.url();
         await tab.waitForFunction(() => document.title === "Escape probe ready");
+        const tabDenials = file === "voyage/popup.html" ? observePopupDenials(tab) : [];
+        const tabFormDenials = file === "voyage/form.html" ? observeFormDenials(tab) : [];
+        const tabFormHitCursor = attackerHits.length;
         const tabPagesBefore = opened.context.pages().length;
+        const downloadsBeforeTab = opened.downloads.length;
+        const stopTabDownload = file === "voyage/download.html" ? await traceDownloadAttempt() : null;
         await tab.locator("#go").click({ noWaitAfter: true });
         await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
         if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
-        await observeDeniedBrowserActions(tab);
+        if (expected.tab) await finishExpectedNavigation(tab, expected.tab);
+        else if (file === "voyage/popup.html") await finishPopupAttempt(tab, "/popup?ctx=tab", tabDenials,
+          () => opened.context.pages().length > tabPagesBefore || hits().includes("/popup?ctx=tab"));
+        else if (file === "voyage/form.html") await finishFormAttempt(tab, "tab", tabFormDenials,
+          () => attackerHits.slice(tabFormHitCursor).includes("/form?ctx=probe"));
+        else if (stopTabDownload) await finishDownloadAttempt(tab, "tab", stopTabDownload, () => opened.downloads.length > downloadsBeforeTab);
+        else throw new Error(`No native tab outcome is defined for ${file}`);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
         result.tabUrl = tab.url();
       }
       result.hits = hits();
       return result;
-    } catch (error) { await opened.context.close(); throw error; }
+    } catch (error) {
+      try { await Promise.all([...activeDownloadTraces].map(stop => stop())); }
+      finally { await opened.context.close(); }
+      throw error;
+    }
   }
 
   test("window.open is blocked in both contexts", async () => {
@@ -424,11 +620,9 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
     const opened = await openViewer("password", "voyage/report.html");
     try {
       const raw = await opened.context.newPage();
-      await raw.goto(`${served.password!.origin}/api/files/content?path=voyage%2Freport.html&raw=1`);
-      const started = performance.now();
-      observationMetrics.rawCalls++;
-      await raw.waitForTimeout(500);
-      observationMetrics.rawMs += performance.now() - started;
+      // REPORT writes #ran synchronously before its first await. Native load
+      // includes that inline-script opportunity, including when CSP is broken.
+      await raw.goto(`${served.password!.origin}/api/files/content?path=voyage%2Freport.html&raw=1`, { waitUntil: "load" });
       expect(await raw.locator("#ran").textContent()).toBe("Script did not run");
     } finally { await opened.context.close(); }
   }, 60_000);

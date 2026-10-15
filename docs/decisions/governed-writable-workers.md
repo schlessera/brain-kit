@@ -958,7 +958,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:107`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:112`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -972,7 +972,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.

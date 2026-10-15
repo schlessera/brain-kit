@@ -104,7 +104,7 @@ for (const mode of ["streaming", "sync"] as const) test(`${mode} maintenance boo
   const original = Bun.which;
   const which = spyOn(Bun, "which").mockImplementation((name, options) => name === "nsenter" ? null : original(name, options));
   try {
-    const input = { brainPath: brain, startupView: outputs.view, output: outputs.output, command: ["/bin/true"], env: {}, credentials: false, timeoutMs: 1000 };
+    const input = { brainPath: brain, tempDomain: { statePath: join(outputs.view.storage.root, "maintenance-state.db") }, startupView: outputs.view, output: outputs.output, command: ["/bin/true"], env: {}, credentials: false, timeoutMs: 1000 };
     expect(() => mode === "streaming" ? launchMaintenanceWorker(input) : runMaintenanceWorkerSync(input)).toThrow("nsenter");
     outputs.cleanup();
     expect(ledger.outputStagingHeld, "BOOTSTRAP_REFUSAL_RELEASES_OWNED_STAGING").toBe(before);
