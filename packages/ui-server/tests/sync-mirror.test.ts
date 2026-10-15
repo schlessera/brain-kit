@@ -162,7 +162,7 @@ test("credentialed transport mounts no brain, Git config or broad host ancestor,
   expect(mounts).not.toContain(join(f.brain, ".git"));
   expect(mounts).not.toContain("/");
   const command = ["/bin/sh", "-c", `test ! -e "$1" && test ! -e "$1/.git/config" && test "$BRAIN_SYNC_TOKEN" = "$2" && printf TRANSPORT_BOUNDARY_OK`, "probe", f.brain, TOKEN];
-  const result = await runMaintenanceWorker({ ...transport, command });
+  const result = await runMaintenanceWorker({ ...transport, tempDomain: { statePath: f.dbPath }, command });
   expect(result.exitCode, result.stderr).toBe(0);
   expect(result.stdout, "REAL_TRANSPORT_CANNOT_READ_BRAIN_AND_HAS_ITS_KEY").toBe("TRANSPORT_BOUNDARY_OK");
   expect(existsSync(join(f.brain, "filter.sentinel")), "NO_FILTER_IN_TRANSPORT").toBe(false);

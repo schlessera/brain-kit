@@ -47,7 +47,7 @@ describe("the worker host notice", () => {
     expect(WORKER_HOST_DOCS_URL).toEndWith("#running-the-server-in-a-docker-container");
     expect(link.textContent).toContain("Fix the host");
     fireEvent.click(view.getByRole("button", { name: "Check again" }));
-    await waitFor(() => expect(view.queryByRole("status")).toBeNull());
+    await waitFor(() => expect(view.queryByRole("status") === null, "WORKER_HOST_NOTICE_CLEARS_AFTER_SUCCESSFUL_CHECK").toBe(true));
     expect(calls).toEqual(["GET /api/status", "POST /api/status/worker-host"]);
   });
 

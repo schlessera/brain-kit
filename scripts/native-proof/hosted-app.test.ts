@@ -2,7 +2,9 @@ import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { linkSync } from "node:fs";
+import { linkSync, openSync, closeSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 
 const SOURCE = "/repo";
@@ -11,9 +13,10 @@ const BACKEND = process.env.BRAIN_NATIVE_PROOF_BACKEND ?? "claude";
 if (!["claude","pi"].includes(BACKEND)) throw Error("Unknown native backend proof selection");
 const APP_UID = Number(process.env.BRAIN_NATIVE_PROOF_APP_UID ?? "1000");
 if (![0,1000].includes(APP_UID)) throw Error("Unknown native app UID proof selection");
+const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 const recordedSpawn = Bun.spawn;
-Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n")); } return child; }) as typeof Bun.spawn;
-afterAll(() => { Bun.spawn = recordedSpawn; });
+Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const observeRelease = releaseObservations.prepare(argv); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); observeRelease?.(child); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n")); } return child; }) as typeof Bun.spawn;
+afterAll(async () => { try { await releaseObservations.close(); } finally { Bun.spawn = recordedSpawn; } });
 const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/utils/cookie.js"));
 const NativeWebSocket = WebSocket as any;
 const sleep = (ms: number) => Bun.sleep(ms);
@@ -310,3 +313,40 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
 }, 120000);
+
+// One fixed backend/UID cell owns this backend-independent root-lifetime control.
+if (BACKEND === "pi" && APP_UID === 0) test("a retained native checkpoint reader records the actual release interruption and reconciles the same root", async () => {
+  const brain = "/brain-fixture/brain", name = "notes/worker-1.md";
+  const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
+  const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
+  const show = Bun.spawnSync(["/usr/bin/btrfs", "subvolume", "show", brain]); expect(show.exitCode).toBe(0);
+  const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
+  const fs = Bun.spawnSync(["/usr/bin/btrfs", "filesystem", "show", "/brain-fixture"]); expect(fs.exitCode).toBe(0);
+  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  const socketPath = "/native-runtime/release-observation.sock";
+  const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const client = createNativeBrainManagerClient({ socketPath }), id = randomUUID();
+  let fd: number | undefined;
+  try {
+    const checkpoint = await client.checkpoint(id);
+    fd = openSync(join(checkpoint.path, name), "r");
+    await expect(client.release(id), "PINNED_NATIVE_RELEASE_REMAINS_UNKNOWN").rejects.toThrow("Native manager outcome is unknown");
+    await releaseObservations.drain();
+    const path = join(ARTIFACTS, "native-release", `${id}.json`);
+    expect(existsSync(path), "NATIVE_RELEASE_FAILURE_DIAGNOSTIC_RETAINED").toBe(true);
+    const evidence = JSON.parse(readFileSync(path, "utf8"));
+    expect(evidence.root.rootId, "NATIVE_RELEASE_DIAGNOSTIC_SAME_ROOT").toBe(checkpoint.rootId);
+    expect(evidence.code, "NATIVE_RELEASE_DIAGNOSTIC_REAL_KILLED_COMMAND").toBe(137);
+    expect(evidence.signals.some((signal: any) => signal.signal === "SIGKILL" && signal.abort?.reason === "AbortError: The connection was closed."), "NATIVE_RELEASE_DIAGNOSTIC_CONNECTION_ABORT").toBe(true);
+    expect(evidence.samples.some((sample: any) => sample.references.some((reference: any) => reference.pid === process.pid && reference.fd === fd)),
+      "NATIVE_RELEASE_DIAGNOSTIC_ACTUAL_PINNED_READER").toBe(true);
+    expect(evidence.samples.every((sample: any) => sample.coverage.processesTruncated === false && sample.coverage.referencesTruncated === false),
+      "NATIVE_RELEASE_CONTROL_OBSERVATION_NOT_TRUNCATED").toBe(true);
+    closeSync(fd); fd = undefined;
+    expect(await client.release(id), "NATIVE_RELEASE_SAME_ID_RECONCILES_AFTER_READER_CLOSE").toEqual({ id, state: "deleted" });
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { await client.release(id); } finally { await service.close(); }
+  }
+}, 90_000);
