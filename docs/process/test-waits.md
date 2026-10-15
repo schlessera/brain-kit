@@ -70,7 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle; recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering; recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -101,7 +101,8 @@ claim arbitrary asynchronous work is finished. The negative-window helper
 (`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:332-342`)
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
-helper is limited to the four pure-render call sites and its readiness control.
+helper serves the four original rendering call sites, its readiness control,
+and the two newer-turn preparations after their scoped resync acknowledgement.
 
 | Call site | Causal completion before measuring | Observation retained |
 | --- | --- | --- |
@@ -111,7 +112,9 @@ helper is limited to the four pure-render call sites and its readiness control.
 | Drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
 | Recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held-history cases use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
 | Released queues | Every held queue frame is observed by the receiving page; expected upload state is awaited before its assertion | 500 ms; pending-pill identity/removal remains guarded through delayed work. |
-| Snapshot turn end, newer turn text, released old status | Named streaming/text/status state from the test's native host/race | 500 ms; a late old status must not end the live turn or disturb focus. |
+| Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
+| Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
+| Snapshot released old status | The native snapshot reports its captured old turn after explicit release | 500 ms; a late old status must not end the live turn or disturb focus. |
 | Recovered turn completion | Terminal text, non-streaming state and queued follow-up text | 500 ms; node identity and disappearance of the consumed pill are checked after delayed rendering. |
 | Native IME start/commit | CDP's real IME operation has returned; expected composition events, text and selection are checked afterward | 500 ms; no forced end/blur from a delayed reaction. Final committed draft also reaches the host. |
 
@@ -1035,8 +1038,9 @@ The selected baseline passes 3 cases / 30 expectations; the restored candidate
 passes 3 / 32. Seven other expanded cases are filtered in each selected run.
 These snapshot cases construct their own pages and do not call the initial
 upload scene; their receipts do not qualify that separate upload scenario.
-The two later new-text preparation windows and all three released-history
-negative windows remain, along with the original drop/recover observations.
+At that recorded source, the two later new-text preparation windows and all
+three released-history negative windows remain, along with the original
+drop/recover observations.
 The selected window count changes from 13 to 11 and actual accumulated window
 time from 6513.12 to 5511.63 ms. Actual new boundary awaits are 10.38 and 10.14 ms;
 these are not whole-case durations. The corresponding post-window two-frame
@@ -1057,3 +1061,68 @@ its classifier returns no blocks; that conclusion does not follow from auth
 mode alone. The scripted backend emits no promotion event. Native local-work,
 focus and render paths are not globally drained by the scoped idle, and their
 later observation windows are unchanged.
+
+## Continuity newer-turn preparation
+
+The [preparation evidence](evidence/test-wait-continuity-preparation.json)
+records a subsequent, narrow change at source `65d05a55`: the two newer-turn
+preparations await their actual resync response before the existing finite-render
+helper. All three released-history negative windows and every drop/recover
+window remain. The original selection, focus, answer/field identity, streaming
+and no-additional-chat assertions retain their order and observation interval.
+
+Before the old turn is released, the test acknowledges that the connect snapshot
+and every actual initial resume on the current socket have entered the held
+backend read. It then records a fresh cursor. Only the old result's subsequent
+resync can supply the current socket's replacing history and detailed completion
+status while those original reads remain held. Peer connect history belongs to
+another socket. The probe checks committed replay/current-turn state and the
+acknowledged current draft as well as the bounded frame metadata. Synchronous
+history/status reducers have run before the later page task; this is not a claim
+that a microtask or matching frame counts drain arbitrary work.
+
+The fixture observes successful native sends without replacing the native
+WebSocket prototype or changing return/throw/argument identity. Only the two
+newer cases opt in. Explicit teardown restores and verifies the fixture method's
+complete descriptor or original absence; initialization failure also disposes
+observation. The existing restore promise is awaited without flushing storage.
+Native context writes can still follow scroll, selection or focus. This fixture
+has one local writer, an unchanged acknowledged draft, no device-version action
+or draft-referenced acceptance, and no account switch; the later negative windows
+remain the proof for late native effects. There is no global storage drain.
+
+The positive control delays the actual server `session_resume` response for
+2000 ms, after its positive backend read and before response publication. Its
+native hold completes before the new readiness boundary; all original later
+assertions pass. Omitting only that readiness wait fails the added hold-finished
+assertion while the response is still held, even after finite rendering. That
+control does not reach the later product assertions. Its hold remains unfinished
+at both teardown snapshots, and neither callback completion nor a process-exit
+record is observed; source restoration does not establish cancellation or drain.
+The separate captured-terminal/ended-guard mutation still fails the original
+newer-stream assertion after the original final 500 ms observation.
+
+The historical baseline passes 3 cases / 32 expectations; the restored candidate
+passes 3 / 38, with the same seven other cases filtered. Exact original source,
+configuration, harness and terminal mutations were verified before reuse.
+The baseline fixture hash was checked after its original run, an inherited
+limitation retained in the artifact. This is one historical shared-host pair,
+not a simultaneous resource-controlled experiment.
+
+Selected bodies change from 32.86182 to 32.23022 seconds; command time changes
+from 82.13 to 81.07 seconds, including setup from 48.74872 to 48.32704 seconds.
+CPU changes from 93.96 to 93.74 seconds and maximum RSS from 1245892 to
+1239200 KiB. Actual fixed-window calls change from eleven to nine and accumulated
+window time from 5508.43 to 4520.64 ms. Two original window-plus-two-frame calls
+become resync readiness plus the existing finite-render loop; they are not
+counted as retained pairs in the old counter. Restored readiness spans are
+5.39 and 1.43 ms, followed by 221.74 and 228.21 ms of finite rendering.
+
+Four corrected commands cost 264.26 seconds. An additional 47.79-second attempt
+failed the mandatory build because a temporary control inferred a boolean as a
+literal; no scenario or expectations executed. Its erased-only correction emits
+identical JavaScript and passed exact-variant typechecking before execution.
+Both that failure and its checker failure remain recorded. The 142.62 seconds
+of reused original controls are historical cost, not new execution. The artifact
+indexes 186 immutable receipt entries. The modest observed gain establishes no
+whole-file/whole-CI saving or justified minimum for the remaining native windows.

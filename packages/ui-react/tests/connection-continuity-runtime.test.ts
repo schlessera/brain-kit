@@ -596,6 +596,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
     const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    if (newer) await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true }); });
     const page = await context.newPage();
     const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
     const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
@@ -627,6 +628,18 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       while (!waiting.reads && Date.now() < readDeadline) await hostPoll(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
       expect(gates.has(first)).toBe(true);
+      let preparation: { socket: number; cursor: number; heldResumes: number } | undefined;
+      if (newer) {
+        // The original captured snapshot and the current socket's initial
+        // resume reads must all have entered the same held backend gate.
+        // This is a strengthened setup acknowledgement, not a drain.
+        await page.evaluate("window.__continuity.preparation.restoring()");
+        preparation = await page.evaluate((id) => (window as any).__continuity.preparation.checkpoint(id), sessionId);
+        const heldDeadline = Date.now() + 5_000;
+        while (waiting.reads < preparation!.heldResumes + 1 && Date.now() < heldDeadline) await hostPoll(10);
+        expect(preparation!.heldResumes, "the reconnect sent an actual session resume").toBeGreaterThan(0);
+        expect(waiting.reads, "the connect snapshot and every initial resume are held before old completion").toBe(preparation!.heldResumes + 1);
+      }
       const beforeOldCompletion = frames.length;
       if (newer) { gates.get(first)!(); gates.delete(first); }
       if (newer) {
@@ -644,7 +657,9 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         peer = new HeaderWebSocket(socketUrl, { headers: { Origin: origin } });
         await new Promise<void>((done, reject) => { peer!.onopen = () => done(); peer!.onerror = reject; });
         peer.send(JSON.stringify({ type: "chat_message", sessionId, text: second }));
-        await page.getByText("Setting out: Then bind me to the mast").first().waitFor(); await settle(page);
+        await page.getByText("Setting out: Then bind me to the mast").first().waitFor();
+        await until(page, `p.preparation.ready(${JSON.stringify(preparation)}, ${JSON.stringify(sessionId)}, ${JSON.stringify(oldTurn)}, ${JSON.stringify(draft)})`, 5_000);
+        await finishRender(page);
       }
       const activePrompt = newer ? second : first;
       expect(gates.has(activePrompt), "the actual host turn runs before history answers").toBe(true);
@@ -672,7 +687,11 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       expect(net.sent.slice(sentBefore).filter((t) => t === "chat_message"), "snapshot recovery sends no further chat request").toEqual([]);
       gates.get(activePrompt)!(); gates.delete(activePrompt); await until(page, `!p.streaming(${JSON.stringify(sessionId)})`);
     } finally {
-      release?.(); peer?.close(); historyWaiters.delete(sessionId); await context.close();
+      try {
+        release?.(); peer?.close(); historyWaiters.delete(sessionId);
+        if (newer) expect(await page.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
+          .toEqual({ sendRestored: true, recording: false });
+      } finally { await context.close(); }
     }
   }, 120_000);
 
