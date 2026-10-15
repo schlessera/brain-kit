@@ -379,6 +379,6 @@ Deletion is fenced against late peer-tab writers; other accounts' partitions
 are untouched. A clear failure does not veto the logout attempt, and local or
 server failure is reported afterwards without claiming complete deletion or
 successful logout (`signOut(loss`,
-`packages/ui-react/src/lib/local-work-flow.ts:181-211`). This preserves the
+`packages/ui-react/src/lib/local-work-flow.ts:190-223`). This preserves the
 existing meaning of Sign out everywhere on the host while applying the
 warned device-local policy.

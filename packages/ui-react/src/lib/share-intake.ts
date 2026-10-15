@@ -14,9 +14,9 @@ import {
 /**
  * The logic half of the share intake, kept out of the hook on purpose.
  *
- * There is no DOM in this package's test setup, so anything living inside a
- * `useEffect` is untestable. The hook is a thin driver over the functions
- * below, the same split `handleServerMessage` uses.
+ * Bun tests exercise these functions without a DOM.
+ * Native browser tests separately exercise the mounted hook, storage and
+ * account lifecycle.
  */
 
 /**
