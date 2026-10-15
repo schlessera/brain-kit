@@ -10,6 +10,8 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { turnIdMatches } from "../src/ws/dispatch";
 import { createWsHandlers } from "../src/ws/connection";
 import { testHost } from "./helpers/test-host";
+import { makeFakeBackend } from "./helpers/fake-backend";
+import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
 import {
@@ -305,4 +307,41 @@ describe("per-connection state through the socket handlers", () => {
 
     controls[0]!.finish();
   });
+  test("a stale terminal keeps its old identity and cannot relabel a queued successor", async () => {
+    let firstBridge!: BackendBridge, releaseFirst!: () => void, releaseSecond!: () => void;
+    const first = new Promise<void>(done => { releaseFirst = done; });
+    const second = new Promise<void>(done => { releaseSecond = done; });
+    const enteredFirst = new Promise<void>(done => {
+      setBackendForTests(makeFakeBackend({ id: "fake", startTurn: async req => {
+        if (!firstBridge) {
+          firstBridge = req.bridge;
+          req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+          done(); await first;
+          req.bridge.emit({ type: "result", sessionId: "ithaca", outcome: "success", isError: false, numTurns: 1, durationMs: 1 });
+        } else {
+          const turn = testHost().coordinator.bySession.get("ithaca")!;
+          firstBridge.emit({ type: "result", sessionId: "ithaca", outcome: "cancelled", isError: false, numTurns: 0, durationMs: 1 });
+          expect(turn.lastResult, "STALE_CANCELLATION_CANNOT_RELABEL_SUCCESSOR").toBeNull();
+          await second;
+          req.bridge.emit({ type: "result", sessionId: "ithaca", outcome: "success", isError: false, numTurns: 1, durationMs: 1 });
+        }
+      } }));
+    });
+    const { ws, sent } = fakeClient(); addClient(ws);
+    try {
+      void handleClientMessage(ws, { type: "chat_message", text: "Plan the voyage" });
+      await enteredFirst;
+      const firstTurnId = testHost().coordinator.bySession.get("ithaca")!.turnId;
+      await handleClientMessage(ws, { type: "chat_message", sessionId: "ithaca", text: "Return to Ithaca", requestId: "successor" });
+      releaseFirst();
+      await waitFor(() => sent.some(frame => frame.type === "result" && frame.outcome === "cancelled"));
+      const successor = testHost().coordinator.bySession.get("ithaca")!;
+      expect(successor.turnId).not.toBe(firstTurnId);
+      expect(successor.lastResult).toBeNull();
+      expect(sent.find(frame => frame.type === "result" && frame.outcome === "cancelled")).toMatchObject({ turnId: firstTurnId });
+      releaseSecond(); await Promise.all([...testHost().turnTasks]);
+      expect(sent.findLast(frame => frame.type === "result")).toMatchObject({ turnId: successor.turnId, outcome: "success" });
+    } finally { releaseFirst(); releaseSecond(); await Promise.all([...testHost().turnTasks]); }
+  });
+
 });
