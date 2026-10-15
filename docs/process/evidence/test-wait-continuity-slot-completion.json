@@ -8,7 +8,7 @@
     "chrome": "140.0.7339.127",
     "isolation": "Original preload, required Chrome, ordinary UID, loopback-only network namespace, capabilities dropped before test; mandatory build and shared benchmark lock retained.",
     "scope": "Three existing snapshot cases only; seven expanded cases filtered in the baseline/final commands. No scene() caller executed.",
-    "overhead": "Identical synchronous setup stopwatch and actual native idle-frame logging in baseline/candidate. Held controls add one native2000ms production-continuation delay and synchronous hold logs. Candidate measurement includes synchronous boundary timing/logging. No additional sockets, outgoing frames or permissions.",
+    "overhead": "Identical synchronous setup stopwatch and actual native idle-frame logging in baseline/candidate. Held controls add one native 2000 ms production-continuation delay and synchronous hold logs. Candidate measurement includes synchronous boundary timing/logging. No additional sockets, outgoing frames or permissions.",
     "limits": "Shared host uncontrolled. This is one selected-scope comparison, not whole-file/whole-CI gain. Native scoped idle is a host-slot boundary, not global browser/render/persistence completion."
   },
   "originalSources": [
