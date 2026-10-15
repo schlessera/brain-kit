@@ -30,7 +30,8 @@ export function verifyIndexReleaseReproduction(directory: string, exitCode: numb
   const owner = evidence.samples[0].namespaceReferences.find((ref: any) => ref.fd === pin.fd && ref.namespace === pin.namespace);
   requireFact(owner && evidence.samples.every((sample: any) => sample.namespaceReferences.some((ref: any) => ref.pid === owner.pid && ref.fd === pin.fd && ref.namespace === pin.namespace)
     && sample.references.length === 0 && sample.mounts.length === 0
-    && !sample.processes.some((process: any) => process.mountNamespace?.value === pin.namespace)
+    && sample.processes.every((process: any) => (process.mountNamespace?.value && process.mountNamespace.value !== pin.namespace)
+      || process.identity?.value?.status?.some((line: string) => /^State:\s+Z\b/.test(line)))
     && sample.coverage.processesTruncated === false && sample.coverage.descriptorsTruncated === false
     && sample.coverage.referencesTruncated === false && sample.coverage.namespaceReferencesTruncated === false && sample.coverage.mountsTruncated === false), "NAMESPACE_ONLY_CORRELATION");
   requireFact(evidence.signals.some((signal: any) => signal.signal === "SIGKILL" && signal.abort?.reason === "AbortError: The connection was closed."), "CONNECTION_ABORT");
