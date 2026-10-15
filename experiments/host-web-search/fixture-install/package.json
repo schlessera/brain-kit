@@ -1,0 +1,1 @@
+{"private":true,"type":"module","dependencies":{"pi-web-access":"0.41.0","@earendil-works/pi-coding-agent":"0.99.2","@earendil-works/pi-ai":"0.99.2","@earendil-works/pi-agent-core":"0.99.2","@earendil-works/pi-tui":"0.99.2","typebox":"1.1.38"}}

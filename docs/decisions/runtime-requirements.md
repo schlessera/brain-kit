@@ -277,7 +277,7 @@ reciprocal host-version negotiation is involved.
 | `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:390-437`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |
 | `BackendModuleContext` / `BackendRuntimeReport` (`export interface BackendModuleContext`, `packages/ui-sdk/src/server/backend-module.ts:96-109`; `export interface BackendRuntimeReport`, `packages/ui-sdk/src/server/backend-module.ts:116-129`) | Extend the existing construction context for optional minimums. Keep report identities and `measured` meanings; a compatibility result must never occupy `measured.matches`. |
 | `MEASURED_RUNTIME`, its guard and `scripts/measure-claude-runtime.ts` | Keep the constant, exact pair guard, keyless behavior probe and dated measurement receipts. A permitted pair can still be unmeasured. |
-| Turn `reportRuntime` / `init` (`const reportRuntime`, `packages/ui-backend-claude/src/turn-runner.ts:158-165`; `if (msg.type === "system"`, `packages/ui-backend-claude/src/turn-runner.ts:519-534`) | Preserve actual per-turn SDK/runtime observations, billing/permission guards and normal failure terminal behavior. |
+| Turn `reportRuntime` / `init` (`const reportRuntime`, `packages/ui-backend-claude/src/turn-runner.ts:158-165`; `if (msg.type === "system"`, `packages/ui-backend-claude/src/turn-runner.ts:532-547`) | Preserve actual per-turn SDK/runtime observations, billing/permission guards and normal failure terminal behavior. |
 | Index schema and graph floors | Remain reader-specific integer schema checks; do not compare them as SemVer or turn `brain.db` into authoritative state. |
 
 No new compatibility HTTP status field is required for enforcement. Keep
@@ -311,3 +311,27 @@ native/JS overrides, below-minimum and conflicting requirements, strict invalid
 input, prereleases, default-versus-explicit unknown behavior and mutations of
 the enforcement paths. The implementation adds optional factory minima and Pi SDK-only reports while
 retaining the declared package ranges, numeric defaults and measured meanings.
+
+## Host-owned web-search executor boundary — 2026-10-15
+
+The [C ruling on #1863](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6187551558)
+places web-search configuration, credentials and authenticated execution outside
+the ordinary Pi worker. The executor choice is reserved for the maintainer
+after [#1969's pinned comparison](../plans/host-owned-web-search.md). No runtime,
+SDK dependency, package entry point or supported machine surface changes here.
+
+The compared pi-web-access 0.41.0 package declares Node >=22.19.0 for its MCP
+executable. That is an additional upstream requirement to compose and probe if
+MCP is selected, not evidence of Bun compatibility or permission to upgrade Pi.
+The measured full-extension plain search used a real Pi 0.99.2 context on Bun
+1.4.3; it does not establish every auth/model/UI feature or version pairing.
+The project-wide Bun >=1.4.2 policy ruling and its declaration rollout remain
+owned by #1898, separately from this executor choice. Preserve the historical
+minimum-composition and measured-pair evidence above.
+
+An implementation must identify each actually loaded SDK and extension artifact,
+pin its approved entry point and runtime, prevent repository-controlled resources
+from entering the credentialed process, and retain offline worker, lifecycle and
+upgrade compatibility proof. A documented MCP executable is a different
+maintenance boundary from an undocumented packed shared-core import. This
+amendment records settled authority direction, not delivered integration.
