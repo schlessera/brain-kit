@@ -10,8 +10,9 @@ export default defineConfig({
   // Cross-workspace browser tests must share the renderer's React instance.
   resolve: { dedupe: ["react", "react-dom"] },
   optimizeDeps: {
-    // The transcript integration story imports these through ui-react. Bundle
-    // them before the browser tests start so discovery cannot reload a play.
-    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "saxes", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge"],
+    // Bundle ui-react dependencies before browser tests start. In particular,
+    // late PDF discovery can invalidate React URLs while a lazy graph imports
+    // into an executing test (#1897). Dedupe alone cannot preserve that identity.
+    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "saxes", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge", "pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"],
   },
 });
