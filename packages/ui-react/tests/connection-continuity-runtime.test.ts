@@ -43,6 +43,7 @@ let scratch: string | undefined;
 let port = 0;
 let origin = "";
 let sequence = 0;
+let diagnosticSequence = 0;
 
 const transcripts = new Map<string, SessionHistoryMessage[]>();
 const titles = new Map<string, string>();
@@ -50,6 +51,21 @@ const titles = new Map<string, string>();
 const gates = new Map<string, () => void>();
 const advance = new Map<string, () => void>();
 const missed = new Map<string, () => void>();
+// Bounded fixture-only evidence. Record without changing delivery or awaiting it.
+const lifecycle: Array<{ at: number; stage: string; detail: unknown }> = [];
+const observability = createRecordingObservability();
+function recordLifecycle(stage: string, detail: unknown) {
+  lifecycle.push({ at: Date.now(), stage, detail });
+  if (lifecycle.length > 256) lifecycle.shift();
+}
+function describeFrame(value: string | Buffer) {
+  try {
+    const frame = JSON.parse(String(value));
+    return { type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId, requestId: frame.requestId,
+      status: frame.status, outcome: frame.outcome, code: frame.code, message: frame.message,
+      text: frame.text?.slice(-240), followUps: frame.followUps, started: frame.started, dropped: frame.dropped };
+  } catch { return { type: "unreadable" }; }
+}
 const historyWaiters = new Map<string, { promise: Promise<void>; release(): void; reads: number; mode?: "empty" | "failed"; holdWhile?: () => boolean }>();
 
 /** A long answer, so the transcript scrolls at every width. */
@@ -104,10 +120,15 @@ function scriptedBackend(): AgentBackend {
     async startTurn({ prompt: contextPrompt, bridge, sessionId: resumed, signal, attachments }) {
       // Route the fixture command independently of appended host budget context.
       const prompt = contextPrompt.split("\n", 1)[0]!;
+      recordLifecycle("backend-start", { prompt, resumed });
+      const emit: typeof bridge.emit = frame => {
+        recordLifecycle("backend-emit", describeFrame(JSON.stringify(frame)));
+        bridge.emit(frame);
+      };
       const sessionId = resumed ?? `odysseus-continuity-${++sequence}`;
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
       if (!titles.has(sessionId)) titles.set(sessionId, title);
-      bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
+      emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
       transcript.push({ role: "user", content: prompt, toolCalls: [], ...(attachments?.length ? { attachmentCount: attachments.length } : {}) });
@@ -115,27 +136,27 @@ function scriptedBackend(): AgentBackend {
         const opening = `Setting out: ${title}. ${LOG}\n\n`;
         const partial: SessionHistoryMessage = { role: "assistant", content: opening, toolCalls: [] };
         transcript.push(partial);
-        bridge.emit({ type: "text_delta", sessionId, text: opening });
+        emit({ type: "text_delta", sessionId, text: opening });
         await new Promise<void>((release) => {
           gates.set(prompt, release);
           missed.set(prompt, () => {
             partial.content += "Missed tide. ";
-            bridge.emit({ type: "text_delta", sessionId, text: "Missed tide. " });
+            emit({ type: "text_delta", sessionId, text: "Missed tide. " });
           });
           advance.set(prompt, () => {
             partial.content += "Rowing again. ";
-            bridge.emit({ type: "text_delta", sessionId, text: "Rowing again. " });
+            emit({ type: "text_delta", sessionId, text: "Rowing again. " });
           });
         });
         if (signal.aborted) return;
         const end = `Landed: ${title}.`;
         partial.content += end;
-        bridge.emit({ type: "text_delta", sessionId, text: end });
+        emit({ type: "text_delta", sessionId, text: end });
       } else {
         transcript.push({ role: "assistant", content: `Noted: ${title}.`, toolCalls: [] });
-        bridge.emit({ type: "text_delta", sessionId, text: `Noted: ${title}.` });
+        emit({ type: "text_delta", sessionId, text: `Noted: ${title}.` });
       }
-      bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
     },
   };
 }
@@ -168,12 +189,19 @@ beforeAll(async () => {
   }
   backend = scriptedBackend();
   config = resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0", MAX_CONCURRENT_SESSIONS: "12" });
-  app = await createApp({ config, staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(), turnTimeoutMs: 600_000 });
+  app = await createApp({ config, staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability, turnTimeoutMs: 600_000 });
+  const originalSend = app.wsHost.sendToClients;
+  app.wsHost.sendToClients = function(frame) {
+    recordLifecycle("host-broadcast", describeFrame(JSON.stringify(frame)));
+    return originalSend.call(this, frame);
+  };
   listen();
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 240_000);
 
 afterEach(() => {
+  lifecycle.length = 0;
+  observability.reset();
   for (const release of gates.values()) release();
   gates.clear();
   advance.clear();
@@ -265,6 +293,7 @@ type Net = {
   sent: string[];
   holdQueues: boolean;
   queues: Array<() => void>;
+  trace: Array<{ at: number; stage: string; frame: ReturnType<typeof describeFrame> }>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
 
@@ -344,7 +373,7 @@ async function settle(page: Page) {
 async function scene(cell: Cell): Promise<Scene> {
   const tag = `(${cell.name})`;
   const context = await browser!.newContext({ viewport: { width: cell.width, height: cell.height }, reducedMotion: "reduce" });
-  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [] };
+  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
   // Keep the real browser offline apart from this one local host.
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   await context.route("**/api/track-upload", (route) => {
@@ -357,7 +386,12 @@ async function scene(cell: Cell): Promise<Scene> {
   await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
     const host = socket.connectToServer();
     host.onMessage((message) => {
-      const send = () => socket.send(message);
+      const record = (stage: string) => {
+        net.trace.push({ at: Date.now(), stage, frame: describeFrame(message) });
+        if (net.trace.length > 256) net.trace.shift();
+      };
+      record("host-received");
+      const send = () => { record("client-forwarded"); socket.send(message); };
       if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
       else send();
     });
@@ -542,30 +576,55 @@ function same(label: string, now: Measure, base: Measure) {
 
 /** The restored socket must deliver into the retained answer, then drain the queue. */
 async function finishRecoveredTurn(s: Scene, cell: Cell) {
-  const prompt = `Hold: Sail past the Sirens (${cell.name})`;
-  const release = gates.get(prompt);
-  expect(release, "the real host still holds A's turn").toBeDefined();
-  advance.get(prompt)!();
-  await s.page.waitForFunction(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    return marks.nodes.at(-1)?.textContent?.includes("Rowing again.");
-  });
-  expect(await probe(s.page, (p) => p.streaming(p.activeSessionId()!)), "the resumed delta arrived before the terminal result").toBe(true);
-  release!();
-  gates.delete(prompt);
-  await s.page.waitForFunction(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    return marks.nodes.at(-1)?.textContent?.includes("Landed: Sail past the Sirens.");
-  });
-  await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
-  await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
-  await settle(s.page);
-  expect(await s.page.evaluate(() => {
-    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
-    const column = document.querySelector("[data-reading-column]")!;
-    return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
-  }), "recovered text and the terminal replay kept the original answer node").toBe(true);
-  expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
+  try {
+    const prompt = `Hold: Sail past the Sirens (${cell.name})`;
+    const release = gates.get(prompt);
+    expect(release, "the real host still holds A's turn").toBeDefined();
+    advance.get(prompt)!();
+    await s.page.waitForFunction(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      return marks.nodes.at(-1)?.textContent?.includes("Rowing again.");
+    });
+    expect(await probe(s.page, (p) => p.streaming(p.activeSessionId()!)), "the resumed delta arrived before the terminal result").toBe(true);
+    release!();
+    gates.delete(prompt);
+    await s.page.waitForFunction(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      return marks.nodes.at(-1)?.textContent?.includes("Landed: Sail past the Sirens.");
+    });
+    await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
+    await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
+    await settle(s.page);
+    expect(await s.page.evaluate(() => {
+      const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+      const column = document.querySelector("[data-reading-column]")!;
+      return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
+    }), "recovered text and the terminal replay kept the original answer node").toBe(true);
+    expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
+  } catch (error) {
+    const client = await s.page.evaluate(() => {
+      const state = (window as unknown as { __continuity: { diagnostic(): unknown } }).__continuity;
+      return { state: state.diagnostic(), column: document.querySelector("[data-reading-column]")?.textContent?.slice(-2000) };
+    }).catch(failure => ({ diagnosticError: String(failure) }));
+    const evidence = { capturedAt: Date.now(), cell, sessionId: s.A,
+      queue: app!.wsHost.followUpQueueFrame(s.A),
+      slots: [...app!.wsHost.coordinator.running].map(turn => ({ sessionId: turn.sessionId, turnId: turn.turnId,
+        cancelled: turn.cancelled, backendStarted: turn.backendStarted, queue: turn.queue.map(entry => ({ id: entry.followUpId, text: entry.text })) })),
+      transcript: transcripts.get(s.A)?.slice(-4), lifecycle, transport: s.net.trace,
+      logs: observability.logs.records().slice(-64), client };
+    // A single large stderr line can interleave with the timeout report. Keep
+    // complete JSON in the existing unit artifact glob, with a short log pointer.
+    const name = `connection-continuity-${cell.width}-${++diagnosticSequence}-probe.json`;
+    try {
+      await mkdir(resolve(repo, "tmp"), { recursive: true });
+      await writeFile(resolve(repo, "tmp", name), JSON.stringify(evidence, null, 2));
+      console.error("QUEUED_FOLLOWUP_LIFECYCLE", JSON.stringify({ path: `tmp/${name}`, cell, sessionId: s.A,
+        pending: evidence.queue.followUps.length, lifecycle: lifecycle.length, transport: s.net.trace.length }));
+    } catch (captureError) {
+      console.error("QUEUED_FOLLOWUP_LIFECYCLE capture failed", String(captureError));
+    }
+    throw error;
+  }
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
@@ -598,7 +657,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const page = await context.newPage();
     const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
-    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
+    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
     let socketUrl = "";
     page.on("websocket", (ws) => {
       socketUrl = ws.url();
