@@ -11,6 +11,7 @@ import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMes
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
+import { expectRejectedValue } from "./fixtures/expect-rejected-value.js";
 
 // Parallel sessions end to end (#953, the #929 epic's integrated proof): the
 // whole app as a hosting shell composes it (AppShell, Chat, Actions, Graph)
@@ -548,10 +549,10 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     const failure = new Error("the fixture deliberately stops before upload");
     try {
       await a.page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false }));
-      await expect(withTrackOnline(a.page, async () => {
+      await expectRejectedValue(withTrackOnline(a.page, async () => {
         expect(await a.page.evaluate(() => navigator.onLine)).toBe(true);
         throw failure;
-      })).rejects.toBe(failure);
+      }), failure);
       expect(await a.page.evaluate(() => navigator.onLine), "the following offline sentinel").toBe(false);
     } finally {
       await a.context.close();

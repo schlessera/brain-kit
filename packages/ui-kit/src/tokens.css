@@ -1398,6 +1398,10 @@
   }
 }
 
+/* Decorative action loading; the shared reduced-motion policy stops it. */
+@keyframes bk-action-spin { to { transform: rotate(360deg); } }
+.bk-action-spinner { display: inline-flex; animation: bk-action-spin 1s linear infinite; }
+
 /* ── Reduced motion ───────────────────────────────────────────────────────
  *
  * One of the design's five non-negotiable rules: `prefers-reduced-motion`
@@ -1428,6 +1432,7 @@
  * the finger does, and it is a pressed state rather than a movement.
  */
 @media (prefers-reduced-motion: reduce) {
+  .bk-action-spinner { animation: none; }
   .bk-ghost-track, .bk-ghost-track.bk-ghost-out, .bk-ghost-track * { animation: none; }
   .bk-ghost-track { display: none; }
   @keyframes breathe {

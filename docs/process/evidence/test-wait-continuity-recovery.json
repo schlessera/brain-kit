@@ -1,0 +1,1613 @@
+{
+  "schemaVersion": 1,
+  "issue": 1855,
+  "sourceBase": "44d2aab6f29b76b36910d6b83c6210283123ac47",
+  "scope": "Only the three held-snapshot recovery preparations. All three drop and all three final native observation windows remain; scene recovery is unchanged. Original matcher expressions, names and action order remain.",
+  "environment": {
+    "bun": "1.4.2",
+    "nativeChrome": "Required installed Chrome; 140.0.7339.127 is inherited host-installation metadata, not a fresh per-command version measurement.",
+    "guards": "Original preload and BRAIN_REQUIRE_CHROME=1; unshare --user --map-current-user --net --keep-caps, only loopback enabled, route and ordinary-UID checks, then setpriv drops capabilities. Each complete command is serialized with flock; GNU time is inside the lock.",
+    "build": "Each selected command retains its own mandatory package build and browser bundle, in the owned checkout with its own dependencies.",
+    "overhead": "Same synchronous setup and prior preparation counters, additional recovery/render counters. Held controls add browser evaluation tasks, tagged console observations, a pre-close snapshot and one real native 2000 ms save-continuation hold. No native WebSocket, timer or IDB descriptor is replaced.",
+    "limits": "One historical shared-host pair with uncontrolled load. No whole-file/whole-CI gain or empirical minimum; current-content acknowledgement is not global browser/storage quiescence."
+  },
+  "originalSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "fa3cefcefb4a9c8acb949035de7453b843665d1c230b0a921864522caa4013a4"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "04ec62b28f436387d2fc2ac0fab7f66a0794a500b2449ba7b584977bf14cbd2c"
+    },
+    {
+      "path": "packages/ui-react/src/connection.ts",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+    },
+    {
+      "path": "packages/ui-server/src/ws/connection.ts",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+    },
+    {
+      "path": "packages/ui-server/src/ws/dispatch.ts",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+    },
+    {
+      "path": "packages/ui-react/src/lib/draft-client.ts",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+    }
+  ],
+  "candidateSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+    }
+  ],
+  "astProof": {
+    "original": {
+      "awaits": 198,
+      "matchers": 65,
+      "names": 5
+    },
+    "candidate": {
+      "awaits": 200,
+      "matchers": 65,
+      "names": 5
+    },
+    "explicitChangedCall": {
+      "originalCall": "await recover({ context, page })",
+      "candidateCall": "await recover({ context, page }, \"held-snapshot\")"
+    },
+    "scope": "Every original matcher/name and other await retained in order. The recover helper's existing settle await becomes conditional: scene calls retain it; the one snapshot caller (three cases) instead acknowledges current draft/held initial reads and finite rendering. Quiet mode now executes existing observer/setup/cleanup operations; expanded counts must be measured.",
+    "variants": [
+      {
+        "name": "held-save.ts",
+        "parseErrors": 0
+      },
+      {
+        "name": "candidate-held.test.ts",
+        "parseErrors": 0
+      },
+      {
+        "name": "omitted-held.test.ts",
+        "parseErrors": 0
+      }
+    ]
+  },
+  "baselineReuse": {
+    "baselineSource": "65d05a55404dce7a3136a1c9b6e90bbefacb5a18",
+    "baselineVariant": "Prior preparation study restored candidate, integrated byte-identically at current source 44d.",
+    "baselinePass": 3,
+    "baselineExpects": 38,
+    "baselineDiagnosticFreeTestAndFixtureByteIdentical": true,
+    "baselineExecutedMeasuredVariantByteIdentical": true,
+    "terminalMutantsByteIdentical": true,
+    "originalTerminalSource": "65d05a55404dce7a3136a1c9b6e90bbefacb5a18",
+    "originalTerminalOutcome": "0 pass / 1 fail / 8 expectations; intended original newer-stream assertion. This is older original-source evidence, not a current combined-tree receipt.",
+    "configIdentities": [
+      {
+        "path": "bun.lock",
+        "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+      },
+      {
+        "path": "package.json",
+        "sha256": "232d38504e9568ef3976dd48a38db3f732d09fcdebbead162b4f652ba93fa350"
+      },
+      {
+        "path": "bunfig.toml",
+        "sha256": "3fef2f8dd575b80b8280fd9f3afe9048181df522d95232bbf2f491cbb55ba7c5"
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "cac6061176046c4987620622aac9b5edf89987aa712ab3d47b959e65f411ada6"
+      },
+      {
+        "path": "scripts/build.ts",
+        "sha256": "3b6d685506a53f46671ed44764711a2bf46e68cdfacf80791fc5d84cbc516fa1"
+      },
+      {
+        "path": "scripts/test.ts",
+        "sha256": "df3f3109ec6e0e92dc21dfeaf80a5bb9bd897fb53941fa52385a4b75dd5d6a23"
+      },
+      {
+        "path": "packages/ui-react/bunfig.toml",
+        "sha256": "377cf4ce2d5b53c7156610958d9676a4bed896b2fd90db5c441e816c69f1c017"
+      },
+      {
+        "path": "packages/ui-server/src/ws/dispatch.ts",
+        "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+      },
+      {
+        "path": "packages/ui-react/src/lib/local-work.ts",
+        "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+      },
+      {
+        "path": "packages/ui-react/src/lib/draft-client.ts",
+        "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+      },
+      {
+        "harness": "1855-completion-unprivileged-namespace.sh",
+        "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92"
+      },
+      {
+        "harness": "1855-check-completion-namespace.py",
+        "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5"
+      }
+    ],
+    "limits": "Historical restored three-case source on the same shared host; own dependencies and mandatory build, uncontrolled elapsed host load. Only continuity test/fixture (the measured candidate integrated unchanged) and unrelated HTML test changed across bases. Final candidate retains same setup and prior preparation timing, adding recovery spans. Original terminal fault is older 65d history, not a current baseline or current candidate receipt."
+  },
+  "baseline": {
+    "commandSeconds": 81.07,
+    "cpuSeconds": 93.74,
+    "rssKiB": 1239200.0,
+    "setupMs": 48327.036002,
+    "cases": [
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+        "bodyMs": 11105.71
+      },
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+        "bodyMs": 10942.91
+      },
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+        "bodyMs": 10181.6
+      }
+    ],
+    "bodyMs": 32230.22,
+    "waitMetrics": {
+      "renderCalls": 8,
+      "renderMs": 1726.7100199999913,
+      "observationCalls": 9,
+      "observationMs": 4520.635187999993,
+      "retainedFrameCalls": 9,
+      "retainedFrameMs": 201.14936799997668,
+      "pollCalls": 5,
+      "pollMs": 50.54916799999046
+    },
+    "boundaries": [
+      [
+        {
+          "readinessStarted": 58851.005611,
+          "readyAt": 58856.391768,
+          "renderEnded": 59078.135965
+        },
+        {
+          "readinessStarted": 69798.113408,
+          "readyAt": 69799.542766,
+          "renderEnded": 70027.750066
+        }
+      ]
+    ],
+    "validation": {
+      "mode": "restored",
+      "pass": 3,
+      "fail": 0,
+      "expects": 38,
+      "restored": true,
+      "exitCode": 0,
+      "boundaries": [
+        {
+          "readinessStarted": 58851.005611,
+          "readyAt": 58856.391768,
+          "renderEnded": 59078.135965
+        },
+        {
+          "readinessStarted": 69798.113408,
+          "readyAt": 69799.542766,
+          "renderEnded": 70027.750066
+        }
+      ]
+    },
+    "snapshotEntries": 28
+  },
+  "runs": {
+    "candidate-held": {
+      "commandSeconds": 60.43,
+      "bunSeconds": 60.35,
+      "cpuSeconds": 90.78,
+      "rssKiB": 1231516.0,
+      "setupMs": 48317.746822999994,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 11584.26
+        }
+      ],
+      "bodyMs": 11584.26,
+      "waitMetrics": {
+        "renderCalls": 3,
+        "renderMs": 443.75229100000433,
+        "observationCalls": 2,
+        "observationMs": 1014.7879660000035,
+        "retainedFrameCalls": 2,
+        "retainedFrameMs": 46.9483809999947,
+        "pollCalls": 1,
+        "pollMs": 10.08769499999471
+      },
+      "boundaries": [
+        {
+          "started": 57813.829265,
+          "ready": 59530.911134,
+          "rendered": 59580.750061
+        }
+      ],
+      "preparationBoundaries": [],
+      "validation": {
+        "mode": "candidate-held",
+        "pass": 1,
+        "fail": 0,
+        "expects": 15,
+        "restored": true,
+        "exitCode": 0,
+        "hold": {
+          "heldBefore": {
+            "hold": {
+              "entered": 8748.800000011921,
+              "ended": 0,
+              "finished": false,
+              "draftId": "a7c3eb95-8171-4996-ac88-2b2cb4f33195",
+              "edit": 1
+            },
+            "observedAt": 9041.699999988079
+          },
+          "heldAfter": {
+            "hold": {
+              "entered": 8748.800000011921,
+              "ended": 10748.899999976158,
+              "finished": true,
+              "draftId": "a7c3eb95-8171-4996-ac88-2b2cb4f33195",
+              "edit": 1
+            },
+            "observedAt": 10760
+          },
+          "recoveryStarted": 57813.829265,
+          "recoveryReady": 59530.911134,
+          "diagnosticBeforeFiniteRender": true
+        },
+        "actualEndEvents": [
+          {
+            "entered": 8748.800000011921,
+            "ended": 10748.899999976158,
+            "finished": true,
+            "draftId": "a7c3eb95-8171-4996-ac88-2b2cb4f33195",
+            "edit": 1
+          }
+        ],
+        "teardown": [
+          {
+            "hold": {
+              "entered": 8748.800000011921,
+              "ended": 10748.899999976158,
+              "finished": true,
+              "draftId": "a7c3eb95-8171-4996-ac88-2b2cb4f33195",
+              "edit": 1
+            },
+            "observedAt": 11492.600000023842
+          }
+        ],
+        "contextClosed": [
+          {
+            "at": 60289.489555,
+            "nativeHoldCompletionNotInferred": true
+          }
+        ],
+        "lifecycleLimit": "Actual browser completion and pre-close snapshots only; successful context close does not prove native hold completion or timer clearing. Host and browser absolute timestamps are not interchanged.",
+        "gatePassed": true
+      },
+      "snapshotEntries": 32
+    },
+    "omitted-held": {
+      "commandSeconds": 58.22,
+      "bunSeconds": 58.14,
+      "cpuSeconds": 92.1,
+      "rssKiB": 1234752.0,
+      "setupMs": 48401.025805,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9254.92
+        }
+      ],
+      "bodyMs": 9254.92,
+      "waitMetrics": {
+        "renderCalls": 2,
+        "renderMs": 405.292720999998,
+        "observationCalls": 1,
+        "observationMs": 503.5668500000029,
+        "retainedFrameCalls": 1,
+        "retainedFrameMs": 22.981866999994963,
+        "pollCalls": 0,
+        "pollMs": 0
+      },
+      "boundaries": [],
+      "preparationBoundaries": [],
+      "validation": {
+        "mode": "omitted-held",
+        "pass": 0,
+        "fail": 1,
+        "expects": 7,
+        "restored": true,
+        "exitCode": 1,
+        "hold": {
+          "heldBefore": {
+            "hold": {
+              "entered": 8796.699999988079,
+              "ended": 0,
+              "finished": false,
+              "draftId": "055ad47d-c401-4407-afe1-a343bee3fc9e",
+              "edit": 1
+            },
+            "observedAt": 9086.199999988079
+          },
+          "heldAfter": {
+            "hold": {
+              "entered": 8796.699999988079,
+              "ended": 0,
+              "finished": false,
+              "draftId": "055ad47d-c401-4407-afe1-a343bee3fc9e",
+              "edit": 1
+            },
+            "observedAt": 9086.900000035763
+          },
+          "recoveryStarted": 57950.130783,
+          "recoveryReady": 57950.131029,
+          "diagnosticBeforeFiniteRender": true
+        },
+        "actualEndEvents": [],
+        "teardown": [
+          {
+            "hold": {
+              "entered": 8796.699999988079,
+              "ended": 0,
+              "finished": false,
+              "draftId": "055ad47d-c401-4407-afe1-a343bee3fc9e",
+              "edit": 1
+            },
+            "observedAt": 9088
+          }
+        ],
+        "contextClosed": [
+          {
+            "at": 57991.103214,
+            "nativeHoldCompletionNotInferred": true
+          }
+        ],
+        "lifecycleLimit": "Actual browser completion and pre-close snapshots only; successful context close does not prove native hold completion or timer clearing. Host and browser absolute timestamps are not interchanged.",
+        "gatePassed": true
+      },
+      "snapshotEntries": 32
+    },
+    "candidate-terminal": {
+      "commandSeconds": 59.79,
+      "bunSeconds": 59.71,
+      "cpuSeconds": 91.87,
+      "rssKiB": 1262008.0,
+      "setupMs": 48627.394841,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10587.0
+        }
+      ],
+      "bodyMs": 10587.0,
+      "waitMetrics": {
+        "renderCalls": 4,
+        "renderMs": 697.3084139999992,
+        "observationCalls": 2,
+        "observationMs": 1001.518379000001,
+        "retainedFrameCalls": 2,
+        "retainedFrameMs": 32.993342000001576,
+        "pollCalls": 3,
+        "pollMs": 30.49754600000597
+      },
+      "boundaries": [
+        {
+          "started": 58216.487017,
+          "ready": 58217.875671,
+          "rendered": 58264.936595
+        }
+      ],
+      "preparationBoundaries": [
+        {
+          "readinessStarted": 58767.994228,
+          "readyAt": 58769.597467,
+          "renderEnded": 58999.556894
+        }
+      ],
+      "validation": {
+        "mode": "candidate-terminal",
+        "pass": 0,
+        "fail": 1,
+        "expects": 11,
+        "restored": true,
+        "exitCode": 1,
+        "gatePassed": true
+      },
+      "snapshotEntries": 32
+    },
+    "restored": {
+      "commandSeconds": 79.7,
+      "bunSeconds": 79.61,
+      "cpuSeconds": 93.07,
+      "rssKiB": 1243784.0,
+      "setupMs": 48241.53064,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10662.69
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10527.37
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9744.31
+        }
+      ],
+      "bodyMs": 30934.370000000003,
+      "waitMetrics": {
+        "renderCalls": 11,
+        "renderMs": 1872.7963360000067,
+        "observationCalls": 6,
+        "observationMs": 3003.606504000003,
+        "retainedFrameCalls": 6,
+        "retainedFrameMs": 143.09829200000968,
+        "pollCalls": 5,
+        "pollMs": 50.41619300000457
+      },
+      "boundaries": [
+        {
+          "started": 57790.211664,
+          "ready": 57791.574505,
+          "rendered": 57837.411533
+        },
+        {
+          "started": 68265.287872,
+          "ready": 68266.722076,
+          "rendered": 68303.583546
+        },
+        {
+          "started": 78787.293108,
+          "ready": 78788.381802,
+          "rendered": 78836.202789
+        }
+      ],
+      "preparationBoundaries": [
+        {
+          "readinessStarted": 58328.822373,
+          "readyAt": 58333.095665,
+          "renderEnded": 58553.854628
+        },
+        {
+          "readinessStarted": 68838.097135,
+          "readyAt": 68839.498366,
+          "renderEnded": 69086.783993
+        }
+      ],
+      "validation": {
+        "mode": "restored",
+        "pass": 3,
+        "fail": 0,
+        "expects": 41,
+        "restored": true,
+        "exitCode": 0,
+        "boundaries": [
+          {
+            "started": 57790.211664,
+            "ready": 57791.574505,
+            "rendered": 57837.411533
+          },
+          {
+            "started": 68265.287872,
+            "ready": 68266.722076,
+            "rendered": 68303.583546
+          },
+          {
+            "started": 78787.293108,
+            "ready": 78788.381802,
+            "rendered": 78836.202789
+          }
+        ],
+        "waitMetrics": {
+          "renderCalls": 11,
+          "renderMs": 1872.7963360000067,
+          "observationCalls": 6,
+          "observationMs": 3003.606504000003,
+          "retainedFrameCalls": 6,
+          "retainedFrameMs": 143.09829200000968,
+          "pollCalls": 5,
+          "pollMs": 50.41619300000457
+        },
+        "gatePassed": true
+      },
+      "snapshotEntries": 32
+    }
+  },
+  "comparison": {
+    "commandSeconds": {
+      "before": 81.07,
+      "after": 79.7,
+      "delta": -1.3699999999999903
+    },
+    "cpuSeconds": {
+      "before": 93.74,
+      "after": 93.07,
+      "delta": -0.6700000000000017
+    },
+    "rssKiB": {
+      "before": 1239200.0,
+      "after": 1243784.0,
+      "delta": 4584.0
+    },
+    "setupMs": {
+      "before": 48327.036002,
+      "after": 48241.53064,
+      "delta": -85.50536200000352
+    },
+    "bodyMs": {
+      "before": 32230.22,
+      "after": 30934.370000000003,
+      "delta": -1295.8499999999985
+    }
+  },
+  "cost": {
+    "newNativeCommandsSeconds": 258.14,
+    "reusedRestoredBaselineSeconds": 81.07,
+    "reusedOriginalTerminalSeconds": 60.49,
+    "reusedCostIsNotNewExecution": true
+  },
+  "causalBasis": {
+    "save": "The draft is filled before drop without a prior saved-host receipt. Actual 800 ms/zero/backoff work can overlap offline. Current text/edit must have a positive acknowledged host revision and no saving/bind/uncertainty/conflict/failure/device-only state. Busy serialization and host-sequence checks exclude stale save/list/get publication. A same-content refresh acknowledgement uses the single admitted listing; it is not proof that every timer is cleared.",
+    "history": "Actual current-socket initial resume sends plus the connect snapshot are admitted to the original held backend gate before old completion. Quiet keeps its first turn and uses no newer-result resync. Later original release/status assertions remain.",
+    "send": "Answer-delivery connected() replays ask-answer status/responses, never chat_message. Fresh context/no asks supplies no answer submissions. The original session_info receipt precedes opening text; accepted sends are not made unconfirmed by disconnect. Chat resend requires the explicit user action. The unchanged final net.sent oracle remains, rather than inferring absence from turnRetries alone.",
+    "nativeWork": "Initial restoreDone is awaited without flushing. This single fresh context has no foreign native writer or device action. Context writes may still run; native storage, focus/selection and the captured-history release retain the original final negative windows. Finite rendering is a separate preparation, not a persistence drain."
+  },
+  "interpretation": {
+    "benefit": "Selected bodies change from 32.23022 to 30.93437 seconds, command from 81.07 to 79.70, and setup from 48.327036 to 48.241531. CPU changes from 93.74 to 93.07 seconds; peak RSS increases from 1239200 to 1243784 KiB. These are single-pair observations.",
+    "windowAccounting": "Nine original selected windows become six: actual accumulated time changes from 4520.635188 to 3003.606504 ms. Three window-plus-two-frame calls become current draft/held-read acknowledgement plus finite rendering. The original frame-pair counter changes from 9 to 6; finite-render calls from 8 to 11.",
+    "heldControl": "The quiet case passes 1 case / 15 expectations, including every original downstream oracle. The actual native hold completes before recovered readiness; browser before/end/after samples share one clock. The 1717.081869 ms readiness span excludes its surrounding diagnostic page tasks.",
+    "omittedControl": "Quiet 0 pass / 1 fail with 7 expectations fails the added completion assertion BEFORE finite rendering; later original product oracles are unreached. Actual hold remains unfinished at pre-close snapshot, no end event is observed. Successful context.close is not completion or cancellation evidence.",
+    "productFault": "Same captured-terminal/ended-guard fault still fails the ORIGINAL newer-stream assertion after captured old-turn admission and the unchanged final 500 ms window.",
+    "cleanup": "All six files restore byte-identically after each command. Fixture own send descriptor/absence is restored/read back; initialization cleanup remains. Driver source restoration is not native lifecycle proof.",
+    "remaining": "All six drop/final windows and scene windows remain. No numerical minimum or blanket blocked conclusion follows."
+  },
+  "commands": [
+    {
+      "receipt": "historical-restored-baseline",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    },
+    {
+      "receipt": "candidate-held",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end its quiet turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    },
+    {
+      "receipt": "omitted-held",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end its quiet turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    },
+    {
+      "receipt": "candidate-terminal",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    },
+    {
+      "receipt": "restored",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "mandatoryBuild": true,
+      "offlineNamespace": true,
+      "measurementInsideSharedLock": true
+    }
+  ],
+  "receiptSets": [
+    {
+      "label": "historical-restored-baseline",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "add73e8eedd60243b52ed26d2626aabc59e71904a6136008db025db1dc0d0d06",
+          "bytes": 55051
+        },
+        {
+          "name": "check-measured-ast.ts",
+          "sha256": "e2b582a34a06d4513ea037cfbe6490e69d2bb142aef3a6f80b8bca24364d69aa",
+          "bytes": 2083
+        },
+        {
+          "name": "check-result.py",
+          "sha256": "a237059f923f9d76c0cd70076794b88ae3eefab0a11a8160d34372ff2d023a1b",
+          "bytes": 2449
+        },
+        {
+          "name": "command.json",
+          "sha256": "71eb5e240c3edda6642d99256effc75e817835d1ee375a62606d413126d1b400",
+          "bytes": 1656
+        },
+        {
+          "name": "completion.json",
+          "sha256": "9eb22992352d036750868b53a3fb305cd64569ac3fcf7c0969a3ce39777baecb",
+          "bytes": 83
+        },
+        {
+          "name": "execution-manifest.json",
+          "sha256": "273e6e5acfb071dae9c6fee57df68bc25c0daeecb0c236862289ecb4dc7494dd",
+          "bytes": 5534
+        },
+        {
+          "name": "manifest.json",
+          "sha256": "597197aa4890ff7dd43b087b6899e39c55b5221407a5e3d23469cbde3a7080b3",
+          "bytes": 1817
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "0e3fc66aa59b71608a7eff9f10d2a59bfc5f33cfe58c1569403ade9df221f769",
+          "bytes": 52332
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+          "sha256": "fa3cefcefb4a9c8acb949035de7453b843665d1c230b0a921864522caa4013a4",
+          "bytes": 51769
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "04ec62b28f436387d2fc2ac0fab7f66a0794a500b2449ba7b584977bf14cbd2c",
+          "bytes": 8998
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+          "sha256": "04ec62b28f436387d2fc2ac0fab7f66a0794a500b2449ba7b584977bf14cbd2c",
+          "bytes": 8998
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "reused-source-identities.json",
+          "sha256": "6329922483d7ac8dfbc4cd7e058c42887203119d99529f495f9d879de01766d2",
+          "bytes": 5589
+        },
+        {
+          "name": "run.log",
+          "sha256": "5dce33a2f249587ab6cee652f0b0a3eaec1034be0cf073c2f28a97791b97cd5a",
+          "bytes": 1458
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.py",
+          "sha256": "395388dd1244e25d49bdccb79331393bbffad8f68f697a13a543c452a36aac7c",
+          "bytes": 5114
+        },
+        {
+          "name": "run.time",
+          "sha256": "ff0c01dd2f0ea7306196ba43a152375ed815c9d220ce7016f6b0edc448566691",
+          "bytes": 985
+        },
+        {
+          "name": "validation.json",
+          "sha256": "9a44e6917a3a6c519ab43eeee445168ec39da49f0f10a60c6a65600c68fc8676",
+          "bytes": 363
+        },
+        {
+          "name": "validation.log",
+          "sha256": "176699c93c9d9c222a761d4a06a506fee1a1d59fa72f5f19f3ad2e2c73160e67",
+          "bytes": 287
+        }
+      ]
+    },
+    {
+      "label": "historical-original-terminal",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-checker.ts",
+          "sha256": "035444c7c24b6f5cc7288f5252bf6ada11e60c772971ab9a40319419a1c0a603",
+          "bytes": 1485
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "7e2e751b981a7b02d3310d13823654fdbe520b0d0db9d219d287211b0a024b26",
+          "bytes": 240
+        },
+        {
+          "name": "command.json",
+          "sha256": "2b712b1962da98263ba695f1e749adbbddfb265ff52e755604bf0b5f115e1e5f",
+          "bytes": 2019
+        },
+        {
+          "name": "completion.json",
+          "sha256": "06356610c48db5d6355344903a57fad63cc59e77eb34da3df98c4dc8ddfe1249",
+          "bytes": 83
+        },
+        {
+          "name": "driver.py",
+          "sha256": "7e4961d5f9c8337bd27a2541ed09cc6f340d58c023e90e51e6f8d474eb951963",
+          "bytes": 5752
+        },
+        {
+          "name": "executed.test.ts",
+          "sha256": "27e003a3080c739b877c364f412aeeb5b5f4327bb0bbb3528bb412d1e2706b57",
+          "bytes": 50348
+        },
+        {
+          "name": "original.test.ts",
+          "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+          "bytes": 50212
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+          "bytes": 48418
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored-candidate",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "27e003a3080c739b877c364f412aeeb5b5f4327bb0bbb3528bb412d1e2706b57",
+          "bytes": 50348
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored-candidate",
+          "sha256": "5824f3044680d955b98b417b1cf590118f75306d56662181c521a40160522e33",
+          "bytes": 57065
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "24f92a6bf56e7dc2e3abdb0a378ed7bf2cbd882d968b3b3822006e8fcad50e6e",
+          "bytes": 3025
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored-candidate",
+          "sha256": "d0c3231b7a8fef7c304d37a4639a93f10b676b52dbb04621696becd289c3723c",
+          "bytes": 6346
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+          "bytes": 14913
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored-candidate",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "review-manifest.json",
+          "sha256": "7b1238580dcb1066bdca33562c2a2331cbf858ccbea2a1e7d74c22c76b1fe31d",
+          "bytes": 5742
+        },
+        {
+          "name": "run.log",
+          "sha256": "fa80b6954ad6c930abd1fd74d0186dd0e0181f37603312961a395bc913cbff07",
+          "bytes": 2256
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.time",
+          "sha256": "7ec4d2d8450a78b93de4ccc526a12712682ee29e5e0a27105abc263a782295b1",
+          "bytes": 997
+        }
+      ]
+    },
+    {
+      "label": "candidate-held",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "71e189fc37a93087291d972a8e6193a1ca63daed002545cd17b7f5986c4bfcfc",
+          "bytes": 56195
+        },
+        {
+          "name": "causal-review.md",
+          "sha256": "6015cee280ab35214c14ca3b9bb7052b8916cdb8b02b563a14c6b0cafddf473d",
+          "bytes": 10798
+        },
+        {
+          "name": "check-measured-ast.ts",
+          "sha256": "5ce698f614dda8b632cf8d5529c8233b8ef7fa179aa20a2ad08a5a07e6f95a99",
+          "bytes": 2082
+        },
+        {
+          "name": "check-result.py",
+          "sha256": "4cc3d8e497ec57eddab2e7984c85576268564e7dd099273e1f4d04e54435123d",
+          "bytes": 3051
+        },
+        {
+          "name": "command.json",
+          "sha256": "8bf57b68d659fea68bf498f7afc5a76612b9146aaaf2bcbe3ea4784c1d0666db",
+          "bytes": 1788
+        },
+        {
+          "name": "completion.json",
+          "sha256": "7f72516885c0614ec3e5960ce860447d08d2e33df32829c85658d30bfcec10e1",
+          "bytes": 83
+        },
+        {
+          "name": "execution-manifest.json",
+          "sha256": "f9135018c0d662791786dd2564970bf1a98effbc3afcc085bb842f743dcd4d76",
+          "bytes": 7360
+        },
+        {
+          "name": "final-held-types.json",
+          "sha256": "b8ec677823220991411d41f9d78507982c06f2f55b3e645b7b341925f41450b3",
+          "bytes": 390
+        },
+        {
+          "name": "manifest.json",
+          "sha256": "695dfc49fa793a1d2270f31d7b820b0be11a016346ae29459f077d64c701e2f9",
+          "bytes": 1822
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+          "sha256": "a89bfccb41e20d3b6b868fa3f6d00e94ad164353ca664c8b72a8010c2465f280",
+          "bytes": 29568
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "ed3e5d3b3d15fdda5112787c7c9bb46bc43ae38d2da3988f5b840afe0e628a64",
+          "bytes": 54441
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+          "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92",
+          "bytes": 52143
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "reused-source-identities.json",
+          "sha256": "af830f76f8fe36071d367727b3a548a61f15fec429e77b5f67998e7d085df416",
+          "bytes": 5416
+        },
+        {
+          "name": "run.log",
+          "sha256": "698565c65417c7ad9c4bec0e6aac5e40360030fa07ffe0472a5f4685d6cd81b8",
+          "bytes": 2004
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.py",
+          "sha256": "4294d23aa9f0671d44f8b3a1b2caa217b516209bc0c26a250e8d6860bae48a63",
+          "bytes": 5407
+        },
+        {
+          "name": "run.time",
+          "sha256": "2f9e96fa1bcfe0ff006bde1c70bff55dda8c3ba646b00bcae0339a18acc27b81",
+          "bytes": 962
+        },
+        {
+          "name": "validation.json",
+          "sha256": "6ee704a5b483e4ef9a7dcbe52890adf8412a9a23b79e6a5a798c4cda30582610",
+          "bytes": 1583
+        },
+        {
+          "name": "validation.log",
+          "sha256": "3c5779c0d7337b7c90879fcfd3f78febebc912363fb1da44c3200bb5cd54510b",
+          "bytes": 1257
+        }
+      ]
+    },
+    {
+      "label": "omitted-held",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "43e23e07941bcd94015a71606acc3ec734256f8795306ae3487ba9771f31b038",
+          "bytes": 56193
+        },
+        {
+          "name": "causal-review.md",
+          "sha256": "6015cee280ab35214c14ca3b9bb7052b8916cdb8b02b563a14c6b0cafddf473d",
+          "bytes": 10798
+        },
+        {
+          "name": "check-measured-ast.ts",
+          "sha256": "5ce698f614dda8b632cf8d5529c8233b8ef7fa179aa20a2ad08a5a07e6f95a99",
+          "bytes": 2082
+        },
+        {
+          "name": "check-result.py",
+          "sha256": "4cc3d8e497ec57eddab2e7984c85576268564e7dd099273e1f4d04e54435123d",
+          "bytes": 3051
+        },
+        {
+          "name": "command.json",
+          "sha256": "42bcb089608bc8763698571d81282a0bb96d3007a79a8107ccb2a250df52ff53",
+          "bytes": 1784
+        },
+        {
+          "name": "completion.json",
+          "sha256": "f1ed448f2ff5f501419297e05cad28f39d5b6d1e4e867fd05bbe8e41c9c6ef78",
+          "bytes": 83
+        },
+        {
+          "name": "execution-manifest.json",
+          "sha256": "f9135018c0d662791786dd2564970bf1a98effbc3afcc085bb842f743dcd4d76",
+          "bytes": 7360
+        },
+        {
+          "name": "final-held-types.json",
+          "sha256": "b8ec677823220991411d41f9d78507982c06f2f55b3e645b7b341925f41450b3",
+          "bytes": 390
+        },
+        {
+          "name": "manifest.json",
+          "sha256": "695dfc49fa793a1d2270f31d7b820b0be11a016346ae29459f077d64c701e2f9",
+          "bytes": 1822
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+          "sha256": "a89bfccb41e20d3b6b868fa3f6d00e94ad164353ca664c8b72a8010c2465f280",
+          "bytes": 29568
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "ae852beeab59b5d9424ca867518deb49b3cf351b1d944aaee906992ff4ed3fbe",
+          "bytes": 54407
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+          "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92",
+          "bytes": 52143
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "reused-source-identities.json",
+          "sha256": "af830f76f8fe36071d367727b3a548a61f15fec429e77b5f67998e7d085df416",
+          "bytes": 5416
+        },
+        {
+          "name": "run.log",
+          "sha256": "93ad8e3e8ac2c22f8edbc67c93ef61529f90ea2c8c919a04fbcc3c737c2da3cc",
+          "bytes": 2770
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.py",
+          "sha256": "4294d23aa9f0671d44f8b3a1b2caa217b516209bc0c26a250e8d6860bae48a63",
+          "bytes": 5407
+        },
+        {
+          "name": "run.time",
+          "sha256": "1c4fda3d4738c46fa9973d606d28f3c8205e2c44d75d4ac9bbd566985d1c8204",
+          "bytes": 1000
+        },
+        {
+          "name": "validation.json",
+          "sha256": "69c6db729ed4628ad183ab90efc5d00b3101a87efeae9c81ebb0dce85770468c",
+          "bytes": 1363
+        },
+        {
+          "name": "validation.log",
+          "sha256": "359b1aecb24f838531c42a80c6464487822a9b04348d26b6a3a79be1b83f0611",
+          "bytes": 1081
+        }
+      ]
+    },
+    {
+      "label": "candidate-terminal",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "6b9d0b388936f1fbbd5963d4d7ab3d1ad56e761411aa435d17afbfa6eb687359",
+          "bytes": 55399
+        },
+        {
+          "name": "causal-review.md",
+          "sha256": "6015cee280ab35214c14ca3b9bb7052b8916cdb8b02b563a14c6b0cafddf473d",
+          "bytes": 10798
+        },
+        {
+          "name": "check-measured-ast.ts",
+          "sha256": "5ce698f614dda8b632cf8d5529c8233b8ef7fa179aa20a2ad08a5a07e6f95a99",
+          "bytes": 2082
+        },
+        {
+          "name": "check-result.py",
+          "sha256": "4cc3d8e497ec57eddab2e7984c85576268564e7dd099273e1f4d04e54435123d",
+          "bytes": 3051
+        },
+        {
+          "name": "command.json",
+          "sha256": "193695731d0f2e48824559b780250c0828e9a5491b3aa533b51cc2e8d079bdda",
+          "bytes": 1793
+        },
+        {
+          "name": "completion.json",
+          "sha256": "c21245d4d7b3ea18e4e87552ec811c6b7c688684b61a21d1ed10ff04d0876324",
+          "bytes": 83
+        },
+        {
+          "name": "execution-manifest.json",
+          "sha256": "f9135018c0d662791786dd2564970bf1a98effbc3afcc085bb842f743dcd4d76",
+          "bytes": 7360
+        },
+        {
+          "name": "final-held-types.json",
+          "sha256": "b8ec677823220991411d41f9d78507982c06f2f55b3e645b7b341925f41450b3",
+          "bytes": 390
+        },
+        {
+          "name": "manifest.json",
+          "sha256": "695dfc49fa793a1d2270f31d7b820b0be11a016346ae29459f077d64c701e2f9",
+          "bytes": 1822
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+          "bytes": 48418
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "15b63e028a72f0bb34af0e2f4b18533cf805196cca7c6bf8c9183e65d3defd3d",
+          "bytes": 53102
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+          "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92",
+          "bytes": 52143
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+          "bytes": 14913
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "reused-source-identities.json",
+          "sha256": "af830f76f8fe36071d367727b3a548a61f15fec429e77b5f67998e7d085df416",
+          "bytes": 5416
+        },
+        {
+          "name": "run.log",
+          "sha256": "9c8246f9efe6b056d017ed2f9da421f9eca46397d2e7295c978c38de88502d83",
+          "bytes": 2475
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.py",
+          "sha256": "4294d23aa9f0671d44f8b3a1b2caa217b516209bc0c26a250e8d6860bae48a63",
+          "bytes": 5407
+        },
+        {
+          "name": "run.time",
+          "sha256": "b7ad50be5f4ebc9cccbb3c24c40f475475fc2560e410826dc0f499bcbb176488",
+          "bytes": 997
+        },
+        {
+          "name": "validation.json",
+          "sha256": "1aa1aee0579ee417a4b1469c66c121e9d09c42c24625fe07a1ccbf6a7326bf09",
+          "bytes": 137
+        },
+        {
+          "name": "validation.log",
+          "sha256": "a5e6fe07134f78356c70f91cc10d94edf50dff829314515807842a9ecd66c91d",
+          "bytes": 121
+        }
+      ]
+    },
+    {
+      "label": "restored",
+      "entries": [
+        {
+          "name": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "name": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "name": "ast-proof.json",
+          "sha256": "e7dd9c2d171b4dc71cd4fd90e6fdcbeec9b97ec33fee5e280419ffadd311d417",
+          "bytes": 55389
+        },
+        {
+          "name": "causal-review.md",
+          "sha256": "6015cee280ab35214c14ca3b9bb7052b8916cdb8b02b563a14c6b0cafddf473d",
+          "bytes": 10798
+        },
+        {
+          "name": "check-measured-ast.ts",
+          "sha256": "5ce698f614dda8b632cf8d5529c8233b8ef7fa179aa20a2ad08a5a07e6f95a99",
+          "bytes": 2082
+        },
+        {
+          "name": "check-result.py",
+          "sha256": "4cc3d8e497ec57eddab2e7984c85576268564e7dd099273e1f4d04e54435123d",
+          "bytes": 3051
+        },
+        {
+          "name": "command.json",
+          "sha256": "830d9507a03b0e1c63dbc2b39a049ba60df631d64e1da1575846a902a3a16913",
+          "bytes": 1798
+        },
+        {
+          "name": "completion.json",
+          "sha256": "c05a5fad3015b686cf1eea08419e543bfde6cd68fcce7594d12ebbb437914606",
+          "bytes": 83
+        },
+        {
+          "name": "execution-manifest.json",
+          "sha256": "f9135018c0d662791786dd2564970bf1a98effbc3afcc085bb842f743dcd4d76",
+          "bytes": 7360
+        },
+        {
+          "name": "final-held-types.json",
+          "sha256": "b8ec677823220991411d41f9d78507982c06f2f55b3e645b7b341925f41450b3",
+          "bytes": 390
+        },
+        {
+          "name": "manifest.json",
+          "sha256": "695dfc49fa793a1d2270f31d7b820b0be11a016346ae29459f077d64c701e2f9",
+          "bytes": 1822
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.executed",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__connection.ts.restored",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+          "bytes": 48488
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+          "sha256": "15b63e028a72f0bb34af0e2f4b18533cf805196cca7c6bf8c9183e65d3defd3d",
+          "bytes": 53102
+        },
+        {
+          "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+          "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92",
+          "bytes": 52143
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+          "bytes": 9947
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.executed",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__connection.ts.restored",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+          "bytes": 14917
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+          "bytes": 29937
+        },
+        {
+          "name": "reused-source-identities.json",
+          "sha256": "af830f76f8fe36071d367727b3a548a61f15fec429e77b5f67998e7d085df416",
+          "bytes": 5416
+        },
+        {
+          "name": "run.log",
+          "sha256": "336a477ac013e041a42e9c799acc187b2deb9eba78b264d3e559e57f3545b994",
+          "bytes": 1699
+        },
+        {
+          "name": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "name": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "name": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "name": "run.py",
+          "sha256": "4294d23aa9f0671d44f8b3a1b2caa217b516209bc0c26a250e8d6860bae48a63",
+          "bytes": 5407
+        },
+        {
+          "name": "run.time",
+          "sha256": "84ff86e7cb8ce69561e1dd4c72735d747e2976383220071036a4d9ece630ed28",
+          "bytes": 985
+        },
+        {
+          "name": "validation.json",
+          "sha256": "a6abec0b1411563be14a7548fe9ccdfff9673db38dd17efca76d585001c6dfad",
+          "bytes": 735
+        },
+        {
+          "name": "validation.log",
+          "sha256": "3c1c2000be96dae2e8804f0b020a608f77553a7f6c5f4124fa512ddf6dfe1ec2",
+          "bytes": 591
+        }
+      ]
+    }
+  ],
+  "receiptEntryCount": 179
+}

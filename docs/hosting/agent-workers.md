@@ -1004,9 +1004,13 @@ index refresh after its workers exit, serialized on the server lock.
 
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
-the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials and egress retain the interim
-limits stated in the capabilities note. The journal keeps observed canonical
+the actual mounts, fallback cause and limits. Both governed and strict notes
+state that the worker shares the server's uid and server-state protection is
+mask-only. A read-only brain does not prevent reads of other host paths
+available to that uid. The separate-uid broker in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) is not implemented
+yet. Maintenance credentials and egress retain the interim limits stated in
+the capabilities note. The journal keeps observed canonical
 brain/workspace versions, not every write between observations; external
 persisted Claude auto-memory remains outside that review/revert coverage.
 Native read observations survive ordinary turns on the running backend but

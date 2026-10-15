@@ -3,6 +3,24 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## UI-kit action accessibility and loading (additive #1756)
+
+`ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
+`aria-describedby` on the button's existing role-bearing element.
+`ContactAction` adds optional `disabled`, `ariaDisabled`, `ariaLabel`,
+`ariaDescribedBy` and `loading` fields. Accessibility and disabled fields pass
+through to the existing Button behavior. `ariaDisabled` keeps the action
+focusable; callers must guard activation while work is pending. `disabled`
+removes it from the tab order. `loading` displays a decorative spinner while
+preserving the action element and its focus; it does not implicitly disable an
+action or announce progress. The semantic `IconKey` adds `loading`.
+Spinner rotation respects reduced motion.
+
+Discovery expansion is documented [in the ui-react guide](../../packages/ui-react/README.md#discovery-placement).
+Its store state remains behind `BrainUiServices.stores`, which is explicitly
+`@internal`; no new public graph-store signature, wire endpoint or query limit
+is introduced.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
