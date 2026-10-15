@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, closeSync, writeSync, ftruncateSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { text } from "node:stream/consumers";
 import { WORKER_OUTPUT } from "../src/server/worker-output.js";
@@ -19,7 +19,7 @@ test("native-style FIFO secret aliases and destinations are masked before execut
   const make = Bun.spawnSync(["/usr/bin/mkfifo", fifo], { env: {}, stdout: "pipe", stderr: "pipe" });
   expect(make.exitCode, make.stderr.toString()).toBe(0);
   fs.symlinkSync("tokens/private-channel", join(view.root, ".env"));
-  const result = await runMaintenanceWorker({ brainPath: brain, startupView: view, credentials: false, env: {},
+  const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: view, credentials: false, env: {},
     command: [process.execPath, "--no-env-file", "-e", `const fs=require("node:fs");
       const inspect=path=>{try{const fd=fs.openSync(path,fs.constants.O_RDONLY|fs.constants.O_NONBLOCK);try{return fs.fstatSync(fd).isFIFO()}finally{fs.closeSync(fd)}}catch(error){return error.code}};
       console.log(JSON.stringify([inspect(".env"),inspect("tokens/private-channel")]));`] });
@@ -33,7 +33,7 @@ afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); })
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-startup-"));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-  const brain = join(root, "brain"); mkdirSync(brain);
+  const brain = join(root, "brain"); mkdirSync(brain); mkdirSync(join(root, "state"));
   writeFileSync(join(brain, "brain.config.ts"), 'import value from "./helper.ts"; export default value;');
   writeFileSync(join(brain, "helper.ts"), 'export default "Odysseus before launch";');
   return brain;
@@ -167,7 +167,7 @@ for (const mode of ["strict", "restricted", "maintenance"] as const) for (const 
     const program = `import{readFileSync}from"node:fs";const read=p=>{try{return readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(".env"),target:read("tokens/harbor.txt"),public:read("helper.ts")}));`;
     let output: string;
     if (mode === "maintenance") {
-      const result = await runMaintenanceWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), credentials: false, env: {},
+      const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: createWorkerStartupView(brain), credentials: false, env: {},
         command: [process.execPath, "--no-env-file", "-e", program] });
       expect(result.exitCode, result.stderr).toBe(0); output = result.stdout;
     } else {
@@ -196,7 +196,7 @@ for (const link of ["relative", "absolute", "output-root"] as const) test(`maint
     : `${WORKER_OUTPUT}/tokens/harbor.txt`, join(brain, ".env"));
   const outputs = prepareWorkerOutput(brain);
   try {
-    const result = await runMaintenanceWorker({ brainPath: brain, startupView: outputs.view, output: outputs.output,
+    const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: outputs.view, output: outputs.output,
       credentials: false, env: {}, command: [process.execPath, "--no-env-file", "-e",
         'const fs=require("node:fs"),root=process.env.BRAIN_ROOT,read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(root+"/.env"),copy:read(root+"/tokens/harbor.txt"),public:read("helper.ts")}));'] });
     expect(result.exitCode, result.stderr).toBe(0);

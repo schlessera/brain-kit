@@ -262,6 +262,9 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     rows.push(await ring(page.getByRole("button", { name: "Return to Ithaca 1 link · voyage/return.md", exact: true }).element() as HTMLElement));
     s.ui.stores.graph.setState({ findings: { orphans: [node], unreachable: [], brokenLinks: [], stale: [], staleDays: 180 }, dataState: "done" });
     s.draw(<MaintenanceBody />);
+    await expect.element(s.find("Orphans (1)")).toHaveAttribute("aria-expanded", "false");
+    await s.find("Orphans (1)").click();
+    await expect.element(s.find("Orphans (1)")).toHaveAttribute("aria-expanded", "true");
     rows.push(await ring(page.getByRole("button", { name: "Return to Ithaca voyage/return.md", exact: true }).element() as HTMLElement));
     s.ui.stores.graph.setState({ fetchMeta: async () => {}, fetchScene: async () => {}, mode: "clusters", metaState: "done" });
     s.draw(<GraphPage />);

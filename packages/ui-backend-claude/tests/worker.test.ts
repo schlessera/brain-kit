@@ -86,7 +86,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
   const view = createFixtureWorkerStartupView(brain);
   const outputSpy = spyOn(nativeOutput, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
   try {
-    const sandbox = prepareWorkerSandbox(brain, { home, maintenance: { startupView: view } });
+    const sandbox = prepareWorkerSandbox(brain, { home, maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } });
     const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined,
       { turnId, report: found => records.push(...found), log: () => {} }, {}, undefined, undefined, view);
     const program = `import * as fs from "node:fs";
