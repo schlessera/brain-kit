@@ -70,7 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering; recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission; scene recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -102,7 +102,8 @@ claim arbitrary asynchronous work is finished. The negative-window helper
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper serves the four original rendering call sites, its readiness control,
-and the two newer-turn preparations after their scoped resync acknowledgement.
+the two newer-turn preparations after their scoped resync acknowledgement,
+and the three held-snapshot recoveries after current draft acknowledgement.
 
 | Call site | Causal completion before measuring | Observation retained |
 | --- | --- | --- |
@@ -110,7 +111,8 @@ and the two newer-turn preparations after their scoped resync acknowledgement.
 | Scene's first running text before New chat; snapshot's original running text before arranging its race | The expected text is rendered; next navigation/input is a real browser action | Rendering only; later race/recovery observations remain. |
 | Scene after scrolling | Draft Saved plus host revision/content/attachment acknowledgement, then actual wheel movement | 500 ms; captures layout after delayed draft-save/ghost effects. |
 | Drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
-| Recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held-history cases use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
+| Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
+| Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Drop and final negative windows remain; no history or storage drain is claimed. |
 | Released queues | Every held queue frame is observed by the receiving page; expected upload state is awaited before its assertion | 500 ms; pending-pill identity/removal remains guarded through delayed work. |
 | Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
 | Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
@@ -1067,8 +1069,8 @@ later observation windows are unchanged.
 The [preparation evidence](evidence/test-wait-continuity-preparation.json)
 records a subsequent, narrow change at source `65d05a55`: the two newer-turn
 preparations await their actual resync response before the existing finite-render
-helper. All three released-history negative windows and every drop/recover
-window remain. The original selection, focus, answer/field identity, streaming
+helper. At that recorded source, all three released-history negative windows
+and every drop/recover window remain. The original selection, focus, answer/field identity, streaming
 and no-additional-chat assertions retain their order and observation interval.
 
 Before the old turn is released, the test acknowledges that the connect snapshot
@@ -1082,8 +1084,8 @@ history/status reducers have run before the later page task; this is not a claim
 that a microtask or matching frame counts drain arbitrary work.
 
 The fixture observes successful native sends without replacing the native
-WebSocket prototype or changing return/throw/argument identity. Only the two
-newer cases opt in. Explicit teardown restores and verifies the fixture method's
+WebSocket prototype or changing return/throw/argument identity. At that recorded source only the two
+newer cases opt in; the subsequent recovery boundary also observes the quiet case. Explicit teardown restores and verifies the fixture method's
 complete descriptor or original absence; initialization failure also disposes
 observation. The existing restore promise is awaited without flushing storage.
 Native context writes can still follow scroll, selection or focus. This fixture
@@ -1126,3 +1128,54 @@ Both that failure and its checker failure remain recorded. The 142.62 seconds
 of reused original controls are historical cost, not new execution. The artifact
 indexes 186 immutable receipt entries. The modest observed gain establishes no
 whole-file/whole-CI saving or justified minimum for the remaining native windows.
+
+
+## Continuity snapshot recovery preparation
+
+The [recovery evidence](evidence/test-wait-continuity-recovery.json) records the
+three held-snapshot recoveries at source `44d2aab6`. They await acknowledgement
+of the current draft edit, admission of the actual current-socket resume and
+connect-snapshot reads to their held backend gate, and finite rendering. All
+three drop and three final negative windows remain, as do the scene recovery
+windows and every original action, matcher expression and test name.
+
+The draft is filled immediately before drop; there is no assumed earlier save.
+Its actual 800 ms save, failed request or zero-delay reconnect retry may overlap
+the outage. A current positive host revision and matching edit acknowledge the
+content. Busy serialization and host-sequence checks fence older save/list/get
+continuations. This does not claim that all timers are cleared or native storage
+has drained. Initial restore is awaited without flushing; later context writes,
+selection, focus and captured-history effects retain their final observation.
+The quiet case keeps its first backend turn live and its initial history held;
+it does not require the newer-turn resync. Answer-delivery replay sends ask
+responses/status requests, not chat messages; ordinary chat resend requires an
+explicit action. The original no-additional-chat assertion remains unchanged.
+
+A quiet-turn control holds the actual successful save continuation for 2000 ms,
+before current-generation checking and saved-state publication. Readiness waits
+1717.08 ms and all original downstream assertions pass. Omitting only that wait
+fails the added completion assertion while the save remains held. This diagnostic
+runs **before** finite rendering and does not reach later product assertions.
+The hold is still unfinished at the last pre-close snapshot, with no observed
+completion event; context closure does not prove cancellation or drain. The same
+captured-terminal/ended-guard fault separately fails the original newer-stream
+assertion after the retained final window.
+
+The historical restored baseline passes 3 cases / 38 expectations; the new
+candidate passes 3 / 41, adding the existing observer setup/cleanup checks to the
+quiet case. All seven other cases remain filtered. Exact test/fixture,
+production, configuration and harness identities bind reuse; the older terminal
+fault stays explicitly historical. In this single shared-host pair, body time
+changes from 32.23022 to 30.93437 seconds and command time from 81.07 to 79.70,
+including setup from 48.32704 to 48.24153. CPU changes from 93.74 to 93.07 seconds,
+while maximum RSS **increases** from 1239200 to 1243784 KiB.
+
+Actual fixed-window calls change from nine to six, with accumulated time from
+4520.64 to 3003.61 ms. Their three frame pairs are replaced by existing finite
+rendering, not retained under the old counter: frame pairs change from nine to
+six and finite-render calls from eight to eleven. The three restored readiness
+spans are 1.36, 1.43 and 1.09 ms, followed by separate finite-render work. Four new
+commands cost 258.14 seconds; the reused 81.07-second baseline and 60.49-second
+original fault are not new execution. The artifact indexes 179 immutable receipt
+entries. These observations establish neither a whole-CI saving nor a justified
+minimum for the remaining native windows.

@@ -39,7 +39,7 @@ class ObservedSocket extends NativeSocket {
     });
   }
 }
-// Only the two newer-turn cases observe sends. This is the fixture class's
+// Only the three snapshot cases observe sends. This is the fixture class's
 // own prototype, not the native WebSocket prototype; actual return/throw and
 // argument identity are preserved, and failed sends are never counted.
 const originalSend = ObservedSocket.prototype.send;
@@ -81,10 +81,33 @@ try {
     </BrainUiProvider>,
   );
 
+  // Acknowledged current content, not a generic pending=false snapshot.
+  // Host-sequence fences exclude older refresh reads; native context writes
+  // and the later captured-history observations remain independent.
+  function currentDraftAcknowledged(sessionId: string, text: string) {
+    const drafts = root.stores.drafts.getState();
+    const draft = drafts.drafts[drafts.idFor(sessionId)];
+    const restore = root.localWork?.restore.getState();
+    return draft?.text === text && draft.attachments.length === 0 && draft.host !== null
+      && draft.host.revision > 0 && draft.host.edit === draft.edit && draft.savingSince === null
+      && !draft.bind && !draft.uncertain && !draft.failure && !draft.conflict && !draft.deviceConflict && !draft.deviceOnly
+      && drafts.orphans.length === 0 && !restore?.selection && !restore?.focusId && !restore?.scroll;
+  }
+
   Object.assign(window, {
     __continuity: {
       preparation: observePreparation ? {
         restoring: () => root.localWork!.restoring(),
+        recovered: (sessionId: string, text: string) => {
+          const chat = root.stores.chat.getState();
+          const connection = root.stores.connection.getState();
+          return recording && observationErrors === 0 && currentSocket > 0
+            && connection.wsStatus === "connected" && connection.vpnStatus === "connected"
+            && chat.activeSessionId === sessionId && restorationOf(chat) === null
+            && Object.keys(chat.turnRetries).length === 0
+            && (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) === 0
+            && currentDraftAcknowledged(sessionId, text);
+        },
         checkpoint: (sessionId: string) => ({ socket: currentSocket, cursor: preparationFrames.length,
           heldResumes: preparationFrames.filter(f => f.socket === currentSocket && f.direction === "sent" && f.type === "session_resume" && f.sessionId === sessionId).length }),
         ready: (checkpoint: { socket: number; cursor: number }, sessionId: string, oldTurn: string, text: string) => {
@@ -98,9 +121,6 @@ try {
           const chat = root.stores.chat.getState();
           const buffer = chat.buffers[sessionId];
           const answer = buffer?.messages.at(-1);
-          const drafts = root.stores.drafts.getState();
-          const draft = drafts.drafts[drafts.idFor(sessionId)];
-          const restore = root.localWork?.restore.getState();
           // The captured reconnect reads are still held. Only the old result's
           // subsequent resync can produce these history/detail completions.
           // Native synchronous handlers have run before this later page task;
@@ -109,10 +129,7 @@ try {
             && chat.activeSessionId === sessionId && buffer?.isStreaming === true && !buffer.replay
             && (answer?.streamTurnId ?? answer?.turnId) === newer && restorationOf(chat) === null
             && Object.keys(chat.turnRetries).length === 0 && (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) === 0
-            && draft?.text === text && draft.attachments.length === 0 && draft.host !== null
-            && draft.host.revision > 0 && draft.host.edit === draft.edit && draft.savingSince === null
-            && !draft.bind && !draft.uncertain && !draft.failure && !draft.conflict && !draft.deviceConflict && !draft.deviceOnly
-            && drafts.orphans.length === 0 && !restore?.selection && !restore?.focusId && !restore?.scroll;
+            && currentDraftAcknowledged(sessionId, text);
         },
       } : undefined,
       replayComplete: (sessionId: string) => !root.stores.chat.getState().buffers[sessionId]?.replay,

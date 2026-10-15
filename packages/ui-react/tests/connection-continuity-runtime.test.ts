@@ -504,7 +504,7 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">) {
 }
 
 /** The network and the host come back; the app finds them on its own. */
-async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, "A">>) {
+async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, "A">>, preparation: "scene" | "held-snapshot" = "scene") {
   const statusBefore = s.A ? await probe(s.page, p => p.received("status", p.activeSessionId()!)) : 0;
   listen();
   await s.context.setOffline(false);
@@ -515,7 +515,9 @@ async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, 
   // release/status barrier instead.
   if (s.A && !historyWaiters.has(s.A)) await until(s.page,
     `p.received("status", ${JSON.stringify(s.A)}) > ${statusBefore} && p.replayComplete(${JSON.stringify(s.A)})`);
-  await settle(s.page);
+  // The snapshot caller acknowledges its intentionally held reads and current
+  // saved draft before selection; scenes retain their negative recovery window.
+  if (preparation === "scene") await settle(s.page);
 }
 
 /**
@@ -596,7 +598,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
     const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-    if (newer) await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true }); });
+    await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true }); });
     const page = await context.newPage();
     const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
     const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
@@ -623,22 +625,24 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       const waiting = { promise: new Promise<void>((done) => { release = done; }), release: () => release(), reads: 0, mode, holdWhile: () => gates.has(first) };
       historyWaiters.set(sessionId, waiting);
       const sentBefore = net.sent.length; expect(net.sent).toContain("chat_message");
-      await drop({ context, page, net }); await recover({ context, page });
+      await drop({ context, page, net }); await recover({ context, page }, "held-snapshot");
       const readDeadline = Date.now() + 5_000;
       while (!waiting.reads && Date.now() < readDeadline) await hostPoll(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
       expect(gates.has(first)).toBe(true);
       let preparation: { socket: number; cursor: number; heldResumes: number } | undefined;
-      if (newer) {
+      {
         // The original captured snapshot and the current socket's initial
         // resume reads must all have entered the same held backend gate.
         // This is a strengthened setup acknowledgement, not a drain.
         await page.evaluate("window.__continuity.preparation.restoring()");
+        await until(page, `p.preparation.recovered(${JSON.stringify(sessionId)}, ${JSON.stringify(draft)})`, 5_000);
         preparation = await page.evaluate((id) => (window as any).__continuity.preparation.checkpoint(id), sessionId);
         const heldDeadline = Date.now() + 5_000;
         while (waiting.reads < preparation!.heldResumes + 1 && Date.now() < heldDeadline) await hostPoll(10);
         expect(preparation!.heldResumes, "the reconnect sent an actual session resume").toBeGreaterThan(0);
         expect(waiting.reads, "the connect snapshot and every initial resume are held before old completion").toBe(preparation!.heldResumes + 1);
+        await finishRender(page);
       }
       const beforeOldCompletion = frames.length;
       if (newer) { gates.get(first)!(); gates.delete(first); }
@@ -689,7 +693,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     } finally {
       try {
         release?.(); peer?.close(); historyWaiters.delete(sessionId);
-        if (newer) expect(await page.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
+        expect(await page.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
           .toEqual({ sendRestored: true, recording: false });
       } finally { await context.close(); }
     }
