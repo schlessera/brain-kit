@@ -47,6 +47,22 @@ afterAll(() => styles.remove());
 afterEach(() => vi.unstubAllGlobals());
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
+/** Retain real opening effects before the native click's round trip can outlast them. */
+function captureOpeningAnimations(root: HTMLElement, selector: string) {
+  let captured: Animation[] = [];
+  const observer = new MutationObserver(() => {
+    const panel = root.querySelector<HTMLElement>(selector);
+    if (!panel) return;
+    // Reading forces the inserted panel's CSS effects into existence. Pause
+    // in this commit's microtask, before yielding to the driver or another frame.
+    captured = panel.getAnimations({ subtree: true });
+    for (const animation of captured) animation.pause();
+    observer.disconnect();
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return { take: () => captured, stop: () => observer.disconnect() };
+}
+
 async function mount(ctx: TestContext, width = 390) {
   const viewport = { width: innerWidth, height: innerHeight };
   const theme = document.documentElement.dataset.theme;
@@ -536,6 +552,32 @@ test("More swipe restores its tab and leaves Files open", async ctx => {
   expect(document.activeElement,"More tab receives swipe return focus").toBe(s.tab("More"));
 });
 
+test("destination opening references survive native completion before sampling", async ctx => {
+  const s = await mount(ctx, 320);
+  s.ui.stores.ui.getState().setTheme("light");
+  await commands.dictationMotion("no-preference");
+  ctx.onTestFinished(() => commands.dictationMotion("reduce"));
+  const selector = '[data-panel="Sessions"]';
+  const opening = captureOpeningAnimations(s.host, selector);
+  ctx.onTestFinished(opening.stop);
+  await userEvent.click(s.tab("Sessions"));
+  const captured = opening.take();
+  const nativeOpenings = (animations: Animation[]) => animations.filter(animation =>
+    animation instanceof CSSAnimation && ["bk-overlay-fade", "bk-overlay-panel"].includes(animation.animationName));
+  const effects = nativeOpenings(captured);
+  expect(effects.length, "both real scrim and surface openings were captured").toBe(2);
+  expect(effects.every(animation => animation.playState === "paused"), "openings pause before activation returns").toBe(true);
+  // Recreate the late-sample condition with native completion, without a sleep
+  // or an invented animation: completed fill-none effects leave getAnimations.
+  for (const animation of effects) animation.play();
+  await Promise.all(effects.map(animation => animation.finished));
+  expect(nativeOpenings(s.overlay(selector).getAnimations({ subtree: true })), "completed native openings leave the live set").toHaveLength(0);
+  expect(opening.take(), "opening references survive a sample after native completion").toEqual(captured);
+  for (const animation of opening.take()) { animation.pause(); animation.currentTime = 0; }
+  await frame();
+  expect(nativeOpenings(s.overlay(selector).getAnimations({ subtree: true })), "retained native effects can still be sought for paint proof").toHaveLength(2);
+});
+
 // #1771: pixel comparison catches shadows that never participate in hit tests.
 for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
   test(`${theme} ${width}: destination effects never shade navigation`, async ctx => {
@@ -566,6 +608,9 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
     for (const type of ["animationstart", "animationend", "animationcancel"]) document.addEventListener(type, traceMotion, true);
     ctx.onTestFinished(() => { for (const type of ["animationstart", "animationend", "animationcancel"]) document.removeEventListener(type, traceMotion, true); });
     for (const name of ["Sessions", "Settings", "Files"]) {
+      const selector = `[data-panel="${name}"]`;
+      const opening = captureOpeningAnimations(s.host, selector);
+      ctx.onTestFinished(opening.stop);
       const activationAt = performance.now();
       if (name === "Settings") {
         s.ui.stores.ui.getState().setSettingsTab("devices");
@@ -574,10 +619,10 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
       } else await userEvent.click(s.tab(name));
       const activationReturnedAt = performance.now();
       await frame();
-      const selector = `[data-panel="${name}"]`;
+      opening.stop();
       const panel = s.overlay(selector);
       const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
-      const animations = panel.getAnimations({ subtree: true });
+      const animations = opening.take();
       if (animations.length === 0) {
         const state = { name, theme, width, activationAt, activationReturnedAt, sampledAt: performance.now(),
         connected: panel.isConnected, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
