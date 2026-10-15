@@ -71,7 +71,7 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
-| `html-preview-runtime.test.ts`, escape attempts | Five 1500 ms native negative windows after acknowledged clicks; three positive halves await exact native destination completion; two popup halves require native call return plus correlated sandbox denial | Form, download and frame-to-top actions retain their native windows. Positive self-navigation retains actual hit and app-stability oracles, validated by held-body and wrong-target controls. Popup denial requires the exact destination on the initiating page; null alone is insufficient, and actual popup creation or attacker arrival returns to the original escape assertions. The retained 1500 ms is an existing observation budget, not a measured universal minimum. Candidate/runtime proof. |
+| `html-preview-runtime.test.ts`, escape attempts | Three 1500 ms native negative windows after acknowledged clicks; three positive halves await exact native destination completion; popup/form halves require native call return plus correlated sandbox denial | Download and frame-to-top actions retain their native windows. Positive self-navigation retains actual hit and app-stability oracles, validated by held-body and wrong-target controls. Popup/form denial requires the exact destination on the initiating page; actual escape returns to original assertions. Null alone is insufficient for popup denial; form halves have independent hit cursors. The retained 1500 ms is an existing observation budget, not a measured universal minimum. Candidate/runtime proof. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
@@ -611,8 +611,44 @@ RSS increases from 1,238,672 to 1,249,976 KiB. The five commands cost 289.15
 seconds including mandatory builds and deliberate failures. These are single
 observations with the same runtime, dependencies and offline namespace on a
 shared host; setup and scheduling vary. They establish neither a whole-CI gain
-nor a universal minimum for the five retained native windows. Form, download
-and denied frame-to-top actions keep their separate native proof obligations.
+nor a universal minimum for the five windows retained at that recorded source.
+Form, download and denied frame-to-top actions have separate proof obligations;
+the following experiment addresses only the single form submission.
+
+## Native form denial completion
+
+The [form experiment](evidence/test-wait-html-form-boundaries.json) keeps the
+original native submit call, GET method and fields. Its return marker and the
+exact destination's sandbox-denial message establish that Chrome rejected this
+submission before scheduling it. Both contexts submit the same URL, so each
+has its own initiating-page observer and fresh attacker-hit cursor. A new
+matching hit returns to the original hit-list and tab-URL assertions; losing
+the old evaluation context is never completion by itself.
+
+Delaying the original submission by two seconds leaves its return marker and
+denial absent before the candidate wait and present afterward in both contexts.
+Omitting that wait fails the explicit completion diagnostic with both flags
+false. Enabling forms in both actual iframe and CSP sandbox guards and removing
+the actual `form-action 'none'` restriction makes the original empty hit-list
+assertion fail with two form arrivals. Navigation has already removed the old
+markers in that control, demonstrating why the escape path uses actual new
+arrivals. All guards and fixtures were restored; final source omits diagnostic
+logging, timestamps and delayed actions.
+
+At the frozen popup candidate `c13d59b36`, both full runs pass 12 cases and 134
+expectations. Five windows total 7,505.23 ms; the three retained windows total
+4,503.49 ms. Native form completion observations take 0.630 and 0.642 ms after
+the acknowledged click, while the form case falls from 3,731.37 to 698.39 ms.
+These short observations do not measure the full native latency from the click.
+Command wall time is 64.87 to 61.25 seconds (Bun: 64.78 to 61.16); summed bodies
+are 14.698 to 11.659 seconds and mandatory setup/build is 49.654 to 49.083
+seconds. Setup variation is separate from removed waiting.
+
+CPU user plus system time is 95.44 to 94.37 seconds; maximum RSS increases from
+1,231,784 to 1,250,848 KiB. The five commands cost 283.30 seconds. This single
+pair uses the same runtime, dependencies, offline namespace and shared host.
+It demonstrates neither a whole-CI gain nor a minimum for the remaining native
+download and denied frame-to-top windows. Their proof remains independent.
 
 ## Native child completion and deadline snapshots
 
