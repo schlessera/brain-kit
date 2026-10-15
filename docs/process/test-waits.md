@@ -337,6 +337,13 @@ input-orchestration exclusion and the 800 ms mutation that fails the cap.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 
+On an intermediate-opacity assertion failure, the story emits a bounded native
+animation receipt for both widths, including the original sampled values,
+selected layers, commit times and current animation state. Extra computed-style
+and animation reads occur only after failure; capturing them before the oracle
+could start a pending animation. Capture errors preserve the original assertion.
+The receipt diagnoses recurrence; it does not establish a cause for #1946.
+
 ## Native fixtures, renderer effects and experiment transports
 
 The [native observation sample](evidence/test-wait-native-observations.json)
