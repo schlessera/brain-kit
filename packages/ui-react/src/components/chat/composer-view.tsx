@@ -130,7 +130,7 @@ export function ComposerView(p: ComposerViewProps) {
 
   const pointer = useMediaQuery("(min-width: 900px)");
   const attachMenu = (
-    <div className="flex flex-col">
+    <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
       <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
       <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />
       {p.onPickTracks && <ListRow variant="group" icon="file" iconTone="teal" title="Track files" subtitle="GPX, KML or GeoJSON" onClick={p.onPickTracks} />}

@@ -1874,3 +1874,28 @@ interim maintenance-worker credential exposure, which host status states until
 the relays and mirror land. `strict` remains opt-in. `governed` also remains
 available without a separate-uid helper, with mask-only protection stated in
 host status; the hosting template always ships the helper.
+
+## Host-owned web-search direction — 2026-10-15
+
+The [maintainer's C ruling on #1863](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6187551558)
+settles provider configuration, credentials and authenticated web-search execution
+on the host. Ordinary Pi workers request the capability through a constrained,
+authenticated bridge. This supersedes the earlier worker configuration-snapshot
+direction; it does not authorize provider credentials in worker files or
+environment, host HOME exposure, repository code in a credentialed executor,
+cross-session result sharing or expanded restricted autonomous authority.
+
+This is policy for the pending integration, **not a statement that the relay is
+shipped**. Existing egress, credential and spend-coverage limitations above
+remain true until their implementation is qualified. The bridge must preserve
+per-turn permission, data-routing, taint, attribution and budget admission,
+including extraction fallbacks and nested model calls. Unknown external spend
+remains unknown; host-owned execution alone does not measure every paid call.
+
+[#1969's comparison](../plans/host-owned-web-search.md) examines pinned upstream
+MCP and a real full-extension executor, their feature/auth losses, trusted
+adapters and bounded offline worker evidence. The
+[maintainer's timing ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6188083290)
+reserves the executor choice until that comparison is reviewed. Neither this
+amendment nor a successful plain-search prototype selects an executor or grants
+additional host model, UI, browser, shell or credential-command authority.

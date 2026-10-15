@@ -76,7 +76,7 @@ async function mount(ctx: TestContext, width: number, theme: "dark" | "light") {
   const tabs = async () => {
     ui.stores.ui.getState().setSettingsTab("appearance");
     flushSync(() => renderer.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={noop} /></BrainUiProvider>));
-    await expect.poll(() => page.getByRole("tab", { name: width < 900 ? "Models" : "Appearance & input", exact: true }).elements().length).toBe(1);
+    await expect.poll(() => page.getByRole("tab", { name: "Appearance & input", exact: true }).elements().length).toBe(1);
   };
   const variants = () => flushSync(() => renderer.render(<Variants />));
   const credential = async () => {
@@ -135,7 +135,7 @@ export function settingsButtonCases(pointer: () => "fine" | "coarse" | "mixed") 
       await s.menu(); await userEvent.keyboard("{Tab}");
       expected.push(inspect(s.find("menuitem", "Copy voyage Copy the sailing notes").element() as HTMLElement, "-2px"));
       await s.tabs(); await userEvent.keyboard("{Tab}");
-      expected.push(inspect(s.find("tab", width < 900 ? "Models" : "Appearance & input").element() as HTMLElement, "-2px"));
+      expected.push(inspect(s.find("tab", "Appearance & input").element() as HTMLElement, "-2px"));
       s.variants(); await userEvent.keyboard("{Tab}");
       expected.push(inspect(s.find("button", "Graded tiers").element() as HTMLElement, "-2px"));
       await s.credential();
