@@ -71,7 +71,7 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
-| `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native download windows after acknowledged clicks; three positive halves await exact native destination completion; popup/form calls and frame-to-top assignment require correlated native denial | Positive self-navigation retains actual hit and app-stability oracles, validated by held-body and wrong-target controls. Popup/form denial requires call return and the exact destination on the initiating page; frame-to-top denial requires its native SecurityError. Actual escape returns to original assertions. Null alone is insufficient for popup denial; form halves have independent hit cursors. The retained download budget is not a measured universal minimum. Candidate/runtime proof. |
+| `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
@@ -942,3 +942,61 @@ attached-worker kill and death polling, and final recovery assertion. No pipe or
 permission is added. The ledger helper extends row 333's earlier caller evidence;
 the attached interval adds row 722. Together with the repeated RTK row 336,
 source-row overlap is explicit in the artifact rather than counted as new work.
+
+## Native sandbox download completion
+
+The [download completion evidence](evidence/test-wait-html-download-completion.json)
+records six commands at source `1b2a2e81`, following the earlier HTML navigation,
+popup, form and top-frame work. All twelve expanded native cases and all original
+matcher expressions remain. The two remaining 1500 ms download observations now
+require positive native evidence for each original anchor invocation. Production
+CSP, iframe policy, pointer actions and context lifetimes remain unchanged.
+
+Each attempt starts a native Chromium trace immediately before its original
+pointer click. Unique user-timing marks surround the unchanged synchronous
+anchor call. Completion requires exactly one before/after pair on the same
+renderer thread and document, and feature 2975 inside that bracket. Chromium's
+actual sandbox-denial branch records that feature before returning without
+starting the download. The artifact records inspected primary-source URLs and
+hashes for local Chrome 140.0.7339.127 and the actual hosted-unit versions
+154.0.8037.97 and 155.0.8059.39. Source review across those versions is separate
+from current-head hosted execution.
+
+Trace completion flushes recording; it does not drain the browser. The test
+rejects lost records, a full capture buffer, missing markers, mismatched document
+or thread, and ambiguous witnesses. Without a correlated denial, it awaits an
+actual observed download so the unchanged original count assertions fail. It
+never treats an absent event as success. Native listeners, trace watchdog and
+session are cleaned up before the original context/browser/host cleanup. Future
+Chromium changes that remove this evidence fail closed and require maintenance.
+
+The original and candidate both reject the actual policy mutation that adds
+`allow-downloads` to the served CSP and iframe sandbox. Both original native
+anchor invocations are delayed 750 ms; each version fails the original frame
+download count with one instead of zero. The candidate records no denial in
+either context and observes the actual escaped downloads. Stopping the trace
+before the original click fails the named exact-start-marker assertion, despite
+a completed trace with zero loss. Delaying each real anchor invocation together
+with both markers by 2000 ms passes, with 4039.66 ms combined boundary waiting.
+Per-half await durations were not separately measured; the initial proposal's
+per-half timing requirement is not claimed as observed. Both exact native
+witnesses are captured after their delayed calls.
+
+The full matched file changes from 12 cases / 134 expectations to 12 / 154.
+Command time is 60.00 to 57.18 seconds, summed bodies 10.232 to 7.116 seconds,
+and the download body 3704.61 to 691.32 ms. Mandatory setup/build takes
+49.256 to 49.503 seconds. CPU user plus system is 95.52 to 95.18 seconds and
+maximum RSS is 1248856 to 1243360 KiB. The original two windows total
+3003.28 ms; candidate boundary awaits total 18.37 ms, because native events
+can arrive before those awaits begin. Full trace-session lifetimes total
+93.67 ms and overlap the clicks and boundary awaits. Neither number is
+whole-test duration. The native anchor brackets themselves are 180 and 98
+microseconds; these are a different, synchronous span.
+
+All six commands cost 328.80 seconds; their 198 immutable receipt entries
+include source variants, commands, original logs, measurements and restoration
+identities. The earlier 54.07-second observer feasibility command retained both
+1500 ms windows and is recorded separately with eighteen receipt entries.
+Timing diagnostics and after-assertion trace-file writes are included in command
+cost; final source omits those diagnostics. These are single shared-host
+observations, not a whole-CI speedup or a universal minimum negative window.
