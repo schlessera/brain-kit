@@ -1909,6 +1909,7 @@ export "./server" (./src/server/index.ts)
   RESOLVE_ACTION_CONTRACT
   RESOLVE_ACTION_INPUT_SCHEMA
   type RecordingTranscription
+  type RecoverableTranscriptStore
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -2037,6 +2038,14 @@ export "./server" (./src/server/index.ts)
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
+  TranscriptCorruptionError
+  type TranscriptDiagnostic
+  type TranscriptFailure
+  type TranscriptMessageRecord
+  type TranscriptMetaRecord
+  type TranscriptRecord
+  TranscriptRecoveryError
+  type TranscriptRecoveryProvenance
   type TranscriptStore
   type TranscriptionErrorResponse
   type TranscriptionFailure
@@ -6931,6 +6940,14 @@ signatures (every public export and the types it is made of)
         }>;
         disposition?: "accepted" | "discarded";
     }
+  RecoverableTranscriptStore (packages/ui-sdk/src/server/transcript-store.ts)
+    export interface RecoverableTranscriptStore extends TranscriptStore {
+        diagnose(sessionId: string): TranscriptDiagnostic;
+        quarantined(): TranscriptDiagnostic[];
+        recover(sessionId: string, opts: {
+            sourceVersion: string;
+        }): string;
+    }
   RegisterDefaultRoutesDeps (packages/ui-sdk/src/client/sw-policy.ts)
     export interface RegisterDefaultRoutesDeps<NetworkOnlyInstance extends object = object, CacheFirstInstance extends object = object, ExpirationPluginInstance extends object = object> {
         registerRoute(capture: RouteMatchCallback, handler: NetworkOnlyInstance | CacheFirstInstance | RouteHandlerCallback): unknown;
@@ -9249,6 +9266,65 @@ signatures (every public export and the types it is made of)
     export interface TrackFileView extends ImportedTrack {
         file: SharedFileMeta;
     }
+  TranscriptCorruptionError (packages/ui-sdk/src/server/transcript-store.ts)
+    export class TranscriptCorruptionError extends Error {
+        readonly code: "TRANSCRIPT_CORRUPT";
+        constructor(readonly diagnostic: TranscriptDiagnostic);
+    }
+  TranscriptDiagnostic (packages/ui-sdk/src/server/transcript-store.ts)
+    export type TranscriptDiagnostic = {
+        sessionId: string;
+        status: "missing";
+    } | {
+        sessionId: string;
+        sourceVersion: string;
+        prefixBytes: number;
+        records: TranscriptRecord[];
+    } & ({
+        status: "healthy";
+        complete: true;
+        failure?: never;
+    } | {
+        status: "quarantined";
+        complete: false;
+        failure: TranscriptFailure;
+    });
+  TranscriptFailure (packages/ui-sdk/src/server/transcript-store.ts)
+    export interface TranscriptFailure {
+        line: number;
+        byteOffset: number;
+        position: "final" | "interior";
+        reason: "invalid-json" | "invalid-record" | "invalid-utf8" | "missing-meta";
+    }
+  TranscriptMessageRecord (packages/ui-sdk/src/server/transcript-store.ts)
+    export interface TranscriptMessageRecord {
+        kind: "message";
+        ts: number;
+        message: SessionHistoryMessage;
+        costUsd?: number;
+    }
+  TranscriptMetaRecord (packages/ui-sdk/src/server/transcript-store.ts)
+    export interface TranscriptMetaRecord {
+        kind: "meta";
+        id: string;
+        title: string | null;
+        createdAt: number;
+        recovery?: TranscriptRecoveryProvenance;
+    }
+  TranscriptRecord (packages/ui-sdk/src/server/transcript-store.ts)
+    export type TranscriptRecord = TranscriptMetaRecord | TranscriptMessageRecord;
+  TranscriptRecoveryError (packages/ui-sdk/src/server/transcript-store.ts)
+    export class TranscriptRecoveryError extends Error {
+        constructor(readonly code: "SOURCE_CHANGED" | "NOT_RECOVERABLE" | "RECOVERY_CONFLICT");
+    }
+  TranscriptRecoveryProvenance (packages/ui-sdk/src/server/transcript-store.ts)
+    export interface TranscriptRecoveryProvenance {
+        sourceSessionId: string;
+        sourceVersion: string;
+        prefixBytes: number;
+        prefixRecords: number;
+        failure: TranscriptFailure;
+    }
   TranscriptStore (packages/ui-sdk/src/server/transcript-store.ts)
     export interface TranscriptStore {
         create(opts?: {
@@ -10559,7 +10635,7 @@ signatures (every public export and the types it is made of)
   createToolPermissionRequest (packages/ui-sdk/src/server/permission-gate.ts)
     export function createToolPermissionRequest(options: CreateToolPermissionRequestInput): PermissionRequest;
   createTranscriptStore (packages/ui-sdk/src/server/transcript-store.ts)
-    export function createTranscriptStore(dir: string): TranscriptStore;
+    export function createTranscriptStore(dir: string): RecoverableTranscriptStore;
   createWriteLock (packages/ui-sdk/src/server/write-lock.ts)
     export function createWriteLock(): WriteLock;
   decideToolPermission (packages/ui-sdk/src/server/permission-gate.ts)

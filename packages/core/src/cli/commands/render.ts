@@ -229,7 +229,7 @@ export const renderCommand: CoreCommand = {
 
     // Frontmatter is metadata; rendering it verbatim would put a wall of YAML
     // at the top of every brain document.
-    const parsed = parseFrontmatter(raw);
+    const parsed = parseFrontmatter(raw, { dataOnly: true });
     const content = parsed.content.trimStart();
     const frontmatterTitle =
       typeof parsed.data.title === "string" && parsed.data.title ? parsed.data.title : undefined;

@@ -17,8 +17,8 @@ const field = (record: DemoDocument, key: string) => {
 const body = (record: DemoDocument) => record.content.split('\n---\n').slice(1).join('\n---\n');
 
 // Index order: the indexer numbers files as it first meets them, so the oldest
-// records hold the lowest ids. Discovery's rings order by id, which mixes
-// folders the way a real brain's history does.
+// records hold the lowest ids. Stable ids provide Discovery's predecessor
+// and branch-order tie-breaks, independent of presentation controls.
 const records = demoDocuments.filter(record => record.kind === 'markdown')
   .map(record => ({ record, created: String(field(record, 'created') ?? record.updated) }))
   .sort((a, b) => a.created.localeCompare(b.created) || a.record.path.localeCompare(b.record.path))

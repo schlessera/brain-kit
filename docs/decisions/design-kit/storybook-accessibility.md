@@ -258,3 +258,27 @@ invalid at computed-value time and resets the border to `currentColor`.
 move its border on hover — it has to restate it. `Placeholder`'s retry sets
 `--hv-bd` to its own rest border for exactly this reason, and the reason is
 written next to it, because the code looks like a redundant no-op and is not.
+
+
+## 2026-10-14 — Central theme parity narrows runtime matrices (#1850)
+
+The maintainer clarified D9/D21 under #1849: the full Storybook story matrix
+owns light/dark layout and interaction parity as well as contrast. The same
+geometry and behavior bounds apply in both themes; rendering twice or a
+screenshot alone is insufficient. Each project verifies its intended theme,
+while explicit story-level overrides (including print) remain named exceptions.
+D32's native `color-scheme`/`light-dark()` semantics and D39's consumer token
+boundary are unchanged.
+
+Actual consumer composition fixtures use the built consumer stylesheet where
+kit CSS cannot prove the result. The [coverage map](../../process/theme-parity.md)
+records independent state/width cases and where native browser and application
+proof remain necessary. Every unique runtime guarantee stays covered.
+
+Runtime repetition by theme now requires a concrete theme-sensitive failure
+mode or integration boundary and a narrow reproducing case. Theme
+persistence/switching/first paint, specific styling/contrast regressions and
+uncovered consumer CSS boundaries qualify. Reconnection, persistence and auth
+behavior alone do not. This clarification permits mapped reductions in later
+work; it does not remove either Storybook project, relax the accessibility gate
+or automatically delete a runtime case.

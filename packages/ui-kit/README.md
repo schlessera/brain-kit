@@ -39,6 +39,11 @@ Acts that focus background content belong in that callback. `CommandPalette` no
 longer carries dialog semantics; wrap it in `Overlay`. Load the mandatory kit stylesheet for geometry,
 scrims, scroll lock and motion. `z` and `LAYERS` name the six document layers.
 
+Printed keyboard hints follow `(any-pointer: fine)` in the mandatory stylesheet,
+including command-picker fallbacks, the rail palette cap, composer instructions
+and answer-field Enter glyph. Touch-only All commands keeps its labelled icon
+control. Hiding a hint never disables its keyboard binding.
+
 ## Loading
 
 Loading is blurred ghost text in the replaced content's type role, with one

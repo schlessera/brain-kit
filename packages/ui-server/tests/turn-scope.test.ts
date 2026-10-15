@@ -9,6 +9,7 @@ import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createTurnScope, SCOPE_DISCONNECTED_MS } from "../src/brain/turn-scope.js";
 import { scopeFixture } from "./helpers/scope-fixture.js";
+import { registeredInterval } from "./helpers/registered-interval.js";
 async function wait(check: () => boolean, timeout = 5000) { const end = Date.now() + timeout; while (!check()) { if (Date.now() > end) throw Error("Scope fixture timed out"); await Bun.sleep(10); } }
 
 test("real process tree freezes, resumes once per dimension, then stops with event-bound replay and independent grants", async () => {
@@ -78,34 +79,164 @@ test("true voice stops without a grant and preserves partial work", async () => 
   } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
 });
 
-test("one long single Bash loop is frozen by the real 15-second observation before finishing", async () => {
-  const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined, monitor: ReturnType<typeof Bun.spawn> | undefined;
+// Assertion boundaries and real-time minima: docs/process/scope-observer-proof.md.
+test("one long single Bash loop is frozen by the registered 15-second observation before finishing", async () => {
+  const f = scopeFixture({ max_files_changed: 20 });
+  const timerDescriptors = ["setInterval", "clearInterval"].map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+  const clock = registeredInterval();
+  let child: ReturnType<typeof f.worker> | undefined, monitor: ReturnType<typeof Bun.spawn> | undefined;
+  const scratch = join(f.brain, ".brain/scratch"), samples = join(f.root, "external-counts.jsonl");
+  const countFiles = () => readdirSync(scratch).length;
+  type Sample = { at: number; count: number };
+  // Ignore the incomplete final line if the independent process is writing it.
+  const progress = (): Sample[] => {
+    try { return readFileSync(samples, "utf8").split("\n").slice(0, -1).map(line => JSON.parse(line) as Sample); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  };
+  // Read actual kernel task states, independently of the freeze method returning.
+  // The bubblewrap PID-1 reaper must remain runnable; only its shell/sleep
+  // descendants execute this fixed writer command.
+  function writerStates(pid: number): boolean[] {
+    const children = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number);
+    return children.flatMap(childPid => {
+      try {
+        const status = readFileSync(`/proc/${childPid}/status`, "utf8");
+        const name = status.match(/^Name:\s+(.+)$/m)?.[1];
+        const state = status.match(/^State:\s+(\S)/m)?.[1];
+        let frozen = state === "T" || state === "t";
+        if (!frozen && (name === "sh" || name === "sleep")) {
+          // Delegated cgroup freezing need not report a task as SIGSTOPped.
+          const group = readFileSync(`/proc/${childPid}/cgroup`, "utf8").match(/^0::(.+)$/m)?.[1];
+          if (group) {
+            try { frozen = /^frozen 1$/m.test(readFileSync(join("/sys/fs/cgroup", group, "cgroup.events"), "utf8")); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+          }
+        }
+        // A sleep that exited just before STOP may be an unreaped zombie;
+        // it cannot write. Require at least one remaining live writer task.
+        return [...((name === "sh" || name === "sleep") && state !== "Z" ? [frozen] : []), ...writerStates(childPid)];
+      } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    });
+  }
+  let frozenAt = 0, captureAt = 0, captureCount = 0, snapshotCount = 0, observationCount = 0;
+  const checkpoint = f.native.manager.checkpoint;
+  let captureFailure: unknown;
   try {
-    await f.begin();
-    const samples = join(f.root, "external-counts.jsonl");
-    // A separate host process observes progress while synchronous CAS retention
-    // occupies the test host. Receipt time truthfully follows that capture.
-    monitor = Bun.spawn([process.execPath, "--no-env-file", "-e", 'const fs=require("node:fs"); setInterval(()=>{fs.appendFileSync(process.argv[2],JSON.stringify({at:Date.now(),count:fs.readdirSync(process.argv[1]).length})+"\\n");},20);', join(f.brain, ".brain/scratch"), samples], { stdout: "ignore", stderr: "pipe" });
+    await f.begin(); clock.finishRegistration();
+    expect(clock.registrations.length, "SCOPE_SINGLE_HOST_INTERVAL_REGISTERED").toBe(1);
+    const registration = clock.registrations[0]!;
+    // This separate native process keeps sampling while synchronous host IO runs.
+    monitor = Bun.spawn([process.execPath, "--no-env-file", "-e", 'const fs=require("node:fs"); setInterval(()=>{fs.appendFileSync(process.argv[2],JSON.stringify({at:Date.now(),count:fs.readdirSync(process.argv[1]).length})+"\\n");},20);', scratch, samples], { stdout: "ignore", stderr: "pipe" });
     child = f.worker('i=0; while [ "$i" -lt 10000 ]; do i=$((i+1)); printf Ithaca > .brain/scratch/sail-$i; sleep 0.05; done; printf done > finished');
-    let frozenAt = 0; const freeze = child.freeze; child.freeze = () => { freeze(); frozenAt ||= Date.now(); };
-    await wait(() => { if (readdirSync(join(f.brain, ".brain/scratch")).length >= 20) return true; return false; });
-    await wait(() => f.journal.summary("voyage").scope!.receipts.length > 0, 32_000);
-    const receipt = f.receipt(), count = readdirSync(join(f.brain, ".brain/scratch")).length;
-    const progress = readFileSync(samples, "utf8").trim().split("\n").map(line => JSON.parse(line) as { at: number; count: number });
-    const crossing = progress.find(sample => sample.count >= 20)!;
+    const freeze = child.freeze; child.freeze = () => { freeze(); frozenAt ||= Date.now(); };
+    f.journal.onObservation(() => { observationCount++; });
+    // The oracle, not the host's directory poll, must witness the cap crossing.
+    await wait(() => progress().some(sample => sample.count >= 20));
+    const crossing = progress().find(sample => sample.count >= 20)!;
+    // Keep overshoot numerically meaningful: an always-zero receipt must fail.
+    await wait(() => progress().some(sample => sample.count >= 22));
+    f.native.manager.checkpoint = async (...args) => {
+      try {
+        const states = writerStates(child!.pid);
+        expect(states.length, "SCOPE_NATIVE_WRITER_PRESENT_BEFORE_SNAPSHOT").toBeGreaterThan(0);
+        expect(states.every(Boolean), "SCOPE_NATIVE_FREEZE_PRECEDES_SNAPSHOT").toBe(true);
+        expect(frozenAt, "SCOPE_CONFIRMED_FREEZE_PRECEDES_SNAPSHOT").toBeGreaterThan(0);
+        captureAt = Date.now(); captureCount = countFiles();
+        // Candidate native proof: >=150 real ms and >=8 independent 20ms ticks
+        // expose an unfrozen writer (50ms writes). JS clock advances cannot
+        // establish absence of native progress. No production timer is shortened.
+        await wait(() => {
+          const during = progress().filter(sample => sample.at >= captureAt);
+          return during.length >= 8 && during.at(-1)!.at - captureAt >= 150;
+        });
+        expect(countFiles(), "SCOPE_NATIVE_COUNT_STABLE_BEFORE_SNAPSHOT").toBe(captureCount);
+        const atSnapshot = writerStates(child!.pid);
+        expect(atSnapshot.length, "SCOPE_NATIVE_WRITER_PRESENT_AT_SNAPSHOT").toBeGreaterThan(0);
+        expect(atSnapshot.every(Boolean), "SCOPE_NATIVE_FREEZE_PRECEDES_SNAPSHOT").toBe(true);
+        const result = await checkpoint(...args);
+        snapshotCount = readdirSync(join(result.path, ".brain/scratch")).length;
+        expect(snapshotCount, "SCOPE_RETAINED_SNAPSHOT_MATCHES_FROZEN_WRITER").toBe(captureCount);
+        expect(countFiles(), "SCOPE_NATIVE_COUNT_STABLE_DURING_SNAPSHOT").toBe(captureCount);
+        return result;
+      } catch (error) { captureFailure = error; throw error; }
+    };
+    clock.advanceTo(14_999);
+    await f.journal.idle();
+    expect(observationCount, "SCOPE_NO_OBSERVATION_BEFORE_DEADLINE").toBe(0);
+    expect(frozenAt, "SCOPE_NO_FREEZE_BEFORE_DEADLINE").toBe(0);
+    expect(f.journal.summary("voyage").scope!.receipts).toEqual([]);
+    clock.advanceTo(15_000);
+    expect(clock.dispatches, "SCOPE_OBSERVATION_DISPATCHED_AT_DEADLINE").toBe(1);
+    await f.journal.idle();
+    if (captureFailure) throw captureFailure;
+    expect(observationCount, "SCOPE_OBSERVATION_COMPLETES_AT_DEADLINE").toBe(1);
+    expect(registration.delay, "SCOPE_PRODUCTION_INTERVAL_IS_15000_MS").toBe(15_000);
+    const receipt = f.receipt(), count = countFiles(), observed = progress();
     expect(receipt.dimension).toBe("files_changed");
     expect(frozenAt - crossing.at, "SCOPE_FROZEN_WITHIN_OBSERVATION_INTERVAL").toBeLessThanOrEqual(15_000);
-    expect(progress.at(-1)!.count, "SCOPE_EXTERNAL_WRITER_PROGRESS_STOPS_BEFORE_RETENTION").toBe(count);
-    expect(progress.some(sample => sample.at > frozenAt + 150 && sample.count === count), "SCOPE_EXTERNAL_OBSERVER_CONFIRMS_PAUSE_DURING_CAPTURE").toBe(true);
-    console.log("SCOPE_EXTERNAL_TIMING", JSON.stringify({ crossingAt: crossing.at, frozenAt, receiptAt: receipt.observedAt, finalCount: count }));
+    expect(observed.at(-1)!.count, "SCOPE_EXTERNAL_WRITER_PROGRESS_STOPS_BEFORE_RETENTION").toBe(count);
+    expect(observed.some(sample => sample.at > frozenAt + 150 && sample.count === count), "SCOPE_EXTERNAL_OBSERVER_CONFIRMS_PAUSE_DURING_CAPTURE").toBe(true);
+    expect(observed.filter(sample => sample.at >= captureAt).every(sample => sample.count === count), "SCOPE_EXTERNAL_COUNT_STABLE_THROUGH_CAPTURE").toBe(true);
+    console.log("SCOPE_EXTERNAL_TIMING", JSON.stringify({ crossingAt: crossing.at, frozenAt, captureAt, receiptAt: receipt.observedAt, finalCount: count, logicalElapsedMs: 15_000 }));
     expect(receipt.count, "SCOPE_COUNT_TAKEN_AFTER_CONFIRMED_FREEZE").toBe(count);
-    expect(receipt.overshoot).toBe(count - 20); expect(receipt.overshoot, "SCOPE_OBSERVATION_RATE_BOUND").toBeLessThanOrEqual(300);
-    await Bun.sleep(150); expect(readdirSync(join(f.brain, ".brain/scratch")).length, "SCOPE_LONG_BASH_REALLY_FROZEN").toBe(count);
+    expect(receipt.count, "SCOPE_RECEIPT_MATCHES_RETAINED_SNAPSHOT").toBe(snapshotCount);
+    expect(receipt.overshoot, "SCOPE_EXACT_OBSERVED_OVERSHOOT").toBe(count - 20);
+    expect(receipt.overshoot, "SCOPE_POSITIVE_NATIVE_OVERSHOOT").toBeGreaterThan(0); expect(receipt.overshoot, "SCOPE_OBSERVATION_RATE_BOUND").toBeLessThanOrEqual(300);
+    const stableAt = Date.now();
+    await Bun.sleep(150); expect(countFiles(), "SCOPE_LONG_BASH_REALLY_FROZEN").toBe(count);
+    await wait(() => progress().filter(sample => sample.at >= stableAt).length >= 5);
+    expect(progress().filter(sample => sample.at >= stableAt).every(sample => sample.count === count), "SCOPE_EXTERNAL_FINAL_WINDOW_STAYS_FROZEN").toBe(true);
     expect(await Bun.file(join(f.brain, "finished")).exists()).toBe(false);
-    f.scope.decide(f.message("stop"), true); await child.exited;
-  } finally { monitor?.kill("SIGKILL"); if (monitor) await monitor.exited; child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
-// Cold retained-version capture follows the independently asserted 15s freeze.
+    expect(f.scope.decide(f.message("stop"), true).state, "SCOPE_LONG_BASH_STOP_ACCEPTED").toBe("accepted");
+    expect(await child.exited, "SCOPE_LONG_BASH_STOP_EXITS_CHILD").toBe(137);
+    f.native.manager.checkpoint = checkpoint;
+    await f.journal.close();
+    expect(registration.cancelled, "SCOPE_SHUTDOWN_CANCELS_REGISTERED_INTERVAL").toBe(true);
+    const dispatched = clock.dispatches;
+    clock.advanceTo(45_000);
+    expect(clock.dispatches, "SCOPE_NO_OBSERVATION_AFTER_SHUTDOWN").toBe(dispatched);
+  } finally {
+    try {
+      await clock.cleanup([
+        () => { f.native.manager.checkpoint = checkpoint; },
+        () => monitor?.kill("SIGKILL"),
+        () => child?.kill("SIGKILL"),
+        async () => { if (monitor) expect(await monitor.exited, "SCOPE_EXTERNAL_OBSERVER_EXIT").toBe(137); },
+        async () => { if (child) await child.exited; },
+        () => f.close(),
+      ]);
+    } finally {
+      expect(["setInterval", "clearInterval"].map(name => Object.getOwnPropertyDescriptor(globalThis, name)), "SCOPE_HOST_TIMER_DESCRIPTORS_RESTORED").toEqual(timerDescriptors);
+    }
+  }
 }, 60_000);
+
+test("scope timer cleanup attempts every action and restores native successor scheduling after a failure", async () => {
+  const names = ["setInterval", "clearInterval"];
+  const descriptors = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+  const clock = registeredInterval(), visited: string[] = [];
+  const injected = Error("Injected monitor cleanup failure");
+  let failure: unknown;
+  try {
+    await clock.cleanup([
+      () => { visited.push("monitor"); throw injected; },
+      () => { visited.push("writer"); },
+      () => { visited.push("fixture"); },
+    ]);
+  } catch (error) { failure = error; }
+  const restored = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+  clock.restore();
+  expect(visited, "SCOPE_CLEANUP_ATTEMPTS_SUCCESSORS_AFTER_FAILURE").toEqual(["monitor", "writer", "fixture"]);
+  expect(failure, "SCOPE_CLEANUP_REPORTS_COLLECTED_FAILURE").toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toEqual([injected]);
+  expect(restored, "SCOPE_CLEANUP_FAILURE_RESTORES_DESCRIPTORS").toEqual(descriptors);
+  let ticks = 0;
+  const successor = setInterval(() => { ticks++; }, 1);
+  try { await wait(() => ticks > 0); }
+  finally { clearInterval(successor); }
+  expect(ticks, "SCOPE_CLEANUP_SUCCESSOR_USES_NATIVE_INTERVAL").toBeGreaterThan(0);
+  expect(clock.registrations, "SCOPE_CLEANUP_SUCCESSOR_IS_NOT_CAPTURED").toEqual([]);
+});
 
 test.each(["running", "pausedFloor"])("small tmpfs brain: %s crosses the real statfs floor and permits Stop only", async mode => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-scope-tmpfs-"));

@@ -61,7 +61,7 @@ export function suggestAuditFix(root: string, taxonomy: Taxonomy, finding: Audit
     for (const path of getMarkdownFiles(root, taxonomy).filter(p => p.startsWith(prefix))) {
       const full = safeResolve(root, path);
       if (!full) return manual("unsafe source path");
-      const type = parseFrontmatter(readFileSync(full, "utf8")).data.type;
+      const type = parseFrontmatter(readFileSync(full, "utf8"), { dataOnly: true }).data.type;
       if (typeof type !== "string" || !Object.hasOwn(taxonomy.types, type)) return manual("unconfigured source type");
     }
     if (context.validation().some(i => i.level === "error" && i.file.startsWith(prefix))) return manual("invalid source metadata");

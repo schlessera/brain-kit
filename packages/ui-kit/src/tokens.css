@@ -2415,7 +2415,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   border-left: 1px solid var(--bk-color-edge);
   border-radius: 0;
 }
-.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; }
+/* Destination paint belongs to the content region, including surface shadows
+ * and entry transforms; the live bar and rail must never inherit its veil. */
+.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; overflow: clip; }
 .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface {
   bottom: auto;
   top: 110px;
@@ -2492,3 +2494,12 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 
 /* The profile picker keeps its Limits disclosure reachable at every pointer size. */
 .bk-model-chat-limits > div > [role="button"] { min-height: 44px; }
+
+/* D36: printed keys follow any fine pointer, never viewport width. CSS keeps
+ * kit-generated fallbacks live without browser state in presentational components.
+ * Display:none removes their flex slots; keyboard handlers are independent. */
+.bk-touch-command { display: none; }
+@media not (any-pointer: fine) {
+  .bk-keyboard-hint { display: none !important; }
+  .bk-touch-command { display: inline-flex; }
+}

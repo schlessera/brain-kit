@@ -1,4 +1,5 @@
 import {
+  DefaultPackageManager,
   DefaultResourceLoader,
   SettingsManager,
   getAgentDir,
@@ -33,6 +34,8 @@ export function createSessionResources(options: {
   confirmPatterns: readonly RegExp[];
   loadExtensions: boolean;
   settingsSnapshot?: string;
+  /** Per-turn workers consume prepared packages; installation belongs to setup. */
+  requireInstalledPackages?: boolean;
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
   shellCwd?: string;
   directWrites?: boolean;
@@ -90,6 +93,11 @@ export function createSessionResources(options: {
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
           ...SettingsManager.create(brainPath, agentDir).getProjectSettings() })
       : SettingsManager.create(brainPath, agentDir);
+    if (options.requireInstalledPackages) {
+      await new DefaultPackageManager({ cwd: brainPath, agentDir, settingsManager }).resolve(async source => {
+        throw new Error(`Pi worker requires prepared package resources: ${source}. Install or update them before starting a turn.`);
+      });
+    }
     const subagentTool =
       loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
     // No web extension, no search tool — and nothing to say about providers.
