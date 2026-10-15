@@ -490,7 +490,7 @@ function measure(page: Page): Promise<Measure> {
 }
 
 /** A drop as a phone sees one: the host's sockets and the in-flight upload cut, the browser offline. */
-async function drop(s: Pick<Scene, "net" | "context" | "page">) {
+async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "scene" | "held-snapshot" = "scene") {
   // The upload in flight fails first, before the page has seen anything else
   // of the drop: the order that cannot hide a failure behind a pause.
   const uploading = s.net.held.splice(0);
@@ -500,7 +500,10 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">) {
   await s.context.setOffline(true);
   await until(s.page, "p.wsStatus() !== 'connected' && p.vpnStatus() === 'unreachable'");
   await s.page.locator('[role="status"]', { hasText: "Connection lost" }).waitFor();
-  await settle(s.page);
+  // Scenes measure the offline state itself. Snapshots have no held uploads
+  // or offline geometry oracle; their draft save is acknowledged on recovery.
+  if (preparation === "scene") await settle(s.page);
+  else await finishRender(s.page);
 }
 
 /** The network and the host come back; the app finds them on its own. */
@@ -625,7 +628,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       const waiting = { promise: new Promise<void>((done) => { release = done; }), release: () => release(), reads: 0, mode, holdWhile: () => gates.has(first) };
       historyWaiters.set(sessionId, waiting);
       const sentBefore = net.sent.length; expect(net.sent).toContain("chat_message");
-      await drop({ context, page, net }); await recover({ context, page }, "held-snapshot");
+      await drop({ context, page, net }, "held-snapshot"); await recover({ context, page }, "held-snapshot");
       const readDeadline = Date.now() + 5_000;
       while (!waiting.reads && Date.now() < readDeadline) await hostPoll(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);

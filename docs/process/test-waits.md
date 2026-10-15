@@ -70,7 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission; scene recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; scene drop/recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -103,16 +103,18 @@ retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper serves the four original rendering call sites, its readiness control,
 the two newer-turn preparations after their scoped resync acknowledgement,
-and the three held-snapshot recoveries after current draft acknowledgement.
+the three held-snapshot recoveries after current draft acknowledgement, and
+their drop preparations after the native offline/status/banner checkpoints.
 
 | Call site | Causal completion before measuring | Observation retained |
 | --- | --- | --- |
 | Scene startup; snapshot startup | Connected host and advertised draft support; the ready Send action or streaming Stop state is observed before Enter (streaming keeps Enter available) | Rendering only; no recovery/no-send baseline exists yet. |
 | Scene's first running text before New chat; snapshot's original running text before arranging its race | The expected text is rendered; next navigation/input is a real browser action | Rendering only; later race/recovery observations remain. |
 | Scene after scrolling | Draft Saved plus host revision/content/attachment acknowledgement, then actual wheel movement | 500 ms; captures layout after delayed draft-save/ghost effects. |
-| Drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
+| Scene drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
+| Snapshot drop | Original native offline/status/visible-banner checkpoints; no held upload or immediate offline geometry oracle | Existing finite-native rendering. Current draft acknowledgement remains on recovery; final no-send and identity observations remain. This does not certify every Motion banner animation or drain future work. |
 | Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
-| Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Drop and final negative windows remain; no history or storage drain is claimed. |
+| Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Final negative windows remain; no history or storage drain is claimed. |
 | Released queues | Every held queue frame is observed by the receiving page; expected upload state is awaited before its assertion | 500 ms; pending-pill identity/removal remains guarded through delayed work. |
 | Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
 | Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
@@ -1136,8 +1138,8 @@ whole-file/whole-CI saving or justified minimum for the remaining native windows
 The [recovery evidence](evidence/test-wait-continuity-recovery.json) records the
 three held-snapshot recoveries at source `44d2aab6`. They await acknowledgement
 of the current draft edit, admission of the actual current-socket resume and
-connect-snapshot reads to their held backend gate, and finite rendering. All
-three drop and three final negative windows remain, as do the scene recovery
+connect-snapshot reads to their held backend gate, and finite rendering. At that
+recorded source, all three drop and three final negative windows remain, as do the scene recovery
 windows and every original action, matcher expression and test name.
 
 The draft is filled immediately before drop; there is no assumed earlier save.
@@ -1180,3 +1182,50 @@ commands cost 258.14 seconds; the reused 81.07-second baseline and 60.49-second
 original fault are not new execution. The artifact indexes 179 immutable receipt
 entries. These observations establish neither a whole-CI saving nor a justified
 minimum for the remaining native windows.
+
+## Continuity snapshot drop preparation
+
+The [drop evidence](evidence/test-wait-continuity-drop.json) records a narrow
+change at source `7e5bfa2a`: three snapshot drop preparations use the existing
+finite-render helper after the original native offline, status and visible-banner
+checkpoints. Scene drop observations remain unchanged, as do all three snapshot
+final windows and every original matcher expression and test name.
+
+These snapshots contain no held uploads, confirmed shares or held composer sends,
+and make no immediate offline geometry or banner-position assertion. The SDK
+has no queued chat outbox. Its close/status handling and the actual reachability
+request remain native; the existing unreachable sample is not called a newly
+numbered probe. The current draft may still be saving: its acknowledgement and
+held-resume admission remain owned by the recovery preparation. The original
+no-additional-chat interval and final streaming, node, focus, text and selection
+oracles remain. This does not substitute elapsed recovery time for a proof of
+no asynchronous work.
+
+Finite rendering covers the helper's native animations, fonts and existing
+composer/transcript geometry. It does **not** certify completion of every Motion
+JavaScript banner animation. The unchanged visible-banner checkpoint suffices
+for this preparation; scenes that inspect offline geometry retain their window.
+The helper and its real finite-animation control are byte-identical to delivered
+source `fd8f030f`. The historical two-frame mutant failed the named original
+animation-finished assertion, but its driver did not prehash the full executed
+source or record the current explicit offline namespace. That limitation remains;
+the unchanged positive helper control runs again under the current harness.
+
+The same real captured-terminal/ended-guard fault fails the original streaming
+assertion with 11 expectations reached. Restored execution passes the three
+snapshots plus the helper control: 4 cases / 43 expectations, with six other cases
+filtered. The three snapshot bodies total 30.08234 seconds versus the historical
+source-matched 30.93437 seconds. The extra helper case takes 336.51 ms. Whole
+command time is 79.69 versus 79.70 seconds, but these commands select different
+case counts: this is not an equal-selection command or resource gain. Setup
+increases from 48.24153 to 48.76674 seconds and CPU from 93.07 to 93.82 seconds;
+maximum RSS changes from 1243784 to 1231080 KiB. Shared-host load is uncontrolled.
+
+Fixed-window calls change from six to three, with accumulated time from 3003.61
+to 1501.63 ms; their frame pairs change from six to three. The three drop render
+spans are 228.96, 230.41 and 228.87 ms. Total render calls include the additional
+helper case and must not be attributed solely to the replaced sites. Two new
+commands cost 138.88 seconds. The artifact indexes 125 entries: 68 new receipts,
+32 reused baseline entries, 23 historical original-fault entries and two preserved
+historical helper files. No remaining-window minimum, whole-file speedup or
+whole-CI gain is established.
