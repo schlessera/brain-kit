@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { Button, IconButton, ListRow } from "@schlessera/brain-ui-kit";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useState, useRef } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -18,11 +18,13 @@ import { useGraphStore } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { GraphControls, WIDE_QUERY } from "./graph-controls.js";
+import { GraphControls, LAPTOP_QUERY, WIDE_QUERY } from "./graph-controls.js";
 import { NodePopover } from "./node-popover.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { GraphEmptyState, Mono } from "./graph-empty-state.js";
 import { GraphCanvas } from "./graph-canvas-lazy.js";
+import { discoveryLayout } from "../../lib/discovery-layout.js";
+import { DiscoveryExplanation } from "./discovery-explanation.js";
 import { CenteredSpinner } from "./graph-spinner.js";
 import {
   assignFolderColors,
@@ -55,8 +57,18 @@ export function SceneBody() {
   const sceneQuery = useGraphStore((s) => s.sceneQuery);
   const clustersSizeBy = useGraphStore((s) => s.clustersSizeBy);
   const discoveryColorBy = useGraphStore((s) => s.discoveryColorBy);
+  const discovery = useGraphStore(s => s.discovery);
   const theme = useGraphTheme();
   const [listOpen, setListOpen] = useState(false);
+  const listButton = useRef<HTMLButtonElement>(null);
+  const previousSelection = useRef(selectedId);
+  const closeList = () => { setListOpen(false); listButton.current?.focus(); };
+  useEffect(() => {
+    if (listOpen && previousSelection.current !== null && selectedId === null &&
+        !subgraph.nodes.some(n => n.id === previousSelection.current)) listButton.current?.focus();
+    previousSelection.current = selectedId;
+  }, [listOpen, selectedId, subgraph]);
+  const packing = useMemo(() => mode === "discovery" ? discoveryLayout(subgraph.nodes, subgraph.edges) : null, [mode, subgraph]);
   // From `wide:` the D6 right rail draws the selected node; the floating
   // card would double it.
   const wide = useMediaQuery(WIDE_QUERY);
@@ -190,6 +202,7 @@ export function SceneBody() {
             matchIds={matchIds}
             sizeBy={mode === "clusters" ? clustersSizeBy : "degree"}
             rings={mode === "discovery" ? maxDistance : 0}
+            sceneKey={mode === "discovery" ? `${discovery.root ?? "default"}|${discovery.maxDepth}` : undefined}
             nodeColor={nodeColor}
             edgeColor={edgeColor}
             onSelect={select}
@@ -211,14 +224,17 @@ export function SceneBody() {
       )}
       {focused && rule === "topic" && <TopicLegend nodes={legendNodes} palette={theme.palette} />}
       {focused && rule === "distance" && (
-        <DistanceLegend maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} palette={theme.palette} />
+        <DistanceLegend nodes={subgraph.nodes} maxDistance={maxDistance} focus={mode === "local" ? "centre" : "root"} palette={theme.palette} />
       )}
+      {packing?.wedges.some(w => w.id === null) && <span className="pointer-events-none absolute bottom-16 right-3 max-w-[45%] rounded bg-surface-overlay px-2 py-1 text-[10px] text-muted-foreground"><span className="laptop:hidden">predecessor not shown</span><span className="hidden laptop:inline">predecessor not shown in this scene</span></span>}
       {mode === "discovery" && (
         <UnreachableTray count={subgraph.unreachableCount} />
       )}
 
       {/* Accessible / mobile-friendly node list — the canvas itself is aria-hidden */}
       <button /* raw-button: canvas — Floating graph canvas node-list control. */
+        ref={listButton}
+        onKeyDown={event => { if (event.key === "Escape" && listOpen) { event.stopPropagation(); closeList(); } }}
         onClick={() => setListOpen((v) => !v)}
         className="absolute bottom-3 right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg"
         title="Node list"
@@ -226,7 +242,7 @@ export function SceneBody() {
       >
         <List className="h-4.5 w-4.5" />
       </button>
-      {listOpen && <NodeList onClose={() => setListOpen(false)} />}
+      {listOpen && <NodeList onClose={closeList} />}
 
       {selectedNode && !wide && (
         <NodePopover node={selectedNode} communityLabel={communityLabel} />
@@ -407,7 +423,7 @@ function TopicLegend({ nodes, palette }: { nodes: GraphNodePayload[]; palette: C
 }
 
 /** Colour-by-distance: the amber focus, then the ramp one hop at a time. */
-function DistanceLegend({ maxDistance, focus, palette }: { maxDistance: number; focus: "root" | "centre"; palette: CanvasPalette }) {
+function DistanceLegend({ nodes, maxDistance, focus, palette }: { nodes: GraphNodePayload[]; maxDistance: number; focus: "root" | "centre"; palette: CanvasPalette }) {
   const hops = Array.from({ length: Math.min(maxDistance, 5) }, (_, i) => i + 1);
   return (
     <div
@@ -415,11 +431,12 @@ function DistanceLegend({ maxDistance, focus, palette }: { maxDistance: number; 
       data-legend="distance"
     >
       <div className="mb-1 text-xs font-medium text-foreground">Distance</div>
-      <LegendRow color={distanceColor(0, palette)} label={focus} mono={false} />
+      <LegendRow color={distanceColor(0, palette)} label={focus} count={nodes.filter(n => n.distance === 0).length} mono={false} />
       {hops.map((hop) => (
         <LegendRow
           key={hop}
           color={distanceColor(hop, palette)}
+          count={nodes.filter(n => hop === 5 ? (n.distance ?? 0) >= 5 : n.distance === hop).length}
           label={hop === 5 && maxDistance > 5 ? `${hop}+ hops` : `${hop} hop${hop === 1 ? "" : "s"}`}
           mono={false}
         />
@@ -650,18 +667,22 @@ function NodeList({ onClose }: { onClose: () => void }) {
   const subgraph = useGraphStore((s) => s.subgraph)!;
   const select = useGraphStore((s) => s.select);
   const selectedId = useGraphStore((s) => s.selectedId);
+  const discovery = useGraphStore(s => s.mode === "discovery");
+  const laptop = useMediaQuery(LAPTOP_QUERY);
+  const packing = useMemo(() => discovery ? discoveryLayout(subgraph.nodes, subgraph.edges) : null, [discovery, subgraph]);
 
   const sorted = useMemo(
     () =>
       [...subgraph.nodes].sort(
-        (a, b) => b.inDegree + b.outDegree - (a.inDegree + a.outDegree)
+        (a, b) => (discovery ? (a.distance ?? 0) - (b.distance ?? 0) : 0) || b.inDegree + b.outDegree - (a.inDegree + a.outDegree) || a.id - b.id
       ),
-    [subgraph.nodes]
+    [subgraph.nodes, discovery]
   );
 
   return (
     <nav
       aria-label="Graph nodes"
+      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}
       className="absolute bottom-16 right-3 z-10 flex max-h-[55dvh] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface-overlay/95 shadow-2xl backdrop-blur"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -671,10 +692,17 @@ function NodeList({ onClose }: { onClose: () => void }) {
         <IconButton size="sm" name="Close list" glyph={<X className="h-3.5 w-3.5" />} onClick={onClose} />
       </div>
       <div className="flex-1 overflow-y-auto">
-        {sorted.map((node) => (
+        {discovery && <div className="p-3 laptop:hidden"><DiscoveryExplanation /></div>}
+        {sorted.map((node, index) => (
+          <Fragment key={node.id}>
+          {discovery && (index === 0 || node.distance !== sorted[index - 1]!.distance) && (
+            <h3 className="sticky top-0 bg-surface-overlay px-3 py-2 text-xs font-medium text-foreground">
+              {node.distance === 0 ? "Root" : `Hop ${node.distance}`} · {sorted.filter(n => n.distance === node.distance).length} {sorted.filter(n => n.distance === node.distance).length === 1 ? "note" : "notes"}
+            </h3>
+          )}
           <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Two-line node list entry with selected paint. */
             key={node.id}
-            onClick={() => select(node.id)}
+            onClick={() => { select(node.id); if (!laptop) onClose(); }}
             className={cn(
               "bk-row flex min-h-11 w-full flex-col justify-center px-3 py-1.5 text-left transition-colors",
               node.id === selectedId
@@ -685,11 +713,13 @@ function NodeList({ onClose }: { onClose: () => void }) {
             <span className="truncate text-xs text-foreground">
               {node.title || node.path}
             </span>
+            {packing?.positions.get(node.id)?.branch === null && (node.distance ?? 0) > 0 && <span className="text-[10px] text-muted-foreground">predecessor not shown</span>}
             <span className="truncate font-mono text-[10px] text-muted-foreground/60">
               {node.inDegree + node.outDegree} link
               {node.inDegree + node.outDegree === 1 ? "" : "s"} · {node.path}
             </span>
           </button>
+          </Fragment>
         ))}
       </div>
     </nav>

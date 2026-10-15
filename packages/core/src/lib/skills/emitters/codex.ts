@@ -70,7 +70,7 @@ function isGeneratedPrompt(text: string, name: string, description: string): boo
   if (!text.startsWith(`---\nname: ${JSON.stringify(name)}\ndescription: "`)) return false;
   let data: Record<string, unknown>;
   try {
-    data = parseFrontmatter(text).data as Record<string, unknown>;
+    data = parseFrontmatter(text, { dataOnly: true }).data as Record<string, unknown>;
   } catch {
     return false;
   }

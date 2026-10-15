@@ -535,3 +535,83 @@ test("More swipe restores its tab and leaves Files open", async ctx => {
   expect(s.overlay('[data-panel="Files"]'),"Files remains open").not.toBeNull();
   expect(document.activeElement,"More tab receives swipe return focus").toBe(s.tab("More"));
 });
+
+// #1771: pixel comparison catches shadows that never participate in hit tests.
+for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
+  test(`${theme} ${width}: destination effects never shade navigation`, async ctx => {
+    const s = await mount(ctx, width);
+    s.ui.stores.ui.getState().setTheme(theme);
+    await commands.destinationSafeArea(34);
+    await commands.dictationMotion("no-preference");
+    ctx.onTestFinished(async () => {
+      await commands.destinationSafeArea(0);
+      await commands.dictationMotion("reduce");
+    });
+    await frame();
+    const navigation = 'nav[aria-label="Primary"]:visible';
+    const nav = s.tab("Chat").closest("nav")!;
+    expect(getComputedStyle(nav).paddingBottom, "native bottom safe area").toBe("34px");
+    const motionTrace: unknown[] = [];
+    const traceMotion = (event: Event) => {
+      const animation = event as AnimationEvent;
+      const target = event.target as HTMLElement;
+      if (!target.matches(".bk-overlay-surface, .bk-overlay-scrim")) return;
+      motionTrace.push({ type: event.type, at: performance.now(), panel: target.closest("[data-panel]")?.getAttribute("data-panel"),
+        target: target.className, name: animation.animationName, elapsed: animation.elapsedTime,
+        connected: target.isConnected, animations: target.getAnimations().slice(0, 8).map(value => ({
+          state: value.playState, currentTime: value.currentTime, startTime: value.startTime, timing: value.effect?.getComputedTiming(),
+        })) });
+      if (motionTrace.length > 32) motionTrace.shift();
+    };
+    for (const type of ["animationstart", "animationend", "animationcancel"]) document.addEventListener(type, traceMotion, true);
+    ctx.onTestFinished(() => { for (const type of ["animationstart", "animationend", "animationcancel"]) document.removeEventListener(type, traceMotion, true); });
+    for (const name of ["Sessions", "Settings", "Files"]) {
+      const activationAt = performance.now();
+      if (name === "Settings") {
+        s.ui.stores.ui.getState().setSettingsTab("devices");
+        await userEvent.click(s.tab("More"));
+        await userEvent.click(page.getByRole("button", { name: "Settings", exact: true }));
+      } else await userEvent.click(s.tab(name));
+      const activationReturnedAt = performance.now();
+      await frame();
+      const selector = `[data-panel="${name}"]`;
+      const panel = s.overlay(selector);
+      const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
+      const animations = panel.getAnimations({ subtree: true });
+      if (animations.length === 0) {
+        const state = { name, theme, width, activationAt, activationReturnedAt, sampledAt: performance.now(),
+        connected: panel.isConnected, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        styles: [panel, ...panel.querySelectorAll<HTMLElement>(".bk-overlay-surface, .bk-overlay-scrim")].map(element => {
+          const css = getComputedStyle(element);
+          return { target: element.className, name: css.animationName, duration: css.animationDuration, delay: css.animationDelay, fill: css.animationFillMode };
+        }), animations: animations.map(animation => ({ state: animation.playState, currentTime: animation.currentTime, startTime: animation.startTime,
+          timing: animation.effect?.getComputedTiming() })), events: [...motionTrace] };
+        const label = `${theme}-${width}-${name}`;
+        console.error("DESTINATION_MOTION", label, "empty animation set; preserving native state");
+        try { await commands.destinationMotion(label, state); }
+        catch (error) { console.error("DESTINATION_MOTION capture failed", String(error)); }
+      }
+      expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
+      for (const animation of animations) animation.pause();
+      const originalTransform = nav.style.transform;
+      for (const time of [0, 150, 300]) {
+        for (const animation of animations) animation.currentTime = time;
+        const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
+        expect(nav.style.transform, "paint reference restores the navigation transform").toBe(originalTransform);
+        expect(getComputedStyle(panel).visibility, "destination stays painted after comparison").toBe("visible");
+        expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
+        expect(paint.same,
+          `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
+      }
+      expect(surface.getBoundingClientRect().bottom, "pane ends above safe-area bar").toBe(nav.getBoundingClientRect().top);
+      for (const tab of ["Chat", "Sessions", "Actions", "Files", "More"]) {
+        const target = s.tab(tab); const box = target.getBoundingClientRect();
+        expect(target.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)), `${tab} hit target above pane effects`).toBe(true);
+      }
+      // Native keyboard activation replaces the destination and closes instantly.
+      s.tab("Chat").focus();
+      await userEvent.keyboard("{Enter}"); await frame();
+      expect(s.host.querySelector(selector), "destination closes on keyboard Chat").toBeNull();
+      expect(s.tab("Chat").getAttribute("aria-selected"), "keyboard activation selects Chat").toBe("true");
+    }
+  });

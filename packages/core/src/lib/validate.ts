@@ -126,7 +126,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
   for (const path of files) {
     fileMap.set(path, path);
     try {
-      const { data } = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"));
+      const { data } = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"), { dataOnly: true });
       if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
       if (Array.isArray(data.aliases)) {
         for (const alias of data.aliases) {
@@ -162,7 +162,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
     let data: Record<string, any>;
     let content: string;
     try {
-      const parsed = parseFrontmatter(raw);
+      const parsed = parseFrontmatter(raw, { dataOnly: true });
       data = parsed.data;
       content = parsed.content;
     } catch (e) {

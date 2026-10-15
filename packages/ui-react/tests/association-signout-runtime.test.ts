@@ -198,7 +198,10 @@ async function assertEmpty(page: Page, key: string) {
   expect(sizes.filter(s => s.partition === `account:${key}`), "account size ledger is empty too").toEqual([]);
 }
 
-for (const width of [320,390,900,1280]) for (const theme of ["dark","light"]) for (const coarse of [false,true]) {
+// AccountTheme stories cover both themes on these actual consumer dialogs.
+// Keep every native width/pointer pair for auth, IndexedDB ownership, playback,
+// scoped deletion, focus and accessibility; theme selection stays deterministic.
+for (const [width, theme] of [[320,"dark"],[390,"light"],[900,"dark"],[1280,"light"]] as const) for (const coarse of [false,true]) {
   runtimeTest(`explicit association and scoped sign-out ${width}px ${theme} ${coarse ? "coarse" : "fine"}`, async () => {
     const {page,context,blocked,hostWrites} = await boot(width,theme,coarse);
     try {

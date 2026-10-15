@@ -14,6 +14,7 @@ import { GraphEmptyState, Mono } from "./graph-empty-state.js";
 import { MaintenanceBody } from "./graph-maintenance.js";
 import { GraphNodeRail } from "./graph-node-rail.js";
 import { DiscoveryStart, SceneBody } from "./graph-scene.js";
+import { DiscoveryExplanation } from "./discovery-explanation.js";
 import { CenteredSpinner } from "./graph-spinner.js";
 import { cn } from "../../lib/utils.js";
 
@@ -37,6 +38,7 @@ export function GraphPage() {
   const fetchScene = useGraphStore((s) => s.fetchScene);
   const subgraph = useGraphStore((s) => s.subgraph);
   const dataState = useGraphStore((s) => s.dataState);
+  const layoutNotice = useGraphStore(s => s.layoutNotice);
   const stale = useGraphStore((s) => s.meta?.stale ?? false);
   const unavailable = useGraphStore(graphServerUnavailable);
 
@@ -110,6 +112,8 @@ export function GraphPage() {
         </header>
       )}
 
+      <span role="status" className="sr-only">{layoutNotice !== null ? <span key={layoutNotice}>Layout updated</span> : null}</span>
+      {!laptop && layoutNotice !== null && <p className="px-3 py-1 text-[11px] text-muted-foreground">Layout updated</p>}
       {/* Stale strip */}
       {stale && metaState === "done" && !unavailable && (
         <div className="flex items-center gap-2 border-b border-border bg-surface-raised/50 px-4 py-1.5 text-[11px] text-muted-foreground">
@@ -153,6 +157,7 @@ function SceneHeader() {
   const findings = useGraphStore((s) => s.findings);
   const local = useGraphStore((s) => s.local);
   const discoveryRoot = useGraphStore((s) => s.discovery.root);
+  const layoutNotice = useGraphStore(s => s.layoutNotice);
   const staleDays = useGraphStore((s) => s.maintenance.staleDays);
 
   const focus =
@@ -180,6 +185,7 @@ function SceneHeader() {
     parts.push(`${subgraph.edges.length.toLocaleString()} edges`);
     if (mode === "local") parts.push(`${local.depth} hop${local.depth === 1 ? "" : "s"}`);
     if (subgraph.truncated) parts.push("truncated");
+    if (mode === "discovery" && layoutNotice !== null) parts.push("Layout updated");
     subtitle = parts.join(" · ");
   }
 
@@ -217,9 +223,10 @@ function CanvasCaption() {
   const rule =
     mode === "discovery" || mode === "local" ? RULE_LABEL[colorBy] : hasTopics ? "topic" : "uniform";
   return (
-    <p className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
+    <div className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
+      {mode === "discovery" && <DiscoveryExplanation />}
       canvas is app-drawn · colour = {rule} · click a node to load its card
-    </p>
+    </div>
   );
 }
 
@@ -287,7 +294,10 @@ function GraphBody({
     );
   }
 
-  if (metaState === "loading" || metaState === "idle") {
+  // Keep a known Discovery scene mounted through metadata refresh, so a
+  // surviving selected row retains focus and the camera stays put.
+  if (metaState === "idle" || (metaState === "loading" &&
+      !(mode === "discovery" && subgraph && meta?.available === true))) {
     return <CenteredSpinner />;
   }
 
@@ -343,7 +353,7 @@ function GraphBody({
     );
   }
 
-  if (dataState === "loading" || !subgraph) {
+  if (!subgraph || (dataState === "loading" && mode !== "discovery")) {
     return <CenteredSpinner />;
   }
 

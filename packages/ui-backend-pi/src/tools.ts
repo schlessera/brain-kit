@@ -269,6 +269,7 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "brain_search",
   "brain_context",
   "brain_read",
+  "brain_read_base",
   "brain_list",
   "brain_graph",
   "brain_add",

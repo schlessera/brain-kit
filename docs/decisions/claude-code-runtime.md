@@ -55,9 +55,11 @@ next to it.
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
-  (`Route the Claude Code subprocess`,
-  `packages/ui-backend-claude/src/spawn-wrapper.ts:2-18`); without one the SDK
-  spawns it directly.
+  ([historical wrapper header](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)); without one the SDK
+  spawned it directly at this baseline. #1037 subsequently made worker execution
+  unconditional; #1808 retired this unused adapter. The optional exec wrapper
+  now runs inside the worker (`createWorkerSpawn`,
+  `packages/ui-backend-claude/src/worker-spawn.ts:84-268`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -246,7 +248,8 @@ than refuses on a mismatch.**
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
   `{ command, args }` to `spawnClaudeCodeProcess` instead of spawning
-  (`sdk.mjs:127`), the seam `spawn-wrapper.ts` already uses. A probe can
+  (`sdk.mjs:127`), the seam the [retired spawn wrapper](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts) used
+  at this baseline (worker execution replaced it in #1037; #1808 removed it). A probe can
   supply a callback that records what it was handed and throws a sentinel
   error, so no process starts, and must tell that sentinel apart from a
   resolution error. For the native binary `command` is the binary itself. For
@@ -385,7 +388,7 @@ until re-measured.
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:11-20` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:13-18` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:629-655` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:280-293` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:291-304` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:814,832`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**

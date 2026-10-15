@@ -146,6 +146,17 @@ the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
 normalizing to `SessionHistoryMessage` at read time.
 
+The optional store quarantines damaged files from `list()` and throws
+`TranscriptCorruptionError` for their ordinary history/append operations.
+Its factory additionally returns explicit `diagnose`, `quarantined` and
+version-bound `recover` operations. Recovery creates a new writable session
+whose title starts with `Recovered: `; durable metadata records the original
+identity and verified prefix boundary. Keep that title in session presentation
+and resume only the returned new identity. Deliberate host actions may inspect
+qualified diagnostics and request recovery; ordinary history must never show
+an incomplete prefix as complete. Native backend persistence remains separate.
+See the [supported schema, errors and retry behavior](../integration-contract/package-api.md#optional-transcript-diagnostics-and-recovery-additive-1806).
+
 The UI host keeps observed terminal failure metadata separately from those
 transcripts. It reads normalized history before a resumed turn and after a
 failed turn settles, then records the terminal assistant's ordinal, guarded by
