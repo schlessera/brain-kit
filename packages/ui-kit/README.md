@@ -68,6 +68,14 @@ search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
 metric rather than a calibrated probability. Opening remains the caller's
 `onClick`, and long snippet tokens wrap within the card.
 
+## Custom answers
+
+`AskUserCard` keeps Submit and Dismiss visible when `otherOpen` shows the
+custom-answer field. Submit and Enter call `onOtherSubmit` with the current
+nonblank text. Blank text disables Submit and prints the reason. Pass
+`otherText` and `onOtherChange` to retain the draft in the caller; otherwise
+the card keeps it locally. A closed exchange renders neither field nor actions.
+
 ## Grouped questions
 
 `AskUserGroupCard` presents two to four questions as one exchange, with one

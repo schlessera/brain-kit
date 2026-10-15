@@ -93,12 +93,57 @@ export async function playHandoff({
 
     // Mid-handoff, both layers are part-way: the ghost going, the text coming.
     await new Promise((r) => setTimeout(r, 300));
-    const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
-    const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
-    await expect(out).toBeGreaterThan(0);
-    await expect(out).toBeLessThan(1);
-    await expect(incoming).toBeGreaterThan(0);
-    await expect(incoming).toBeLessThan(1);
+    const sampledAt = performance.now();
+    const outgoingElement = canvasElement.querySelector(".bk-ghost-out");
+    const out = opacity(outgoingElement);
+    const incomingElement = canvasElement.querySelector(".bk-ghost-in");
+    const incoming = opacity(incomingElement);
+    try {
+      await expect(out).toBeGreaterThan(0);
+      await expect(out).toBeLessThan(1);
+      await expect(incoming).toBeGreaterThan(0);
+      await expect(incoming).toBeLessThan(1);
+    } catch (error) {
+      // Read native animation state only AFTER the original oracle fails: an
+      // earlier style read can start pending animations and hide the boundary.
+      // Diagnostic failures must never replace the original assertion error.
+      try {
+        const allFrames = frames(canvasElement);
+        console.error("Ghost handoff failure: " + JSON.stringify({
+          sampledAt, sampled: { out, incoming },
+          sampledOutgoingPresent: outgoingElement !== null, sampledIncomingPresent: incomingElement !== null,
+          capturedAt: performance.now(),
+          timeline: document.timeline.currentTime, theme: document.documentElement.dataset.theme,
+          frameCount: allFrames.length, framesTruncated: allFrames.length > 2,
+          frames: allFrames.slice(0, 2).map((frame) => {
+            const layers = [...frame.querySelectorAll(".bk-ghost-out, .bk-ghost-in")];
+            const handoff = handoffs.find((h) => h.frame === frame);
+            return {
+              width: frame.parentElement?.getAttribute("data-width"),
+              arrived: handoff?.arrived, removed: handoff?.removed,
+              layerCount: layers.length, layersTruncated: layers.length > 32,
+              layers: layers.slice(0, 32).map((el, index) => {
+                const animations = el.getAnimations();
+                return {
+                  index, selectedOutgoing: el === outgoingElement, selectedIncoming: el === incomingElement,
+                  classes: String(el.className).slice(0, 128), classesTruncated: String(el.className).length > 128,
+                  opacity: opacity(el),
+                  animationCount: animations.length, animationsTruncated: animations.length > 4,
+                  animations: animations.slice(0, 4).map((a) => ({
+                    name: String((a as CSSAnimation).animationName ?? "").slice(0, 128),
+                    nameTruncated: String((a as CSSAnimation).animationName ?? "").length > 128,
+                    startTime: a.startTime, currentTime: a.currentTime,
+                    playState: a.playState, pending: a.pending, playbackRate: a.playbackRate,
+                    duration: a.effect?.getComputedTiming().duration,
+                  })),
+                };
+              }),
+            };
+          }),
+        }));
+      } catch { /* Keep the original assertion authoritative if capture fails. */ }
+      throw error;
+    }
 
     await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
       timeout: 1000,

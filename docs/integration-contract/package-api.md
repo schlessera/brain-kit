@@ -3184,3 +3184,15 @@ host-owned actions. They expose the returned title unchanged and resume the
 new returned identity. No wire frame, HTTP route, UI destination or native
 backend recovery interface is added by this SDK change. These supported
 additions ship in a minor under the recorded #1806 rulings.
+
+## Custom Other drafts (additive, #1887)
+
+`AskUserCardProps` in `@schlessera/brain-ui-kit` gains optional `otherText?:
+string` and `onOtherChange?: (text: string) => void` for a controlled custom
+answer draft. Without them the card keeps a local draft. While Other is open,
+the persistent Submit action invokes the existing `onOtherSubmit` callback
+with current nonblank text, as Enter does. Blank text disables Submit with an
+explanation. `showActions={false}` and closed exchanges still omit actions.
+The client preserves selected predefined answers beside custom text in a
+multi-select and the existing grouped-question submission path. No wire,
+CLI/MCP or answer-delivery contract changes.

@@ -563,7 +563,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
               : "Count only — pick the default root for the full list."}
           </div>
           {isDefaultRoot && (
-            <div className="flex-1 overflow-y-auto">
+            <div className="bk-focus-clip min-h-0 flex-1 overflow-y-auto rounded-b-[inherit]">
               {(nodes ?? []).map((node) => (
                 <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Unreachable note list entry on the graph. */
                   key={node.id}
@@ -702,7 +702,7 @@ function NodeList({ onClose }: { onClose: () => void }) {
         </span>
         <IconButton size="sm" name="Close list" glyph={<X className="h-3.5 w-3.5" />} onClick={onClose} />
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="bk-focus-clip min-h-0 flex-1 overflow-y-auto rounded-b-[inherit]">
         {discovery && <div className="p-3 laptop:hidden"><DiscoveryExplanation /></div>}
         {sorted.map((node, index) => (
           <Fragment key={node.id}>
