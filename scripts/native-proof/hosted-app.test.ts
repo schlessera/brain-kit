@@ -69,6 +69,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   let receipt: any;
   let cleanExit = false;
   let hostProofPassed = false;
+  let expectedProviderAttempts: number | null = null;
   try {
     await until(() => existsSync(join(dir, "ready.json")) || exited, 30000);
     if (exited) throw Error(`HOSTED_PROBE_PREREQUISITE: ${await errors}`);
@@ -190,6 +191,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
     const stoppedTurnId = sender.frames.find(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart)!.turnId;
     await until(() => eventLog.read("cancel-settlement").some(row => row.kind === "session_slot_released" && row.turnId === stoppedTurnId),10000);
     const admissionCancelStart = performance.now(), attemptBefore = eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length;
+    expectedProviderAttempts = attemptBefore;
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests an immediately cancelled voyage record.", requestId: "odysseus-cancel-admission", sessionId: sid }));
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= admissionCancelStart && ((f.type === "status" && f.requestId === "odysseus-cancel-admission" && ["idle", "cancelled"].includes(f.status)) || (f.type === "request_dropped" && f.requestId === "odysseus-cancel-admission"))), 15000);
@@ -244,6 +246,9 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
       // The writer has exited: an unterminated tail is now a proof failure.
       const finalEvents = existsSync(join(dir, "events.jsonl")) ? eventLog.read("shutdown", true) : [];
       if (code === 0 && receipt && hostProofPassed) {
+        // A pending live tail cannot hide a forbidden event that commits later.
+        expect(finalEvents.filter(row => row.kind === "fake_provider_enter").length, "FINAL_CANCELLED_ADMISSION_NEVER_ENTERED_PROVIDER").toBe(expectedProviderAttempts ?? -1);
+        expect(finalEvents.filter(row => row.kind === "whole_brain_alias_scan"), "FINAL_NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
         // The closed app has drained refresh work; no live reader can mutate SQLite sidecars.
         const index = new Database(join(brain, "brain.db"), { readonly: true });
         try {

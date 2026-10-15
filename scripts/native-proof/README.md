@@ -76,7 +76,9 @@ and withhold the unterminated tail, including a valid JSON object whose newline
 has not arrived. They never trim or parse that tail as a committed event.
 After child exit, any remaining tail fails the proof. Malformed complete JSON,
 invalid UTF-8 and records without an object/string kind fail immediately.
-All live event counts and matching predicates share this rule.
+All live event counts and matching predicates share this rule. Final provider-entry
+and whole-brain-scan counts are checked again after shutdown, so a pending live
+tail cannot hide a forbidden event that commits later.
 
 The first pending observation is retained as `event-observation-pending.bin`
 and `.json`; the first malformed complete or incomplete final evidence is retained as
