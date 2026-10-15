@@ -11,15 +11,15 @@
       "154.0.8037.97",
       "155.0.8059.39"
     ],
-    "hostedVersionBasis": "Actual unit setup logs of main run38665959172, jobs116198020856 and116198020843/116198020777/116198020859. This is source compatibility review, not candidate hosted runtime proof."
+    "hostedVersionBasis": "Actual unit setup logs of main run 38665959172, jobs 116198020856 and116198020843/116198020777/116198020859. This is source compatibility review, not candidate hosted runtime proof."
   },
   "proof": {
-    "boundary": "Original anchor click bracketed by unique native user timing marks. Complete trace requires same document and renderer thread; native FeatureFirstUsed2975 must occur inside the synchronous bracket. No witness waits for actual observed download, reaching unchanged count assertions.",
-    "traceFlush": "Recording barrier only. Bounded10000-event capture, explicit no loss, missing/ambiguous evidence fails.",
+    "boundary": "Original anchor click bracketed by unique native user timing marks. Complete trace requires same document and renderer thread; native FeatureFirstUsed 2975 must occur inside the synchronous bracket. No witness waits for actual observed download, reaching unchanged count assertions.",
+    "traceFlush": "Recording barrier only. Bounded 10000-event capture, explicit no loss, missing/ambiguous evidence fails.",
     "cleanup": "Stop native tracing, remove listeners, clear trace watchdog, detach session; retain original context/browser/host cleanup.",
-    "retained": "All37 original matcher expressions, all9 source test names/12 expanded cases, all original awaits except two1500ms observations and their helper await. Actual pointer clicks and native anchor invocation remain.",
+    "retained": "All 37 original matcher expressions, all 9 source test names / 12 expanded cases, all original awaits except two 1500 ms observations and their helper await. Actual pointer clicks and native anchor invocation remain.",
     "added": "Ten additional matcher expressions execute for each of two contexts.",
-    "delayedControlLimit": "Actual anchor invocation and both markers delayed2000ms in each context. Only aggregate completion wait was separately timed; per-half await durations were not measured, unlike the initial proposal. Both native witnesses and markers are captured. No per-half measured2000ms claim.",
+    "delayedControlLimit": "Actual anchor invocation and both markers delayed 2000 ms in each context. Only aggregate completion wait was separately timed; per-half await durations were not measured, unlike the initial proposal. Both native witnesses and markers are captured. No per-half measured 2000 ms claim.",
     "timing": "Setup/body/command overlap. Trace session lifetime overlaps boundary and click; native synchronous bracket is not the whole boundary. Diagnostic synchronous timing and after-assertion trace-file writing remain inside measured command cost.",
     "limits": "One matched shared-host pair, not whole-CI gain; future Chrome trace/schema changes fail closed and may require maintenance. Original negative windows are not established as universal minimums."
   },
@@ -782,7 +782,7 @@
           "bytes": 897
         }
       ],
-      "expectedFailure": "Original frameDownloads assertion: expected0, actual1; actual CSP and iframe sandbox grant allow-downloads; native anchor invocation delayed750ms."
+      "expectedFailure": "Original frameDownloads assertion: expected 0, actual 1; actual CSP and iframe sandbox grant allow-downloads; native anchor invocation delayed 750 ms."
     },
     {
       "mode": "candidate-guard",
@@ -1013,7 +1013,7 @@
           "bytes": 900
         }
       ],
-      "expectedFailure": "Original frameDownloads assertion: expected0, actual1; actual CSP and iframe sandbox grant allow-downloads; native anchor invocation delayed750ms."
+      "expectedFailure": "Original frameDownloads assertion: expected 0, actual 1; actual CSP and iframe sandbox grant allow-downloads; native anchor invocation delayed 750 ms."
     },
     {
       "mode": "premature",
@@ -1226,7 +1226,7 @@
           "bytes": 897
         }
       ],
-      "expectedFailure": "Trace stopped before original click: exact native call start marker expected1, actual0. Complete zero-loss trace is insufficient without correlated evidence."
+      "expectedFailure": "Trace stopped before original click: exact native call start marker expected 1, actual 0. Complete zero-loss trace is insufficient without correlated evidence."
     },
     {
       "mode": "candidate",
