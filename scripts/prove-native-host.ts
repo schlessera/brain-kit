@@ -1,6 +1,7 @@
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-release-repro.js";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
@@ -63,6 +64,20 @@ if (import.meta.main) {
       const cleanup = receipt.at(-1);
       if (cleanup?.kind !== "cleanup" || cleanup.mounted !== false || cleanup.attached !== false || cleanup.loopCreated !== false || cleanup.backingExists !== false || cleanup.errors?.length !== 0)
         throw Error("Native hosted proof did not provide complete owned-resource cleanup evidence.");
+    }
+    if (selected.length === 0) {
+      // Four healthy cells qualify first. This separate negative control must
+      // fail the original index-completion assertion for the measured reason.
+      const before = new Set(readdirSync(output));
+      console.log("Verifying the deliberately retained index namespace reproduces the expected failure.");
+      const reproduction = Bun.spawn([process.execPath, import.meta.filename, "--backend=pi", "--app-uid=0", "--retain-index-namespace"],
+        { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+      const code = await reproduction.exited;
+      const created = readdirSync(output, { withFileTypes: true }).filter(entry => entry.isDirectory() && !before.has(entry.name));
+      if (created.length !== 1) throw Error("Native index-release reproduction did not retain exactly one owned invocation");
+      const receipt = verifyIndexReleaseReproduction(join(output, created[0]!.name), code);
+      writeFileSync(join(output, "index-release-reproduction.json"), JSON.stringify(receipt, null, 2));
+      console.log("Verified expected automatic-index failure, namespace correlation and owned cleanup; all four healthy cells remain qualified.");
     }
   } catch (error) { console.error(error); process.exit(1); }
 }

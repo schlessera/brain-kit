@@ -135,3 +135,15 @@ this lifetime in [namespaces(7)](https://man7.org/linux/man-pages/man7/namespace
 This constructed full-index failure distinguishes process exit from namespace
 lifetime. It does not establish that the historical #1967 run retained a
 namespace handle, and selects no production correction or deadline change.
+
+The full command without selectors first qualifies all four healthy cells,
+then runs this separate negative control. It returns success only when the
+negative control fails on the exact original assertion and its complete
+artifacts prove the retained namespace outlived the child, the matching handle
+closed, the same root subsequently synchronized, ordinal 1 stayed failed,
+ordinal 2 completed, and owned cleanup and both quota checks passed. A missing
+prerequisite, unrelated failure, absent observation or unexpected passing index
+fails that verification. `index-release-reproduction.json` records this as an
+expected failure with `qualification: false`; it does not turn the failing
+invocation into a healthy fifth matrix cell. The selected hosted runtime job
+therefore exercises the reproduction under its enforced AppArmor profile too.
