@@ -13,7 +13,10 @@ export function verifyIndexReleaseReproduction(directory: string, exitCode: numb
   const fixture: any[] = read(join(directory, "native-fixture.json"));
   const test = fixture.find(row => row.kind === "command" && row.argv?.[1] === "run" && row.argv?.[2] === "test");
   requireFact(test?.code === 1 && test.stderr.includes("error: NATIVE_AUTOMATIC_INDEX_COMPLETED: NativeBrainManagerError: Native manager outcome is unknown"), "EXACT_HOSTED_ASSERTION");
-  requireFact(/\b2 pass\s+1 fail\b/.test(test.stderr), "ONLY_INTENDED_CASE_FAILED");
+  // Every control case must pass; the original hosted case is the only failure.
+  const outcomes = [...test.stderr.matchAll(/^\((pass|fail)\) (.+?) \[[\d.]+ms\]$/gm)].map(match => ({ passed: match[1] === "pass", name: match[2]! }));
+  requireFact(/\b1 fail\b/.test(test.stderr) && outcomes.filter(row => !row.passed).map(row => row.name).join("\n") === "native hosted pi uid 0 first/warm admission, health, WebSocket, Stop and cancellation"
+    && ["descriptor records", "cwd records", "descriptor released just after its delete"].every(name => outcomes.some(row => row.passed && row.name.includes(name))), "ONLY_INTENDED_CASE_FAILED");
   const cleanup = fixture.at(-1);
   requireFact(cleanup?.kind === "cleanup" && cleanup.mounted === false && cleanup.attached === false && cleanup.loopCreated === false && cleanup.backingExists === false && cleanup.errors?.length === 0, "OWNED_CLEANUP");
   requireFact(fixture.some(row => row.kind === "parent-userns-quota" && row.unchanged === true) && read(join(directory, "runner-quota.json")).unchanged === true, "QUOTAS_UNCHANGED");
