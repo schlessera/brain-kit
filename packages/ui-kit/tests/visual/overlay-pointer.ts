@@ -91,6 +91,14 @@ export const destinationPaint: BrowserCommand<[string, string, string], { same: 
   }
 };
 
+/** Failure-only state captured in the test task, before the command round trip. */
+export const destinationMotion: BrowserCommand<[string, unknown], void> = async (ctx, label, state) => {
+  if (!/^[a-zA-Z0-9-]+$/.test(label)) throw new Error("Invalid destination motion label");
+  const directory = resolve(".vitest-attachments/destination-motion", ctx.project.name.replace(/[^a-z0-9-]/gi, "-"));
+  await mkdir(directory, { recursive: true });
+  await writeFile(resolve(directory, `${label}.json`), JSON.stringify(state, null, 2));
+};
+
 /** Exercise Chromium's real env() values, rather than replacing CSS geometry. */
 export const destinationSafeArea: BrowserCommand<[number], void> = async (ctx, bottom) => {
   const session = await ctx.page.context().newCDPSession(ctx.page);
@@ -101,6 +109,7 @@ export const destinationSafeArea: BrowserCommand<[number], void> = async (ctx, b
 declare module "vitest/browser" {
   interface BrowserCommands {
     destinationPaint(navigation: string, panel: string, label: string): Promise<{ same: boolean; stable: boolean }>;
+    destinationMotion(label: string, state: unknown): Promise<void>;
     destinationSafeArea(bottom: number): Promise<void>;
   }
 }

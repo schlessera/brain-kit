@@ -628,6 +628,16 @@ restored closed requests remain read-only. Decisions use the current shared
 request state, so a duplicate view cannot send another reply, and keyboard
 focus moves to a different pending request or the composer.
 
+## Maintenance graph tasks
+
+The Maintenance graph shows separate disclosures for Orphans, Unreachable
+from root, Broken links, and Stale notes. Each category starts collapsed;
+expand its heading to inspect its findings. Categories expand independently,
+and their choices last while the view is mounted, including data refreshes
+and filter changes. Selecting a graph node does not expand a category or
+scroll hidden rows; an expanded category follows the selected node.
+Broken-link rows open the source note.
+
 ## Knowledge graph availability
 
 When the server cannot load its optional core peer, every graph mode shows
@@ -655,3 +665,19 @@ and presentation changes. Changed data can repack any branch inside its hop
 band; Discovery cuts to those positions and preserves the camera and selected
 node identity. A selected survivor receives a brief `Layout updated` notice.
 Changing root or depth resets the scene. Discovery expansion is separate work.
+
+## Settings organization
+
+Settings exposes the same seven panes on phone, tablet and desktop: Appearance
+& input, Models, Accounts, Skills, Modules, Security, and Devices & agents.
+Theme and the single-key shortcut switch apply only on this device and live in
+Appearance & input. Accounts holds provider sign-in and web-search settings;
+Security holds passkeys, always-allowed tool revocation and sign-out.
+
+Below 900px the tab strip scrolls horizontally; desktop groups the section
+column by This device, This brain and Access. Arrow keys and Home/End move focus
+without loading a pane; Enter/Space select it. Models remains the default and
+selection survives resize. Module drafts and pending credentials keep their
+existing navigation and dismissal protections.
+Close and Escape return focus to the opener, including after a resize;
+choosing another destination preserves that destination's focus.

@@ -1260,6 +1260,11 @@ heading and must change.
 ## 7. The off switch — CONFIRMED, one ruling
 
 Settings › **Input**, beside Appearance, kit `Toggle`, the copy as shipped.
+
+> **2026-10-13 — Placement amended by [the approved Settings organization](design-kit/navigation.md#2026-10-13--approved-settings-organization-1773).**
+> Appearance & input is a pane at every width; Input and its banner no longer
+> occupy shared compact chrome. The existing toggle and shortcut policy remain.
+
 When off, the printed keys disappear (as shipped). D5 draws the Input section
 as a `Surface` of group `ListRow`s with toggles plus a neutral banner
 `Callout` explaining the rule.

@@ -110,7 +110,7 @@ Both reviewers verified every row below against the source.
 | Sockets | `ClientSet`, `ws/clients.ts:41` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
 | Rollups | `migrations/007_activity.sql`; `upsertRollup`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
-| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:689`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:689`; `Sign out everywhere`, `passkey-list.tsx:108-108` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
 | Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:36` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
@@ -258,7 +258,7 @@ revoke  ──► revoked_at = now
 `POST /api/auth/logout` keeps meaning **everywhere** (`UPDATE principals SET
 revoked_at = now WHERE revoked_at IS NULL`); the caller-only operation is a new
 endpoint, so the shipped button (`Sign out everywhere`,
-`passkey-list.tsx:103-105`) does not silently become "sign out this device".
+`passkey-list.tsx:108-108`) does not silently become "sign out this device".
 
 ## System-wide impact
 
