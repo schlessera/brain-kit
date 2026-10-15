@@ -1783,5 +1783,13 @@
         }
       ]
     }
-  ]
+  ],
+  "integrationTypeAnnotation": {
+    "byteIdentical": true,
+    "measuredJavaScriptSha256": "f3bb9c13110823cb000772a6c7568569c5ed73965fa88327afbecea2064617ea",
+    "finalJavaScriptSha256": "f3bb9c13110823cb000772a6c7568569c5ed73965fa88327afbecea2064617ea",
+    "change": "Non-null assertion on saved.view.revision after existing explicit null and positive expectations; erased by transpilation.",
+    "finalNativeSourceSha256": "425685afa93582db6c1bf56d4e9880905a0feae2b986fde6f0ce5e822267e2d3",
+    "initialTypecheck": "The first integrated strict typecheck rejected the nullable expected revision. This was an annotation error, not a behavior-mutation result; the non-null assertion is erased and preserves the measured emitted JavaScript."
+  }
 }
