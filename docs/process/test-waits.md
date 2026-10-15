@@ -71,10 +71,11 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
-| `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native negative windows per successful frame/tab pair, starting after the actual click lands | Retained. A browser-process navigation/download may arrive after the renderer's click handler or DOM settles; page JS clock does not drive it. 1500 ms is the existing bounded observation budget, not a newly measured universal browser latency guarantee. Expected escape controls await their actual hit independently. Candidate/runtime proof. |
-| Same preview file, raw endpoint 500 ms | The raw route has reached `load`; the inline-script marker must remain unchanged | Retained. This is a separate load-boundary observation, not evidence that the iframe escape channels need the same duration. A missing-CSP mutation at the load boundary is needed before claiming equivalent completion; no speedup claimed. |
+| `html-preview-runtime.test.ts`, escape attempts | Two 1500 ms native download windows after acknowledged clicks; three positive halves await exact native destination completion; popup/form calls and frame-to-top assignment require correlated native denial | Positive self-navigation retains actual hit and app-stability oracles, validated by held-body and wrong-target controls. Popup/form denial requires call return and the exact destination on the initiating page; frame-to-top denial requires its native SecurityError. Actual escape returns to original assertions. Null alone is insufficient for popup denial; form halves have independent hit cursors. The retained download budget is not a measured universal minimum. Candidate/runtime proof. |
+| Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
 | `draft-client.test.ts`, device-only/unsupported/conflict/retry | Actual debounce/retry timers and negative upload windows advance logically | The scheduler retains before/at-boundary, reset and cancellation observations. Real request/body promise completion is observed between advances; all original negative horizons remain or extend. Native completion turns are separate from logical milliseconds. |
+| `draft-runtime.test.ts`, consumed host draft | Exact accepted saved revision and real host consumption replace the final fixed observation; both native clients stay live | All original native assertions remain. Registered-client cases separately cover retired saves, stale reads and clean second-client deletion across actual save callbacks and backoff horizons. This fixture does not bind account-local persistence; see [the source-specific proof](#consumed-host-draft-completion). |
 | `ws-session-recovery.test.ts`, stalled backend lookup | Actual 3000 ms recovery registration and callback delivery advance logically in the named case only | The empty backend and its wrapper complete before advancing; silent reads stay pending at 2999 ms and fail at 3000 ms. A winning aggregate can leave losing bounded probes pending. Timed-out backend reads remain reusable because they have no cancellation API; teardown releases fixture reads, drains wrappers and restores descriptors. Native finalization, admission and revocation cases retain their existing clocks. |
 | `recordings.offline.tsx`, hard duration cap and chunk drain | Native media progress, persistence and temporal limit correctness are distinct | [#1853](https://github.com/schlessera/brain-kit/issues/1853) owns their separation; 600 ms chunk waits are not automatically the ten-minute cap. Preserve real encoded/playable audio and committed boundaries. |
 | `association-signout-runtime.test.ts`, 1100 ms capture and 300–600 ms post-release windows | Native media vs negative late-writer/deletion observation | Unmeasured. Await actual chunk commits for capture; a deletion window needs writer completion plus all delayed callbacks before it can be removed. |
@@ -534,6 +535,160 @@ effect, actual opportunities, minimum justified duration and chosen margin. The
 source review does not complete those requirements or authorize moving proof
 to another tier.
 
+## Positive HTML navigation completion
+
+The [native navigation experiment](evidence/test-wait-html-navigation-boundaries.json)
+separates three positive navigation halves from the seven denied-action windows.
+Each fixture makes one synchronous location assignment; the attacker destination
+is static HTML with no scripts or subresources. After the original actual-hit
+gate, the test observes that exact document's native `location.href` and
+`document.readyState === "complete"`. For the iframe, an actual changed app URL
+instead returns the escape result to the original assertions. Detachment alone
+never establishes completion. This boundary is specific to the fixture and does
+not claim to drain arbitrary browser or application work.
+
+Two native controls establish different parts of that guarantee. Holding the
+response body for two seconds after its headers and hit makes each of the three
+destinations visibly `loading`; the candidate returns only after body release
+and native completion. Omitting completion fails an additional diagnostic check
+with expected `complete`, received `loading`. Separately, enabling top navigation
+in both actual sandbox guards and changing the self-navigation fixture's target
+makes the original app-URL and exact-hit-list assertions fail. The helper does
+not replace those escape failures with a detached-frame timeout. All mutation
+sources were restored; the final runtime source omits experiment-only logging.
+
+At source `085d8cc`, both full-file runs pass the same 12 cases and 134
+expectations. Whole command time is 73.36 to 67.59 seconds; summed case bodies
+are 22.313 to 17.566 seconds, while mandatory setup/build is 50.517 to 49.514
+seconds. The ten original windows total 15,013.88 ms; the seven retained windows
+total 10,507.44 ms. The three new native completion observations take 0.828,
+0.748 and 0.754 ms in the ordinary passing run. Top-navigation's denied iframe
+half retains 1,500 ms, as do both contexts for popup, form and download in that
+historical source pair. The subsequent popup experiment below separates its
+specific native denial boundary.
+
+CPU user plus system time is 97.95 to 95.52 seconds and maximum RSS is 1,252,716
+to 1,240,324 KiB. These are single paired observations on a shared host, with
+the same runtime, namespace and required builds. Setup and native scheduling
+also vary, so the entire command difference is not attributed to removed waits.
+The five commands cost 303.35 seconds including builds and deliberate mutants.
+No whole-CI speedup, global drain or universal minimum for the retained negative
+windows follows from this experiment. Their operational justification remains
+separate from the demonstrated positive-navigation completion boundary.
+
+## Native popup denial completion
+
+The [popup experiment](evidence/test-wait-html-popup-boundaries.json) covers only
+the fixture's single `window.open` call in each context. The original pointer
+and click acknowledgements remain. Completion requires both the call returning
+null and the exact destination's native sandbox-denial message on the initiating
+page. Null alone is insufficient: successful noopener creation can also return
+null. In the observed Chrome 140 implementation, this denial occurs before
+auxiliary-context creation. An actual extra native page **or** attacker arrival
+instead returns to the original escape assertions, including a popup whose
+navigation never reaches the attacker. No quiet-DOM or shorter-window fallback
+qualifies ambiguous denial.
+
+Delaying the original call by two seconds after the click mark establishes that
+both completion and denial are initially absent in each context. The candidate
+waits for the actual call and native denial; omitting that wait fails the added
+completion diagnostic with all three expected flags still false. Separately,
+allowing popups in both actual iframe and CSP sandbox guards makes the original
+empty attacker-hit assertion fail with both popup destinations. These controls
+retain the original call arguments, click marker and every original matcher.
+All mutated guards and fixtures were restored. Diagnostic timestamps, setup
+logging and delayed actions are absent from the final runtime source.
+
+At source `df0864655`, both full-file runs pass 12 cases and 134 expectations.
+Seven native windows totaling 10,514.04 ms become five totaling 7,513.24 ms.
+The ordinary popup completion spans are 0.919 and 0.813 ms; these observe
+already-delivered native events, not their total latency from the click. The
+popup case falls from 3,736.92 to 745.61 ms. Command wall time is 67.48 to 64.94
+seconds, while Bun reports 67.38 to 64.84 seconds. Summed case bodies are 17.719
+to 14.733 seconds and mandatory setup/build is 49.212 to 49.688 seconds.
+
+CPU user plus system time increases from 94.95 to 96.06 seconds, and maximum
+RSS increases from 1,238,672 to 1,249,976 KiB. The five commands cost 289.15
+seconds including mandatory builds and deliberate failures. These are single
+observations with the same runtime, dependencies and offline namespace on a
+shared host; setup and scheduling vary. They establish neither a whole-CI gain
+nor a universal minimum for the five windows retained at that recorded source.
+Form, download and denied frame-to-top actions have separate proof obligations;
+the following experiment addresses only the single form submission.
+
+## Native form denial completion
+
+The [form experiment](evidence/test-wait-html-form-boundaries.json) keeps the
+original native submit call, GET method and fields. Its return marker and the
+exact destination's sandbox-denial message establish that Chrome rejected this
+submission before scheduling it. Both contexts submit the same URL, so each
+has its own initiating-page observer and fresh attacker-hit cursor. A new
+matching hit returns to the original hit-list and tab-URL assertions; losing
+the old evaluation context is never completion by itself.
+
+Delaying the original submission by two seconds leaves its return marker and
+denial absent before the candidate wait and present afterward in both contexts.
+Omitting that wait fails the explicit completion diagnostic with both flags
+false. Enabling forms in both actual iframe and CSP sandbox guards and removing
+the actual `form-action 'none'` restriction makes the original empty hit-list
+assertion fail with two form arrivals. Navigation has already removed the old
+markers in that control, demonstrating why the escape path uses actual new
+arrivals. All guards and fixtures were restored; final source omits diagnostic
+logging, timestamps and delayed actions.
+
+At the frozen popup candidate `c13d59b36`, both full runs pass 12 cases and 134
+expectations. Five windows total 7,505.23 ms; the three retained windows total
+4,503.49 ms. Native form completion observations take 0.630 and 0.642 ms after
+the acknowledged click, while the form case falls from 3,731.37 to 698.39 ms.
+These short observations do not measure the full native latency from the click.
+Command wall time is 64.87 to 61.25 seconds (Bun: 64.78 to 61.16); summed bodies
+are 14.698 to 11.659 seconds and mandatory setup/build is 49.654 to 49.083
+seconds. Setup variation is separate from removed waiting.
+
+CPU user plus system time is 95.44 to 94.37 seconds; maximum RSS increases from
+1,231,784 to 1,250,848 KiB. The five commands cost 283.30 seconds. This single
+pair uses the same runtime, dependencies, offline namespace and shared host.
+It demonstrates neither a whole-CI gain nor a minimum for the three windows
+retained at that source. The following experiment separately addresses only
+the denied frame-to-top assignment; download proof remains independent.
+
+## Native frame-to-top denial completion
+
+The [frame-to-top experiment](evidence/test-wait-html-top-boundary.json) leaves
+the original uncaught location setter unchanged. A passive observer on the app
+Page requires its native `SecurityError`, exact attacker destination and
+permission-denial text. In the observed Chrome implementation, that exception
+returns before the navigation request is issued. An actual changed app URL
+instead returns the original escape result. An attacker hit, detached frame or
+unrelated error alone cannot complete this boundary. The tab's allowed top
+navigation still uses the existing actual-hit and native document-completion
+gates.
+
+Delaying the same setter by two seconds proves the native error is initially
+absent and then delivered. Omitting the candidate wait fails the added denial
+assertion with expected true, received false. Enabling top navigation in both
+actual iframe and CSP sandbox guards makes the original app-URL assertion fail
+after the app commits the attacker destination. It does not become a missing
+error timeout or a later missing-link failure. The fixture gains no exception
+handler or new return marker. All source mutations were restored; final source
+omits diagnostic logging and the delay control.
+
+At frozen combined popup/form source `60da0afe2`, both full runs pass 12 cases
+and 134 expectations. Three windows total 4,503.99 ms; the two retained
+download windows total 3,002.79 ms. The top case falls from 2,236.57 to 768.04
+ms. Its ordinary error observation takes 0.037 ms because the event is already
+delivered; this is not click-to-error latency. Command wall time is 62.07 to
+60.44 seconds (Bun: 61.97 to 60.35), summed bodies are 11.685 to 10.428 seconds,
+and mandatory setup/build is 49.843 to 49.463 seconds. CPU user plus system
+time is 95.99 to 95.29 seconds; maximum RSS increases from 1,243,320 to
+1,246,396 KiB. The five commands cost 279.87 seconds.
+
+These are single observations with matched runtime, dependencies and offline
+namespace on a shared host. Setup variation is separate from the removed wait.
+The artifact binds the observed error transport to installed Playwright 1.63.0
+source and Chrome 140.0.7339.127. It does not establish a global browser drain,
+whole-CI speedup or minimum justified duration for the two download windows.
+
 ## Native child completion and deadline snapshots
 
 The [native child supplement](evidence/test-wait-native-child-observations.json)
@@ -608,7 +763,188 @@ samplers, unexpired deadlines and killed fixture lifetimes have different roles;
 missing counters do not turn them into mandatory completed waits or excuse
 unrelated evidence gaps.
 
-## Consumed drafts: the native window remains
+
+## Query deadline and late-database completion
+
+The [search deadline evidence](evidence/test-wait-search-deadlines.json) records
+eight commands at source `bb4578a7`. The private search tests drive production's
+actual timeout registrations at 19/20 ms and, in a separate added control,
+2999/3000 ms. Real SQLite, provider promises, FTS fallback, hybrid fusion and
+all original assertions remain. Successful embedding crosses its cancelled
+deadline; removing the actual cancellation fails the original abort assertion.
+Both one-millisecond registration faults fail the configured and default checks.
+The production default remains 3000 ms.
+
+The original late-completion test passed a structural fault that moved the race
+around the whole vector search. Its closed-database exception was insufficient
+as an oracle. The candidate forwards the real database's `prepare` method after
+closing it and explicitly counts attempts. The same fault now fails with two
+attempts: the original KNN query and its existing fallback. After releasing the
+provider, one native event-loop turn covers the inspected promise continuation,
+which has no intervening timer or I/O before its first synchronous prepare. This
+is a source-specific completion boundary, not a global asynchronous drain.
+Timer and database property descriptors restore even on assertion failure.
+
+The full file changes from 34 tests / 145 expectations to 35 / 158. The matched
+command takes 0.50 → 0.43 seconds; summed bodies take 256.58 → 184.23 ms. The
+three original case bodies take 90.07 → 10.05 ms, and the added default control
+costs 3.33 ms. CPU increases from 0.53 to 0.56 seconds and peak RSS from 121520
+to 122788 KiB. These are one shared-host pair, not a whole-CI improvement.
+Setup and individual native-turn spans were not separately measured. The
+3070 ms advanced across four independent case clocks is source arithmetic,
+not elapsed time. Three native `setImmediate` boundaries remain; no native
+provider conformance proof is replaced.
+
+
+## Native robots-policy completion
+
+The [robots completion evidence](evidence/test-wait-browser-robots-completion.json)
+records five commands at source `a2b0cdb2`. The original 800 ms native robots
+fetch remains. The test waits for its original `forUrl` promise, the original
+matching main-frame interception handler, and destruction of the same native
+page target on the same attached connection. Synchronous observers return the
+original native operation promises. An actual forbidden HTTP arrival instead
+returns control to the original no-hit assertion; an absent destruction event
+does not conceal an escape.
+
+The original retained-window test and the candidate both fail that assertion
+when the real policy cancellation, post-policy abort guard and page closure are
+removed together. Both additionally report a leaked target in their original
+teardown check. Omitting the candidate completion fails an explicit diagnostic:
+the actual robots lookup started and remains pending even though its handler
+and page target have already finished. These controls establish this load's
+causal boundary, not a global network drain.
+
+The restored full file retains 14 tests / 66 expectations. The matched command
+takes 9.28 → 8.98 seconds; the selected case takes 1105.38 → 844.33 ms. Its
+actual completion wait is 561.22 ms, because the original fetch still has work
+to finish after budget expiry. The removed 820 ms observation is therefore not
+an 820 ms saving. CPU increases from 1.87 to 2.01 seconds and peak RSS from
+191952 to 193836 KiB. Setup and the baseline wait span were not separately
+measured; these are one shared-host pair, not a whole-CI claim.
+
+At that recorded source, the other case retained its 1300 ms native observation.
+It also allowed the real 1200 ms rate limit to become eligible before the original
+next load's 300 ms budget. Handler completion and target destruction alone do not
+establish that eligibility. The separate pacing evidence below covers both roles.
+
+
+## Native pacing cancellation and subsequent eligibility
+
+The [pacing completion evidence](evidence/test-wait-browser-pacing-completion.json)
+records six commands at source `ec381c94`, after the robots change. The pacing
+case retains its original native sleep, 300 ms page budget, Chrome interception,
+HTTP requests and capacity assertions. Synchronous timer observers return the
+actual native handle, preserve callback arguments and `this`, and restore full
+global property descriptors. The supplied rate-limiter clock forwards production's
+original sleep promise; no global clock or browser timer is advanced.
+
+Completion requires the matching policy and interception-handler promises, the
+same native page target's destruction, and the original pacing sleep's settlement.
+An actual forbidden HTTP arrival instead reaches the original no-hit assertion.
+That assertion precedes the added checks for native registration, cancellation
+and callback suppression. The actual remainder plus the preceding clock read
+minus the first grant must equal 1200 ms. Only afterward does the existing
+rate-limiter clock's `now` offset advance beyond that grant's eligibility, allowing
+the original next load to exercise real page capacity within its 300 ms budget.
+
+The original and candidate both reject the same compound production guard fault
+at the original late-request assertion; their independent teardown also detects
+leaked targets. Omitting the eligibility advance fails the original next load on
+its real 300 ms page budget, not the test runner watchdog. Removing production's
+native `clearTimeout` fails the explicit cancellation assertion. Only after that
+failure does cleanup clear the original outstanding handle, separately counted
+in the diagnostic receipt. All production mutations were restored.
+
+The full file retains all 14 cases and increases expectations from 66 to 73.
+The matched command takes 8.93 → 7.63 seconds, summed bodies 8572.97 → 7258.24 ms,
+and the pacing case 1664.57 → 366.44 ms. CPU takes 1.87 → 1.81 seconds, while peak
+RSS increases from 192036 to 192472 KiB. These are one shared-host pair; setup
+and the baseline 1300 ms span were not separately measured. The measured
+completion await is only 0.020529 ms because its native events had already
+arrived; it is not the whole case or native page-budget duration. The 879 ms
+eligibility offset is logical time, not additional elapsed savings.
+
+The restored observation records one native 1175 ms timer registration, one
+production clear, no callback, and rejection of the original sleep promise. The
+clock read occurred 25 ms after the first grant, preserving the full 1200 ms
+pacing rule. Other native delay/crawl-policy cases remain unchanged. The final
+source removes only diagnostic logging, timing and unused snapshot counters;
+all original matcher expressions and seven added assertions remain. This is a
+boundary for the inspected load and subsequent eligibility, not a universal
+minimum negative window or a global browser/network drain.
+
+## Selected native child lifecycle observations
+
+The [native lifecycle evidence](evidence/test-wait-native-lifecycle-completion.json)
+records seven selected commands at source `95b951aa`: seven cases and 28 expectations,
+3.33 seconds of command time, and 106 immutable raw receipt entries. These are
+source-specific observations, not a full child-process census or a speedup pair.
+Original worker permissions, mounts, protocol stdout and assertions remain.
+
+Three commands leave every test/source byte unchanged and use external syscall
+tracing inside the ordinary-UID offline namespace. The version-probe shell's
+original 20 ms sleep completes one syscall in 20.124 ms before its original exit
+3 and exact stdout/stderr assertions. The closed-stdin fixture's original 50 ms
+sleep completes in 50.161 ms before its late reply; its native pipe and fallback
+assertions pass. Four separately identified 1 ms synchronous polls total
+4.383 ms on that fixture's original parent process. Those polls map to the
+previously observed row 336, not additional row 674 coverage. Ptrace overhead
+and process topology affect these timings; they are not untraced cost estimates.
+
+The governed peer trace follows both original shells through their namespace
+transitions and successful exits. In this invocation, both readiness conditions
+were reached before either 10 ms sleep call, so both observed sleep counts are
+zero. The real protected-file handoff still executes. Complete traced lifetimes
+support those scoped zeros; they do not show that future invocations need no
+polling or that a missing trace segment should count as zero.
+
+Two sync cases retain their original SSE bytes and use only their existing
+writable control files for numeric observations. Each first child completes one
+10 ms poll (10.126535 and 10.153390 ms); each released retry completes zero. The
+reservation test appends metrics after its original end marker. The client test
+appends only after release, after the exact `yes` readiness predicate has already
+been consumed; the synchronous retry-launch forwarder captures the first record
+before the next child overwrites that file. Final reads follow the original
+response completion. Namespace PIDs repeat, so invocation identity comes from
+actual launch/exit ordering. Added diagnostic I/O remains outside each child's measured poll spans,
+but enclosing response and command phases include it; no binding, FD or write permission is added.
+
+The selected 50-percent SDK hook case observes the original native registrations
+and callbacks through its existing stderr channel. Its 20000 ms failure watchdog
+has no callback at natural exit 0, 26.012092 ms after registration; no clear is
+inferred. The original post-result 10 ms timer fires at 10.211114 ms and natural
+exit follows at 10.303885 ms. The callback age differs from an exact await span,
+which was not separately measured. The 80-percent case is unselected.
+
+SDK instrumentation changes only the generated fixture runtime argument and a
+temporary passive host observer. Numeric stderr bytes still feed the original
+sticky error classification and tail before bounded, chunk-aware diagnostic
+parsing; the entire stderr stream is therefore not byte-identical. Original
+stdout protocol operations, native handles, callback arguments and assertions
+remain, and both files were restored after observation. Missing natural-exit
+records would remain missing rather than imply cancellation. None of these
+receipts establishes a universal minimum delay or replaces native runtime proof.
+
+The nested-ledger case retains its original owner and attached-worker death,
+reservation refusal and recovery assertions. Parent and owner each register the
+original 5000 ms watchdog and clear it without firing, at 61.759012 and
+30.728070 ms from the registration call. Their original reader awaits complete
+in 61.584364 and 30.577138 ms. Those spans overlap and cannot be added as command
+cost. Each local span excludes its adjacent diagnostic writes, but child logging
+can occur inside and prolong the enclosing parent wait and alter scheduling.
+
+The attached worker's original 1000 ms interval registration is captured, with no
+callback entry captured before its original SIGKILL. There is no inferred clear,
+natural exit or completed 1000 ms lifetime. Its readiness JSON precedes interval
+registration, so a missing registration record would remain missing. The observer
+reads the existing inherited stderr pipe only after the original owner kill,
+attached-worker kill and death polling, and final recovery assertion. No pipe or
+permission is added. The ledger helper extends row 333's earlier caller evidence;
+the attached interval adds row 722. Together with the repeated RTK row 336,
+source-row overlap is explicit in the artifact rather than counted as new work.
+
+## Consumed drafts: the native recreation fault
 
 The [consumed-draft observations](evidence/test-wait-consumed-draft-observations.json)
 keep a concrete failure and its controls separate from a clock-equivalence claim.
@@ -629,15 +965,15 @@ The complete lower file passes 42 tests and 205 assertions, versus the original
 the added case took 1.28 ms in the full run. These are additive proof costs,
 not a measured speedup.
 
-The native 1,500 ms window is unchanged. The lower harness uses `storage: null`,
-whereas native local work schedules a 250 ms write and can apply kept or adopted
-branches after the IndexedDB commit, triggering draft subscriptions. A correlated
-send receipt or host absence does not drain those producers. The failing mutation
-establishes sensitivity to one real delayed recreation; it does not establish a
-minimum of 1,500 ms or justify subtracting 800 ms to invent a safety margin.
-The browser retains ownership of native persistence, transport and host
-consumption. A smaller window still requires source-specific equivalence evidence
-for those producers, and the execution-domain requirements remain in force.
+That source-bound experiment retained the native 1,500 ms window. Its initial
+interpretation attributed possible later work to account-bound IndexedDB commits.
+Subsequent source review establishes that this particular fixture does not mount
+the account-binding composition, so that attribution does not apply here; see
+[the combined completion proof](#consumed-host-draft-completion). The immutable
+observation remains unchanged. The failing mutation establishes sensitivity to
+one actual delayed recreation, not a minimum of 1,500 ms or a safety margin
+obtained by subtracting 800 ms. Account-bound native persistence tests retain
+their separate guarantees.
 
 ## Native runner and late-navigation boundaries
 
@@ -653,12 +989,14 @@ ordinary diagnostic file writes add disclosed overhead without new authority.
 
 The [politeness boundary observations](evidence/test-wait-politeness-boundaries.json)
 retain two native Chrome cases and their 820 ms and 1,300 ms no-late-request
-windows. Their handlers finished before awaited page closure, while the delayed
+windows at their recorded source. Their handlers finished before awaited page closure, while the delayed
 robots fetch completed after closure in the first case. Those are distinct
 boundaries; neither awaited closure nor fetch completion proves that all browser
 network work has drained. The two cases passed 11 assertions in 3.15 seconds of
 command time. No target-destruction observation, mutation, minimum duration or
-equivalent replacement was established, and neither window was shortened.
+equivalent replacement was established by that observation, and neither window
+was shortened in that source. Later native boundary replacements have their own
+separate source identities and mutation evidence above.
 
 The [maintenance gate observations](evidence/test-wait-maintenance-gates.json)
 use the existing stderr channel in three governed workers, preserving exact
@@ -678,3 +1016,82 @@ attribution, not governed-availability qualification. The capture case completed
 its 30 ms overlap wait in 30.13 ms while retaining the exact operation log and
 three coalesced success responses. Both sources were restored; their original
 waits remain unchanged and no numerical minimum or savings is inferred.
+
+## Consumed host-draft completion
+
+The [combined draft evidence](evidence/test-wait-consumed-draft-completion.json)
+records a native three-case comparison and actual registered-client controls at
+source `1b2a2e81`. The browser captures the existing saved draft reference before
+Enter, requires a positive acknowledged revision, and observes one new accepted
+request naming that exact reference. It then awaits actual host consumption and
+the scripted backend's receipt of the prompt. Both browser contexts remain live
+through every original host-absence, empty-composer and exactly-one-prompt
+assertion. A correlated receipt alone is not treated as a global drain.
+
+The lower cases cover the temporal producers separately. The sending client's
+accepted bound draft is checked across its actual zero-delay callback, both sides
+of the default 800 ms save boundary and backoff-sized horizons. A held GET begun
+before this client's send must not restore stale text or issue any later PUT.
+A second live, clean client may receive an old GET after consumption, but neither
+that copy nor its subsequent deletion refresh may upload under any draft id.
+The fake host retains tombstones and actual request/body promise completion.
+These horizon advances do not induce retry callbacks; existing failed-request
+cases retain that responsibility.
+
+Three faults distinguish those guarantees. The earlier bound-clearing fault
+recreated words through the real 800 ms save and failed the original native
+host-absence assertion; the same fault fails the retained lower any-id PUT
+assertion. Source identities and the unchanged lower harness bind that historical
+receipt to this comparison. Removing the post-GET host sequence fence fails the
+original stale-text assertion before the new horizon checks. Removing the clean
+host-deletion branch registers an 800 ms save, but actual refresh cancels it and
+registers zero-delay work instead. That callback fires and uploads a rotated id,
+failing the new any-id PUT assertion. It is not falsely reported as an 800 ms
+callback firing. In Chrome, corrupting only the locally stored bound reference
+leaves the outbound reference unchanged and fails the new exact-reference
+assertion: saved revision 5 versus stored revision 6. All guards were restored.
+
+| Matched full native file | Original | Candidate |
+| --- | ---: | ---: |
+| Cases / expectations | 3 / 84 | 3 / 96 |
+| Command wall time | 97.54 s | 93.65 s |
+| Bun-reported time | 97.46 s | 93.56 s |
+| Summed case bodies | 48.514 s | 44.500 s |
+| Setup including mandatory builds | 48.530 s | 48.591 s |
+| Fixed final waits / accumulated time | 3 / 4.500 s | 0 / 0 s |
+| CPU user + system | 95.61 s | 96.06 s |
+| Maximum RSS | 1,235,444 KiB | 1,259,924 KiB |
+
+The single pair shows a wall-time reduction while CPU and peak RSS increase.
+Shared-host variation prevents attributing every command-time difference to the
+removed waits. Four native commands, including the selected positive and fault
+controls, cost 320.14 seconds. Four lower controls cost 0.75 seconds; both full
+controls pass 43 cases and 300 expectations. These are local source-bound
+receipts, not a claim about a later integrated tree's hosted qualification.
+
+A preceding passive observation retained the original 1,500 ms window and all
+native assertions. Its first 68.12-second run passed the test but captured
+incomplete browser JSON. A 0.08-second synthetic console/file probe did not
+reproduce the truncation and establishes no emitter cause or fixed output cap.
+The corrected 65.32-second run wrote complete observations only after the original
+assertions: both current documents, zero dropped records, and the original
+1,502.03 ms window. Generated bundle bytes were retained to identify actual timer
+owners. Added observers, promise reactions and synchronous diagnostic I/O have
+real overhead; this is not a speedup pair.
+
+Source review corrects an earlier interpretation of this particular fixture.
+It mounts `BrainUiProvider` and `ChatPage` without the account-binding composition;
+its account-bound local-work writes remain inactive. This follows the fixture,
+connection writers and local-work guards, not `AUTH_MODE=none` alone. No runtime
+account key was sampled. Real IndexedDB transactions occurred at startup, and
+their precise service ownership remains unattributed. Consequently, this minimal
+host-draft fixture does not establish account-bound local-work commit or hidden
+branch coverage for other browser tests.
+
+The final observed window contained SDK/turn-status timer activity and non-draft
+GET/body completions, even though no draft publication, observed transaction or
+focus/visibility/selection event occurred. Body settlement does not prove consumer
+completion, and the observer's pending sets are not universal quiescence. The
+replacement rests on the source-specific native and registered-client guarantees
+above, not quiet snapshots, disposal, a shortened production setting or an
+invented numerical minimum.

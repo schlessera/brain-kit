@@ -493,16 +493,81 @@ describe("stale answers", () => {
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
     await until(() => host.calls.includes(`GET /drafts/${id}`), 5_000, true);
     // Meanwhile the host accepts a send of it and deletes it.
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
     drafts().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-1", source: "typed" } }, "Ask Aeolus");
     socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-1" });
     host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
     await release();
     await clock.advance(200);
     expect(Object.values(drafts().drafts).some((d) => d.text === "Ask Aeolus, from the phone"), "the stale read restores nothing").toBe(false);
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "the retired read must not upload under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "the retired read leaves no live session draft").toBe(false);
+    };
+    noRecreation();
+    await clock.advance(SAVE_PAUSE - 1 - 200);
+    noRecreation();
+    await clock.advance(1);
+    noRecreation();
+    for (const delay of RETRY_DELAYS) {
+      await clock.advance(delay - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+    }
   });
 });
 
 describe("restoring, continued", () => {
+  test("a second clean client never uploads a consumed draft after a stale read or deletion refresh", async () => {
+    const host = fakeHost();
+    const a = boot(host);
+    const id = a.drafts().idFor(ITHACA);
+    a.drafts().edit(id, ITHACA, { text: "Ask Eumaeus about the harbour fees" });
+    await until(() => a.drafts().drafts[id]?.host?.revision === 1);
+    const b = boot(host);
+    await until(() => b.drafts().drafts[id]?.host?.revision === 1);
+    const text = "Ask Telemachus about the harbour fees";
+    a.drafts().edit(id, ITHACA, { text });
+    await until(() => a.drafts().drafts[id]?.host?.revision === 2);
+    const gets = host.calls.filter(call => call === `GET /drafts/${id}`).length;
+    const release = host.holdGets();
+    b.socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => host.calls.filter(call => call === `GET /drafts/${id}`).length > gets, 5_000, true);
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
+    const ref = a.drafts().beginSend({ requestId: "req-two-clients", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-two-clients", source: "typed" } }, text);
+    expect(ref).toEqual({ draftId: id, revision: 2 });
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
+    a.socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-two-clients" });
+    expect(a.drafts().sends["req-two-clients"]?.state).toBe("accepted");
+    await release();
+    // b never received a's acceptance. Its old GET may restore a clean copy,
+    // but neither that copy nor a later deletion refresh may upload any id.
+    expect(b.drafts().drafts[id]?.host?.revision).toBe(2);
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "a second clean client must not recreate consumed content under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "neither client recreates a live session draft").toBe(false);
+    };
+    const checkHorizons = async () => {
+      await clock.advance(0);
+      noRecreation();
+      await clock.advance(SAVE_PAUSE - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+      for (const delay of RETRY_DELAYS) {
+        await clock.advance(delay - 1);
+        noRecreation();
+        await clock.advance(1);
+        noRecreation();
+      }
+    };
+    await checkHorizons();
+    b.socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await checkHorizons();
+    expect(b.drafts().drafts[id], "the clean client observed the host tombstone through its list").toBeUndefined();
+  });
+
   test("a session's draft replaced on another device is restored as itself", async () => {
     const host = fakeHost();
     const { socket, drafts } = boot(host);

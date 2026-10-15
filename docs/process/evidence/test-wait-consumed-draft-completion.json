@@ -1,0 +1,1787 @@
+{
+  "schemaVersion": 1,
+  "scope": "Source-bound combined native and registered-clock proof for consumed host drafts; selected passive timeline and capture controls remain separate observations.",
+  "measurementBase": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+  "timelineBase": "6090132d964c8ccde4ee43fc5e85382f7ac40640",
+  "environment": {
+    "bun": {
+      "argv": [
+        "bun",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "1.4.2",
+      "stderr": ""
+    },
+    "chrome": {
+      "argv": [
+        "/usr/bin/google-chrome-stable",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "Google Chrome 140.0.7339.127",
+      "stderr": ""
+    },
+    "platform": {
+      "argv": [
+        "uname",
+        "-srm"
+      ],
+      "exitCode": 0,
+      "stdout": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64",
+      "stderr": ""
+    },
+    "lockfileSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+    "networkHarness": "Each measured command runs in a fresh ordinary-UID user/network namespace, loopback only and no routes, with setup capabilities removed before Bun and existing test preload retained.",
+    "resources": "GNU time measures full command inside shared lock; CPU includes descendant work and RSS is reported as maximum resident set size, not aggregate browser memory. Shared host load uncontrolled."
+  },
+  "harness": {
+    "namespaceArgs": [
+      "unshare",
+      "--user",
+      "--map-current-user",
+      "--net",
+      "--keep-caps"
+    ],
+    "setup": [
+      "ip link set lo up",
+      "capture addresses, routes and uid_map; assert only loopback and no routes"
+    ],
+    "executionPrefix": [
+      "setpriv",
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      "--bounding-set=-all",
+      "/usr/bin/time",
+      "-v"
+    ],
+    "preload": "Every command uses bun run test and its existing preload. Browser commands set BRAIN_REQUIRE_CHROME=1 and retain mandatory package/client builds.",
+    "serialization": "Every measured command acquires the same exclusive benchmark lock; timing starts inside it.",
+    "observerLimits": [
+      "Synchronous setup timing and afterAll logging add overhead. Baseline wait timing surrounds the original await without replacing its promise.",
+      "Passive browser wrappers preserve actual handles and original fetch/body promises. Added promise reactions affect microtask overhead; settlement is not application-consumer completion.",
+      "The successful corrected timeline writes its complete file only after original assertions. A synchronous bundle copy adds setup I/O.",
+      "Native document reload discarded the prior page buffer; final documents cover the entire original observation window. Parent HTTP observations span reload."
+    ]
+  },
+  "sourceIdentity": {
+    "candidateFiles": [
+      {
+        "file": "packages/ui-react/tests/draft-client.test.ts",
+        "originalSha256": "4518f2a7c29345b4b5fed7a2cf378232049d0e4732c5bc88541d217f453446b3",
+        "candidateSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840"
+      },
+      {
+        "file": "packages/ui-react/tests/draft-runtime.test.ts",
+        "originalSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+        "candidateSha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161"
+      }
+    ],
+    "priorBoundClearSources": [
+      {
+        "file": "packages/ui-react/src/lib/draft-client.ts",
+        "currentBaseSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+        "prior1954BaseSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/stores/draft-state.ts",
+        "currentBaseSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+        "prior1954BaseSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/lib/local-work.ts",
+        "currentBaseSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+        "prior1954BaseSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/tests/draft-runtime.test.ts",
+        "currentBaseSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+        "prior1954BaseSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+        "currentBaseSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+        "prior1954BaseSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+        "byteIdentical": true
+      },
+      {
+        "file": "bun.lock",
+        "currentBaseSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+        "prior1954BaseSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+        "byteIdentical": true
+      }
+    ],
+    "timelineSources": [
+      {
+        "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+        "sha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+        "candidateBaseSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/tests/draft-runtime.test.ts",
+        "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+        "candidateBaseSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/root-context.tsx",
+        "sha256": "098bbbe426cbd41c158af09e322f55890b13502c78f4926ff5d56703675231d9",
+        "candidateBaseSha256": "098bbbe426cbd41c158af09e322f55890b13502c78f4926ff5d56703675231d9",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/root.ts",
+        "sha256": "bfd086ab9d661065bd14610eae8911ee051c9f5a07a259be5a854268553392bd",
+        "candidateBaseSha256": "bfd086ab9d661065bd14610eae8911ee051c9f5a07a259be5a854268553392bd",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/stores/connection-state.ts",
+        "sha256": "7af2a491abea2563d1f0cb27fd5e56b1e565fecfdd9d69ed9fdce9e986478cda",
+        "candidateBaseSha256": "7af2a491abea2563d1f0cb27fd5e56b1e565fecfdd9d69ed9fdce9e986478cda",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/hooks/use-vpn-status.ts",
+        "sha256": "599769a48b1e4b2cc8b07be1f3a9e03302bbc0e81f84ab62fa386f93990fa40b",
+        "candidateBaseSha256": "599769a48b1e4b2cc8b07be1f3a9e03302bbc0e81f84ab62fa386f93990fa40b",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/components/connectivity/connection-gate.tsx",
+        "sha256": "6bbba6c33f922776560f89db2450865facd83f579a6891a4bffe1572c32604dd",
+        "candidateBaseSha256": "6bbba6c33f922776560f89db2450865facd83f579a6891a4bffe1572c32604dd",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/components/connectivity/login-screen.tsx",
+        "sha256": "63290a402108fd7fdba806fb556af707bb4447c7329d07e2877e8ac6339acd1c",
+        "candidateBaseSha256": "63290a402108fd7fdba806fb556af707bb4447c7329d07e2877e8ac6339acd1c",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/lib/auth-lock.ts",
+        "sha256": "ac6dcb873fd0f4146bbe696bc8acd40f0196bdcc0b53b2d2d0e4cf0b18469802",
+        "candidateBaseSha256": "ac6dcb873fd0f4146bbe696bc8acd40f0196bdcc0b53b2d2d0e4cf0b18469802",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/lib/local-work.ts",
+        "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+        "candidateBaseSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/lib/draft-client.ts",
+        "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+        "candidateBaseSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+        "byteIdentical": true
+      },
+      {
+        "file": "packages/ui-react/src/lib/draft-api.ts",
+        "sha256": "10729b02ce6062315ff0ffe55cf5465b09ee3478284aa51b4bc71dccf1d98bdf",
+        "candidateBaseSha256": "10729b02ce6062315ff0ffe55cf5465b09ee3478284aa51b4bc71dccf1d98bdf",
+        "byteIdentical": true
+      }
+    ],
+    "lowerHarness": {
+      "pending1954Head": "b28d87462018895238d1637e209de1d5969d342e",
+      "currentBase": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+      "removedOnlyExactAddedCase": true,
+      "remainingLowerFileByteIdentical": true,
+      "exactCaseSha256": "748565e4ee4f9ac9e074e3b1b79373ac4d2a64329241e462db139d75a65abd67",
+      "baselineLowerSha256": "4518f2a7c29345b4b5fed7a2cf378232049d0e4732c5bc88541d217f453446b3"
+    }
+  },
+  "preservation": {
+    "result": [
+      {
+        "file": "draft-client.test.ts",
+        "awaitCounts": [
+          151,
+          173
+        ],
+        "missingAwaits": [],
+        "addedAwaits": [
+          "await clock.advance(SAVE_PAUSE - 1 - 200)",
+          "await until(() => a.drafts().drafts[id]?.host?.revision === 1)",
+          "await until(() => b.drafts().drafts[id]?.host?.revision === 1)",
+          "await until(() => a.drafts().drafts[id]?.host?.revision === 2)",
+          "await until(() => host.calls.filter(call => call === `GET /drafts/${id}`).length > gets, 5000, true)",
+          "await clock.advance(0)",
+          "await clock.advance(SAVE_PAUSE - 1)",
+          "await clock.advance(delay - 1)",
+          "await checkHorizons()",
+          "await checkHorizons()",
+          "await until(() => host.rows.get(id)?.revision === 1)",
+          "await clock.advance(0)",
+          "await clock.advance(SAVE_PAUSE - 1)",
+          "await clock.advance(1)",
+          "await clock.advance(delay - 1)",
+          "await clock.advance(1)",
+          "await release()",
+          "await clock.advance(1)",
+          "await clock.advance(1)",
+          "await clock.advance(1)",
+          "await clock.advance(delay - 1)",
+          "await clock.advance(1)"
+        ],
+        "matcherCounts": [
+          110,
+          125
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [
+          "expect(host.calls.filter(call => call.startsWith(\"PUT\")), \"the retired read must not upload under any draft id\").toEqual(puts)",
+          "expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), \"the retired read leaves no live session draft\").toBe(false)",
+          "expect(ref).toEqual({ draftId: id, revision: 2 })",
+          "expect(a.drafts().sends[\"req-two-clients\"]?.state).toBe(\"accepted\")",
+          "expect(b.drafts().drafts[id]?.host?.revision).toBe(2)",
+          "expect(host.calls.filter(call => call.startsWith(\"PUT\")), \"a second clean client must not recreate consumed content under any draft id\").toEqual(puts)",
+          "expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), \"neither client recreates a live session draft\").toBe(false)",
+          "expect(b.drafts().drafts[id], \"the clean client observed the host tombstone through its list\").toBeUndefined()",
+          "expect(clock.events.some(event => event.kind === \"registered\" && event.delay === SAVE_PAUSE), \"the client registered its default save deadline\").toBe(true)",
+          "expect(ref).toEqual({ draftId: id, revision: 1 })",
+          "expect(drafts().sends[\"req-consumed\"]?.state).toBe(\"accepted\")",
+          "expect(host.calls.filter(call => call.startsWith(\"PUT\")), \"accepted content must not issue another PUT under any draft id\").toEqual(puts)",
+          "expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), \"consumption leaves no live session draft\").toBe(false)",
+          "expect(owedWork, \"acceptance registers its actual zero-delay owed work\").toBeDefined()",
+          "expect(acceptedEvents.some(event => event.kind === \"fired\" && event.id === owedWork?.id), \"the retired draft's callback actually ran\").toBe(true)"
+        ],
+        "nameCounts": [
+          41,
+          43
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      },
+      {
+        "file": "draft-runtime.test.ts",
+        "awaitCounts": [
+          116,
+          118
+        ],
+        "missingAwaits": [
+          "await hostUntil((d) => !d.some((x) => x.sessionId === session))",
+          "await Bun.sleep(1500)"
+        ],
+        "addedAwaits": [
+          "await fixture(a.page, (f) => ({ view: f.view(), priorRequests: f.sends().map(send => send.requestId) }))",
+          "await until(a.page, `f.sends().some(send => !${JSON.stringify(saved.priorRequests)}.includes(send.requestId) && send.state === \"accepted\")`)",
+          "await fixture(a.page, (f) => f.sends())",
+          "await hostUntil((d) => !d.some((x) => x.sessionId === session) && prompts.filter((p) => p === offline).length >= 1)"
+        ],
+        "matcherCounts": [
+          24,
+          28
+        ],
+        "originalMatchersRetainedInOrder": true,
+        "addedMatchers": [
+          "expect(saved.view.revision, \"the send starts with an acknowledged host revision\").not.toBeNull()",
+          "expect(saved.view.revision).toBeGreaterThan(0)",
+          "expect(accepted).toHaveLength(1)",
+          "expect(accepted[0]?.draftRef).toEqual({ draftId: saved.view.draftId, revision: saved.view.revision })"
+        ],
+        "nameCounts": [
+          1,
+          1
+        ],
+        "originalNamesRetainedInOrder": true,
+        "parseErrors": [
+          0,
+          0
+        ]
+      }
+    ],
+    "retained1954CaseByteIdentical": true
+  },
+  "priorBoundClearEvidence": {
+    "source": "b28d87462018895238d1637e209de1d5969d342e",
+    "artifact": "docs/process/evidence/test-wait-consumed-draft-observations.json",
+    "artifactSha256": "86eb4e33ea2e902fc07c54005dd8dbd26109fc8a03c2cd3445e7c23c0393d00c",
+    "basis": "Actual production bound-clearing fault recreates content after the native default 800 ms save and fails the original final host-absence assertion; the retained exact lower case fails on any additional PUT. Native/client/fixture/lockfile and lower harness identities are recorded above. These historical mutations were not rerun for this source-identical attribution."
+  },
+  "passiveObservations": {
+    "incompleteCapture": {
+      "diagnosticComplete": false,
+      "reason": "Captured JSON ends within the first browser page before its final-window data; no complete page trace is recoverable.",
+      "originalTest": {
+        "passed": 1,
+        "failed": 0,
+        "filtered": 2,
+        "expectations": 28,
+        "bodyMs": 16546.06,
+        "bunSeconds": 68.01,
+        "commandSeconds": 68.12,
+        "setupMs": 50908.643027,
+        "userCPUSeconds": 88.69,
+        "systemCPUSeconds": 9.39,
+        "maxRSSKiB": 1236980
+      },
+      "actualRetainedWindowMs": 1500.1091950000118,
+      "enterToWindowStartMs": 290.251597999988
+    },
+    "transportProbe": {
+      "exitCode": 0,
+      "results": [
+        {
+          "size": 32768,
+          "fileBytes": 32795,
+          "fileSHA256": "eb78dfd45edd16fc9c390bad98185e493f05146fb63ac9df679cebb2b9cfdf38",
+          "consoleCapturedBytes": 32795,
+          "consoleSHA256": "eb78dfd45edd16fc9c390bad98185e493f05146fb63ac9df679cebb2b9cfdf38",
+          "consoleJSONValid": true,
+          "byteIdentical": true
+        },
+        {
+          "size": 65536,
+          "fileBytes": 65563,
+          "fileSHA256": "3badc28fb8cfe8845c88b73e473cd69485187f123a9ada1d85ffb496983087fa",
+          "consoleCapturedBytes": 65563,
+          "consoleSHA256": "3badc28fb8cfe8845c88b73e473cd69485187f123a9ada1d85ffb496983087fa",
+          "consoleJSONValid": true,
+          "byteIdentical": true
+        },
+        {
+          "size": 131072,
+          "fileBytes": 131100,
+          "fileSHA256": "88bc7d5fd79f26f63eea71a1711b466eaa7f0ec3dfc403d754edbd45c1f2443c",
+          "consoleCapturedBytes": 131100,
+          "consoleSHA256": "88bc7d5fd79f26f63eea71a1711b466eaa7f0ec3dfc403d754edbd45c1f2443c",
+          "consoleJSONValid": true,
+          "byteIdentical": true
+        }
+      ],
+      "fixtureRemoved": true,
+      "limit": "One observed transport command only; no emitter attribution beyond captured output path.",
+      "commandSeconds": 0.08,
+      "pass": 1,
+      "expects": 3,
+      "interpretation": "The same wrapper/output route captured valid byte-identical console and file JSON at all three sizes. This did not reproduce the first capture truncation and does not identify a fixed limit or emitter cause."
+    },
+    "completeCapture": {
+      "source": "6090132d964c8ccde4ee43fc5e85382f7ac40640",
+      "selectedCases": 1,
+      "pass": 1,
+      "fail": 0,
+      "expectations": 28,
+      "filtered": 2,
+      "resources": {
+        "commandSeconds": 65.32,
+        "bunSeconds": 65.24,
+        "bodyMs": 16242.15,
+        "setupMs": 48582.398909,
+        "cpuUserSeconds": 84.92,
+        "cpuSystemSeconds": 7.88,
+        "maxRSSKiB": 1235088
+      },
+      "capture": {
+        "valid": true,
+        "pages": 2,
+        "networkRecords": 2,
+        "pageCounts": [
+          323,
+          224
+        ],
+        "networkCounts": [
+          144,
+          54
+        ],
+        "bytes": 69989,
+        "sha256": "162088a138cd5635aa108cbc788b29ae2411df3b3fc73dc3ea749f70cf50fe1c"
+      },
+      "actualOriginalWindowMs": 1502.0282740000039,
+      "enterToWindowStartMs": 303.4308139999994,
+      "bundleSHA256": "1b027d3e5913226b282ebd384d177126299fd48394f0a0dd360a416a50e0db3c",
+      "pages": [
+        {
+          "pageIndex": 0,
+          "currentDocumentEvents": 323,
+          "dropped": 0,
+          "windowKindCounts": {
+            "timer-clear-call": 7,
+            "fetch-call": 1,
+            "timer-register": 6,
+            "fetch-fulfilled": 1,
+            "body-call": 1,
+            "body-fulfilled": 1
+          },
+          "lastDraftCall": {
+            "t": 7592,
+            "kind": "fetch-call",
+            "n": 88,
+            "method": "PUT",
+            "category": "draft-item",
+            "relativeToWindowStartMs": -565.375
+          },
+          "idbTransactions": 23,
+          "idbCompleteDispatches": 23,
+          "lastIdbCompleteRelativeToWindowStartMs": -7858.574951171875,
+          "localWorkStatusPublications": 0,
+          "delay250Registrations": 0
+        },
+        {
+          "pageIndex": 1,
+          "currentDocumentEvents": 224,
+          "dropped": 0,
+          "windowKindCounts": {
+            "timer-register": 8,
+            "fetch-call": 2,
+            "timer-clear-call": 8,
+            "fetch-fulfilled": 2,
+            "body-call": 2,
+            "body-fulfilled": 2
+          },
+          "lastDraftCall": {
+            "t": 1437.300000011921,
+            "kind": "fetch-call",
+            "n": 64,
+            "method": "PUT",
+            "category": "draft-item",
+            "relativeToWindowStartMs": -6358.074951171875
+          },
+          "idbTransactions": 23,
+          "idbCompleteDispatches": 23,
+          "lastIdbCompleteRelativeToWindowStartMs": -7209.175048828125,
+          "localWorkStatusPublications": 0,
+          "delay250Registrations": 0
+        }
+      ],
+      "interpretation": [
+        "No draft publication, local-work status publication, observed IndexedDB transaction or visibility/online/focus/selection event occurred in the captured final window on either current document.",
+        "Other activity continued: SDK liveness registrations, a transient turn-status interval and non-draft-class GET/body completions. Endpoint and consumer identity for the latter were not retained.",
+        "The sending client registered and fired actual zero-delay owed work before the window. Cross-process clock alignment is approximate; these snapshots do not establish global quiescence.",
+        "Early IndexedDB transactions completed on both pages; their exact service ownership remains unattributed. The account-bound local-work conclusion is source inference, not a captured accountKey value."
+      ]
+    }
+  },
+  "sourceCorrection": {
+    "classification": "source-inferred fixture scope",
+    "basis": "This fixture mounts BrainUiProvider and ChatPage without ConnectionGate/LoginScreen/useVpnStatus account binding. connection.accountKey starts null; local-work onAccount/changed guards leave account-bound writes inactive. AUTH_MODE=none alone is not the reason.",
+    "limit": "No direct runtime accountKey value was captured. Real IndexedDB remains present. Account-bound storage behavior in other fixtures is not covered by this inference."
+  },
+  "lowerControls": {
+    "sourceBase": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+    "runs": [
+      {
+        "mode": "candidate",
+        "exitCode": 0,
+        "pass": 43,
+        "fail": 0,
+        "expects": 300,
+        "bunMs": 137.0,
+        "commandSeconds": 0.2,
+        "userSeconds": 0.2,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 91872,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-client.test.ts"
+        ],
+        "environmentOverrides": {},
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-client.test.ts",
+            "restoredCandidateSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+            "executedSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          },
+          {
+            "file": "packages/ui-react/src/lib/draft-client.ts",
+            "restoredCandidateSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+            "executedSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+          }
+        ]
+      },
+      {
+        "mode": "host-gone",
+        "exitCode": 1,
+        "pass": 0,
+        "fail": 1,
+        "expects": 35,
+        "bunMs": 97.0,
+        "commandSeconds": 0.17,
+        "userSeconds": 0.16,
+        "systemSeconds": 0.06,
+        "maxRssKiB": 84056,
+        "faultPath": {
+          "putsBefore": 2,
+          "putsAfter": 3,
+          "refreshEvents": [
+            {
+              "kind": "registered",
+              "id": 16,
+              "at": 1792030795533,
+              "delay": 800
+            },
+            {
+              "kind": "cancelled",
+              "id": 16,
+              "at": 1792030795533,
+              "delay": 800
+            },
+            {
+              "kind": "registered",
+              "id": 17,
+              "at": 1792030795533,
+              "delay": 0
+            },
+            {
+              "kind": "fired",
+              "id": 17,
+              "at": 1792030795533,
+              "delay": 0
+            }
+          ],
+          "interpretation": "The actual 800 ms registration (id 16) was cancelled by refresh; the actual zero-delay callback (id 17) fired before the extra PUT under another id. Earlier id 11 is an ordinary setup save, not the mutation delay."
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-client.test.ts",
+          "--test-name-pattern",
+          "a second clean client never uploads a consumed draft after a stale read or deletion refresh"
+        ],
+        "environmentOverrides": {},
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-client.test.ts",
+            "restoredCandidateSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+            "executedSha256": "5940f5c4858c8399552cd1ea42c353c2af89c802d8af7e6560323a219511eac7"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "3215988ec4f9cd2c3cd7d06851ed5b0b1756fb476d5ae4e9a01193fcbfd36b3d"
+          },
+          {
+            "file": "packages/ui-react/src/lib/draft-client.ts",
+            "restoredCandidateSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+            "executedSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+          }
+        ]
+      },
+      {
+        "mode": "stale-get",
+        "exitCode": 1,
+        "pass": 0,
+        "fail": 1,
+        "expects": 2,
+        "bunMs": 94.0,
+        "commandSeconds": 0.17,
+        "userSeconds": 0.14,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 80296,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-client.test.ts",
+          "--test-name-pattern",
+          "a read begun before this page's send consumed the draft does not bring it back"
+        ],
+        "environmentOverrides": {},
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-client.test.ts",
+            "restoredCandidateSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+            "executedSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          },
+          {
+            "file": "packages/ui-react/src/lib/draft-client.ts",
+            "restoredCandidateSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+            "executedSha256": "0b4fc45b542bd6c4cdcc019f944515f425cdee2dce2c67d4c1c871344e7a7266"
+          }
+        ]
+      },
+      {
+        "mode": "restored",
+        "exitCode": 0,
+        "pass": 43,
+        "fail": 0,
+        "expects": 300,
+        "bunMs": 139.0,
+        "commandSeconds": 0.21,
+        "userSeconds": 0.2,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 89012,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-client.test.ts"
+        ],
+        "environmentOverrides": {},
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-client.test.ts",
+            "restoredCandidateSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+            "executedSha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          },
+          {
+            "file": "packages/ui-react/src/lib/draft-client.ts",
+            "restoredCandidateSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+            "executedSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+          }
+        ]
+      }
+    ],
+    "commandSeconds": 0.75,
+    "restored": true
+  },
+  "nativeControls": {
+    "sourceBase": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+    "runs": [
+      {
+        "mode": "baseline",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "expects": 84,
+        "bunSeconds": 97.46,
+        "commandSeconds": 97.53999999999999,
+        "userSeconds": 86.76,
+        "systemSeconds": 8.85,
+        "maxRssKiB": 1235444,
+        "setupMs": 48529.889422,
+        "retainedWaitCount": 3,
+        "retainedWaitMs": 4500.394568999996,
+        "cases": [
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 16306.95
+          },
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 900 desktop, light, reduced motion: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 15839.99
+          },
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 1440 desktop, dark: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 16367.31
+          }
+        ],
+        "summedBodyMs": 48514.25,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-runtime.test.ts"
+        ],
+        "environmentOverrides": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        },
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-runtime.test.ts",
+            "restoredCandidateSha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+            "executedSha256": "d37eae3fb24d1e52ba2a6feba7104d47e39585a1d08567799c62678d3306d053"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          }
+        ]
+      },
+      {
+        "mode": "phone",
+        "exitCode": 0,
+        "pass": 1,
+        "fail": 0,
+        "expects": 32,
+        "bunSeconds": 64.46,
+        "commandSeconds": 64.54,
+        "userSeconds": 85.92,
+        "systemSeconds": 7.58,
+        "maxRssKiB": 1231696,
+        "setupMs": 48901.898850000005,
+        "retainedWaitCount": 0,
+        "retainedWaitMs": 0,
+        "cases": [
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 15142.24
+          }
+        ],
+        "summedBodyMs": 15142.24,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-runtime.test.ts",
+          "--test-name-pattern",
+          "^mounted per-session drafts.*390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision$"
+        ],
+        "environmentOverrides": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        },
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-runtime.test.ts",
+            "restoredCandidateSha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+            "executedSha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          }
+        ]
+      },
+      {
+        "mode": "wrong-ref",
+        "exitCode": 1,
+        "pass": 0,
+        "fail": 1,
+        "expects": 29,
+        "bunSeconds": 64.32,
+        "commandSeconds": 64.41,
+        "userSeconds": 85.5,
+        "systemSeconds": 8.07,
+        "maxRssKiB": 1242064,
+        "setupMs": 48729.798677000006,
+        "retainedWaitCount": 0,
+        "retainedWaitMs": 0,
+        "cases": [
+          {
+            "outcome": "fail",
+            "name": "mounted per-session drafts > 390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 15166.6
+          }
+        ],
+        "summedBodyMs": 15166.6,
+        "failure": "The additional exact draftRef assertion expected saved revision 5 and received accepted stored revision 6. The outbound message and returned reference were unchanged; the original final three assertions were not reached after this intended failure.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-runtime.test.ts",
+          "--test-name-pattern",
+          "^mounted per-session drafts.*390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision$"
+        ],
+        "environmentOverrides": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        },
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-runtime.test.ts",
+            "restoredCandidateSha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+            "executedSha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "fe548c728a44206539b0cee0fd304a83e173591bb263066557312f15b35d3157"
+          }
+        ]
+      },
+      {
+        "mode": "restored",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "expects": 96,
+        "bunSeconds": 93.56,
+        "commandSeconds": 93.65,
+        "userSeconds": 87.3,
+        "systemSeconds": 8.76,
+        "maxRssKiB": 1259924,
+        "setupMs": 48590.935531999996,
+        "retainedWaitCount": 0,
+        "retainedWaitMs": 0,
+        "cases": [
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 15072.24
+          },
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 900 desktop, light, reduced motion: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 14383.67
+          },
+          {
+            "outcome": "pass",
+            "name": "mounted per-session drafts > 1440 desktop, dark: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "bodyMs": 15044.4
+          }
+        ],
+        "summedBodyMs": 44500.31,
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/draft-runtime.test.ts"
+        ],
+        "environmentOverrides": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        },
+        "sourceFiles": [
+          {
+            "file": "packages/ui-react/tests/draft-runtime.test.ts",
+            "restoredCandidateSha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+            "executedSha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44"
+          },
+          {
+            "file": "packages/ui-react/src/stores/draft-state.ts",
+            "restoredCandidateSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+            "executedSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+          }
+        ]
+      }
+    ],
+    "commandSeconds": 320.14,
+    "restored": true
+  },
+  "proofResponsibilities": [
+    {
+      "domain": "native browser/host",
+      "guarantee": "Both live clients, default saving before send, exact positive saved-reference acceptance, real backend prompt receipt and host draft consumption, all original composer/host/one-send assertions."
+    },
+    {
+      "domain": "registered client timers",
+      "guarantee": "Sending-client retired zero/save work, own stale GET fencing, second clean-client stale GET and later deletion refresh, no additional PUT under any id over save and backoff horizons."
+    },
+    {
+      "domain": "existing retry cases",
+      "guarantee": "Actual failed-request retry registrations and cancellation remain in existing cases; merely advancing backoff-sized horizons here is not a forced retry callback claim."
+    }
+  ],
+  "limits": [
+    "One matched native pair on an uncontrolled shared host; wall-time reduction is not a whole-CI or CPU improvement.",
+    "Peak RSS is the GNU time process-tree maximum, not summed browser memory.",
+    "No universal minimum delay or global browser drain is established. The combined proof is specific to this host-draft fixture and its no-new-input observation.",
+    "Historical mutation evidence and local controls do not establish hosted qualification of a later integrated tree."
+  ],
+  "receiptIndices": [
+    {
+      "collection": "incomplete-timeline",
+      "entries": [
+        {
+          "receipt": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "1855-draft-native-timeline-ast.ts",
+          "sha256": "5730042f1e580293bbe2e85ad91268ccc9e17281dc7da6ac27244423b1765c16",
+          "bytes": 2208
+        },
+        {
+          "receipt": "1855-draft-native-timeline-proposal.md",
+          "sha256": "68ee4f4cf0851150476176d9c92f2713c43831868a7473d0f0e1d4af720b8a2b",
+          "bytes": 5917
+        },
+        {
+          "receipt": "1855-run-draft-native-timeline.py",
+          "sha256": "0d94ce7fc04d5cd45f598f86d273a9fefd7a8ada838540783e4aba04a6640bff",
+          "bytes": 2553
+        },
+        {
+          "receipt": "ast-proof.json",
+          "sha256": "b0aebb6a8787f0c8ba4cf21d0f5cda6ab8c1a0d516fd427e1dac33f2f5f3425c",
+          "bytes": 1348
+        },
+        {
+          "receipt": "candidate.patch",
+          "sha256": "d9e2a3b56499bac3f37b9f70f4f5007287d44928ef1542978f1719a1398c6fef",
+          "bytes": 15002
+        },
+        {
+          "receipt": "client.js",
+          "sha256": "1b027d3e5913226b282ebd384d177126299fd48394f0a0dd360a416a50e0db3c",
+          "bytes": 15108320
+        },
+        {
+          "receipt": "command.json",
+          "sha256": "ad26c419d2ef5090050268a22a286006faeedac3e51dbaa0b0e30f5efa872c3c",
+          "bytes": 1923
+        },
+        {
+          "receipt": "completion.json",
+          "sha256": "b5688608d47c10a5bccd3137d428f5bb5a2b60c7b1e21342e0e770679d1057fb",
+          "bytes": 438
+        },
+        {
+          "receipt": "manifest.json",
+          "sha256": "364ee119ea7fbefbf0e6069c9c81842b356ffe90df11d3116db14808b82b4f61",
+          "bytes": 1111
+        },
+        {
+          "receipt": "observed-draft-runtime-client.ts",
+          "sha256": "d8f3a6bc5fab5fc52a01dd0c5d0351292dd5306fcda5e6e89bfb184d474ebd05",
+          "bytes": 2967
+        },
+        {
+          "receipt": "observed-draft-runtime.test.ts",
+          "sha256": "bd66f016f74bea56bb3d242485ad01f096e3870369af5e69d95b0a8db861e3c2",
+          "bytes": 22651
+        },
+        {
+          "receipt": "observed-draft-timeline-observer.ts",
+          "sha256": "1b64cbd68d8cff2bc37c963fef8ce447333688e8ce9f8ad8409e5609a06e162a",
+          "bytes": 7161
+        },
+        {
+          "receipt": "original-draft-runtime-client.ts",
+          "sha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "bytes": 2783
+        },
+        {
+          "receipt": "original-draft-runtime.test.ts",
+          "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "bytes": 20326
+        },
+        {
+          "receipt": "run.log",
+          "sha256": "fa09eefb92c3673474b686ba270827107b5f05140c06aaafe27256c3af05a45a",
+          "bytes": 62229
+        },
+        {
+          "receipt": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "run.time",
+          "sha256": "ecf6a071ee3fa3e580ec7050a5662ca7dd79330cb240106224f7f43850c2a123",
+          "bytes": 986
+        }
+      ]
+    },
+    {
+      "collection": "transport-probe",
+      "entries": [
+        {
+          "receipt": "131072.json",
+          "sha256": "88bc7d5fd79f26f63eea71a1711b466eaa7f0ec3dfc403d754edbd45c1f2443c",
+          "bytes": 131100
+        },
+        {
+          "receipt": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "1855-run-console-transport-probe.py",
+          "sha256": "d4188f2232fa9e41f364b3d86be53a4a0fd33640e686630ff6ae5a45da9b179c",
+          "bytes": 2555
+        },
+        {
+          "receipt": "32768.json",
+          "sha256": "eb78dfd45edd16fc9c390bad98185e493f05146fb63ac9df679cebb2b9cfdf38",
+          "bytes": 32795
+        },
+        {
+          "receipt": "65536.json",
+          "sha256": "3badc28fb8cfe8845c88b73e473cd69485187f123a9ada1d85ffb496983087fa",
+          "bytes": 65563
+        },
+        {
+          "receipt": "command.json",
+          "sha256": "21c310d43fe45dcda0ffcf36e7f63c8154e1abde12e0018807699fc6c5020a2f",
+          "bytes": 610
+        },
+        {
+          "receipt": "fixture.ts",
+          "sha256": "4b0fa679344a87440b62cffc56a66f4f04fff6f03a54d0c1cface74204fdfa91",
+          "bytes": 648
+        },
+        {
+          "receipt": "report.json",
+          "sha256": "58e9792dcd9ddedee6400a54873a6e9e951cadd9df428f298f08184cd5dc1b33",
+          "bytes": 1179
+        },
+        {
+          "receipt": "run.log",
+          "sha256": "bcdf6c953140c7bb51d70edefcdad298467abc4d493cb0dfe6b066cdd4aa8ffe",
+          "bytes": 230299
+        },
+        {
+          "receipt": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "run.time",
+          "sha256": "0c6914422308b645277040da9a5be4f11e50b646bde0cd8db228104943eb81ce",
+          "bytes": 884
+        }
+      ]
+    },
+    {
+      "collection": "complete-timeline",
+      "entries": [
+        {
+          "receipt": "1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "1855-draft-native-timeline-file-ast.ts",
+          "sha256": "6644c904d0ead3e331ea8a1ff7cc8f5d82c516dda961ec1b7125a0498bde1b66",
+          "bytes": 2213
+        },
+        {
+          "receipt": "1855-run-draft-native-timeline-file.py",
+          "sha256": "1132acb2b3a0fca05ee9d642679475d8a3994b84c3a0bf0eedff85f10f98a924",
+          "bytes": 3609
+        },
+        {
+          "receipt": "ast-proof.json",
+          "sha256": "b0aebb6a8787f0c8ba4cf21d0f5cda6ab8c1a0d516fd427e1dac33f2f5f3425c",
+          "bytes": 1348
+        },
+        {
+          "receipt": "candidate.patch",
+          "sha256": "7861c6e8aaddcb56b9b57c664fb1624d81f150c3be7f4c6316ae9a8b2567cfda",
+          "bytes": 15203
+        },
+        {
+          "receipt": "capture-proposal.md",
+          "sha256": "e1d4c2c4cf79b641b92049a5748fa128f1c7313abffd037a4ee257318ab38f5f",
+          "bytes": 2082
+        },
+        {
+          "receipt": "capture-validation.json",
+          "sha256": "73b7f385fc9c296f59a0eb61813c51747ddd4eae33378d6469243043475d8ed6",
+          "bytes": 237
+        },
+        {
+          "receipt": "client.js",
+          "sha256": "1b027d3e5913226b282ebd384d177126299fd48394f0a0dd360a416a50e0db3c",
+          "bytes": 15108320
+        },
+        {
+          "receipt": "command.json",
+          "sha256": "3eade9848e21fb910034209d98e3e5d663473dd2d7490c635918881eecc19e96",
+          "bytes": 2186
+        },
+        {
+          "receipt": "completion.json",
+          "sha256": "3478f190bc46a732fc93b61b9e6310eec9483aa2e65529ededee87ddd4183b68",
+          "bytes": 438
+        },
+        {
+          "receipt": "manifest.json",
+          "sha256": "6274a33c583d5665cba69802967c82f9cff6f0409a327c000a0e7e9999afc795",
+          "bytes": 1367
+        },
+        {
+          "receipt": "observed-draft-runtime-client.ts",
+          "sha256": "d8f3a6bc5fab5fc52a01dd0c5d0351292dd5306fcda5e6e89bfb184d474ebd05",
+          "bytes": 2967
+        },
+        {
+          "receipt": "observed-draft-runtime.test.ts",
+          "sha256": "dc6cfb9954f63b829ae568798b96288cd3f75d20758e87936976bf58b8bfcc10",
+          "bytes": 22851
+        },
+        {
+          "receipt": "observed-draft-timeline-observer.ts",
+          "sha256": "1b64cbd68d8cff2bc37c963fef8ce447333688e8ce9f8ad8409e5609a06e162a",
+          "bytes": 7161
+        },
+        {
+          "receipt": "original-draft-runtime-client.ts",
+          "sha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "bytes": 2783
+        },
+        {
+          "receipt": "original-draft-runtime.test.ts",
+          "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "bytes": 20326
+        },
+        {
+          "receipt": "run.log",
+          "sha256": "eeb5f006d4a67becbe562c677fbd2930aa2b94a526dd15e5892af911142e68d1",
+          "bytes": 781
+        },
+        {
+          "receipt": "run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "run.time",
+          "sha256": "3493b2ad5c068556d971479a5e17e787c0a184427491c4dc1eb6b1907bc24223",
+          "bytes": 986
+        },
+        {
+          "receipt": "timeline.json",
+          "sha256": "162088a138cd5635aa108cbc788b29ae2411df3b3fc73dc3ea749f70cf50fe1c",
+          "bytes": 69989
+        }
+      ]
+    },
+    {
+      "collection": "lower-controls",
+      "entries": [
+        {
+          "receipt": "candidate/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "candidate/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "candidate/command.json",
+          "sha256": "e37b40649559e18d98a00e23d299dd9321be3882e06a0c403288dabbd836ab19",
+          "bytes": 1360
+        },
+        {
+          "receipt": "candidate/completion.json",
+          "sha256": "0c20e64c79086ab97a535f7ef0b33aea307c475e38295a2bea469fd09533e9b9",
+          "bytes": 83
+        },
+        {
+          "receipt": "candidate/executed-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "candidate/executed-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "candidate/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "candidate/original-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "candidate/original-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "candidate/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "candidate/run.log",
+          "sha256": "73394564231aabcce7870e15e5e5053ee815f8b1ed55ef7a892b1cb29de0d9f2",
+          "bytes": 4879
+        },
+        {
+          "receipt": "candidate/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "candidate/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "candidate/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "candidate/run.time",
+          "sha256": "bf62c3ee8bf8f3b14ddf3ba3b4e297d28e861d3a9a9b2ed5295087fbd134176d",
+          "bytes": 781
+        },
+        {
+          "receipt": "driver.py",
+          "sha256": "cdb37c7e8fceaf16fcc69bc9eaf9bc7a1470073901068242b16959ccab62c7b1",
+          "bytes": 2658
+        },
+        {
+          "receipt": "host-gone/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "host-gone/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "host-gone/actual-timer-events.json",
+          "sha256": "629b31f9e6062c2716cd4b7b3c763409b71f19fdad5436761036e7427a9f19fc",
+          "bytes": 3429
+        },
+        {
+          "receipt": "host-gone/command.json",
+          "sha256": "a3a88732a88f762607dcc1e423438d0f139ed0586363df4a9e87890b110b5d6e",
+          "bytes": 1486
+        },
+        {
+          "receipt": "host-gone/completion.json",
+          "sha256": "3b5b35b8526428b2a0865e20fea71b66ec54b0e9ddfb31220cc437245dd01948",
+          "bytes": 83
+        },
+        {
+          "receipt": "host-gone/executed-draft-client.test.ts",
+          "sha256": "5940f5c4858c8399552cd1ea42c353c2af89c802d8af7e6560323a219511eac7",
+          "bytes": 66308
+        },
+        {
+          "receipt": "host-gone/executed-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "host-gone/executed-draft-state.ts",
+          "sha256": "3215988ec4f9cd2c3cd7d06851ed5b0b1756fb476d5ae4e9a01193fcbfd36b3d",
+          "bytes": 45270
+        },
+        {
+          "receipt": "host-gone/original-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "host-gone/original-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "host-gone/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "host-gone/run.log",
+          "sha256": "fb3e05f71f9264f4f65ccf369f4b11b3b1a0ade24ac1fb0443cc48c8971a939a",
+          "bytes": 4208
+        },
+        {
+          "receipt": "host-gone/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "host-gone/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "host-gone/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "host-gone/run.time",
+          "sha256": "d674ace4dcb169da7ac0f6a085c42131aa00dd0499d35890747782a01044152e",
+          "bytes": 928
+        },
+        {
+          "receipt": "report.json",
+          "sha256": "0692310a1325edfe029b41bc62c7d1e5a45360d8e234ff49e4c1467d468114cb",
+          "bytes": 2413
+        },
+        {
+          "receipt": "restored/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "restored/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "restored/command.json",
+          "sha256": "b36a3bd9d722c60f4e396818edf6831f6efb009d85df09409f847ffb250ec996",
+          "bytes": 1358
+        },
+        {
+          "receipt": "restored/completion.json",
+          "sha256": "5d278a9ce13608f5671666db7a071e44d085a791bc9093ab1dac0145c218ff49",
+          "bytes": 83
+        },
+        {
+          "receipt": "restored/executed-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "restored/executed-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "restored/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "restored/original-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "restored/original-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "restored/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "restored/run.log",
+          "sha256": "dc2d95ec2cb7d820df2e03c409a60b54823068222b4efdb0de7954a1c5e81636",
+          "bytes": 4879
+        },
+        {
+          "receipt": "restored/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "restored/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "restored/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "restored/run.time",
+          "sha256": "7a8cb055ba31c154ee6a4c31ba7ee4bdedcaf5c6b001578bf1a2095166720e15",
+          "bytes": 777
+        },
+        {
+          "receipt": "stale-get/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "stale-get/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "stale-get/command.json",
+          "sha256": "36967ff4b301f5921dc81561dac5313abfed67400bc0dea9f9ee509befa24862",
+          "bytes": 1473
+        },
+        {
+          "receipt": "stale-get/completion.json",
+          "sha256": "7d948b989584738adfc7421ea81350f65bb1c7de69fb34f1293d4ff3a7512845",
+          "bytes": 83
+        },
+        {
+          "receipt": "stale-get/executed-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "stale-get/executed-draft-client.ts",
+          "sha256": "0b4fc45b542bd6c4cdcc019f944515f425cdee2dce2c67d4c1c871344e7a7266",
+          "bytes": 28756
+        },
+        {
+          "receipt": "stale-get/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "stale-get/original-draft-client.test.ts",
+          "sha256": "ea115dd5169d97e11c08292b2bcddc2f33938ec651c09451de06486912f1e840",
+          "bytes": 66049
+        },
+        {
+          "receipt": "stale-get/original-draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "bytes": 28849
+        },
+        {
+          "receipt": "stale-get/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "stale-get/run.log",
+          "sha256": "6a31715d1c4773e5a6d3d4626b83647750597ad218369494567e575a7c1f0dd2",
+          "bytes": 1552
+        },
+        {
+          "receipt": "stale-get/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "stale-get/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "stale-get/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "stale-get/run.time",
+          "sha256": "9e791e768ba91950334f550650c7690fb3750271ea57150005c061b9c25d3090",
+          "bytes": 914
+        }
+      ]
+    },
+    {
+      "collection": "native-controls",
+      "entries": [
+        {
+          "receipt": "baseline/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "baseline/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "baseline/command.json",
+          "sha256": "21bda90d7608e3acc51a6f4a6e3bcae4be7ff9f41a494bca7cc9b0804f4e02ff",
+          "bytes": 1163
+        },
+        {
+          "receipt": "baseline/completion.json",
+          "sha256": "0a1c10c2fdf0d25100460eaa54e0105c538927db156e32cdccffd36af59545ba",
+          "bytes": 83
+        },
+        {
+          "receipt": "baseline/executed-draft-runtime.test.ts",
+          "sha256": "d37eae3fb24d1e52ba2a6feba7104d47e39585a1d08567799c62678d3306d053",
+          "bytes": 20696
+        },
+        {
+          "receipt": "baseline/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "baseline/original-draft-runtime.test.ts",
+          "sha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+          "bytes": 21163
+        },
+        {
+          "receipt": "baseline/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "baseline/run.log",
+          "sha256": "a79bb7b1c86fd93acde54ef436726cf782ae6325fde47e54e44979dcf9c1c513",
+          "bytes": 982
+        },
+        {
+          "receipt": "baseline/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "baseline/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "baseline/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "baseline/run.time",
+          "sha256": "466bba0a5603d80aea125be44a1a1d2152a07fc22cd064fb8ae44179cd6ee143",
+          "bytes": 793
+        },
+        {
+          "receipt": "driver.py",
+          "sha256": "f7bb15433cd7aeeb869c75d463c0087090b25f60b54e15b0e1a8c99bfa7f85e8",
+          "bytes": 2684
+        },
+        {
+          "receipt": "phone/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "phone/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "phone/command.json",
+          "sha256": "35d200bc363da2c6f031086aa74098c1a59d19a52c79b24e76c3b3bf177c1ee5",
+          "bytes": 1363
+        },
+        {
+          "receipt": "phone/completion.json",
+          "sha256": "0d85e84057049cd2ab841e09cffe82d609a905ab55bf389cd8c55863b1e74d9b",
+          "bytes": 83
+        },
+        {
+          "receipt": "phone/executed-draft-runtime.test.ts",
+          "sha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44",
+          "bytes": 21414
+        },
+        {
+          "receipt": "phone/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "phone/original-draft-runtime.test.ts",
+          "sha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+          "bytes": 21163
+        },
+        {
+          "receipt": "phone/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "phone/run.log",
+          "sha256": "00a782bfefbb9143d6636d7b2d8eaa32348c09d54ed7a82c8ab4f42f5014573b",
+          "bytes": 770
+        },
+        {
+          "receipt": "phone/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "phone/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "phone/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "phone/run.time",
+          "sha256": "10b70a8fa934947acb9191dd3ed8d533d883630692aa42fee45b2a58dc7089ea",
+          "bytes": 986
+        },
+        {
+          "receipt": "report.json",
+          "sha256": "1579a64348e2a63d4bbb7396fd31f5530b9871b8fd95ea93a480e37752967984",
+          "bytes": 4602
+        },
+        {
+          "receipt": "restored/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "restored/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "restored/command.json",
+          "sha256": "df5d87cbe229c2ec8ad0a5d296ef227eaaea8787eee99ef35a096027a5b6d931",
+          "bytes": 1163
+        },
+        {
+          "receipt": "restored/completion.json",
+          "sha256": "bac49341a5a69b48277852003818e90e063edb94f87b222f7b7a5e279b1e7c37",
+          "bytes": 83
+        },
+        {
+          "receipt": "restored/executed-draft-runtime.test.ts",
+          "sha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44",
+          "bytes": 21414
+        },
+        {
+          "receipt": "restored/executed-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "restored/original-draft-runtime.test.ts",
+          "sha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+          "bytes": 21163
+        },
+        {
+          "receipt": "restored/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "restored/run.log",
+          "sha256": "3c46b01ac0cb9877534df40baa699eaa47cc2876800d311b45564ba96f45b494",
+          "bytes": 932
+        },
+        {
+          "receipt": "restored/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "restored/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "restored/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "restored/run.time",
+          "sha256": "8f86446ca9bbbb076ed1a1cd6b86371283753ceaa99c6efa9f6554992af394a9",
+          "bytes": 795
+        },
+        {
+          "receipt": "wrong-ref/1855-check-completion-namespace.py",
+          "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+          "bytes": 180
+        },
+        {
+          "receipt": "wrong-ref/1855-completion-unprivileged-namespace.sh",
+          "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+          "bytes": 438
+        },
+        {
+          "receipt": "wrong-ref/command.json",
+          "sha256": "af1bab168f37cf69155406f2f5e6d16a42a96cb73cd49422085500c5f1597029",
+          "bytes": 1371
+        },
+        {
+          "receipt": "wrong-ref/completion.json",
+          "sha256": "da9c91d8bd3573ae1fb738e024f7499db5765ff93b1320b2e92c8a62d9049022",
+          "bytes": 83
+        },
+        {
+          "receipt": "wrong-ref/executed-draft-runtime.test.ts",
+          "sha256": "ddfc7c2c18ab8d4ceaa79a61198f64821947cc7ba8420880d6980ec7efd1ff44",
+          "bytes": 21414
+        },
+        {
+          "receipt": "wrong-ref/executed-draft-state.ts",
+          "sha256": "fe548c728a44206539b0cee0fd304a83e173591bb263066557312f15b35d3157",
+          "bytes": 45361
+        },
+        {
+          "receipt": "wrong-ref/original-draft-runtime.test.ts",
+          "sha256": "222e36cc973781f2a4041760ff008287456d133ad835d1919ec61583d8365161",
+          "bytes": 21163
+        },
+        {
+          "receipt": "wrong-ref/original-draft-state.ts",
+          "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "bytes": 45261
+        },
+        {
+          "receipt": "wrong-ref/run.log",
+          "sha256": "8545081ca0bd8dfd545e0c365104d5b6b40fac5f5e2e7af6938c78046e745458",
+          "bytes": 1741
+        },
+        {
+          "receipt": "wrong-ref/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "wrong-ref/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "wrong-ref/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        },
+        {
+          "receipt": "wrong-ref/run.time",
+          "sha256": "3c15421ab976601af8bb1984a8b3d38b5d4e0c7f3b26f99336bc22b6c6b6363e",
+          "bytes": 1024
+        }
+      ]
+    }
+  ]
+}

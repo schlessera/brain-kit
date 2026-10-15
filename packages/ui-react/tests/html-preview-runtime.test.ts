@@ -98,8 +98,11 @@ document.title = "Escape probe ready";
 
 const PAGES: Record<string, string> = {
   "voyage/report.html": REPORT,
-  "voyage/popup.html": escapePage(`window.open(A + "/popup?ctx=" + ctx);`),
-  "voyage/form.html": escapePage(`document.getElementById("f").submit();`,
+  "voyage/popup.html": escapePage(`
+    const popup = window.open(A + "/popup?ctx=" + ctx);
+    document.documentElement.dataset.popupResult = popup === null ? "null" : "window";
+    document.documentElement.dataset.popupReturned = "yes";`),
+  "voyage/form.html": escapePage(`document.getElementById("f").submit(); document.documentElement.dataset.formReturned = "yes";`,
     `<form id="f" action="ATTACKER/form" method="get"><input name="ctx" value="probe"></form>`),
   "voyage/download.html": escapePage(`document.getElementById("d").click();`,
     `<a id="d" download="ithaca.txt" href="data:text/plain,ithaca">file</a>`),
@@ -236,12 +239,12 @@ function expectIsolated(r: Record<string, unknown>): void {
 }
 
 /**
- * Native negative observation, not rendering readiness: an out-of-process
- * navigation, popup or download may surface after the renderer's click/DOM
- * work completes. A page JS clock cannot advance those browser-process tasks.
+ * Native download observation, not rendering readiness: a download may surface
+ * after the renderer's click/DOM work completes. A page JS clock cannot advance
+ * those tasks; this fixture has no demonstrated native denial terminal.
  * Preserve the established 1500ms observation budget after a confirmed click;
- * expected-escape controls additionally await the actual hit. Shortening this
- * window needs native control measurements, not a quiet DOM (test-waits.md).
+ * navigation and single popup/form attempts have native boundaries below.
+ * Shortening a denied window needs native controls, not a quiet DOM (test-waits.md).
  */
 const observationMetrics = { calls: 0, elapsedMs: 0, pollCalls: 0, pollMs: 0 };
 async function observeDeniedBrowserActions(page: Page | Frame) {
@@ -261,6 +264,97 @@ async function until(what: string, condition: () => boolean | Promise<boolean>, 
     await Bun.sleep(25);
     observationMetrics.pollMs += performance.now() - started;
   }
+}
+
+/**
+ * The fixture performs one synchronous navigation to a static, inert document.
+ * Observe that exact document's native completion; this is not a global drain.
+ * A changed app URL is an escape result for the caller's original assertions.
+ * Detaching the preview alone does not establish either outcome.
+ */
+async function finishExpectedNavigation(target: Page | Frame, path: string, app?: { page: Page; url: string }) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the destination ${path} completes or the app navigates`, async () => {
+    if (app && app.page.url() !== app.url) return true;
+    return target.evaluate((url) => location.href === url && document.readyState === "complete", destination).catch(() => false);
+  });
+}
+
+function observePopupDenials(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("allow-popups")) messages.push(message.text());
+  });
+  return messages;
+}
+
+/**
+ * This fixture makes one native window.open call without noopener/features.
+ * A null return alone is insufficient: successful noopener creation can also
+ * return null. Require the exact destination's native sandbox denial on the
+ * initiating page, plus the returned call. Chrome denies this action before
+ * auxiliary-context creation. This does not drain other browser actions.
+ * Any actual popup OR attacker hit instead returns to the original escape
+ * assertions, including a popup whose navigation never reaches the attacker.
+ */
+async function finishPopupAttempt(target: Page | Frame, path: string, denials: string[], escaped: () => boolean) {
+  const destination = `${attackerOrigin}${path}`;
+  await until(`the actual popup attempt ${path} is denied or escapes`, async () => {
+    const result = await target.evaluate(() => ({
+      complete: document.documentElement.dataset.popupReturned === "yes",
+      isNull: document.documentElement.dataset.popupResult === "null",
+    }));
+    const denied = denials.some((message) => message.includes(`Blocked opening '${destination}'`)
+      && message.includes("frame whose 'allow-popups' permission is not set."));
+    return (result.complete && result.isNull && denied) || escaped();
+  });
+}
+
+function observeFormDenials(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("allow-forms")) messages.push(message.text());
+  });
+  return messages;
+}
+
+/**
+ * The fixture submits one GET form with its original fields. Chrome's exact
+ * sandbox denial returns before scheduling that submission. Require the
+ * native call's return as well; neither a quiet DOM nor another error suffices.
+ * Each context has a fresh hit cursor because both submit the same URL.
+ * Navigation may destroy the old document: only an actual new hit, never an
+ * evaluation failure, returns the escape result to the original assertions.
+ */
+async function finishFormAttempt(target: Page | Frame, context: "frame" | "tab", denials: string[], escaped: () => boolean) {
+  const destination = `${attackerOrigin}/form?ctx=probe`;
+  await until(`the actual form attempt in ${context} is denied or escapes`, async () => {
+    if (escaped()) return true;
+    const returned = await target.evaluate(() => document.documentElement.dataset.formReturned === "yes").catch(() => false);
+    const denied = denials.some((message) => message.includes(`Blocked form submission to '${destination}'`)
+      && message.includes("form's frame is sandboxed and the 'allow-forms' permission is not set."));
+    return (returned && denied) || escaped();
+  });
+}
+
+function observeTopDenials(page: Page): { name: string; message: string }[] {
+  const errors: { name: string; message: string }[] = [];
+  page.on("pageerror", (error) => errors.push({ name: error.name, message: error.message }));
+  return errors;
+}
+
+/**
+ * Observe the original uncaught setter's native SecurityError on the app Page.
+ * Chrome denies this exact destination before issuing the navigation request.
+ * An actual changed app URL instead returns the escape to the original oracle;
+ * a hit, detached frame or unrelated error alone cannot complete this boundary.
+ */
+async function finishTopAttempt(page: Page, appUrl: string, errors: { name: string; message: string }[]) {
+  const destination = `${attackerOrigin}/top?ctx=frame`;
+  await until("the actual frame-to-top assignment is denied or the app navigates", () =>
+    errors.some((error) => error.name === "SecurityError"
+      && error.message.includes(`does not have permission to navigate the target frame to '${destination}'`))
+    || page.url() !== appUrl);
 }
 
 /** A mark the escape probe set on its root, or "" (also while it navigates). */
@@ -316,7 +410,9 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * page never sees it, and every negative assertion passes vacuously (#1108).
    * So the frame must first report the pointer, and each click must then be
    * seen to land, or to have navigated something, before its window starts.
-   * An expected hit is awaited rather than assumed to fit in the window.
+   * Expected hits are awaited independently, then their exact inert destination
+   * must finish loading. Popup/form calls and frame-to-top assignment require
+   * their native denial; downloads retain their native observation window.
    */
   async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
@@ -332,12 +428,22 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         await frame.locator("#go").hover({ position: { x: 4 + (nudge++ % 8), y: 4 } });
         return (await mark(frame, "pointer")) === "in";
       });
+      const frameDenials = file === "voyage/popup.html" ? observePopupDenials(opened.page) : [];
+      const frameFormDenials = file === "voyage/form.html" ? observeFormDenials(opened.page) : [];
+      const frameFormHitCursor = attackerHits.length;
+      const topDenials = file === "voyage/top.html" ? observeTopDenials(opened.page) : [];
       const pagesBefore = opened.context.pages().length;
       await frame.locator("#go").click({ noWaitAfter: true });
       await until("the click lands in the preview frame", async () =>
         (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
       if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
-      await observeDeniedBrowserActions(opened.page);
+      if (expected.frame) await finishExpectedNavigation(frame, expected.frame, { page: opened.page, url: appUrl });
+      else if (file === "voyage/popup.html") await finishPopupAttempt(frame, "/popup?ctx=frame", frameDenials,
+        () => opened.context.pages().length > pagesBefore || hits().includes("/popup?ctx=frame"));
+      else if (file === "voyage/form.html") await finishFormAttempt(frame, "frame", frameFormDenials,
+        () => attackerHits.slice(frameFormHitCursor).includes("/form?ctx=probe"));
+      else if (file === "voyage/top.html") await finishTopAttempt(opened.page, appUrl, topDenials);
+      else await observeDeniedBrowserActions(opened.page);
       const result = {
         opened,
         appUrlAfterFrame: opened.page.url(),
@@ -350,11 +456,19 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
         const tab = await openInTab(opened);
         const tabUrl = tab.url();
         await tab.waitForFunction(() => document.title === "Escape probe ready");
+        const tabDenials = file === "voyage/popup.html" ? observePopupDenials(tab) : [];
+        const tabFormDenials = file === "voyage/form.html" ? observeFormDenials(tab) : [];
+        const tabFormHitCursor = attackerHits.length;
         const tabPagesBefore = opened.context.pages().length;
         await tab.locator("#go").click({ noWaitAfter: true });
         await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
         if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
-        await observeDeniedBrowserActions(tab);
+        if (expected.tab) await finishExpectedNavigation(tab, expected.tab);
+        else if (file === "voyage/popup.html") await finishPopupAttempt(tab, "/popup?ctx=tab", tabDenials,
+          () => opened.context.pages().length > tabPagesBefore || hits().includes("/popup?ctx=tab"));
+        else if (file === "voyage/form.html") await finishFormAttempt(tab, "tab", tabFormDenials,
+          () => attackerHits.slice(tabFormHitCursor).includes("/form?ctx=probe"));
+        else await observeDeniedBrowserActions(tab);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
         result.tabUrl = tab.url();
