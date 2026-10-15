@@ -266,7 +266,7 @@ For each removed list/rank/form race repetition, the retained proof is:
 
 All 57 manager cases and 56 DOM cases remain, including eight kind ×
 empty/stale races and logout during the read. Each lower case owns its root,
-storage and clock. The 17 native cases each own a fresh BrowserContext and
+storage and clock. The 24 native cases each own a fresh BrowserContext and
 request, close the context in `finally`, and cancel active turns after each
 case; the host/browser lifetime remains suite-owned. The representative runs
 independently and in randomized order. Its queued-state diagnostic also admits
