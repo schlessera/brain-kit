@@ -434,9 +434,12 @@ refuses rather than run git on the host.
   validated output workspace. Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
-  root remain read-only. After that worker and all its descendants have
-  exited, the host rejects linked storage and object alternates and runs
-  `git fsck --full --strict` before pushing. The transport has an explicit
+  root remain read-only. Maintenance completion awaits both the outer
+  bubblewrap monitor and EOF on the output pipes retained by namespace init.
+  A descendant can leave files between CLI exit and namespace teardown;
+  file presence alone does not show a surviving process. Before admitting
+  another transport, the host rejects linked storage and object alternates
+  and runs `git fsck --full --strict` before pushing. The transport has an explicit
   system/mirror mount list and never mounts the brain or its `.git`.
   It uses the literal protected `remote.origin.url`, without loading includes;
   writable Git includes cannot choose the credential's destination.

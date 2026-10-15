@@ -178,8 +178,8 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
       gitConfig: [["safe.directory", brain], ["safe.directory", mirror], [`url.file://${mirror}.insteadOf`, remote], ["remote.origin.pushurl", `file://${mirror}`]],
       ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager);
     if (last.exitCode !== 0) return last;
-    // runMaintenanceWorker settles only after the namespace's init exits:
-    // every child is gone before scanning the storage and admitting a key.
+    // Maintenance awaits both monitor exit and namespace-owned output EOF.
+    // A child may leave files during teardown: validate them before a key.
     const checked = await transport(["fsck", "--full", "--strict"]);
     if (checked.exitCode !== 0) return transportFailure(last, checked);
     const pushed = await transport(["push", "$REMOTE", "refs/heads/main:refs/heads/main"]);
