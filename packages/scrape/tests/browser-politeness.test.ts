@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteer, { type Browser, type Page, type HTTPRequest, type Target } from "puppeteer-core";
 import { createBrowserSession, type BrowserSession } from "../src/browser/session.js";
 import { ScrapeClient } from "../src/fetch/http.js";
 import { RateLimiter } from "../src/politeness/rate-limit.js";
@@ -24,6 +24,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
   let rules: string;
   let hits: Array<{ path: string; origin: string; at: number; ua: string }>;
   const sessions: BrowserSession[] = [];
+  let observeArrival: ((href: string) => void) | undefined;
   const body = () => document.body.textContent;
   const url = (path: string) => `${first.url.origin}${path}`;
 
@@ -33,6 +34,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
     function serve(req: Request): Response {
       const parsed = new URL(req.url);
       hits.push({ path: parsed.pathname, origin: parsed.origin, at: performance.now(), ua: req.headers.get("user-agent") ?? "" });
+      observeArrival?.(req.url);
       if (parsed.pathname === "/robots.txt") return new Response(rules);
       if (parsed.pathname === "/same") return Response.redirect(`${first.url.origin}/denied`, 302);
       if (parsed.pathname === "/cross") return Response.redirect(`${second.url.origin}/denied`, 302);
@@ -60,6 +62,109 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
     return s;
   }
   const requested = (path: string) => hits.filter((hit) => hit.path === path);
+
+  /** Observe this original policy load, without replacing native operation promises. */
+  function observePolicyLoad(robots: RobotsCache, watchedUrl: string) {
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>(done => { resolve = done; });
+      return { promise, resolve };
+    };
+    const policy = deferred();
+    const handler = deferred();
+    const destroyed = deferred();
+    const escaped = deferred();
+    const failed = deferred();
+    let observerError: unknown;
+    let hasObserverError = false;
+    let disposed = false;
+    const fail = (error: unknown) => { observerError = error; hasObserverError = true; failed.resolve(); };
+    const restore: Array<() => void> = [];
+    const forUrlDescriptor = Object.getOwnPropertyDescriptor(robots, "forUrl");
+    const forUrl = robots.forUrl;
+    Object.defineProperty(robots, "forUrl", {
+      configurable: true, writable: true,
+      value: function (this: RobotsCache, ...args: Parameters<RobotsCache["forUrl"]>) {
+        const pending = Reflect.apply(forUrl, this, args) as ReturnType<RobotsCache["forUrl"]>;
+        if (args[0] === watchedUrl) {
+          const settled = () => { policy.resolve(); };
+          void pending.then(settled, error => { settled(); fail(error); });
+        }
+        return pending;
+      },
+    });
+    restore.push(() => {
+      if (forUrlDescriptor) Object.defineProperty(robots, "forUrl", forUrlDescriptor);
+      else Reflect.deleteProperty(robots, "forUrl");
+    });
+    observeArrival = href => { if (href === watchedUrl) escaped.resolve(); };
+    restore.push(() => { observeArrival = undefined; });
+    let observedPage: Page | undefined;
+    const launch = () => {
+      const connection = puppeteer.connect({ browserURL: browserUrl });
+      void connection.then(browser => {
+        if (disposed) return;
+        const descriptor = Object.getOwnPropertyDescriptor(browser, "newPage");
+        const newPage = browser.newPage;
+        Object.defineProperty(browser, "newPage", {
+          configurable: true, writable: true,
+          value: function (this: Browser, ...args: Parameters<Browser["newPage"]>) {
+            const pending = Reflect.apply(newPage, this, args) as Promise<Page>;
+            void pending.then(page => {
+              if (disposed || observedPage) return;
+              observedPage = page;
+              const target = page.target();
+              const onDestroyed = (closed: Target) => {
+                if (closed === target) destroyed.resolve();
+              };
+              browser.on("targetdestroyed", onDestroyed);
+              restore.push(() => { browser.off("targetdestroyed", onDestroyed); });
+              const onDescriptor = Object.getOwnPropertyDescriptor(page, "on");
+              const on = page.on;
+              Object.defineProperty(page, "on", {
+                configurable: true, writable: true,
+                value: function (this: Page, ...args: unknown[]) {
+                  if (args[0] !== "request") return Reflect.apply(on, this, args);
+                  const listener = args[1] as (...events: unknown[]) => unknown;
+                  const wrapped = function (this: unknown, ...events: unknown[]) {
+                    const result = Reflect.apply(listener, this, events);
+                    try {
+                      const request = events[0] as HTTPRequest;
+                      if (request.url() === watchedUrl && request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+                        const settled = () => { handler.resolve(); };
+                        void Promise.resolve(result).then(settled, error => { settled(); fail(error); });
+                      }
+                    } catch (error) { fail(error); }
+                    return result;
+                  };
+                  return Reflect.apply(on, this, [args[0], wrapped, ...args.slice(2)]);
+                },
+              });
+              restore.push(() => {
+                if (onDescriptor) Object.defineProperty(page, "on", onDescriptor);
+                else Reflect.deleteProperty(page, "on");
+              });
+            }).catch(fail);
+            return pending;
+          },
+        });
+        restore.push(() => {
+          if (descriptor) Object.defineProperty(browser, "newPage", descriptor);
+          else Reflect.deleteProperty(browser, "newPage");
+        });
+      }).catch(fail);
+      return connection;
+    };
+    return {
+      launch,
+      complete: () => Promise.race([
+        Promise.all([policy.promise, handler.promise, destroyed.promise]),
+        escaped.promise,
+        failed.promise,
+      ]).then(() => { if (hasObserverError) throw observerError; }),
+      restore: () => { disposed = true; for (const undo of restore.reverse()) undo(); },
+    };
+  }
 
   test("standalone initial disallow never reaches the fixture origin", async () => {
     const error = await session().load({ url: url("/denied"), extract: body }).catch((err) => err);
@@ -152,13 +257,16 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
 
   test("policy waits time out, close pages and release capacity without a late request", async () => {
     const robots = new RobotsCache({ fetcher: async () => { await Bun.sleep(800); return { status: 200, body: "User-agent: *\nAllow: /" }; } });
-    const s = session({ robots, pageBudgetMs: 250, concurrency: 1 });
-    const error = await s.load({ url: url("/late"), extract: body }).catch((err) => err);
-    expect(requested("/late")).toHaveLength(0);
-    expect(error.message).toContain("budget");
-    await Bun.sleep(820);
-    expect(requested("/late")).toHaveLength(0);
-    expect(await s.load({ url: url("/next"), extract: body })).toBe("fixture");
+    const observation = observePolicyLoad(robots, url("/late"));
+    try {
+      const s = session({ robots, pageBudgetMs: 250, concurrency: 1, launch: observation.launch });
+      const error = await s.load({ url: url("/late"), extract: body }).catch((err) => err);
+      expect(requested("/late")).toHaveLength(0);
+      expect(error.message).toContain("budget");
+      await observation.complete();
+      expect(requested("/late")).toHaveLength(0);
+      expect(await s.load({ url: url("/next"), extract: body })).toBe("fixture");
+    } finally { observation.restore(); }
   });
 
   test("a timed-out pacing wait sends no late request and releases page capacity", async () => {

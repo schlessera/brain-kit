@@ -678,3 +678,36 @@ Setup and individual native-turn spans were not separately measured. The
 3070 ms advanced across four independent case clocks is source arithmetic,
 not elapsed time. Three native `setImmediate` boundaries remain; no native
 provider conformance proof is replaced.
+
+
+## Native robots-policy completion
+
+The [robots completion evidence](evidence/test-wait-browser-robots-completion.json)
+records five commands at source `a2b0cdb2`. The original 800 ms native robots
+fetch remains. The test waits for its original `forUrl` promise, the original
+matching main-frame interception handler, and destruction of the same native
+page target on the same attached connection. Synchronous observers return the
+original native operation promises. An actual forbidden HTTP arrival instead
+returns control to the original no-hit assertion; an absent destruction event
+does not conceal an escape.
+
+The original retained-window test and the candidate both fail that assertion
+when the real policy cancellation, post-policy abort guard and page closure are
+removed together. Both additionally report a leaked target in their original
+teardown check. Omitting the candidate completion fails an explicit diagnostic:
+the actual robots lookup started and remains pending even though its handler
+and page target have already finished. These controls establish this load's
+causal boundary, not a global network drain.
+
+The restored full file retains 14 tests / 66 expectations. The matched command
+takes 9.28 → 8.98 seconds; the selected case takes 1105.38 → 844.33 ms. Its
+actual completion wait is 561.22 ms, because the original fetch still has work
+to finish after budget expiry. The removed 820 ms observation is therefore not
+an 820 ms saving. CPU increases from 1.87 to 2.01 seconds and peak RSS from
+191952 to 193836 KiB. Setup and the baseline wait span were not separately
+measured; these are one shared-host pair, not a whole-CI claim.
+
+The other case's 1300 ms native observation stays. It also allows the real
+1200 ms rate limit to become eligible before the original next load's 300 ms
+budget. Handler completion and target destruction alone do not establish that
+eligibility, and the robots result does not justify changing it.
