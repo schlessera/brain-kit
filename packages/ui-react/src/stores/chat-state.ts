@@ -790,7 +790,10 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
   // at its new position; this never searches older answers for matching text.
   const live = previous.messages.at(-1);
   const liveAt = previous.messages.length - 1;
+  // A connect greeting opens an empty placeholder even for a finished turn.
+  // Only delivered progress or a known turn identifies an answer to move.
   if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
+    && (live.turnId || live.streamTurnId || live.content || live.thinking || live.toolCalls.length || live.askUserExchanges?.length)
     && next[liveAt]?.role === "user"
     && messages.slice(0, liveAt).every((m, i) => m.id === previous.messages[i]!.id)) {
     if (next.length === previous.messages.length + 1 && next.at(-1)?.role === "assistant") {

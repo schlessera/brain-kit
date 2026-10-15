@@ -69,6 +69,19 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
   return next;
 }
 
+/** A cold reattach opens a placeholder before the host's history arrives. */
+function emptyResume() {
+  globalThis.WebSocket = Socket as unknown as typeof WebSocket;
+  const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://ithaca-harbour.example" } });
+  roots.push(root);
+  root.connection.connect();
+  const socket = Socket.instances.at(-1)!;
+  socket.open();
+  root.stores.chat.getState().setActiveSession("s1");
+  socket.deliver({ type: "session_info", sessionId: "s1", isNew: false });
+  return { root, socket };
+}
+
 describe("a reconnect while the turn in view runs", () => {
   for (const closure of ["answered", "ended", "revoked"] as const) {
     test(`a late pending frame after history cannot revive an approval closed as ${closure}`, () => {
@@ -968,6 +981,51 @@ describe("a reconnect while the turn in view runs", () => {
       next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rowing again." });
       expect(buffer(root).messages.at(-1)).toMatchObject({ id: answer.id, content: `${text} Rowing again.`, isStreaming: true });
       expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", "Bound.", "Then bind me to the mast", `${text} Rowing again.`]);
+    });
+  }
+
+  for (const chunked of [false, true]) {
+    test(`a cold reattach placeholder cannot hide a replayed failure (${chunked ? "split" : "single"})`, () => {
+      const { root, socket } = emptyResume();
+      const placeholder = buffer(root).messages.at(-1)!;
+      expect(placeholder).toMatchObject({ content: "", parts: [], isStreaming: true });
+      expect(placeholder.turnId).toBeUndefined();
+      const failure = { errorClass: "session_too_large", message: "Conversation exceeds runtime state capacity" };
+      const received = [history("")[0], { role: "assistant", content: "", toolCalls: [], failure }];
+      socket.deliver({ type: "session_history", sessionId: "s1", messages: chunked ? received.slice(0, 1) : received });
+      expect(buffer(root).isStreaming, "an uncorrelated empty placeholder is not a delivered peer answer").toBe(false);
+      if (chunked) socket.deliver({ type: "session_history", sessionId: "s1", append: true, messages: received.slice(1) });
+      expect(buffer(root).messages.at(-1)).toMatchObject({ failure, isStreaming: false });
+      expect(buffer(root).messages.at(-1)!.id).not.toBe(placeholder.id);
+      expect(buffer(root).messages).toHaveLength(2);
+    });
+  }
+
+  for (const progress of ["text", "thinking", "tools", "turn", "streamTurn"] as const) {
+    test(`a peer's live ${progress} survives its user arriving in history`, () => {
+      const { root, socket } = emptyResume();
+      const chat = root.stores.chat.getState();
+      if (progress === "text") chat.appendText("s1", "Bound.");
+      if (progress === "thinking") chat.appendThinking("s1", "Mind the reef.");
+      if (progress === "tools") chat.startToolCall("s1", "wax-1", "Bash");
+      if (progress === "turn" || progress === "streamTurn") chat.stampTurn("s1", "turn-2");
+      const received = {
+        role: "assistant", content: progress === "text" ? "Bound." : "",
+        ...(progress === "thinking" ? { thinking: "Mind the reef." } : {}),
+        toolCalls: progress === "tools" ? [{ id: "wax-1", name: "Bash", input: {} }] : [],
+      };
+      if (progress === "streamTurn") {
+        socket.deliver({ type: "session_history", sessionId: "s1", messages: [received] });
+        expect(buffer(root).messages.at(-1)!.turnId).toBeUndefined();
+        expect(buffer(root).messages.at(-1)!.streamTurnId).toBe("turn-2");
+      }
+      const answer = buffer(root).messages.at(-1)!;
+      socket.deliver({ type: "session_history", sessionId: "s1", messages: [history("")[0], received] });
+      expect(buffer(root).messages.at(-1)).toMatchObject({ id: answer.id, content: answer.content, isStreaming: true });
+      expect(buffer(root).messages.at(-1)!.thinking).toBe(answer.thinking || undefined);
+      expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id)).toEqual(answer.toolCalls.map((t) => t.id));
+      expect(buffer(root).isStreaming).toBe(true);
+      expect(buffer(root).messages).toHaveLength(2);
     });
   }
 
