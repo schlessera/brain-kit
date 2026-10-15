@@ -564,9 +564,12 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
       const animations = panel.getAnimations({ subtree: true });
       expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
       for (const animation of animations) animation.pause();
+      const originalTransform = nav.style.transform;
       for (const time of [0, 150, 300]) {
         for (const animation of animations) animation.currentTime = time;
         const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
+        expect(nav.style.transform, "paint reference restores the navigation transform").toBe(originalTransform);
+        expect(getComputedStyle(panel).visibility, "destination stays painted after comparison").toBe("visible");
         expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
         expect(paint.same,
           `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
