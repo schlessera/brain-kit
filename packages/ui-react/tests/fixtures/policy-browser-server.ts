@@ -47,6 +47,13 @@ const governedTurns = createGovernedTurns({ nativeManager: native.client, brainP
 governedTurns.facts();
 const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: root, dbPath, objectsRoot: join(state, "objects") });
 const decisions: unknown[] = [];
+// These milliseconds use the server process clock, independently of browser scene time.
+const receiptTimeline: Array<Record<string, unknown>> = [];
+let receiptSequence = 0;
+function recordReceipt(detail: Record<string, unknown>) {
+  if (receiptTimeline.length === 128) receiptTimeline.shift();
+  receiptTimeline.push({ ms: performance.now(), ...detail });
+}
 let mode = "", principalNow = principal, writes = 0, proposals = 0, reads = 0;
 const lock = createKeyedLock();
 const service = createPolicyProposals({ root, db, lock, observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, () => { write(); writes++; }),
@@ -70,7 +77,14 @@ const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry
 const handlers = createWsHandlers(host, principal);
 const app = new Hono<AppEnv>();
 app.use("*", cors());
-app.use("*", async (c, next) => { c.set("principal", principalNow); if (c.req.path.startsWith("/api/policy-proposals")) reads++; await next(); });
+app.use("*", async (c, next) => {
+  c.set("principal", principalNow);
+  const receipt = c.req.path.startsWith("/api/policy-proposals")
+    ? { requestId: ++receiptSequence, method: c.req.method, path: c.req.path, principal: principalNow.id } : undefined;
+  if (receipt) { reads++; recordReceipt({ stage: "request", ...receipt }); }
+  await next();
+  if (receipt) recordReceipt({ stage: "response", ...receipt, status: c.res.status });
+});
 app.route("/api", createPolicyProposalRoutes(host));
 app.route("/api", createAgentPolicyRoutes(host, () => launchLimits({}).status));
 app.post("/fixture", async c => {
@@ -79,7 +93,7 @@ app.post("/fixture", async c => {
   if (patch.account) principalNow = testPrincipal("telemachus");
   if (patch.invalidFile) writeFileSync(path, "---\nschema_version: 9\n---\nInvalid outside-turn edit.\n");
   if (patch.missingFile) { const { unlinkSync } = await import("node:fs"); unlinkSync(path); }
-  return c.json({ bytes: (await import("node:fs")).existsSync(path) ? readFileSync(path, "utf8") : null, original, proposed, writes, proposals, reads, decisions, journalChanges: db.query("SELECT path,actor,class FROM turn_journal_changes").all(), journalPolicies: db.query("SELECT policy_hash FROM turn_journal_turns ORDER BY started_at").all(), admitted, policy: governedTurns.facts().policy, events: db.query("SELECT actor, kind, payload FROM governance_events").all() });
+  return c.json({ bytes: (await import("node:fs")).existsSync(path) ? readFileSync(path, "utf8") : null, original, proposed, writes, proposals, reads, decisions, receiptTimeline, journalChanges: db.query("SELECT path,actor,class FROM turn_journal_changes").all(), journalPolicies: db.query("SELECT policy_hash FROM turn_journal_turns ORDER BY started_at").all(), admitted, policy: governedTurns.facts().policy, events: db.query("SELECT actor, kind, payload FROM governance_events").all() });
 });
 const contexts = new WeakMap<object, { send(data: string): void; close(code?: number, reason?: string): void }>();
 const context = (ws: any) => {
