@@ -46,8 +46,11 @@ reference that outlives the delete by even 1 ms therefore exhausts the
 manager's release deadline. `dead-root-trace.ts` matches each delete to its
 root and writes `dead-root-summary.json`, which records whether the delete
 itself queued the root or another task did, before or after the commit, with
-that task's kernel stack. The deliberate descriptor, cwd and namespace
-controls appear as `after-commit`. The trace is diagnostic evidence, not a
+that task's kernel stack. The deliberate descriptor, cwd, transient
+descriptor and namespace controls appear as `after-commit`. The manager wakes
+the transaction thread while a deleted root awaits reclamation, so the
+transient control is dropped within about a second. The held controls still
+reach the release deadline. The trace is diagnostic evidence, not a
 proof gate. Locally it needs root, tracefs, kprobes and kernel BTF.
 
 `seccomp.json` derives from Moby's Apache-2.0 profile at the revision recorded in
