@@ -23,6 +23,7 @@ import { createRecordingObservability, createStaticBackendRegistry, resolveServe
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { AgentBackend, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/server";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
+import { installReceiptWatchdogObserver } from "./fixtures/receipt-watchdog-observer";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
@@ -562,23 +563,93 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
 
   test("a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement", async () => {
     const { context, net } = await newContext();
+    let page: Page | undefined;
+    type Snapshot = { sends: Array<{ id: number; type: string; requestId?: string; submissionId?: string; probeId?: string; timers: number[] }>;
+      timers: Array<{ id: number; scope: number; delay: number; at: number; fired: number; clears: number }>; errors: number };
+    const snapshot = () => page!.evaluate(() => (window as unknown as { __receiptTimers: { snapshot(): Snapshot } }).__receiptTimers.snapshot());
+    const nativeWait = { polls: 0, waitedMs: 0 };
+    const nativeUntil = async (ready: () => Promise<boolean>, label = "RECEIPT_NATIVE_COMPLETION_MISSING") => {
+      const deadline = performance.now() + 5_000;
+      while (!await ready()) {
+        if (performance.now() >= deadline) throw new Error(label);
+        const started = performance.now();
+        await Bun.sleep(10);
+        nativeWait.polls++; nativeWait.waitedMs += performance.now() - started;
+      }
+    };
     try {
-      const page = await openPage(context);
+      page = await context.newPage();
+      await page.clock.install({ time: new Date("2026-07-12T12:00:00Z") });
+      await page.goto(origin);
+      await page.waitForFunction("window.__answers?.connected()");
       const requestId = await ask(page, "ask_user");
+      await page.evaluate(installReceiptWatchdogObserver, requestId);
       let dropped = 0;
-      net.dropServerFrame = (f) => f.type === "ask_answer_receipt" && dropped++ === 0;
-      const started = Date.now();
+      const pongs: string[] = [], receipts: Array<{ requestId: unknown; submissionId: unknown; state: unknown }> = [];
+      net.dropServerFrame = (f) => {
+        const metadata = f as { probeId?: unknown; requestId?: unknown; submissionId?: unknown; state?: unknown };
+        if (f.type === "pong" && typeof metadata.probeId === "string") pongs.push(metadata.probeId);
+        if (f.type === "ask_answer_receipt") receipts.push({ requestId: metadata.requestId, submissionId: metadata.submissionId, state: metadata.state });
+        return f.type === "ask_answer_receipt" && dropped++ === 0;
+      };
+      const wallStarted = performance.now();
+      const started = await page.evaluate(() => Date.now());
       await answer(page, "ask_user");
       await waitForState(page, requestId, "awaiting");
       expect(await page.locator('[data-answer-delivery="awaiting"] h4').textContent()).toBe("SENT · WAITING FOR THE HOST");
+      await nativeUntil(async () => dropped === 1);
+      const initial = await snapshot();
+      const answerSend = initial.sends.filter(s => s.type === "ask_user_response" && s.requestId === requestId);
+      expect(answerSend, "ONE_NATIVE_ANSWER_SEND").toHaveLength(1);
+      expect(answerSend[0]!.timers, "UNAMBIGUOUS_RECEIPT_TIMER_OWNER").toHaveLength(1);
+      const first = initial.timers[answerSend[0]!.timers[0]!]!;
+      expect(initial.errors, "RECEIPT_OBSERVER_VALID").toBe(0);
+      expect(first.delay, "DEFAULT_RECEIPT_REGISTRATION").toBe(5_000);
+      const remaining = first.at + 5_000 - await page.evaluate(() => Date.now());
+      expect(remaining, "RECEIPT_CLOCK_PAUSED_BEFORE_DEADLINE").toBeGreaterThan(1);
+      await page.clock.pauseAt(first.at + 5_000 - 1);
+      expect((await snapshot()).timers[first.id]!.fired, "RECEIPT_NOT_EARLY").toBe(0);
+      expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_answer_status")).toHaveLength(0);
+      expect(await page.evaluate(id => (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id]?.state, requestId), "RECEIPT_STILL_AWAITING_BEFORE_DEADLINE").toBe("awaiting");
+      await page.clock.runFor(1);
+      expect((await snapshot()).timers[first.id]!.fired, "RECEIPT_AT_DEADLINE").toBe(1);
+      await nativeUntil(async () => (await snapshot()).sends.some(s => s.type === "ask_answer_status" && s.requestId === requestId), "RECEIPT_STATUS_QUERY_MISSING");
+      await nativeUntil(async () => page!.evaluate(id => (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id]?.state === "answered", requestId));
       await waitForState(page, requestId, "answered", 15_000);
-      const elapsed = Date.now() - started;
+      const elapsed = await page.evaluate(() => Date.now()) - started;
       expect(dropped).toBe(2);
       expect(elapsed).toBeGreaterThanOrEqual(4_500);
       expect(settlements.get(requestId)).toHaveLength(1);
-      console.log(`[measure] lost receipt recovered after ${elapsed} ms`);
+      const accepted = await snapshot();
+      const status = accepted.sends.filter(s => s.type === "ask_answer_status" && s.requestId === requestId);
+      expect(status).toHaveLength(1);
+      expect(status[0]!.submissionId).toBe(answerSend[0]!.submissionId);
+      expect(status[0]!.timers, "UNAMBIGUOUS_REARMED_TIMER_OWNER").toHaveLength(1);
+      const rearmed = accepted.timers[status[0]!.timers[0]!]!;
+      expect(rearmed.delay, "DEFAULT_REARMED_RECEIPT_REGISTRATION").toBe(5_000);
+      expect(rearmed.clears, "ACCEPTED_RECEIPT_CANCELS_WATCHDOG").toBeGreaterThan(0);
+      const ping = accepted.sends.filter(s => s.type === "ping");
+      expect(ping, "RECEIPT_CALLBACK_PROBES_NATIVE_SOCKET").toHaveLength(1);
+      expect(ping[0]!.timers, "UNAMBIGUOUS_LIVENESS_TIMER_OWNER").toHaveLength(1);
+      await nativeUntil(async () => pongs.includes(ping[0]!.probeId!) && (await snapshot()).timers[ping[0]!.timers[0]!]!.clears > 0);
+      expect(receipts).toEqual([
+        { requestId, submissionId: answerSend[0]!.submissionId, state: "accepted" },
+        { requestId, submissionId: answerSend[0]!.submissionId, state: "accepted" },
+      ]);
+      expect(net.connections, "CORRELATED_PONG_RETAINS_SOCKET").toBe(1);
+      expect(await page.evaluate<boolean>("window.__answers.connected()")).toBe(true);
+      await page.clock.runFor(5_001);
+      const after = await snapshot();
+      expect(after.timers[rearmed.id]!.fired, "NO_RETIRED_RECEIPT_CALLBACK").toBe(0);
+      expect(after.sends.filter(s => s.type === "ask_answer_status")).toHaveLength(1);
+      expect(after.sends.filter(s => s.type === "ask_user_response")).toHaveLength(1);
+      expect(settlements.get(requestId)).toHaveLength(1);
+      expect(after.errors, "RECEIPT_OBSERVER_VALID_AFTER_COMPLETION").toBe(0);
+      console.log("[measure] lost receipt", JSON.stringify({ logicalMs: elapsed, nativeMs: performance.now() - wallStarted, ...nativeWait, timers: after }));
     } finally {
-      await context.close();
+      try {
+        if (page && !page.isClosed()) expect(await page.evaluate(() => (window as unknown as { __receiptTimers?: { dispose(): { restored: boolean; errors: number } } }).__receiptTimers?.dispose() ?? { restored: true, errors: 0 })).toEqual({ restored: true, errors: 0 });
+      } finally { await context.close(); }
     }
   });
 

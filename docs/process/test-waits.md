@@ -70,6 +70,7 @@ exceptions. Unmeasured means no saving is claimed.
 | --- | --- | --- |
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
+| Browser `answer-delivery-runtime.test.ts`, lost receipt | Actual default watchdog registration, before/at delivery, same-submission status query, accepted receipt cancellation and correlated native pong | Page logical time owns the 5000 ms policy; the original host-wall elapsed assertion is explicitly redistributed. Native socket/storage/locks and original delivery/settlement oracles remain. See [receipt watchdog evidence](#receipt-watchdog-registration-and-native-completion). |
 | `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Remove only startup and pre-navigation rendering sleeps, with actual ready/streaming composer state and fonts/finite animations/stable geometry. Recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
@@ -1153,3 +1154,74 @@ identities. The earlier 54.07-second observer feasibility command retained both
 Timing diagnostics and after-assertion trace-file writes are included in command
 cost; final source omits those diagnostics. These are single shared-host
 observations, not a whole-CI speedup or a universal minimum negative window.
+
+## Receipt watchdog registration and native completion
+
+The [receipt watchdog evidence](evidence/test-wait-answer-receipt-watchdog.json)
+records a source-frozen study at `c9522333`. The lost-receipt case still answers
+through the real browser UI, drops the first actual host receipt, observes the
+original Awaiting and Answered states, and requires one backend settlement.
+Its original `elapsed >= 4500` expression now measures page logical time rather
+than host wall time. Independent default registration and before/at callback
+assertions own the five-second policy; this is an explicit change in guarantee
+distribution, not unchanged wall-time semantics.
+
+The observer identifies the receipt timer from a successful routed client send
+for the exact request on the same synchronous stack, captures its actual
+submission, and later asserts matching receipt/status identities. It observes
+the existing Playwright route, which forwards to the native host socket, and
+resolves the actual inherited send descriptor owner. Constructors, instances,
+prototype chains, argument counts, return/throw behavior and timer handles stay
+intact. Extra same-stack registrations fail the ownership assertion; numeric
+matching or callback text is insufficient (`installReceiptWatchdogObserver`,
+`packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts:2-88`). The actual
+manager arms after send and later probes liveness before asking for the same
+submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:324-339`;
+`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:247-257`).
+
+The candidate checks the independently required 5000 ms registration before
+pausing at its actual deadline minus one millisecond. It observes no callback,
+no status query and the unchanged Awaiting state, then advances one millisecond.
+The candidate checks accepted-receipt identity, a matching native pong, and
+actual clears of the rearmed receipt timer and known ping timer before advancing
+again. The rearmed receipt clear is checked before the pong wait. Another
+5001 ms progression must not deliver a retired receipt callback or another
+answer. Native storage, Web Locks, sockets and host clocks remain real. The
+installed clock coalesces due UI/interval callbacks at the pause target; this
+does not establish unchanged display cadence, animation completion or global
+quiescence. A missed deadline fails closed.
+
+All four controls fail for their intended reason: 4999 and 5001 registrations
+fail the default assertion; removing both receipt and forget clears fails the
+actual cancellation count; removing the watchdog status query reaches the named
+five-second native completion cap after the actual callback and pong. Every
+original matcher expression and case name remains in order at that recorded
+source. Its full file has 20 cases and changes from 111 to 136 executed
+expectations. One original
+first-send matcher belongs only to a premature-keyup fault branch, explaining
+why the initial static 112/137 prediction was wrong; its rejected checker and
+separate baseline revalidation are preserved without a baseline rerun.
+
+The final matched full-file command changes from 40.80 to 34.32 seconds, summed
+bodies from 39.29669 to 32.65204 seconds, and the lost-receipt body from 6.28103 to
+1.41684 seconds. The target-specific observed reduction is 4.86419 seconds in
+this single pair; it is not an exact causal estimate. Other case variation is
+separate. Setup increases from 1002.930717 to
+1147.687937 ms. CPU falls from 14.11 to 13.68 seconds and maximum RSS from 581552
+to 579116 KiB. The candidate's measured recovery operation takes 332.045083 ms
+while logical elapsed is 5093 ms; these spans are not the whole case. This is one
+shared-host pair, not a whole-CI speedup or a universal minimum wait.
+
+The six final commands cost 56.74 seconds. All ten native commands cost
+173.46 seconds, including the reused 40.80-second baseline, an intermediate
+35.86-second full pass, and two unexpected diagnostic failures: 36.60 seconds
+for incorrect own-descriptor assumptions and 3.46 seconds for a stale pause
+sample. Neither failure is mutation proof. The 326 immutable receipt entries
+retain those failures, their exact sources and every restoration. Diagnostic
+capture adds a post-oracle/failure page read and synchronous host writes; it does
+not clear timers or manufacture cancellation. The functional change adds 159 net
+lines, including an 88-line helper coupled to the reviewed routed-send and clock
+semantics. Other answer cases and the separate late-principal coverage were
+unchanged in that source-frozen study. Later integration retains the separate
+principal-read distribution and seven added Other-answer cases; those changes
+and the new mandatory fixture build are outside this historical timing pair.
