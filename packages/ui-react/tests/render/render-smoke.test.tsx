@@ -3554,10 +3554,10 @@ describe("authentication and passkey root ownership", () => {
     const platform = browser(); const a = transport("alpha"); const b = transport("beta");
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], { credentials: [] });
+      await reply(a.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       expect(platform.ceremonies).toHaveLength(0);
       expect(view.getByText("Beta key")).toBeTruthy();
@@ -3569,12 +3569,12 @@ describe("authentication and passkey root ownership", () => {
     const platform = browser(); const a = transport("alpha"); const b = transport("beta");
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], { credentials: [] });
+      await reply(a.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       expect(platform.ceremonies).toHaveLength(1);
       view.rerender(security(b.root));
-      await reply(b.requests[0], { credentials: [] });
+      await reply(b.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       await reply(b.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       await act(async () => { platform.ceremonies[0].resolve(credential()); await flushPromises(); });
@@ -3619,10 +3619,10 @@ describe("authentication and passkey root ownership", () => {
     const loss = spyOn(a.root.localWorkFlow, "loss").mockReturnValue(inventory.promise);
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], keys("Alpha key"));
+      await reply(a.matching("/auth/passkey/list")[0], keys("Alpha key"));
       fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await act(async () => { inventory.resolve(summary); await flushPromises(); });
       expect(a.matching("/auth/logout", "POST"), "a replaced inventory owner never dispatches logout").toHaveLength(0);
       expect(view.getByText("Beta key")).toBeTruthy();
@@ -3635,7 +3635,7 @@ describe("authentication and passkey root ownership", () => {
     window.confirm = () => true;
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], keys("Alpha key"));
+      await reply(a.matching("/auth/passkey/list")[0], keys("Alpha key"));
       fireEvent.click(view.getByRole("button", { name: "Rename Alpha key" }));
       changeControlledInput(view.getByRole("textbox") as HTMLInputElement, "Obsolete name");
       fireEvent.click(view.getByRole("button", { name: "Save name" }));
@@ -3644,7 +3644,7 @@ describe("authentication and passkey root ownership", () => {
       await act(async () => { await flushPromises(); });
       expect(a.matching("/auth/logout", "POST")).toHaveLength(1);
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/same", "PUT")[0], { ok: true });
       await reply(a.matching("/auth/passkey/same", "DELETE")[0], { ok: true });
       await reply(a.matching("/auth/logout", "POST")[0], { ok: true });
@@ -4752,7 +4752,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Skills", "Modules", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();

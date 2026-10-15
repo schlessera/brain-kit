@@ -5,6 +5,7 @@ import { isUserCancel, registerPasskey, supportsPasskeys } from "../../lib/passk
 import { Button, ChoiceOption } from "@schlessera/brain-ui-kit";
 import { LocalWorkDialog } from "../voice/local-work-dialog.js";
 import type { SignOutLoss } from "../../lib/local-work-flow.js";
+import { ToolPermissionsSection } from "./tool-permissions.js";
 import { PasskeyList } from "./passkey-list.js";
 
 /**
@@ -156,6 +157,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
   return (
     <>
     <PasskeyList
+      sections={<ToolPermissionsSection active={active} />}
       credentials={credentials}
       status={loading ? "loading" : passkeyMode ? "ready" : "unavailable"}
       busy={busy}
