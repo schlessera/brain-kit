@@ -601,7 +601,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
     const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-    await context.addInitScript((selection) => { Object.assign(window, { __observeContinuityPreparation: true, __observeContinuitySelection: selection }); }, mode === "empty" && newer);
+    await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true, __observeContinuitySelection: true }); });
     const page = await context.newPage();
     const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
     const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
@@ -683,13 +683,11 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
       expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
       let selectionEscaped = false;
-      if (mode === "empty" && newer) {
-        await until(page, `p.preparation.selectionReady(window.__selectionCheckpoint, ${preparation!.heldResumes}, ${JSON.stringify(sessionId)}, ${JSON.stringify(draft)})`, 5_000);
-        selectionEscaped = await page.evaluate<boolean>("window.__selectionOutcome === 'escaped-stream'");
-        if (!selectionEscaped) await finishRender(page);
-      } else await settle(page);
+      await until(page, `p.preparation.selectionReady(window.__selectionCheckpoint, ${preparation!.heldResumes}, ${JSON.stringify(sessionId)}, ${JSON.stringify(draft)}, ${JSON.stringify(mode)}, ${JSON.stringify(oldTurn)})`, 5_000);
+      selectionEscaped = await page.evaluate<boolean>("window.__selectionOutcome === 'escaped-stream'");
+      if (!selectionEscaped) await finishRender(page);
       expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the captured old snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
-      if (mode === "empty" && newer) expect(selectionEscaped, "a captured stream regression cannot be hidden by a later status").toBe(false);
+      expect(selectionEscaped, "a captured stream regression cannot be hidden by a later status").toBe(false);
       expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
       expect(await page.evaluate(() => {
@@ -704,7 +702,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       try {
         release?.(); peer?.close(); historyWaiters.delete(sessionId);
         try {
-          if (mode === "empty" && newer) expect(await page.evaluate<{ restored: boolean; active: boolean } | undefined>("window.__disposeContinuitySelection?.()"), "selection observer restores its own methods")
+          expect(await page.evaluate<{ restored: boolean; active: boolean } | undefined>("window.__disposeContinuitySelection?.()"), "selection observer restores its own methods")
             .toEqual({ restored: true, active: false });
         } finally {
           expect(await page.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")

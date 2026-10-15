@@ -1,7 +1,7 @@
 import type { BrainUiRoot } from "../../src/root.ts";
 import type { PartitionHandle, PartitionWrite } from "../../src/lib/local-partitions.ts";
 
-// Scoped to the empty/newer snapshot fixture. This observes existing operations;
+// Scoped to the three captured-history snapshot cases. This observes existing operations;
 // it never flushes work, replaces native requests, or advances a clock.
 export function observeContinuitySelection(root: BrainUiRoot) {
   const partitions = root.partitions!, work = root.localWork!;
