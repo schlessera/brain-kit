@@ -1,3 +1,4 @@
+import { discoveryLayout, discoveryRootIdentity } from "../../lib/discovery-layout.js";
 /**
  * The rendering seam: this file is the ONLY module in the package that imports
  * sigma or graphology. Everything it receives is renderer-agnostic (plain
@@ -84,6 +85,8 @@ export interface GraphCanvasProps {
   sizeBy?: SizeBy;
   /** Radial mode: draw this many distance rings (with hop labels) under the graph. */
   rings?: number;
+  /** Root/depth/filter identity; data-only updates keep the camera. */
+  sceneKey?: string;
   /** Mode-specific node color (community, distance, …). */
   nodeColor: (node: GraphNodePayload) => string;
   /** Optional per-edge color override (e.g. backlinks into the local center). */
@@ -227,12 +230,14 @@ export default function GraphCanvas({
   matchIds,
   sizeBy = "degree",
   rings = 0,
+  sceneKey,
   nodeColor,
   edgeColor,
   onSelect,
   onHover,
 }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const radialRoot = useRef<string | null>(null);
   const ringCanvasRef = useRef<HTMLCanvasElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const theme = useGraphTheme();
@@ -405,7 +410,7 @@ export default function GraphCanvas({
     );
     graph.clear();
 
-    const radial = layout === "radial" ? radialLayout(data.nodes) : null;
+    const radial = layout === "radial" ? radialLayout(data.nodes, 1, data.edges) : null;
 
     data.nodes.forEach((node, i) => {
       let x: number;
@@ -469,13 +474,19 @@ export default function GraphCanvas({
     }
     appliedSizes.current = sizes;
 
-    renderer.getCamera().animatedReset({ duration: 250 });
+    const identity = JSON.stringify([sceneKey ?? null, discoveryRootIdentity(data.nodes)]);
+    if (layout !== "radial" || radialRoot.current !== identity) {
+      // Discovery scene changes cut; same-root refetches preserve the camera.
+      if (layout === "radial") renderer.getCamera().setState({ x: 0.5, y: 0.5, ratio: 1, angle: 0 });
+      else renderer.getCamera().animatedReset({ duration: 250 });
+    }
+    radialRoot.current = layout === "radial" ? identity : null;
     renderer.refresh();
     // Styling props (nodeColor/edgeColor/sizeBy) are deliberately NOT deps:
     // the restyle effect below reapplies them in place, so a display-only
     // change never re-runs layout or resets the camera.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, layout]);
+  }, [data, layout, sceneKey]);
 
   // Restyle in place when a display-only prop changes (color-by, size-by).
   // Runs after every rebuild too, which is idempotent and keeps one source of
@@ -586,6 +597,7 @@ export default function GraphCanvas({
     const canvas = ringCanvasRef.current;
     if (!renderer || !canvas || ringCount === 0) return;
 
+    const packing = discoveryLayout(data.nodes, data.edges);
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
       const { clientWidth, clientHeight } = canvas;
@@ -607,15 +619,45 @@ export default function GraphCanvas({
       ctx.textAlign = "center";
       for (let d = 1; d <= ringCount; d++) {
         const radius = unit * d;
-        ctx.globalAlpha = 0.5;
+        if ((packing.lanes.get(d) ?? 1) > 1) {
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = theme.band;
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, unit * (d + 0.33), 0, 2 * Math.PI);
+          ctx.arc(center.x, center.y, unit * (d - 0.33), 0, 2 * Math.PI, true);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 0.35;
         ctx.beginPath();
         ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
         ctx.stroke();
         // Hop label at the top of the ring, skipped once rings get dense.
         if (unit > 28) {
           ctx.globalAlpha = 0.9;
-          ctx.fillText(String(d), center.x, center.y - radius - 4);
+          const label = `${d} · ${packing.counts.get(d) ?? 0}`;
+          const y = center.y - radius - ((packing.lanes.get(d) ?? 1) > 1 ? 0.33 * unit : 0) - 4;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = theme.background;
+          const width = ctx.measureText(label).width;
+          ctx.fillRect(center.x - width / 2 - 3, y - 10, width + 6, 13);
+          ctx.fillStyle = theme.labelMuted;
+          ctx.fillText(label, center.x, y);
         }
+      }
+      const missing = packing.wedges.find(w => w.id === null);
+      if (missing) {
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([4, 4]);
+        const radius = unit * (ringCount + 0.33);
+        // Sigma's y axis points up; our clockwise angle starts at the top.
+        ctx.beginPath();
+        ctx.moveTo(center.x, center.y);
+        const north = renderer.graphToViewport({ x: 0, y: 1 });
+        const orientation = Math.atan2(north.y - center.y, north.x - center.x);
+        ctx.arc(center.x, center.y, radius, orientation + missing.start, orientation + missing.end);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.globalAlpha = 1;
     };

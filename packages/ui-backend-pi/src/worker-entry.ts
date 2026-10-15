@@ -1,5 +1,5 @@
 /** Imported only after the shared launcher's descriptor and namespace gate. */
-import { existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statfsSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentSession, SessionManager, FileEntry } from "@earendil-works/pi-coding-agent";
@@ -24,6 +24,7 @@ interface Init {
   entries?: FileEntry[];
   profileId?: string;
   agentFiles: Record<string, string>;
+  cachedNpmModules?: string;
   /** Rendered by the server from this worker's resolved mounts (#1626). */
   sandboxNote?: string;
   governed?: boolean;
@@ -90,6 +91,10 @@ async function initialize(init: Init): Promise<void> {
   for (const name of ["auth.json", "models.json", "settings.json"]) {
     if (init.agentFiles[name] !== undefined) writeFileSync(join(state, name), init.agentFiles[name]!);
   }
+  if (init.cachedNpmModules) {
+    mkdirSync(join(state, "npm"));
+    symlinkSync(init.cachedNpmModules, join(state, "npm", "node_modules"));
+  }
   if (init.inference) {
     // This trusted entry runs before pi or any tool initializes. The worker's
     // network namespace holds only loopback; this port forwards to the server's
@@ -116,6 +121,7 @@ async function initialize(init: Init): Promise<void> {
     allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
+    requireInstalledPackages: true,
     ...(init.governed ? { directWrites: true, ...(init.env.autonomous ? {} : { nativeFileObservation: async (phase: string, path: string, id: string) => {
       const scope = toolScope.getStore();
       if (!scope || scope.id !== id) throw new Error("A file observation needs the active native tool call");

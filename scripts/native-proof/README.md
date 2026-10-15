@@ -66,3 +66,29 @@ not a passing governed qualification. It does
 not replace the daemon default. The same Moby license applies. A host without
 AppArmor records that absence explicitly and provides no enforced AppArmor
 qualification.
+
+When a checkpoint's real `btrfs subvolume sync` exits unsuccessfully, the
+fixture retains `run/native-release/<checkpoint-id>.json` beside its native
+operation log. The observer records the pre-delete root identity, command
+exit, termination signal and synchronous abort context when available. Bun
+can omit caller frames across native abort callbacks; an absent frame does
+not identify or exclude a cancellation source.
+
+Samples at 1, 5 and 15 seconds, plus failure completion, inspect only the
+isolated fixture container's `/proc`. They report matching checkpoint paths
+or device identities in open descriptors, matching mount rows, sync process
+state and observation errors. Limits are 256 processes, 256 descriptors per
+process, 64 references and 16 mount groups per sample; truncation is explicit.
+Path matching can miss references renamed or aliased in another namespace,
+and device metadata can be unavailable after deletion. Missing references
+therefore do not prove that no reader remains. Successful sync commands leave
+no diagnostic file. The observer preserves command arguments, signals and
+existing transport deadlines and restores its wrapped globals after the test.
+
+The Pi UID-0 cell also holds a real checkpoint file descriptor through the
+unchanged 30-second client deadline. It verifies the unknown release outcome,
+recorded connection abort and killed sync, and observation of that exact
+reader. Closing the reader must allow the same checkpoint identity to reconcile
+to deleted. This control demonstrates a retained-reader failure class; it does
+not establish the cause of the historical automatic-index failure in #1967.
+All four original backend/UID admission and automatic-index checks still run.

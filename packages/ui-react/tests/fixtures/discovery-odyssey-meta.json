@@ -1,0 +1,193 @@
+{
+  "available": true,
+  "schemaVersion": 8,
+  "computedAt": "2026-07-12T04:40:00.000Z",
+  "stale": false,
+  "nodeCount": 608,
+  "edgeCount": 3981,
+  "communities": [
+    {
+      "community": 0,
+      "size": 148,
+      "label": "reported",
+      "topTerms": [
+        "reported",
+        "household",
+        "ithaca",
+        "suitors",
+        "telemachus"
+      ]
+    },
+    {
+      "community": 1,
+      "size": 114,
+      "label": "ogygia",
+      "topTerms": [
+        "ogygia",
+        "calypso",
+        "raft",
+        "island",
+        "build"
+      ]
+    },
+    {
+      "community": 2,
+      "size": 61,
+      "label": "ismarus",
+      "topTerms": [
+        "ismarus",
+        "ship",
+        "crew",
+        "losses",
+        "wine"
+      ]
+    },
+    {
+      "community": 3,
+      "size": 61,
+      "label": "aeaea",
+      "topTerms": [
+        "aeaea",
+        "crew",
+        "log",
+        "sirens",
+        "route"
+      ]
+    },
+    {
+      "community": 4,
+      "size": 53,
+      "label": "thrinacia",
+      "topTerms": [
+        "thrinacia",
+        "crew",
+        "gods",
+        "helios",
+        "log"
+      ]
+    },
+    {
+      "community": 5,
+      "size": 47,
+      "label": "stars",
+      "topTerms": [
+        "stars",
+        "navigation",
+        "crossing",
+        "raft",
+        "provisions"
+      ]
+    },
+    {
+      "community": 6,
+      "size": 45,
+      "label": "winds",
+      "topTerms": [
+        "winds",
+        "aeolia",
+        "log",
+        "lotus",
+        "weather"
+      ]
+    },
+    {
+      "community": 7,
+      "size": 37,
+      "label": "cyclopes",
+      "topTerms": [
+        "cyclopes",
+        "poseidon",
+        "cave",
+        "losses",
+        "crew"
+      ]
+    },
+    {
+      "community": 8,
+      "size": 34,
+      "label": "acheron",
+      "topTerms": [
+        "acheron",
+        "fleet",
+        "aeaea",
+        "elpenor",
+        "crew"
+      ]
+    },
+    {
+      "community": 9,
+      "size": 1,
+      "label": "eleven",
+      "topTerms": [
+        "eleven",
+        "twelve"
+      ]
+    },
+    {
+      "community": 10,
+      "size": 1,
+      "label": "capture",
+      "topTerms": [
+        "capture"
+      ]
+    },
+    {
+      "community": 11,
+      "size": 1,
+      "label": "three",
+      "topTerms": [
+        "three",
+        "words"
+      ]
+    },
+    {
+      "community": 12,
+      "size": 1,
+      "label": "untitled",
+      "topTerms": [
+        "untitled"
+      ]
+    },
+    {
+      "community": 13,
+      "size": 1,
+      "label": "line",
+      "topTerms": [
+        "line",
+        "song"
+      ]
+    },
+    {
+      "community": 14,
+      "size": 1,
+      "label": "memo",
+      "topTerms": [
+        "memo",
+        "voice"
+      ]
+    },
+    {
+      "community": 15,
+      "size": 1,
+      "label": "pitch",
+      "topTerms": [
+        "pitch"
+      ]
+    },
+    {
+      "community": 16,
+      "size": 1,
+      "label": "todo",
+      "topTerms": [
+        "todo",
+        "check",
+        "first",
+        "light"
+      ]
+    }
+  ],
+  "defaultRoot": {
+    "path": "goals/return-to-ithaca.md",
+    "virtual": false
+  }
+}

@@ -134,6 +134,42 @@ remain independently parameterized. This gives ten tests: six responsive
 scenario cases, three stale-history cases and one readiness control. Cleanup,
 negative observation windows and timing/deadline behavior are unchanged.
 
+## Replay assertion ownership
+
+`connection-replay.layout.tsx` keeps native Chromium, built consumer CSS,
+fault transport, painted frames and per-case disposal. Its suffix group uses
+320px dark and 1280px light; its expanded-card group retains the full
+finished/live × split-tool-run/split-text × width × theme matrix.
+
+| Original oracle | Surviving owner |
+| --- | --- |
+| Thirty message nodes and a transcript scroll range greater than 500px | Both suffix widths, before the fault. |
+| Zero transient removals, every original node connected, exact scrollTop, first visible message and composer top within one pixel, original composer focus | Both suffix widths, independently after disconnect, partial history and final history, with the original MutationObserver and painted frames. |
+| No outgoing chat_message during recovery | Both suffix widths, through the final network-frame assertion. |
+| Real tool header and input detail expanded before the fault | All sixteen expanded-card cells, including the finished summary's extra disclosure. |
+| Original outer message, header and input detail stay connected; recovered text has its own chronological block; recovered tool precedes it and retained tool follows it; original composer focus | All sixteen expanded-card cells with all four distinct replay payloads. |
+| Composer sizing, input and consumer stylesheet presentation | The existing Composer theme stories in both projects, as mapped above. Recovery itself remains native. |
+
+The suffix geometry checks compare the recovered drawing to that case's own
+baseline; they do not assert an absolute theme-specific message size. Both
+responsive branches still execute with the actual consumer stylesheet. The
+user path in (`MessageBubble`,
+`packages/ui-react/src/components/chat/message-bubble.tsx:63-163`) uses
+(`UserTurn`, `packages/ui-react/src/components/chat/transcript-turn.tsx:61-69`)
+and the kit's user bubble. Its consumer padding, text wrapping and header
+layout do not branch on theme; the consumer `.chat-message-body` rule likewise
+uses unconditional content visibility and intrinsic sizing. The dark/light
+token selectors select `color-scheme`, not dimensions. The existing
+`Chrome/MessageBubble` stories keep the primitive's theme/accessibility proof;
+they do **not** establish consumer transcript layout parity. No consumer
+transcript assertion is transferred to a kit-only story.
+
+The expanded tool input and finished-summary/live timeline have no equivalent
+central consumer fixture. Their real disclosure interaction and shipped CSS
+boundary justify retaining both themes here. Composer and session parity do
+not cover them. This bounded reduction removes two suffix executions only;
+it adds no central cases and changes no deliberate wait.
+
 ## Running and changing this coverage
 
 Build the workspaces, then run both projects through the pinned runner. File
