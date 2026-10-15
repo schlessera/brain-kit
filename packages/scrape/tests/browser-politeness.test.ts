@@ -4,6 +4,7 @@ import puppeteer, { type Browser, type Page, type HTTPRequest, type Target } fro
 import { createBrowserSession, type BrowserSession } from "../src/browser/session.js";
 import { ScrapeClient } from "../src/fetch/http.js";
 import { RateLimiter } from "../src/politeness/rate-limit.js";
+import { sleep as nativeSleep } from "../src/politeness/abort.js";
 import { RobotsCache } from "../src/politeness/robots.js";
 import { DEFAULT_USER_AGENT } from "../src/config/env.js";
 import { runAdapters } from "../src/adapter/runner.js";
@@ -99,7 +100,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
     });
     observeArrival = href => { if (href === watchedUrl) escaped.resolve(); };
     restore.push(() => { observeArrival = undefined; });
-    let observedPage: Page | undefined;
+    let watchedTarget: Target | undefined;
     const launch = () => {
       const connection = puppeteer.connect({ browserURL: browserUrl });
       void connection.then(browser => {
@@ -111,11 +112,13 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
           value: function (this: Browser, ...args: Parameters<Browser["newPage"]>) {
             const pending = Reflect.apply(newPage, this, args) as Promise<Page>;
             void pending.then(page => {
-              if (disposed || observedPage) return;
-              observedPage = page;
+              if (disposed) return;
               const target = page.target();
+              let targetDestroyed = false;
               const onDestroyed = (closed: Target) => {
-                if (closed === target) destroyed.resolve();
+                if (closed !== target) return;
+                targetDestroyed = true;
+                if (watchedTarget === target) destroyed.resolve();
               };
               browser.on("targetdestroyed", onDestroyed);
               restore.push(() => { browser.off("targetdestroyed", onDestroyed); });
@@ -131,6 +134,8 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
                     try {
                       const request = events[0] as HTTPRequest;
                       if (request.url() === watchedUrl && request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+                        watchedTarget = target;
+                        if (targetDestroyed) destroyed.resolve();
                         const settled = () => { handler.resolve(); };
                         void Promise.resolve(result).then(settled, error => { settled(); fail(error); });
                       }
@@ -157,12 +162,109 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
     };
     return {
       launch,
-      complete: () => Promise.race([
-        Promise.all([policy.promise, handler.promise, destroyed.promise]),
+      complete: (additional: Promise<unknown>[] = []) => Promise.race([
+        Promise.all([policy.promise, handler.promise, destroyed.promise, ...additional]),
         escaped.promise,
         failed.promise,
       ]).then(() => { if (hasObserverError) throw observerError; }),
       restore: () => { disposed = true; for (const undo of restore.reverse()) undo(); },
+    };
+  }
+
+  /** Keep pacing's real timer/cancellation; move only subsequent limiter eligibility. */
+  function observeNativePacing(delayMs: number) {
+    type Wait = {
+      requestedMs: number;
+      grantMs: number;
+      clockReadMs: number;
+      registeredMs?: number;
+      handle?: ReturnType<typeof setTimeout>;
+      active: boolean;
+      clearCalls: number;
+      callbackCalls: number;
+      outcome: "pending" | "fulfilled" | "rejected";
+    };
+    const records: Wait[] = [];
+    const descriptors = {
+      setTimeout: Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!,
+      clearTimeout: Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")!,
+    };
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let registering: Wait | undefined;
+    let firstGrant: number | undefined;
+    let lastRead: number | undefined;
+    let offset = 0;
+    let settled!: () => void;
+    const sleepSettled = new Promise<void>(resolve => { settled = resolve; });
+    Object.defineProperty(globalThis, "setTimeout", {
+      ...descriptors.setTimeout,
+      value: function (this: unknown, ...args: Parameters<typeof setTimeout>) {
+        const [callback, milliseconds, ...callbackArgs] = args;
+        const record = registering;
+        if (!record || typeof callback !== "function") return Reflect.apply(originalSetTimeout, this, args);
+        record.registeredMs = milliseconds;
+        const wrapped = function (this: unknown, ...values: unknown[]) {
+          record.callbackCalls++;
+          record.active = false;
+          return Reflect.apply(callback, this, values);
+        };
+        const handle = Reflect.apply(originalSetTimeout, this, [wrapped, milliseconds, ...callbackArgs]) as ReturnType<typeof setTimeout>;
+        record.handle = handle;
+        record.active = true;
+        return handle;
+      },
+    });
+    Object.defineProperty(globalThis, "clearTimeout", {
+      ...descriptors.clearTimeout,
+      value: function (this: unknown, ...args: Parameters<typeof clearTimeout>) {
+        const record = records.find(wait => wait.handle !== undefined && wait.handle === args[0]);
+        if (record) { record.clearCalls++; record.active = false; }
+        return Reflect.apply(originalClearTimeout, this, args);
+      },
+    });
+    return {
+      records,
+      sleepSettled,
+      clock: {
+        now: () => {
+          const now = Date.now() + offset;
+          // This instance's first acquire has no prior grant or queue predecessor.
+          firstGrant ??= now;
+          lastRead = now;
+          return now;
+        },
+        sleep: (ms: number, signal?: AbortSignal) => {
+          if (firstGrant === undefined || lastRead === undefined) throw new Error("Native pacing sleep preceded its clock read");
+          const record: Wait = { requestedMs: ms, grantMs: firstGrant, clockReadMs: lastRead, active: false, clearCalls: 0, callbackCalls: 0, outcome: "pending" };
+          records.push(record);
+          registering = record;
+          try {
+            const pending = nativeSleep(ms, signal);
+            void pending.then(
+              () => { record.outcome = "fulfilled"; settled(); },
+              () => { record.outcome = "rejected"; settled(); },
+            );
+            return pending;
+          } finally { registering = undefined; }
+        },
+      },
+      advanceEligibility() {
+        if (firstGrant === undefined) throw new Error("No native pacing grant was observed");
+        offset = Math.max(offset, firstGrant + delayMs - Date.now() + 1);
+      },
+      restore() {
+        try {
+          for (const record of records) {
+            if (!record.active) continue;
+            originalClearTimeout(record.handle);
+            record.active = false;
+          }
+        } finally {
+          Object.defineProperty(globalThis, "setTimeout", descriptors.setTimeout);
+          Object.defineProperty(globalThis, "clearTimeout", descriptors.clearTimeout);
+        }
+      },
     };
   }
 
@@ -270,14 +372,30 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
   });
 
   test("a timed-out pacing wait sends no late request and releases page capacity", async () => {
-    const s = session({ rateLimiter: new RateLimiter({ defaultDelayMs: 1200 }), pageBudgetMs: 300, concurrency: 1 });
-    expect(await s.load({ url: url("/first"), extract: body })).toBe("fixture");
-    const error = await s.load({ url: url("/late-paced"), extract: body }).catch((err) => err);
-    expect(requested("/late-paced")).toHaveLength(0);
-    expect(error.message).toContain("budget");
-    await Bun.sleep(1300);
-    expect(requested("/late-paced")).toHaveLength(0);
-    expect(await s.load({ url: url("/next"), extract: body })).toBe("fixture");
+    const pacing = observeNativePacing(1200);
+    const robots = new RobotsCache();
+    const observation = observePolicyLoad(robots, url("/late-paced"));
+    try {
+      const s = session({ robots, rateLimiter: new RateLimiter({ defaultDelayMs: 1200, clock: pacing.clock }), pageBudgetMs: 300, concurrency: 1, launch: observation.launch });
+      expect(await s.load({ url: url("/first"), extract: body })).toBe("fixture");
+      const error = await s.load({ url: url("/late-paced"), extract: body }).catch((err) => err);
+      expect(requested("/late-paced")).toHaveLength(0);
+      expect(error.message).toContain("budget");
+      expect(pacing.records).toHaveLength(1);
+      await observation.complete([pacing.sleepSettled]);
+      expect(requested("/late-paced")).toHaveLength(0);
+      const wait = pacing.records[0]!;
+      expect(wait.registeredMs).toBe(wait.requestedMs);
+      expect(wait.requestedMs + wait.clockReadMs - wait.grantMs).toBe(1200);
+      expect(wait.clearCalls).toBe(1);
+      expect(wait.callbackCalls).toBe(0);
+      expect(wait.outcome).toBe("rejected");
+      pacing.advanceEligibility();
+      expect(await s.load({ url: url("/next"), extract: body })).toBe("fixture");
+      expect(pacing.records).toHaveLength(1);
+    } finally {
+      try { observation.restore(); } finally { pacing.restore(); }
+    }
   });
 
   test("invalid URLs and selector timeouts release capacity for the next load", async () => {

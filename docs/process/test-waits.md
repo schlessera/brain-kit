@@ -822,7 +822,53 @@ an 820 ms saving. CPU increases from 1.87 to 2.01 seconds and peak RSS from
 191952 to 193836 KiB. Setup and the baseline wait span were not separately
 measured; these are one shared-host pair, not a whole-CI claim.
 
-The other case's 1300 ms native observation stays. It also allows the real
-1200 ms rate limit to become eligible before the original next load's 300 ms
-budget. Handler completion and target destruction alone do not establish that
-eligibility, and the robots result does not justify changing it.
+At that recorded source, the other case retained its 1300 ms native observation.
+It also allowed the real 1200 ms rate limit to become eligible before the original
+next load's 300 ms budget. Handler completion and target destruction alone do not
+establish that eligibility. The separate pacing evidence below covers both roles.
+
+
+## Native pacing cancellation and subsequent eligibility
+
+The [pacing completion evidence](evidence/test-wait-browser-pacing-completion.json)
+records six commands at source `ec381c94`, after the robots change. The pacing
+case retains its original native sleep, 300 ms page budget, Chrome interception,
+HTTP requests and capacity assertions. Synchronous timer observers return the
+actual native handle, preserve callback arguments and `this`, and restore full
+global property descriptors. The supplied rate-limiter clock forwards production's
+original sleep promise; no global clock or browser timer is advanced.
+
+Completion requires the matching policy and interception-handler promises, the
+same native page target's destruction, and the original pacing sleep's settlement.
+An actual forbidden HTTP arrival instead reaches the original no-hit assertion.
+That assertion precedes the added checks for native registration, cancellation
+and callback suppression. The actual remainder plus the preceding clock read
+minus the first grant must equal 1200 ms. Only afterward does the existing
+rate-limiter clock's `now` offset advance beyond that grant's eligibility, allowing
+the original next load to exercise real page capacity within its 300 ms budget.
+
+The original and candidate both reject the same compound production guard fault
+at the original late-request assertion; their independent teardown also detects
+leaked targets. Omitting the eligibility advance fails the original next load on
+its real 300 ms page budget, not the test runner watchdog. Removing production's
+native `clearTimeout` fails the explicit cancellation assertion. Only after that
+failure does cleanup clear the original outstanding handle, separately counted
+in the diagnostic receipt. All production mutations were restored.
+
+The full file retains all 14 cases and increases expectations from 66 to 73.
+The matched command takes 8.93 → 7.63 seconds, summed bodies 8572.97 → 7258.24 ms,
+and the pacing case 1664.57 → 366.44 ms. CPU takes 1.87 → 1.81 seconds, while peak
+RSS increases from 192036 to 192472 KiB. These are one shared-host pair; setup
+and the baseline 1300 ms span were not separately measured. The measured
+completion await is only 0.020529 ms because its native events had already
+arrived; it is not the whole case or native page-budget duration. The 879 ms
+eligibility offset is logical time, not additional elapsed savings.
+
+The restored observation records one native 1175 ms timer registration, one
+production clear, no callback, and rejection of the original sleep promise. The
+clock read occurred 25 ms after the first grant, preserving the full 1200 ms
+pacing rule. Other native delay/crawl-policy cases remain unchanged. The final
+source removes only diagnostic logging, timing and unused snapshot counters;
+all original matcher expressions and seven added assertions remain. This is a
+boundary for the inspected load and subsequent eligibility, not a universal
+minimum negative window or a global browser/network drain.
