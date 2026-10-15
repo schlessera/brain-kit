@@ -872,3 +872,73 @@ source removes only diagnostic logging, timing and unused snapshot counters;
 all original matcher expressions and seven added assertions remain. This is a
 boundary for the inspected load and subsequent eligibility, not a universal
 minimum negative window or a global browser/network drain.
+
+## Selected native child lifecycle observations
+
+The [native lifecycle evidence](evidence/test-wait-native-lifecycle-completion.json)
+records seven selected commands at source `95b951aa`: seven cases and 28 expectations,
+3.33 seconds of command time, and 106 immutable raw receipt entries. These are
+source-specific observations, not a full child-process census or a speedup pair.
+Original worker permissions, mounts, protocol stdout and assertions remain.
+
+Three commands leave every test/source byte unchanged and use external syscall
+tracing inside the ordinary-UID offline namespace. The version-probe shell's
+original 20 ms sleep completes one syscall in 20.124 ms before its original exit
+3 and exact stdout/stderr assertions. The closed-stdin fixture's original 50 ms
+sleep completes in 50.161 ms before its late reply; its native pipe and fallback
+assertions pass. Four separately identified 1 ms synchronous polls total
+4.383 ms on that fixture's original parent process. Those polls map to the
+previously observed row 336, not additional row 674 coverage. Ptrace overhead
+and process topology affect these timings; they are not untraced cost estimates.
+
+The governed peer trace follows both original shells through their namespace
+transitions and successful exits. In this invocation, both readiness conditions
+were reached before either 10 ms sleep call, so both observed sleep counts are
+zero. The real protected-file handoff still executes. Complete traced lifetimes
+support those scoped zeros; they do not show that future invocations need no
+polling or that a missing trace segment should count as zero.
+
+Two sync cases retain their original SSE bytes and use only their existing
+writable control files for numeric observations. Each first child completes one
+10 ms poll (10.126535 and 10.153390 ms); each released retry completes zero. The
+reservation test appends metrics after its original end marker. The client test
+appends only after release, after the exact `yes` readiness predicate has already
+been consumed; the synchronous retry-launch forwarder captures the first record
+before the next child overwrites that file. Final reads follow the original
+response completion. Namespace PIDs repeat, so invocation identity comes from
+actual launch/exit ordering. Added diagnostic I/O remains outside each child's measured poll spans,
+but enclosing response and command phases include it; no binding, FD or write permission is added.
+
+The selected 50-percent SDK hook case observes the original native registrations
+and callbacks through its existing stderr channel. Its 20000 ms failure watchdog
+has no callback at natural exit 0, 26.012092 ms after registration; no clear is
+inferred. The original post-result 10 ms timer fires at 10.211114 ms and natural
+exit follows at 10.303885 ms. The callback age differs from an exact await span,
+which was not separately measured. The 80-percent case is unselected.
+
+SDK instrumentation changes only the generated fixture runtime argument and a
+temporary passive host observer. Numeric stderr bytes still feed the original
+sticky error classification and tail before bounded, chunk-aware diagnostic
+parsing; the entire stderr stream is therefore not byte-identical. Original
+stdout protocol operations, native handles, callback arguments and assertions
+remain, and both files were restored after observation. Missing natural-exit
+records would remain missing rather than imply cancellation. None of these
+receipts establishes a universal minimum delay or replaces native runtime proof.
+
+The nested-ledger case retains its original owner and attached-worker death,
+reservation refusal and recovery assertions. Parent and owner each register the
+original 5000 ms watchdog and clear it without firing, at 61.759012 and
+30.728070 ms from the registration call. Their original reader awaits complete
+in 61.584364 and 30.577138 ms. Those spans overlap and cannot be added as command
+cost. Each local span excludes its adjacent diagnostic writes, but child logging
+can occur inside and prolong the enclosing parent wait and alter scheduling.
+
+The attached worker's original 1000 ms interval registration is captured, with no
+callback entry captured before its original SIGKILL. There is no inferred clear,
+natural exit or completed 1000 ms lifetime. Its readiness JSON precedes interval
+registration, so a missing registration record would remain missing. The observer
+reads the existing inherited stderr pipe only after the original owner kill,
+attached-worker kill and death polling, and final recovery assertion. No pipe or
+permission is added. The ledger helper extends row 333's earlier caller evidence;
+the attached interval adds row 722. Together with the repeated RTK row 336,
+source-row overlap is explicit in the artifact rather than counted as new work.
