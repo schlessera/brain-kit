@@ -441,6 +441,8 @@ signatures (every public export and the types it is made of)
         options?: AskUserOption[];
         otherOpen?: boolean;
         otherPlaceholder?: string;
+        otherText?: string;
+        onOtherChange?: (text: string) => void;
         onOtherSubmit?: (text: string) => void;
         answer?: string;
         answers?: string[];
