@@ -1,3 +1,4 @@
+import { observeContinuitySelection } from "./continuity-selection-observer.ts";
 import { createRoot } from "react-dom/client";
 import { AppShell, BrainUiProvider, ChatPage, ConnectionGate, createBrainUiRoot } from "../../src/index.ts";
 import { trackerViews } from "../../src/stores/tracker-state.ts";
@@ -67,10 +68,13 @@ Object.assign(window, { __disposeContinuityPreparation: disposePreparation });
 Object.assign(window, { WebSocket: ObservedSocket });
 
 let disposeRoot: (() => void) | undefined;
+let selectionObserver: ReturnType<typeof observeContinuitySelection> | undefined;
 try {
   const root = createBrainUiRoot({ storagePrefix: "odysseus-continuity", config: { appName: "Odysseus’s notebook", assistantName: "Brain" } });
 
   disposeRoot = () => root.dispose();
+  if ((window as any).__observeContinuitySelection === true) selectionObserver = observeContinuitySelection(root);
+  Object.assign(window, { __disposeContinuitySelection: () => selectionObserver?.dispose() });
   const mount = document.getElementById("app");
   if (!mount) throw new Error("Connection-continuity fixture mount is missing");
   createRoot(mount).render(
@@ -98,6 +102,29 @@ try {
     __continuity: {
       preparation: observePreparation ? {
         restoring: () => root.localWork!.restoring(),
+        armSelection: () => {
+          const sessionId = root.stores.chat.getState().activeSessionId!;
+          selectionObserver!.arm(sessionId, root.stores.drafts.getState().idFor(sessionId));
+          return { socket: currentSocket, cursor: preparationFrames.length };
+        },
+        selectionReady: (checkpoint: { socket: number; cursor: number }, heldResumes: number, sessionId: string, text: string) => {
+          if (checkpoint.socket !== currentSocket || observationErrors !== 0) return false;
+          const frames = preparationFrames.slice(checkpoint.cursor).filter(f => f.socket === checkpoint.socket && f.sessionId === sessionId);
+          const replies = frames.filter(f => f.direction === "received");
+          const histories = replies.filter(f => f.type === "session_history" && f.append !== true).length;
+          const completed = replies.filter(f => f.type === "status" && (f.detail === "Session loaded" || f.detail === "Session in progress")).length;
+          // The terminal fault can itself request another resume. Its escape
+          // path never certifies healthy completion or waits for rendering.
+          if (histories >= heldResumes && completed >= heldResumes + 1
+            && !root.stores.chat.getState().buffers[sessionId]?.isStreaming) {
+            Object.assign(window, { __selectionOutcome: "escaped-stream" }); return true;
+          }
+          const ready = histories === heldResumes && completed === heldResumes + 1
+            && frames.every(f => f.direction !== "sent" || f.type !== "session_resume")
+            && selectionObserver!.ready() && currentDraftAcknowledged(sessionId, text);
+          Object.assign(window, { __selectionOutcome: ready ? "committed-and-published" : "pending" });
+          return ready;
+        },
         recovered: (sessionId: string, text: string) => {
           const chat = root.stores.chat.getState();
           const connection = root.stores.connection.getState();
@@ -149,10 +176,10 @@ try {
       },
     },
   });
-  window.addEventListener("pagehide", () => { try { disposePreparation(); } finally { root.dispose(); } }, { once: true });
+  window.addEventListener("pagehide", () => { try { selectionObserver?.dispose(); } finally { try { disposePreparation(); } finally { root.dispose(); } } }, { once: true });
 } catch (error) {
   // Initialization can fail before pagehide is installed. Restore the fixture's
   // own send descriptor even then; test teardown reads it back before closing.
-  try { disposePreparation(); } finally { disposeRoot?.(); }
+  try { selectionObserver?.dispose(); } finally { try { disposePreparation(); } finally { disposeRoot?.(); } }
   throw error;
 }
