@@ -430,7 +430,7 @@ async function finishTopAttempt(page: Page, appUrl: string, errors: { name: stri
 }
 
 /** A mark the escape probe set on its root, or "" (also while it navigates). */
-const mark = (target: Page | Frame, name: "pointer" | "clicked") =>
+const mark = (target: Page | Frame, name: "pointer" | "clicked" | "downloadReturned") =>
   target.evaluate((key) => document.documentElement.dataset[key] ?? "", name).catch(() => "");
 
 describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in an opaque origin", () => {
