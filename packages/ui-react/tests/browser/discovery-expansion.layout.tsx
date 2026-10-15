@@ -327,7 +327,10 @@ for (const fixture of ["sparse", "dense", "truncated", "stale"] as const)
       await expect.poll(() => ui!.stores.graph.getState().discoveryExpansion.loading.includes(owner.node.path)).toBe(true);
       expect(document.activeElement).toBe(expandElement);
       expect(expandElement.getAttribute("aria-disabled")).toBe("true");
-      expect(host.querySelector(".bk-action-spinner")).not.toBeNull();
+      const spinner = host.querySelector(".bk-action-spinner");
+      expect(spinner).not.toBeNull();
+      expect(getComputedStyle(spinner!).animationName, "DISCOVERY_LOADING_MOTION_POLICY")
+        .toBe(motion === "reduce" ? "none" : "bk-action-spin");
       await userEvent.keyboard(" ");
       expect(requests.filter(d => d > depth).length).toBe(1);
       const baseline = fixture === "sparse" && motion === "reduce";
