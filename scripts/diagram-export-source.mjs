@@ -2,8 +2,9 @@
 import {createHash} from "node:crypto";
 import {chmodSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,symlinkSync,writeFileSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
-export const diagramSourceDomains=["common","core","geo","module-diagrams","render-template","ui-render-puppeteer"];
-export const diagramSourceSetup=["package.json","bun.lock","tsconfig.json","bunfig.toml","scripts/test-network-child-preload.ts","scripts/test-network-guard.ts","scripts/workspace-lease.mjs","scripts/diagram-export-source.mjs","scripts/diagram-export-source.d.mts","scripts/prepare-diagram-export-source.mjs","scripts/visual.mjs"];
+const workspaceNames=Object.freeze({common:"@schlessera/brain-common",core:"@schlessera/brain",geo:"@schlessera/brain-geo","module-diagrams":"@schlessera/brain-module-diagrams","render-template":"@schlessera/brain-render-template","ui-render-puppeteer":"@schlessera/brain-render-puppeteer"});
+export const diagramSourceDomains=Object.freeze(Object.keys(workspaceNames));
+export const diagramSourceSetup=Object.freeze(["package.json","bun.lock","tsconfig.json","bunfig.toml","scripts/test-network-child-preload.ts","scripts/test-network-guard.ts","scripts/workspace-lease.mjs","scripts/diagram-export-source.mjs","scripts/diagram-export-source.d.mts","scripts/prepare-diagram-export-source.mjs","scripts/prepare-diagram-export-source.d.mts","scripts/visual.mjs"]);
 export const isDiagramSource=path=>diagramSourceSetup.includes(path)||diagramSourceDomains.some(name=>path.startsWith(`packages/${name}/`));
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
 const archivePath=repo=>join(repo,"tmp/diagram-export-source.json");
@@ -11,8 +12,8 @@ const archivePath=repo=>join(repo,"tmp/diagram-export-source.json");
 export function materializeDiagramExportSource(repo,state,checkout){
  const raw=readFileSync(archivePath(repo));if(raw.length>32*1024*1024)throw Error("Unbounded native diagram source archive");
  const record=JSON.parse(raw.toString("utf8"));
- if(record.version!==1||JSON.stringify(record.domains)!==JSON.stringify(diagramSourceDomains)||!Array.isArray(record.inputs)||!record.inputs.length||record.inputs.length>10000)throw Error("Invalid native diagram source archive");
- if(checkout&&(!record.immutable||record.checkout!==checkout))throw Error("Native diagram archive does not match the actual immutable checkout");
+ if(record.version!==1||typeof record.immutable!=="boolean"||JSON.stringify(record.domains)!==JSON.stringify(diagramSourceDomains)||!Array.isArray(record.inputs)||!record.inputs.length||record.inputs.length>10000)throw Error("Invalid native diagram source archive");
+ if(checkout&&(record.immutable!==true||record.checkout!==checkout))throw Error("Native diagram archive does not match the actual immutable checkout");
  const target=join(state,"source");if(existsSync(target))throw Error("Native diagram source view must be fresh");mkdirSync(target);
  const seen=new Set();
  for(const entry of record.inputs){
@@ -22,12 +23,21 @@ export function materializeDiagramExportSource(repo,state,checkout){
   const destination=join(target,entry.path);mkdirSync(dirname(destination),{recursive:true});writeFileSync(destination,bytes);chmodSync(destination,entry.mode==="100755"?0o755:0o644);
  }
  if(diagramSourceSetup.some(path=>!seen.has(path))||diagramSourceDomains.some(name=>!seen.has(`packages/${name}/package.json`)))throw Error("Incomplete native diagram source archive");
- const workspaces=new Map(diagramSourceDomains.map(name=>[JSON.parse(readFileSync(join(target,"packages",name,"package.json"),"utf8")).name,name]));
+ const workspaces=new Map(diagramSourceDomains.map(name=>{
+  const manifest=JSON.parse(readFileSync(join(target,"packages",name,"package.json"),"utf8"));
+  if(manifest.name!==workspaceNames[name])throw Error("Unsupported native diagram workspace identity");
+  return[manifest.name,name];
+ }));
  const modules=join(target,"node_modules");mkdirSync(modules);
+ for(const [name,directory]of workspaces){
+  const installed=join(repo,"node_modules",name);
+  if(!existsSync(installed)||realpathSync(installed)!==join(repo,"packages",directory))throw Error("Missing or redirected installed native workspace dependency");
+  const destination=join(modules,name);mkdirSync(dirname(destination),{recursive:true});symlinkSync(join(target,"packages",directory),destination,"dir");
+ }
  for(const entry of readdirSync(join(repo,"node_modules"))){
   if(entry.startsWith("."))continue;
   const names=entry.startsWith("@")?readdirSync(join(repo,"node_modules",entry)).map(child=>`${entry}/${child}`):[entry];
-  for(const name of names){if(name.startsWith("@schlessera/")&&!workspaces.has(name))continue;const destination=join(modules,name);mkdirSync(dirname(destination),{recursive:true});symlinkSync(workspaces.has(name)?join(target,"packages",workspaces.get(name)):join(repo,"node_modules",name),destination,"dir");}
+  for(const name of names){if(name.startsWith("@schlessera/"))continue;const destination=join(modules,name);mkdirSync(dirname(destination),{recursive:true});symlinkSync(join(repo,"node_modules",name),destination,"dir");}
  }
  return target;
 }
