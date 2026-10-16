@@ -65,9 +65,15 @@ export function useStorage(root: BrainUiRoot) {
     [maintenanceId, setMaintenanceId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const refreshedReceipts = useRef(new Set<string>());
+  const requestedScan = useRef<string | null>(null);
   const epoch = root.authLock.epoch();
   const acceptStatus = (next: StorageStatus) => {
     setStatus(next);
+    if (next.state === "idle" && requestedScan.current && (next.snapshot?.id === requestedScan.current || next.previous?.id === requestedScan.current || next.lastFailure?.scanId === requestedScan.current)) {
+      const requestedScanId = requestedScan.current;
+      requestedScan.current = null;
+      setAnnouncement(next.lastFailure?.scanId === requestedScanId ? "Storage measurement did not complete. Previous observations remain available." : "Storage measurement updated. Existing file selections remain unchanged.");
+    }
     setSnapshot((previous) => previous ?? next.snapshot);
   };
   function current(controller: AbortController) {
@@ -575,7 +581,7 @@ export function useStorage(root: BrainUiRoot) {
     refresh: () =>
       action(async (signal) => {
         const next = await api.scan(signal);
-        if (guarded(signal)) acceptStatus(next);
+        if (guarded(signal)) { requestedScan.current = next.activeScanId; setAnnouncement(""); acceptStatus(next); }
       }),
     copyList: async () => {
       try {

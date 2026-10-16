@@ -25,6 +25,8 @@ import {
   StorageDelta,
 } from "./storage/storage-observations.js";
 import { StorageDialogs } from "./storage/storage-dialogs.js";
+import { useStorageGuidance } from "./storage/use-storage-guidance.js";
+import { StorageGuidance } from "./storage/storage-guidance.js";
 import { running, useStorage } from "./storage/use-storage.js";
 const touch = { minHeight: 44 };
 /** Account and root changes discard pending selections and local response ownership synchronously. */
@@ -41,6 +43,7 @@ export function StorageTab({ active }: { active: boolean }) {
   ) : null;
 }
 function StorageSession({ root }: { root: BrainUiRoot }) {
+  const guidance = useStorageGuidance(root, true);
   const view = useStorage(root),
     phone = useMediaQuery("(max-width: 599px)"),
     id = useId();
@@ -88,6 +91,8 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
         ) ?? breadcrumb.current
       )?.focus();
   }, [view.loading, view.tree, view.parent]);
+  const observed = Math.max(view.status?.snapshot?.observedAt ?? 0, view.status?.previous?.observedAt ?? 0, view.status?.lastFailure?.at ?? 0);
+  useEffect(() => { if (observed) void guidance.refresh(); }, [observed, guidance.refresh]);
   const snapshot = view.snapshot,
     tree = view.tree,
     page = view.filtering ? view.files : tree,
@@ -252,6 +257,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             </div>
           )}
         </header>
+        <StorageGuidance guidance={guidance.guidance} history={guidance.history} unavailable={guidance.error !== null} metric={view.metric} />
         {snapshot && (
           <>
             <StorageCapacities
@@ -822,7 +828,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               <p>
                 Owner: {row.owner}. {row.effect}
               </p>
-              <p>{row.headroom.note}</p>
+              <p>Needs headroom. {row.headroom.note}</p>
               {row.id === "prune-scratch" && (
                 <p>
                   Existing seven-day / 1.07 GB policy (1,073,741,824 bytes);

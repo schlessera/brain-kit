@@ -295,7 +295,9 @@ A render error never blanks the whole app.
 
 `useHashRoutes()` owns the generic client routes: `#/files/<path>` opens the
 file panel, `#/graph` and `#/activity` select their full-screen views, activity
-deep links keep their suffix, and store-driven view changes use
+deep links keep their suffix, and `#/settings/storage` opens Storage after a
+current owner-authorized guidance read. Settings leave guards still apply; closing
+Storage clears its deep link. Store-driven view changes use
 `history.replaceState` rather than adding browser-history entries.
 
 `useServiceWorkerUpdates({ isBusy })` registers `/service-worker.js` and
@@ -717,4 +719,6 @@ choosing another destination preserves that destination's focus.
 Storage presents bounded inventory, per-capacity availability, a proportional map
 and equivalent list, current file inspection, owner maintenance, and recoverable
 attachment removal. See the [Storage guide](../../docs/storage.md) for the
-measurement basis, limits, review flow and Undo conditions.
+measurement basis, layered history, pressure causes, optional Critical notices,
+review flow and Undo conditions. `AppShell` includes the persistent Storage status;
+it consumes server evidence and adds no rail/bar destination or shortcut.

@@ -3299,3 +3299,14 @@ The ui-react Settings selection accepts `storage`. `openSettings("storage")`
 and the existing palette open the same lazy pane after Modules; Models remains
 the default. This adds no main destination or keyboard shortcut. Requests and
 local selections remain scoped to the current root and authentication lifetime.
+
+
+### Storage history presentation (additive, #2059)
+
+`AppShell` includes a persistent owner-scoped Storage status. It and the lazy
+Settings pane consume named server guidance; there is no client warning or
+forecast engine. `useHashRoutes()` accepts `#/settings/storage` after a current
+authorized guidance read, preserves Settings leave guards and clears the link
+when Storage closes. These additions create no navigation destination, keyboard
+shortcut or new exported component. Evidence is isolated by root, account and
+authentication epoch; forbidden responses clear it.

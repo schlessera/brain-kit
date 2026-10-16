@@ -1,5 +1,7 @@
 import type {
   StorageStatus,
+  StorageHistoryResponse,
+  StorageGuidanceResponse,
   StorageFilter,
   StorageTreeFilter,
   StoragePage,
@@ -47,6 +49,8 @@ export function storageApi(root: Pick<BrainUiServices, "request" | "apiBase">) {
         .map(([key, value]) => [key, String(value)])
     ).toString();
   return {
+    history: (signal?: AbortSignal) => call<StorageHistoryResponse>("/history", signal),
+    guidance: (signal?: AbortSignal) => call<StorageGuidanceResponse>("/guidance", signal),
     status: (signal?: AbortSignal) => call<StorageStatus>("", signal),
     scan: (signal?: AbortSignal) =>
       call<StorageStatus>("/scans", signal, "POST", {}),

@@ -1,4 +1,5 @@
-import { useBrainUiRoot } from "../root-context.js";
+import { useStorageGuidance } from "../components/settings/storage/use-storage-guidance.js";
+import { useBrainUiRoot, useRootStore } from "../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { useFileStore } from "../stores/file-store.js";
 import { useUIStore, type ActiveView } from "../stores/ui-store.js";
@@ -35,6 +36,69 @@ export function useHashRoutes(): void {
   const root = useBrainUiRoot();
   const [hash, setHash] = useState(() => window.location.hash);
   const syncingFromHash = useRef(false);
+  const storage = useStorageGuidance(
+    root,
+    false,
+    hash === "#/settings/storage"
+  );
+  const account = useRootStore("connection", (state) => state.accountKey);
+  const openedStorage = useRef<{
+    root: typeof root;
+    epoch: number;
+    account: string | null;
+    hash: string;
+  } | null>(null);
+  const storageWasOpen = useRef(false);
+  useEffect(() => {
+    if (hash !== "#/settings/storage") {
+      openedStorage.current = null;
+      return;
+    }
+    if (
+      !storage.guidance ||
+      storage.error ||
+      root.authLock.state.getState().phase !== "active"
+    )
+      return;
+    const epoch = root.authLock.epoch();
+    if (
+      openedStorage.current?.root === root &&
+      openedStorage.current.epoch === epoch &&
+      openedStorage.current.account === account &&
+      openedStorage.current.hash === hash
+    )
+      return;
+    openedStorage.current = { root, epoch, account, hash };
+    root.stores.ui.getState().openSettings("storage");
+  }, [hash, storage.guidance, storage.error, root, account]);
+  const storageOpen = useUIStore(
+    (state) => state.settingsPanelOpen && state.settingsTab === "storage"
+  );
+  useEffect(() => {
+    if (hash !== "#/settings/storage") {
+      storageWasOpen.current = false;
+      return;
+    }
+    if (storageOpen) {
+      storageWasOpen.current = true;
+      return;
+    }
+    if (
+      !storageWasOpen.current ||
+      root.authLock.state.getState().phase !== "active"
+    )
+      return;
+    storageWasOpen.current = false;
+    const view = root.stores.ui.getState().activeView;
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${
+        view === "chat" ? "" : `#/${view}`
+      }`
+    );
+    setHash(window.location.hash);
+  }, [storageOpen, hash, root]);
   const activeView = useUIStore((state) => state.activeView);
   const setActiveView = useUIStore((state) => state.setActiveView);
   const setFilePanelOpen = useUIStore((state) => state.setFilePanelOpen);
@@ -89,6 +153,8 @@ export function useHashRoutes(): void {
       return;
     }
 
+    // Preserve the authenticated Settings deep link while its authority read settles.
+    if (window.location.hash === "#/settings/storage") return;
     if (activeView === "chat") {
       if (viewForHash(window.location.hash)) {
         history.replaceState(null, "", window.location.pathname);
@@ -96,8 +162,12 @@ export function useHashRoutes(): void {
       return;
     }
 
-    const config = VIEW_ROUTES.find((candidate) => candidate.view === activeView)!;
-    if (!matchesViewRoute(window.location.hash, config.view, config.prefixMatch)) {
+    const config = VIEW_ROUTES.find(
+      (candidate) => candidate.view === activeView
+    )!;
+    if (
+      !matchesViewRoute(window.location.hash, config.view, config.prefixMatch)
+    ) {
       history.replaceState(null, "", `#/${activeView}`);
     }
   }, [activeView]);

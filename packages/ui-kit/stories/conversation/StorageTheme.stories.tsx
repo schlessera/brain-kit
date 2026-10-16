@@ -14,11 +14,13 @@ import {
   painted,
   accessible,
 } from "./_consumer-parity.js";
-function StorageTheme({ scene }: { width: number; scene: StorageScene }) {
+import { storageGuidanceFixture } from "../../../ui-react/tests/fixtures/storage-guidance.js";
+import { StorageIndicator } from "../../../ui-react/src/components/layout/storage-indicator.js";
+function StorageTheme({ scene, guidance }: { width: number; scene: StorageScene; guidance: boolean }) {
   const [root] = useState(() =>
     createBrainUiRoot({
       storage: null,
-      request: storageViewFixture(scene).request,
+      request: guidance ? storageGuidanceFixture().request : storageViewFixture(scene).request,
     })
   );
   useEffect(() => () => root.dispose(), [root]);
@@ -27,12 +29,14 @@ function StorageTheme({ scene }: { width: number; scene: StorageScene }) {
       <div
         style={{
           display: "flex",
+          flexDirection: "column",
           height: 800,
           margin: -16,
           width: "calc(100% + 32px)",
         }}
       >
         <BrainUiProvider root={root}>
+          {guidance && <StorageIndicator />}
           <StorageTab active />
         </BrainUiProvider>
       </div>
@@ -44,7 +48,7 @@ const meta = preview.meta({
   component: StorageTheme,
   parameters: { layout: "fullscreen" },
   beforeEach: consumerViewport,
-  args: { width: 320, scene: "dense" as StorageScene },
+  args: { width: 320, scene: "dense" as StorageScene, guidance: false },
 });
 const overview = async ({
   args,
@@ -112,3 +116,6 @@ export const RemovalAndUndo = meta.story({
     await accessible(screen.getByRole("dialog"));
   },
 });
+
+export const GuidancePhone = meta.story({ args: { guidance: true }, play: overview });
+export const GuidanceDesktop = meta.story({ args: { width: 1280, guidance: true }, play: overview });

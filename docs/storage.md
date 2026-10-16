@@ -1,7 +1,7 @@
 # Inspect and manage Storage
 
 Open **Settings → Storage**, after Modules, or choose **Jump to → Storage**
-in the command palette. Storage is available to the human owner. The pane
+in the command palette. The persistent Storage status also opens this pane. Storage is available to the human owner. The pane
 includes Brain files, observable app stores and configured backups; it does
 not infer remote usage or unobserved host storage.
 
@@ -78,3 +78,33 @@ review lasts ten minutes. Durable receipt capacity can refuse new operations
 while existing receipts remain readable. The pane never erases recovery data
 or expands retention policy to make room. If protected stores dominate, capacity
 provisioning or the store owner's existing controls may be needed.
+
+## History, pressure and notices
+
+**Pressure and growth** shows the server's per-capacity evidence and active causes.
+A refusal can keep a warning active even when capacity scenarios are unavailable.
+Out-of-date or changed-scope evidence stays labelled; a missing forecast is not a
+recovery signal. The app status shows the highest active severity and opens these
+details. Evidence refreshes while the app is visible without scanning storage.
+
+Expand **View observations** to choose Recent, Daily or Weekly endpoints. The table
+shows actual times and intervals, provisional current buckets, gaps, scope,
+coverage and unknown quantities. It neither averages nor interpolates older
+observations. Changing the history view preserves file filters and selections.
+
+Signed App growth uses the selected File size or On disk basis. Available-capacity
+change is separate: other writers can deplete space while measured App use stays
+flat. Short and long scenarios show their actual windows; a conditional range
+appears only when both qualify. No depletion observed does not promise unlimited
+future capacity. Weekly points provide context, never forecasts.
+
+**Critical notifications** uses the existing optional browser push subscription.
+Opening Storage never requests permission. Quiet hours, unknown timezone and
+pending evidence can defer notices. A push-service acceptance does not prove the
+device displayed it; an unknown outcome is not retried. A notification opens
+Storage after current human-owner authority is confirmed. Closing the pane clears
+that link, and existing Settings leave guards still apply.
+
+See [Storage history and pressure evidence](storage-history.md) for the bounded
+sampling, recovery and delivery rules. Cleanup, Undo, packing and backups need
+headroom. If no eligible cleanup exists, adding capacity is a valid next step.

@@ -433,7 +433,7 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       if (scanning && ++scanReads > 1) {
         scanning = false;
         measured = true;
-        snapshot.id += "-new";
+        snapshot.id = "odysseus-active";
         snapshot.observedAt += 1000;
         snapshot.staleAfter += 1000;
       }
