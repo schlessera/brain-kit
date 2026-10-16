@@ -106,6 +106,7 @@ function hasPreview(content: FileContentResponse): boolean {
   return (
     content.kind === "markdown" ||
     content.kind === "html" ||
+    (content.kind === "binary" && content.mime === "image/svg+xml") ||
     (content.kind === "text" && isMermaidPath(content.path))
   );
 }
