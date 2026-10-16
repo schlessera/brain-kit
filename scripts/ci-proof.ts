@@ -57,7 +57,7 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
     captures: ["editorial provenance and reproducibility"],
     runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"],
-    runtime_host: ["native managed hosted admission"],
+    runtime_host: ["native managed hosted admission", "native separate-UID worker identity"],
   };
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);

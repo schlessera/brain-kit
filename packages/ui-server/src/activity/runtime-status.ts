@@ -178,12 +178,12 @@ export function createRuntimeStatus(
       const previous = workerHost[mode];
       const checkedAt = now().toISOString();
       const check: WorkerHostCheck = probe.ok
-        ? { available: true, checkedAt, trigger }
+        ? { available: true, checkedAt, trigger, ...(probe.identity ? { identity: probe.identity, workerUid: probe.workerUid } : {}) }
         : { available: false, requirement: probe.requirement, checkedAt, trigger };
       workerHost[mode] = check;
       // Every turn re-probes; only a first answer or a changed one is news.
       const repeat = previous !== undefined && (previous.available
-        ? check.available
+        ? check.available && previous.identity === check.identity && previous.workerUid === check.workerUid
         : !check.available && previous.requirement === check.requirement);
       if (repeat) return;
       const attributes = { "worker_host.mode": mode, "worker_host.trigger": trigger };
@@ -224,7 +224,7 @@ export function createRuntimeStatus(
         ? { severityText: "INFO", body: "the governed profile is available; the brain's own code runs only in maintenance workers", attributes }
         // A worker host failure is already a warning of its own; say it once.
         : { severityText: status.reason === "worker_host_unavailable" ? "INFO" : "WARN",
-          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. Interactive and voice turns run under strict.`, attributes });
+          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
     },
     snapshot() {
       return {

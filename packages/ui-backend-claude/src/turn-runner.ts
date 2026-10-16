@@ -19,7 +19,9 @@ import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHost
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
-import { createClaudeSdkTurn } from "./sdk-options.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
@@ -40,7 +42,7 @@ import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { SessionTooLargeError } from "./worker-state.js";
 import { workerStateClass } from "./worker-spawn.js";
-import { archiveIdleSessions } from "./transcript-archive.js";
+import { archiveIdleSessions, transcriptPaths } from "./transcript-archive.js";
 
 const BACKEND_ID = "claude";
 
@@ -98,7 +100,7 @@ export function createClaudeTurnRunner(options: {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true, true);
-    requireWorkerHost(options.backend.brainPath);
+    const workerHost = requireWorkerHost(options.backend.brainPath);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -128,7 +130,12 @@ export function createClaudeTurnRunner(options: {
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
-    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey) ?? new NativeFileVersions();
+    const turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
+    const observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
+      ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
+      : undefined;
+    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
+      ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
     if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     activeTurns.set(turnKey, turn);
 
@@ -359,6 +366,8 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
+        ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
+        turnEnvironment,
         fileVersions,
         req: { ...req, signal: abortController.signal },
         profile,
@@ -516,6 +525,7 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
+            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId });
             if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);

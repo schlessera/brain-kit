@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:847-875`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:864-892`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -708,14 +708,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -982,7 +982,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:294`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:297`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1003,18 +1003,40 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:96`).
+`packages/ui-backend-claude/src/permission-hooks.ts:105`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:85`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
-or authority. Both preserve ordinary next turns on the running host. Neither
-restores the observations after a backend restart; resuming a saved transcript
-after restart does not establish restart-safe stale-write protection.
+or authority. Both also retain observations in host-private records and restore them before
+resumed native tools run. Claude keeps these records beside its transcript
+archive; Pi keeps them under its host-owned session directory. Neither worker
+receives them as writable state or serialized authority. The record is bound to
+the canonical brain root and native session identity; filenames contain only a
+SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
+regular-file validation and a 16 MiB per-session metadata bound protect the
+record (`saveNativeObservations`,
+`packages/ui-sdk/src/server/native-observation-storage.ts:56-69`).
+
+Read and write admission first retain an unavailable observation. A crash after the
+worker was shown or wrote bytes but before the completion callback therefore requires
+a genuine reread; it cannot turn an observed path into a never-read path.
+Successful stable reads and completed writes retain their versions at each
+observation, rather than waiting for turn end. Corrupt, aliased or unreadable
+records refuse resume before tools run; failed retention refuses subsequent
+writes until storage recovers.
+
+A retained session from before observation persistence, or one whose record
+is missing, has incomplete read history. It requires a genuine read before a
+native write to an unrecorded path. Rereading establishes that path's current
+version. This conservative recovery cannot infer that an unrecorded path was
+never read. Sessions with complete retained observations preserve the approved
+never-read behavior across restarts. There is no reconstruction of authority
+from worker transcripts, and no extension of the observed-shell guarantee.
 
 ## Monitoring
 
@@ -1229,7 +1251,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:33`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:34`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1269,7 +1291,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:186`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:189`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1281,7 +1303,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1264`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1468`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1408,7 +1430,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:85`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:86`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1453,9 +1475,9 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:120`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:61`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -1522,11 +1544,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:814-842`;
+`packages/ui-sdk/src/server/worker-launcher.ts:831-859`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:847-873`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:864-890`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:983-1042`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1023-1082`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1768,7 +1790,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:261-278`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:264-281`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -1843,7 +1865,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:184-252`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;
@@ -1920,7 +1942,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:473-520`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:475-522`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

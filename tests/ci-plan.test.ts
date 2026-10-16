@@ -226,6 +226,7 @@ describe("root consumer proof selection", () => {
     ["scripts/captures/x.ts", ["captures"]],
     ["scripts/native-proof/x.sh", ["runtime"]],
     ["scripts/prove-native-host.ts", ["runtime"]],
+    ["scripts/prove-worker-identity.ts", ["runtime"]],
     ["scripts/visual.mjs", ["browser", "layout", "endurance"]],
     ["scripts/browser-shards.ts", ["browser", "layout", "endurance"]],
     ["scripts/ci-example.ts", []],

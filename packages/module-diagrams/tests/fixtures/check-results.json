@@ -1,0 +1,62 @@
+{
+  "free-valid": {
+    "schema_version": 1,
+    "valid": true,
+    "type": "architecture",
+    "errors": [],
+    "warnings": []
+  },
+  "free-invalid": {
+    "schema_version": 1,
+    "valid": false,
+    "type": null,
+    "errors": [
+      {
+        "path": "$.nodes[0].size",
+        "code": "schema",
+        "message": "Invalid input: expected tuple, received undefined"
+      }
+    ],
+    "warnings": []
+  },
+  "axis-valid": {
+    "schema_version": 1,
+    "valid": true,
+    "type": "sequence",
+    "errors": [],
+    "warnings": []
+  },
+  "axis-invalid": {
+    "schema_version": 1,
+    "valid": false,
+    "type": null,
+    "errors": [
+      {
+        "path": "$.nodes[0].at",
+        "code": "unknown_field",
+        "message": "Unknown field"
+      }
+    ],
+    "warnings": []
+  },
+  "fixed-valid": {
+    "schema_version": 1,
+    "valid": true,
+    "type": "quadrant",
+    "errors": [],
+    "warnings": []
+  },
+  "fixed-invalid": {
+    "schema_version": 1,
+    "valid": false,
+    "type": null,
+    "errors": [
+      {
+        "path": "$.nodes[0].paint",
+        "code": "unknown_field",
+        "message": "Unknown field"
+      }
+    ],
+    "warnings": []
+  }
+}

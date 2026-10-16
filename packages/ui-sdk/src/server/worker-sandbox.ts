@@ -430,6 +430,8 @@ export interface WorkerNoteLimit {
 
 /** Facts resolved outside the mount list that the note states with it. */
 export interface WorkerNoteFacts {
+  /** Actual successful host qualification, never a configured helper path alone. */
+  readonly identity?: { readonly kind: "separate_uid"; readonly workerUid: number };
   readonly limits?: readonly WorkerNoteLimit[];
   /** Only actual host services and this admitted observation window supply these facts. */
   readonly history?: { readonly journal: boolean; readonly userRevert: boolean };
@@ -439,9 +441,9 @@ export interface WorkerNoteFacts {
 const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
-const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
-  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${SHARED_UID_NOTE} Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
-  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${SHARED_UID_NOTE}`,
+const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string) => string> = {
+  governed: (sandbox, identityNote) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
+  strict: (sandbox, identityNote) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}`,
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */
@@ -474,6 +476,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   const lines: string[] = [];
   const resolvedFacts = { ...sandbox.noteFacts, ...facts };
   const profile = workerProfile(sandbox);
+  const identityNote = resolvedFacts.identity?.kind === "separate_uid" && Number.isSafeInteger(resolvedFacts.identity.workerUid) && resolvedFacts.identity.workerUid > 0
+    ? `The worker runs under a verified separate non-root uid (${resolvedFacts.identity.workerUid}); server-private state remains protected by ownership as well as masks. Recovery is bounded best-effort after verified worker-tree termination; external references may outlive that tree.`
+    : SHARED_UID_NOTE;
   if (profile === "restricted") {
     lines.push(
       "This is a restricted (autonomous) turn: no network except the inference relay, no host home, and the brain's `.git` is hidden.",
@@ -485,7 +490,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   } else {
     const scratch = sandbox.areas.find(area => area.name === "scratch" && area.mount.writable);
     lines.push(
-      PROFILE_LINES[profile](sandbox),
+      PROFILE_LINES[profile](sandbox, identityNote),
       "",
       `1. **Turn temp:** ${turnTempPlaces()}. ${TURN_TEMP_RULE}`,
       sandbox.areas.some(area => area.mount.writable)

@@ -25,7 +25,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, type WorkerStartupView,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -421,12 +421,18 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     status: () => {
       const availability = governed();
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      let configuredIdentity = false;
+      try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }
+      const identity = ordinary.ok && ordinary.identity === "separate_uid"
+        ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
+        : configuredIdentity ? {} : { identity: "shared_uid" as const };
       const protection = resolveWorkerProtection(brain);
       const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
-        identity: "shared_uid", configurationView: profile === "governed" ? "live" : "startup" };
+        ...identity, configurationView: profile === "governed" ? "live" : "startup" };
     },
     withGate,
     async run(execution) {

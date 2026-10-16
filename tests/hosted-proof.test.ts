@@ -78,7 +78,7 @@ test("hosted global commands retain the full local inventory and real offline na
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
   const argv = cmds.map(command => command.argv.join(" ")).join("\n");
-  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts"]) expect(argv).toContain(phase);
+  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
   expect(unit.argv).toContain(join(ROOT, "scripts/unit-workers.ts"));
@@ -150,7 +150,7 @@ test("explicit leaf inventory is exact, validated and preserves aggregate obliga
 });
 
 
-test("native runtime split requires both selected jobs and preserves all five phases exactly once", () => {
+test("native runtime split requires both selected jobs and preserves all six phases exactly once", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));
   const selections = proofSelections(plan);
   expect(selections.runtime_host, "NATIVE_HOST_PROOF_SELECTED_WITH_RUNTIME").toBe(true);
@@ -161,10 +161,10 @@ test("native runtime split requires both selected jobs and preserves all five ph
     expect(proofProblems(needs), "NATIVE_HOST_MISSING_OR_SKIPPED_REFUSED").toContain(`runtime_host: selected proof did not pass (${state ?? "missing"})`);
   }
   const allLocal = localChecks(plan, true);
-  expect(allLocal.filter(c => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "shared-process Chrome then child cleanup"].includes(c.name))).toHaveLength(5);
+  expect(allLocal.filter(c => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "native separate-UID worker identity", "shared-process Chrome then child cleanup"].includes(c.name))).toHaveLength(6);
   const ordinary = categoryCommands("runtime", plan, ROOT);
   const native = categoryCommands("runtime_host", plan, ROOT);
-  expect(native.map(c => c.name)).toEqual(["native managed hosted admission"]);
+  expect(native.map(c => c.name)).toEqual(["native managed hosted admission", "native separate-UID worker identity"]);
   expect(ordinary.map(c => c.name)).toEqual(["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"]);
   const shared = ordinary.at(-1)!;
   expect(shared.argv).toContain("--shard=1/1");

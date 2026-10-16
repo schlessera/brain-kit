@@ -375,7 +375,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const turnTempBytes = config.agent.turnTempBytes;
   const latestOrdinary = (): WorkerHostProbe => {
     const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
-    if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
+    if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
   };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,

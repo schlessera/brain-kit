@@ -3068,6 +3068,25 @@ changed-file versions, journal metadata and object-write reservations retain
 the existing 10 GiB journal cap. No numeric total-volume default is supplied.
 See the [storage decision](../decisions/native-brain-storage.md).
 
+### Qualified worker identity (additive, #1677)
+
+`WorkerHostCheck` and `GovernedStatus` gain the optional verified identity and
+UID fields described in the [HTTP contract](http.md#verified-worker-identity-additive-1677).
+`WorkerNoteFacts.identity` optionally carries `{ kind: "separate_uid",
+workerUid }` from a successful host probe, so capability notes name the actual
+worker identity. Existing callers may omit these facts.
+
+For separate-UID native recovery, the fixed root-owned `brain-native-store`
+configuration optionally sets `workerUid` to a positive UID different from
+`appUid`. It must match the qualified helper's UID. Native journal manager
+adapters may supply optional `readCheckpoint`, `statCheckpoint` and
+`listCheckpoint` operations; the server validates the fixed reader's UID
+before consuming private bytes. Existing adapters remain valid, with explicit
+unreadable results when they cannot recover a private input. These operations
+retain existing owned checkpoint authority and storage caps; they do not
+authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
+for descriptor transfer, supervision, cleanup and best-effort limits.
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.

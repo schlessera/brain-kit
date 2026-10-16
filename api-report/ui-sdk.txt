@@ -1092,6 +1092,7 @@ export "./internal" (./src/internal.ts)
   prepareNativeWorkerOutput
   prepareNativeWorkerStartupView
   prepareOutwardPlan
+  prepareRecoveredWorkerFiles
   prepareWorkerOutput
   prepareWorkerSandbox
   probeMaintenanceWorker
@@ -1103,6 +1104,8 @@ export "./internal" (./src/internal.ts)
   purgeTurnTemp
   readWebSearchOverride
   readWebSearchRouting
+  recoveredWorkerFile
+  recoveredWorkerFiles
   requestPolicyPermission
   requireWorkerHost
   resolveMaintenanceTempLimits
@@ -1124,11 +1127,14 @@ export "./internal" (./src/internal.ts)
   turnTempSpace
   turnTempUsage
   validWorkerStateBytes
+  verifiedWorkerIdentity
   webSearchBrief
   webSearchProvider
+  workerCleanupUnconfirmed
   workerCommandPolicyNote
   workerHostBoundary
   workerHostProven
+  workerIdentityHelper
   workerLimitsPlan
   workerLimitsStatus
   workerNoteLimits
@@ -6044,6 +6050,10 @@ signatures (every public export and the types it is made of)
     }
   ENV_VARS (packages/ui-sdk/src/config/env-vars.ts)
     const ENV_VARS: readonly [{
+        readonly description: "Optional absolute root-owned executable implementing the version-1 authenticated worker identity broker protocol. It is invoked before the worker's filesystem filter and bubblewrap, never as a shell prefix. Requires a non-root server, distinct nonzero worker UID, shared group and qualified narrow host helpers. A configured helper that fails qualification refuses execution without same-UID fallback. Omit to retain the explicitly disclosed shared-UID mask boundary.";
+        readonly name: "BRAIN_UI_WORKER_IDENTITY_HELPER";
+        readonly required: false;
+    }, {
         readonly default: "268435456";
         readonly description: "Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC.";
         readonly name: "BRAIN_UI_MAINTENANCE_TEMP_BYTES";
@@ -6218,7 +6228,8 @@ signatures (every public export and the types it is made of)
             reason: string;
         }>;
         profileFallback?: string;
-        identity?: "shared_uid";
+        identity?: "shared_uid" | "separate_uid";
+        workerUid?: number;
         configurationView?: "live" | "startup";
     } & ({
         available: true;
@@ -10556,6 +10567,8 @@ signatures (every public export and the types it is made of)
         trigger: "boot" | "turn" | "check";
     } & ({
         available: true;
+        identity?: "separate_uid";
+        workerUid?: number;
     } | {
         available: false;
         requirement: string;

@@ -11,6 +11,7 @@
  * method, path, host or redirect is reachable through it.
  */
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -72,7 +73,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   }
   // Private to this server user; the worker sees only the bind-mounted socket.
   const dir = mkdtempSync(join(tmpdir(), "brain-inference-"));
-  chmodSync(dir, 0o700);
+  const separateIdentity = Boolean(workerIdentityHelper());
+  chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
   const refuse = (method: string, path: string, status: number, reason: string): Response => {
     options.observe?.({ method, path, outcome: "refused", status, reason });
@@ -117,7 +119,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
       },
     });
   } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
-  chmodSync(socketPath, 0o600);
+  chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
   let stopped = false;
   return {
     dir,

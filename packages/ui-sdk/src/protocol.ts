@@ -1637,7 +1637,7 @@ export type WorkerHostCheck = {
   /** ISO time the probe finished. */
   checkedAt: string;
   trigger: "boot" | "turn" | "check";
-} & ({ available: true } | { available: false; requirement: string });
+} & ({ available: true; identity?: "separate_uid"; workerUid?: number } | { available: false; requirement: string });
 
 /**
  * Whether this host can run agent workers (#1632). `ordinary` is the
@@ -1697,7 +1697,9 @@ export type GovernedStatus = {
   profile?: "governed" | "strict";
   protectedPaths?: Array<{ path: string; mode: "read_only" | "mask_file" | "mask_directory" | "absent"; reason: string }>;
   profileFallback?: string;
-  identity?: "shared_uid";
+  /** Separate identity is reported only after a real helper qualification. */
+  identity?: "shared_uid" | "separate_uid";
+  workerUid?: number;
   configurationView?: "live" | "startup";
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });

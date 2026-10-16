@@ -125,3 +125,38 @@ test("an actual writer crash after object publication keeps bytes charged and re
     expect(objects.read(pending.hash, 6), "JOURNAL_RECOVERY_PRESERVES_PUBLISHED_BYTES").toEqual(Buffer.from("Ithaca"));
   } finally { objects?.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("private reader temporary bytes share the aggregate cap and cancellation releases their finite charge", () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-private-reader-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db, path, { capBytes: 1024 * 1024 });
+  try {
+    const reservation = ledger.reserveTemporary(600_000);
+    expect(db.query("SELECT bytes,hash,kind FROM turn_journal_reservations").get(), "PRIVATE_READER_NO_FAKE_HASH").toEqual({ bytes: 600_000, hash: null, kind: "temporary" });
+    expect(() => ledger.reserveTemporary(600_000), "PRIVATE_READER_AGGREGATE_CAP").toThrow(JournalCapacityError);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 1 });
+    const charged = ledger.usage(); reservation.release(); reservation.release();
+    expect(ledger.usage(), "PRIVATE_READER_CANCEL_RETURNS_CHARGE").toBeLessThanOrEqual(charged - 600_000);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a killed private reader owner leaves a recoverable reservation without claiming a content object", () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-private-reader-crash-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path);
+  const client = new URL("../src/db/client.ts", import.meta.url).pathname;
+  const accounting = new URL("../src/brain/journal-accounting.ts", import.meta.url).pathname;
+  try {
+    const child = `import {createUiDb} from ${JSON.stringify(client)};import {createJournalAccounting} from ${JSON.stringify(accounting)};
+      const db=createUiDb(process.argv[1]);createJournalAccounting(db,process.argv[1]).reserveTemporary(12345);process.kill(process.pid,"SIGKILL");`;
+    const crashed = Bun.spawnSync([process.execPath, "--no-env-file", "-e", child, path], { cwd: root, env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+    expect(crashed.signalCode, crashed.stderr.toString()).toBe("SIGKILL");
+    const pending = db.query("SELECT id,bytes,hash,kind FROM turn_journal_reservations").get() as { id: string; bytes: number; hash: null; kind: string };
+    expect(pending).toMatchObject({ bytes: 12345, hash: null, kind: "temporary" });
+    const discarded: string[] = [], ledger = createJournalAccounting(db, path);
+    ledger.recover({ has() { throw Error("Temporary bytes cannot name a content object"); }, verify() { throw Error("Temporary bytes have no content hash"); }, discardPending(id) { discarded.push(id); } });
+    expect(discarded, "PRIVATE_READER_CRASH_DISCARDS_ONLY_OWNED_PENDING").toEqual([pending.id]);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_objects").get()).toEqual({ n: 0 });
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});

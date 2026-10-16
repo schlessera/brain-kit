@@ -1,4 +1,7 @@
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
+export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
+export { workerCleanupUnconfirmed, workerIdentityHelper } from "./server/worker-identity.js";
+export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchLimits, requireWorkerHost, WorkerResourceLimitError, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
 export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";

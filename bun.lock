@@ -108,6 +108,7 @@
       "version": "0.43.1",
       "dependencies": {
         "@schlessera/brain": "workspace:*",
+        "yaml": "^2.9.0",
         "zod": "^4.4.3",
       },
       "devDependencies": {

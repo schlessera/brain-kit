@@ -7,6 +7,9 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
+import { constants } from "node:fs";
+import { open, unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
@@ -41,7 +44,27 @@ export function createTurnJournal(db: Database, options: {
       for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
     }));
     return hash;
-  });
+  }, {}, { brainPath: options.brainPath, async createTemporary(maximum) {
+    const reservation = await retainAsync(async () => accounting.reserveTemporary(maximum));
+    const path = join(options.objectsRoot, `pending-${reservation.id}`);
+    let file: Awaited<ReturnType<typeof open>> | undefined;
+    const discard = async () => {
+      try { await unlink(path); } catch (cleanup) { if ((cleanup as NodeJS.ErrnoException).code !== "ENOENT") throw cleanup; }
+      const directory = await open(options.objectsRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try { await directory.sync(); } finally { await directory.close(); }
+    };
+    try {
+      file = await open(path, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      await discard(); // Persist anonymity before bytes or the ledger release.
+      return { file, release: reservation.release };
+    } catch (error) {
+      if (file) {
+        await file.close();
+        await discard();
+      }
+      reservation.release(); throw error;
+    }
+  } });
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const work = tail.then(operation);
@@ -209,6 +232,20 @@ export function createTurnJournal(db: Database, options: {
               .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
+          if (observation.unreadable.length) {
+            const missing = new Map<string, object>((JSON.parse(metadata.missing) as { path: string; reason: string }[]).map(item => [item.path, item]));
+            for (const item of observation.unreadable) {
+              const { ms, ...known } = item;
+              missing.set(item.path, known);
+              const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
+              recordGovernanceEvent(db, { kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
+                model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `journal-reader:${turnId}:${item.path}`,
+                payload: { category: "permission_denied", family: "journal_reader", signature,
+                  failures: [{ toolCallId: null, signature, category: "permission_denied" }], resolution: null,
+                  remedy: "capability", waste: { tokens: null, costUsd: null, ms }, eventIds: [] } });
+            }
+            db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify([...missing.values()]), turnId);
+          }
         }));
         publish(turnId);
         // Ignored versions have metadata but no content hash: count their largest

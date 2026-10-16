@@ -1,0 +1,15 @@
+schema_version: 1
+type: quadrant
+title: Prepare the homecoming
+desc: Penelope orders the supplies needed for Odysseus's arrival.
+size: doc-inline
+nodes:
+  - id: provisions
+    label: Provisions
+    paint: amber
+  - id: shelter
+    label: Shelter
+edges: []
+callouts:
+  - target: provisions
+    text: Prepare before 2026-07-12.

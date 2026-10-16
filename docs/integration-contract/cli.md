@@ -974,3 +974,10 @@ reuse the original staging result; source/principal provenance is server-owned,
 immutable and separated from CLI dedup keys. Queue-backed staging is exempt
 from legacy opportunistic pruning. Standalone staging retains its old lifetime.
 No production autonomous dispatch is enabled by these additive surfaces.
+
+## Diagram check (additive, 0.44.0, #2089)
+
+`brain diagram check <file|-> --json`, supplied by the enabled diagrams module,
+validates one standalone or fenced v1 spec. The complete input grammar, finding
+paths/codes, result envelope, exit behavior and JSON Schema are specified in
+[Diagram spec v1 and check](diagrams.md).

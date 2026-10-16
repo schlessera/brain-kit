@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:90-450`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:93-453`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -306,7 +306,7 @@ costs or a provider-enforced spend ceiling.
 Narrower per-request relay accounting is not selected for v1. The current
 observer reports method, path, outcome and status, with no trusted token or
 cost bound (`InferenceRelayEvent`,
-`packages/ui-sdk/src/server/inference-relay.ts:36-42`). Completed-response
+`packages/ui-sdk/src/server/inference-relay.ts:37-43`). Completed-response
 snapshots cannot bound a pre-header continuation's input, output, cache usage
 or hidden requests. A smaller fraction, historical average, guessed zero or
 clipping below known spend would invent evidence. Revisit narrower accounting
