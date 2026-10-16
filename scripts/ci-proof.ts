@@ -44,9 +44,11 @@ export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[
 export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2): Command[] {
   if (![1, 2].includes(unitWorkers)) throw new Error("Unit worker measurement supports 1 or 2 workers");
   const inventory = localChecks(plan, true);
-  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: [process.execPath, "run", "test",
-    ...unitFiles(plan, root, shard).map(file => join(root, file)), ...(unitWorkers === 2 ? ["--parallel=2"] : []), "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml",
-    "--timings=tmp/unit-timings.json", "--update-timings"], env: { BRAIN_REQUIRE_CHROME: "1" } }];
+  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: unitWorkers === 2
+    ? [process.execPath, join(root, "scripts/unit-workers.ts"), ...unitFiles(plan, root, shard).map(file => join(root, file))]
+    : [process.execPath, "run", "test", ...unitFiles(plan, root, shard).map(file => join(root, file)),
+      "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
+    env: { BRAIN_REQUIRE_CHROME: "1" } }];
   const names: Record<Exclude<ProofCategory, "unit">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],

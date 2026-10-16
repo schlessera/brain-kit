@@ -80,8 +80,8 @@ test("hosted global commands retain the full local inventory and real offline na
   for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
-  expect(unit.argv).toContain("--parallel=2");
-  expect(categoryCommands("unit", plan, ROOT, "1/4", 1)[0]!.argv).not.toContain("--parallel=2");
+  expect(unit.argv).toContain(join(ROOT, "scripts/unit-workers.ts"));
+  expect(categoryCommands("unit", plan, ROOT, "1/4", 1)[0]!.argv).not.toContain(join(ROOT, "scripts/unit-workers.ts"));
   expect(() => categoryCommands("unit", plan, ROOT, "1/4", 4)).toThrow("supports 1 or 2 workers");
   expect(unit.argv.filter(arg => arg.endsWith(".test.ts")).length).toBeGreaterThan(100);
   expect(categoryCommands("layout", plan, ROOT, "1/2").at(-1)!.argv.at(-1)).toBe("--shard=1/2");
