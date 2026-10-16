@@ -178,16 +178,32 @@ export function createPolicyProposals(options: {
               let target: Target | undefined, temp: string | undefined;
               try {
                 target = open(root, review.baseHash === null, created); verify(target, review.baseHash);
-                temp = `/proc/self/fd/${target.chain.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
-                const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target.mode ?? 0o644);
-                try { writeFileSync(fd, bytes); if (target.mode !== undefined) fchmodSync(fd, target.mode); fsyncSync(fd); } finally { closeSync(fd); }
                 options.beforeCommit?.(); authority(); verify(target, review.baseHash);
                 // No awaited code between final authority/base/topology check and publication.
                 await options.observeUserPolicy(turn.turnId, () => {
                   // Journal observation may precede this callback; recheck at the exact write.
                   authority(); verify(target!, review.baseHash);
-                  if (review.baseHash === null) linkSync(temp!, target!.at); else renameSync(temp!, target!.at);
-                  committed = true; fsyncSync(target!.chain.at(-1)!.fd);
+                  // The operation owns the staging inode for this synchronous
+                  // callback only. Both journal observations are outside its
+                  // lifetime; no path/prefix ignore can hide real worker files.
+                  const staging = `/proc/self/fd/${target!.chain.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
+                  try {
+                    const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
+                    temp = staging; // Only a successfully created inode belongs to this operation.
+                    try { writeFileSync(fd, bytes); if (target!.mode !== undefined) fchmodSync(fd, target!.mode); fsyncSync(fd); } finally { closeSync(fd); }
+                    authority(); verify(target!, review.baseHash);
+                    if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
+                    committed = true;
+                  } finally {
+                    // First publication uses link rather than an overwriting
+                    // rename; unlink its remaining name before observation.
+                    if (temp) {
+                      try { unlinkSync(temp); }
+                      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+                      temp = undefined;
+                    }
+                  }
+                  fsyncSync(target!.chain.at(-1)!.fd);
                 });
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
                 options.recordEvent(review, turn);

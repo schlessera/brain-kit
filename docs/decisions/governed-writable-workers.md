@@ -802,7 +802,16 @@ The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Steering classification
+principal authority remain the caller's responsibility. The policy publisher
+creates, writes, fsyncs and removes its operation-owned staging name entirely
+inside that synchronous callback, between the two serialized observations
+(`await options.observeUserPolicy`,
+`packages/ui-server/src/brain/policy-proposal.ts:183-207`). First publication
+also removes the temporary hardlink before the final observation. No filename
+prefix is ignored; a similarly named real agent change is still retained.
+Failed staging preserves the original policy, while failed recording after
+publication retains partial/unknown receipts rather than claiming completion.
+Steering classification
 and effective budget/scope enforcement belong to their own programme work.
 
 **Delivered user revert (#1653).** The existing reader has a single-file history
