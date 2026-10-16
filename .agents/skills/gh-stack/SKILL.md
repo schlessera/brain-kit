@@ -141,6 +141,10 @@ branches[]      name, head, base, isCurrent, isMerged, isQueued, needsRebase
 branches[].pr   number, url, state ("OPEN" | "MERGED" | "QUEUED"); absent when no PR exists
 ```
 
+`head` may be absent for a local-only stack before its first submit. Resolve a
+local branch tip with `git rev-parse` when it is absent; never treat omission as
+a missing branch.
+
 `base` is the saved SHA of the parent branch that this branch was last known to contain. It may be
 older than the parent's current tip. `needsRebase` is true when the current parent tip is no longer
 an ancestor of the branch.
