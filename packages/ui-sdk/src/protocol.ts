@@ -180,6 +180,8 @@ export interface SessionWorkerProfile {
 }
 
 export interface ClientChatMessage {
+  /** Authenticated share intake to bind at interactive start, never an item grant. */
+  shareId?: string;
   type: "chat_message";
   text: string;
   sessionId?: string;
@@ -2382,6 +2384,8 @@ export interface SharedFileMeta {
 
 /** Answer to POST /api/share: where the payload was staged. */
 export interface ShareIntakeResult {
+  /** Authenticated recovery of an already bound filing; open it without resending. */
+  filingSessionId?: string;
   /** Server-minted. The client never supplies a path component. */
   id: string;
   /** Repo-relative staging directory. */

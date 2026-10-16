@@ -71,7 +71,10 @@ test("only an explicitly confirmed share resumes after an interrupted upload, re
   expect(h.sent[0]!.files).toHaveLength(1); expect(h.sent[0]!.files![0]!.path).toBe(trackView().file.path);
   const user = h.root.stores.chat.getState().draft!.messages.find(message => message.role === "user");
   expect(user!.files![0]!.summary!.counts.retained).toBe(129);
-  expect(h.root.stores.share.getState().queue).toHaveLength(0);
+  expect(h.root.stores.share.getState().queue).toHaveLength(1);
+  expect(h.sent[0]!.requestId).toBeTruthy();
+  h.root.connection.handleServerMessage({ type: "session_info", sessionId: "odysseus-track-filing", isNew: true, requestId: h.sent[0]!.requestId });
+  await expect.poll(() => h.root.stores.share.getState().queue.length).toBe(0);
   const form = new FormData(); form.set("text", "Inspect the next unconfirmed route.");
   await handleShareTargetRequest(new Request(`${location.origin}/share-target`, { method: "POST", body: form }));
   await expect.poll(() => h.root.stores.share.getState().queue.length).toBe(1);

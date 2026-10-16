@@ -86,7 +86,9 @@ export function inboxThreadAwaitingSettlement(db: Database, threadId: string): b
     JOIN inbox_items i ON i.id = r.item_id WHERE i.thread_id = ?
     AND r.runtime_acquired_at IS NOT NULL AND r.run_id IS NOT NULL`)
     .all(threadId) as { run_id: string; status: string }[];
-  return rows.some(row => row.status === "active" || inboxRunIsLive(db, row.run_id));
+  if (rows.some(row => row.status === "active" || inboxRunIsLive(db, row.run_id))) return true;
+  const interactive = db.query("SELECT s.run_id FROM inbox_interactive_shares s JOIN inbox_items i ON i.id = s.item_id WHERE i.thread_id = ?").all(threadId) as { run_id: string }[];
+  return interactive.some(row => inboxRunIsLive(db, row.run_id));
 }
 
 /** Dead attempts' disposable files are reaped with compensation, outside the

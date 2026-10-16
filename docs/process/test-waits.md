@@ -1552,3 +1552,110 @@ semantics. Other answer cases and the separate late-principal coverage were
 unchanged in that source-frozen study. Later integration retains the separate
 principal-read distribution and seven added Other-answer cases; those changes
 and the new mandatory fixture build are outside this historical timing pair.
+
+## Renderer phase scheduling with browser doubles
+
+The [phase-clock evidence](evidence/test-wait-renderer-phase-clock.json) records
+#1947's paired study on base `4e4a663f`, using Bun 1.4.2 on one shared Linux
+host. Production renderer/semaphore bytes are identical in both arms. The
+all-double policy fixture retains its original 15 cases and 82 expectations,
+adds registered-deadline, cancellation, overlap and failure-cleanup checks, and
+executes 16 cases / 184 expectations. Existing native Chromium proof, production
+options and the fixed 2000 ms browser-cleanup bound are unchanged.
+
+Only this fixture's global timeout descriptors are temporarily replaced. Real
+promise continuations and native event-loop turns execute between logical
+callbacks. Each driven phase first asserts its actual pending registration;
+queue, acquisition, rendering, idle and cleanup retain their requested values.
+Just-before/due checks, independent overlapping allowances, idle rearming and
+cleared handles are explicit. Late resolutions drain ready promise jobs before
+checking actual fake-resource close/configuration/capture effects. This finite
+promise-only fixture does not use an event-loop turn as a general IO completion
+signal. Outer failure ceilings remain native. Teardown shuts down every owned
+renderer, drives registered deadlines, checks that none remain pending, and
+restores complete descriptors in `finally`, including after a synthetic failure.
+This proves scheduling policy with doubles, not native browser cleanup duration.
+
+The uninstrumented full command changes from 3.15 to 0.11 seconds; summed case
+bodies change from 3024.55 to 6.96 ms. The focused wedged-cleanup command changes
+from 2.13 to 0.11 seconds; the slow-launch/overlapping-render pair changes from
+0.51 to 0.11 seconds. These are separate scopes, not additive savings. Full-file
+CPU is 0.21 to 0.14 seconds and maximum RSS is 54524 to 56068 KiB; this single
+shared-host pair establishes no reliable CPU/memory effect or whole-CI gain.
+The one frozen dependency install reported 9.57 seconds and is excluded from
+these commands; no build is needed. Wrapper/preload/module loading remain in
+command totals and outside body totals.
+
+Separate instrumented runs observe 136 native timeout registrations in the
+baseline. The candidate observes 92 logical registrations (18 fired, 74 cleared)
+and 33 native failure ceilings, all cleared without firing. The added idle
+restart and failure-cleanup control explain changed event counts; these are not
+one-to-one event inventories. Original waits and watchdog spans overlap and are
+not summed as savings. Full raw receipts and requested-value/state counts are
+in the evidence. Instrumentation is absent from the functional test.
+
+Wrong requested deadlines, wrong rendering phase, missing cancellation and
+missing idle rearm each fail registration/state assertions. One-millisecond
+early/late scheduler faults fail before/due checks. Removing expiration guards
+fails the original late-content `screenshots == 0` assertion (received 1);
+duplicating native fake-browser close fails the original close-count assertion
+(received 2). Omitting descriptor restoration fails the failure-path control.
+Two narrower mutations survived independent safeguards: deleting only the
+post-content check still leaves later checks, and removing close memoization
+alone does not duplicate the selected closer invocation. They are retained as
+limits of those controls, not claimed as detected faults. All mutations were
+restored before the passing paired candidate run.
+
+## Expanded replay-card preparation
+
+The [replay-card evidence](evidence/test-wait-replay-card-readiness.json) records
+#1948 at source `11655e165`. All sixteen finished/live, split-run/text, width and
+theme cells remain. The separate two-cell suffix body, transient-removal
+observer, native painted frames, geometry, scroll, focus and no-send proof are
+byte-identical. All nineteen original matcher expressions remain unchanged.
+
+The three expanded-card preparations observe the actual committed summary,
+visible tool header or expanded input. Message shells reach opacity one and an
+identity transform; the detail's Motion owner reaches inline `height:auto` and
+opacity one. The helper checks fonts and re-enumerates current finite native
+effects on every painted poll, including pending and paused effects. It does
+not swallow rejected animation promises or assume cancellation is completion.
+The native cancel/replacement control uses a transform independent of those
+opacity/height endpoints; removing the animation guard fails its finished-state
+assertion. The layout project's original reduced-motion setting remains, and
+these measurements do not claim a full-motion duration was exercised.
+
+Source review limits the completion claim: these ephemeral roots have no
+local-work restore, never invoke tracked-session opening, and expand tools
+through direct committed handlers. The helper is not a general quiet-period
+oracle. Reconnect/replay remains driven by the original fault-network double
+inside the native rendered browser. No native host/socket proof is invented.
+The expanded fixture registers cleanup before partial setup and attempts every
+owned cleanup even after a failure, preserving errors. Native failed-assertion,
+throwing-dispose and pre-host setup controls verify disposal, exact global
+WebSocket descriptor, theme and viewport restoration, and DOM/style removal.
+The unchanged suffix theme-restoration defect is separately tracked in #2021.
+
+The final instrumented pair runs 18/19 cases with 636/702 Vitest assertion calls;
+those counters include polling and locator internals. The candidate adds one
+helper control. GNU host command time changes from 34.84 to 17.51 seconds;
+Vitest time changes from 29.83 to 12.54 seconds and reported test bodies from
+27.65 to 10.58 seconds. Setup is 9/8 ms and import is 1.26/1.12 seconds. The forty
+preparation waits consume 20004.3 ms; forty readiness calls consume 3187.0 ms.
+Old frame pairs follow their wait counters, while readiness includes its frames:
+these are not identical span units or additive whole-command savings. Both
+500 ms suffix windows remain (1000.3/1000.4 ms observed). This is one shared-host
+pair with an additional control, not a guaranteed twenty-second or whole-CI gain.
+GNU CPU/RSS cover only host Node/Docker-client processes; browser container
+CPU/RSS are unmeasured. Private dependency installation and build are separate.
+
+Delaying the real expansion handler by 150 ms passes with readiness and fails
+the original expanded-before-fault assertion when readiness is bypassed. Native
+next-frame remount and focus-steal controls after recovered status fail the
+original header-identity and composer-focus assertions. They establish those
+oracles' sensitivity, not the absence of arbitrary future callbacks. All faults
+are restored. The initial shared-cache Vitest instrumentation from #1980 and a
+font-cache permission setup failure are retained as diagnostics; qualification
+uses fresh private-cache copies whose Vitest chunk matches the independently
+integrity-verified npm archive, plus an owned font-cache directory. Shared
+caches and the lockfile are unchanged.

@@ -392,6 +392,7 @@ export const draftRefSchema = z.looseObject({
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
+    shareId: z.string().uuid().optional(),
   profileDraftId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
@@ -412,7 +413,8 @@ export const clientChatMessageSchema = z
       (m.attachments ?? []).reduce((sum, a) => sum + decodedBase64Bytes(a.data), 0) <=
       MAX_TOTAL_IMAGE_BYTES,
     { message: `attachments exceed ${MAX_TOTAL_IMAGE_BYTES} total decoded bytes` }
-  ) satisfies z.ZodType<ClientChatMessage>;
+  )
+  .refine(m => !(m.shareId && m.handoff), { message: "A share start cannot also create a handoff" }) satisfies z.ZodType<ClientChatMessage>;
 
 const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
 

@@ -126,6 +126,14 @@ async function main(): Promise<number> {
   const json = computeJson(argv);
   const { command, wantsHelp } = scanCliArgs(argv);
 
+  // Storage observes host-selected roots without executing repository config.
+  if (command === "storage") {
+    const { storageCommand, runStorageInventory } = await import("./commands/storage.js");
+    if (wantsHelp) { console.log(storageCommand.helpBlock); return 0; }
+    await runStorageInventory(argv.slice(1), json);
+    return 0;
+  }
+
   // Policy is host-parsed data, never a reason to evaluate repository code.
   if (command === "policy") {
     const brain = degradedContext();
