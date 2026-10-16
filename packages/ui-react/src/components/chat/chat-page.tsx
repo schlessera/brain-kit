@@ -112,6 +112,7 @@ export function ChatPage() {
   const messages = useChatStore((s) => activeChat(s).messages);
   const voiceOutputs = useStore(root.connection.conversation.state, (s) => s.outputs);
   const sessionId = useChatStore((s) => s.activeSessionId);
+  const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
   const hasVoiceOutput = voiceOutputs.some((output) => output.sessionId === sessionId && output.generated);
 
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -666,7 +667,7 @@ export function ChatPage() {
                 <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
-            ) : messages.length === 0 && !hasVoiceOutput ? (
+            ) : messages.length === 0 && !hasVoiceOutput && !hasVoicePermission ? (
               <div ref={welcomeRef} className="h-full overflow-y-auto" data-welcome="">
                 <div className="px-4 pt-3 md:px-6">
                   <DigestCard />

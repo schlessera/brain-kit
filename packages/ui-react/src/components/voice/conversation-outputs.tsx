@@ -6,7 +6,10 @@ import { TurnHeader } from "../chat/transcript-turn.js";
 export function ConversationOutputs({ sessionId }: { sessionId: string | null }) {
   const root = useBrainUiRoot();
   const outputs = useStore(root.connection.conversation.state, (state) => state.outputs);
-  return <>{outputs.filter((output) => output.sessionId === sessionId && output.generated).map((output) =>
+  const permission = useStore(root.connection.conversation.permissions.state);
+  const buffer = useStore(root.stores.chat, state => sessionId === null ? state.draft : state.buffers[sessionId]);
+  const tools = buffer?.messages.flatMap(m => m.toolCalls) ?? [];
+  return <>{permission.records.filter(r => r.sessionId === sessionId && r.word && (r.postureDenied || r.heardAt && !tools.some(t => t.id === r.toolUseId))).map(r => <p key={`posture:${r.turnId}:${r.toolUseId}`} data-voice-posture-outcome={r.postureDenied ? "" : undefined} data-voice-permission-outcome="" className="py-2 text-xs">{r.word}</p>)}{outputs.filter((output) => output.sessionId === sessionId && output.generated).map((output) =>
     <div key={`${output.conversationId}:${output.epoch}:${output.outputId}`} className="py-4" data-conversation-output="">
       <TurnHeader who="Brain" tone="brain" />
       <p className="whitespace-pre-wrap">{output.generated}</p>

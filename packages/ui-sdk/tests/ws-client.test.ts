@@ -316,7 +316,7 @@ describe("the client hello", () => {
       protocolRev: PROTOCOL_REV,
       // Rev 5 (#910): this client reads ask-answer receipts. #1002: and
       // pending follow-up reports.
-      capabilities: { askReceipts: true, followUpQueue: true },
+      capabilities: { askReceipts: true, followUpQueue: true, toolResolution: true },
     });
   });
 });

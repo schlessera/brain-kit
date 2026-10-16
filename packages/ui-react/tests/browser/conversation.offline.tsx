@@ -431,3 +431,154 @@ test("a voice-first session binds its original typed draft and generated output,
   expect(s.client.state.getState().sessionId).toBe(null);
   expect(s.ui.stores.drafts.getState().drafts[next]?.text).toBe("New raft question");
 });
+
+function approval(s: Awaited<ReturnType<typeof scene>>, toolUseId: string, sessionId = SESSION, turnId = "ithaca-permission") {
+  s.deliver({ type: "tool_approval_request", sessionId, turnId, toolUseId, toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Private command payload stays on screen" }, description: "Unvetted words must never become approved speech" });
+}
+function recognition(s: Awaited<ReturnType<typeof scene>>, text: string, origin: "user" | "assistant" | "unknown" = "user", confidence = 0.99) {
+  s.event({ kind: "input_fragment", utteranceId: String(s.socket.frames("conversation_audio").at(-1)!.utteranceId), sequence: 0, text, finalization: "final", certainty: "known", confidence, origin });
+}
+
+test("voice refusal: isolated original input sends a scoped denial, locks only its card and awaits the host", async (ctx) => {
+  const s = await scene(ctx); await s.start();
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-permission", text: "Checking the raft plan" });
+  approval(s, "ithaca-write");
+  recognition(s, "brain, stop");
+  expect(s.socket.frames("tool_denial"), "a trusted scoped refusal must reach the existing host denial channel").toHaveLength(1);
+  expect(s.socket.frames("tool_denial")[0]).toMatchObject({ toolUseId: "ithaca-write", turnId: "ithaca-permission", channel: "voice" });
+  expect(s.socket.frames("tool_approval")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  await expect.poll(() => s.host.textContent).toContain("Refusal sent · checking");
+  expect(s.ui.stores.chat.getState().buffers[SESSION]?.messages.flatMap(m => m.toolCalls).find(t => t.id === "ithaca-write")?.status, "dispatch is not host-confirmed denial").toBe("pending_approval");
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-permission", text: ". Other async work continues." });
+  s.ui.connection.flushChatDeltas();
+  await expect.poll(() => s.host.textContent).toContain("Other async work continues");
+  s.deliver({ type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-permission", toolUseId: "ithaca-write", outcome: "denied", channel: "voice" });
+  await expect.poll(() => s.host.textContent).toContain("Denied · by voice");
+});
+
+test("ambiguous refusal snapshots current-turn approvals only; duplicate input and later arrivals cannot widen it", async (ctx) => {
+  const s = await scene(ctx); await s.start();
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-permission", text: "Review the voyage" });
+  approval(s, "ithaca-one"); approval(s, "ithaca-two"); approval(s, "harbour-other", "odysseus-harbour", "harbour-turn");
+  recognition(s, "brain st", "user", 0.2);
+  expect(s.socket.frames("tool_denial"), "the refusal snapshots every current-turn approval and excludes background sessions").toHaveLength(2);
+  expect(s.socket.frames("tool_denial").map((frame) => frame.toolUseId)).toEqual(["ithaca-one", "ithaca-two"]);
+  approval(s, "ithaca-later"); recognition(s, "brain st", "user", 0.2);
+  expect(s.socket.frames("tool_denial")).toHaveLength(2);
+  for (const toolUseId of ["ithaca-one", "ithaca-two"]) s.deliver({ type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-permission", toolUseId, outcome: "denied", channel: "voice" });
+  await expect.poll(() => s.host.textContent).toContain("heard unclearly · taken as refusal");
+});
+
+test("affirmatives, bare stop and unproven acoustic origin can never decide permissions", async (ctx) => {
+  const s = await scene(ctx); await s.start(); approval(s, "ithaca-safe");
+  for (const text of ["yes", "approve", "go ahead", "brain allow", "always allow", "stop", "no", "cancel"]) recognition(s, text);
+  recognition(s, "brain, stop", "assistant"); recognition(s, "brain, stop", "unknown");
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.socket.frames("tool_approval")).toHaveLength(0);
+  expect(s.client.state.getState().text).toBe("brain, stop");
+});
+
+test("outside a refusal window the phrase stays ordinary review text", async (ctx) => {
+  const s = await scene(ctx); await s.start(); recognition(s, "brain, stop");
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.client.state.getState().text).toBe("brain, stop");
+});
+
+test("permission fallback: one native earcon waits for quiet, never reads payload, and user refusal works during it", async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const descriptor = Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "createBufferSource")!;
+  const original = descriptor.value as BaseAudioContext["createBufferSource"];
+  const live: AudioBufferSourceNode[] = [];
+  Object.defineProperty(BaseAudioContext.prototype, "createBufferSource", { ...descriptor, value: function(this: BaseAudioContext) { const source = original.call(this); live.push(source); return source; } });
+  ctx.onTestFinished(() => { Object.defineProperty(BaseAudioContext.prototype, "createBufferSource", descriptor); });
+  const s = await scene(ctx); await s.start();
+  approval(s, "ithaca-announcement"); approval(s, "ithaca-announcement");
+  expect(live).toHaveLength(0);
+  mic.quiet();
+  await expect.poll(() => live.length).toBe(1);
+  const receipt = s.client.permissions.state.getState().records[0]!;
+  expect(receipt.announced).toBe(true);
+  approval(s, "ithaca-announcement");
+  expect(live, "a pending duplicate after its earcon never announces twice").toHaveLength(1);
+  expect(receipt.script).not.toMatch(/raft\.md|Private command|Unvetted/);
+  let ended = false; live[0]!.addEventListener("ended", () => { ended = true; });
+  expect(ended).toBe(false);
+  const beforeSpeech = s.socket.frames("conversation_audio").length;
+  mic.speak();
+  await expect.poll(() => s.socket.frames("conversation_audio").length > beforeSpeech || !s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().micOn, "speaking over the permission earcon keeps the recognizer capture open").toBe(true);
+  recognition(s, "brain, stop", "assistant");
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  recognition(s, "brain, stop", "user");
+  expect(s.socket.frames("tool_denial")).toHaveLength(1);
+  expect(s.client.state.getState().micOn).toBe(true);
+  approval(s, "ithaca-announcement");
+  s.client.mute();
+  expect(live).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("a resolved queued announcement is dropped; terminal expiry without tool_result makes controls inert", async (ctx) => {
+  const s = await scene(ctx); await s.start(); approval(s, "ithaca-expiry");
+  const receipt = () => s.client.permissions.state.getState().records.find(r => r.toolUseId === "ithaca-expiry")!;
+  expect(receipt().announced).toBe(false);
+  s.deliver({ type: "result", sessionId: SESSION, turnId: "ithaca-permission", durationMs: 1, numTurns: 1, isError: false });
+  expect(receipt().phase).toBe("expired");
+  s.client.mute();
+  expect(receipt().announced).toBe(false);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  await expect.poll(() => s.host.textContent).toContain("Expired · denied");
+  expect(s.host.querySelector('[data-approval-card]')).toBe(null);
+});
+
+test("a visual grant winning a voice-refusal race reports the host grant instead of an invented denial", async (ctx) => {
+  const s = await scene(ctx); await s.start(); approval(s, "ithaca-race");
+  recognition(s, "brain, stop");
+  s.deliver({ type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-permission", toolUseId: "ithaca-race", outcome: "granted", channel: "card" });
+  const receipt = s.client.permissions.state.getState().records[0]!;
+  expect(receipt.phase).toBe("granted");
+  expect(receipt.byVoice).toBe(false);
+  await expect.poll(() => s.host.textContent).toContain("The screen decision was already accepted.");
+  expect(s.host.textContent).not.toContain("Denied · by voice");
+  expect(s.ui.stores.chat.getState().buffers[SESSION]?.messages.flatMap(m => m.toolCalls).find(t => t.id === "ithaca-race")?.status).toBe("approved");
+});
+
+test("a disconnect after refusal keeps the outcome unknown and never resends the old denial", async (ctx) => {
+  const s = await scene(ctx); await s.start(); approval(s, "ithaca-disconnect"); recognition(s, "brain, stop");
+  s.network.drop({ announce: true });
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  expect(s.client.permissions.state.getState().records[0]?.phase).toBe("unknown");
+  await expect.poll(() => s.host.textContent).toContain("Couldn't confirm the refusal");
+  s.network.recover(); s.ui.connection.reconnectNow();
+  await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  expect(s.network.sockets.flatMap(socket => socket.frames("tool_denial"))).toHaveLength(1);
+  s.network.socket()!.deliver({ type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-permission", toolUseId: "ithaca-disconnect", outcome: "denied", channel: "voice" });
+  await expect.poll(() => s.host.textContent).toContain("Denied · by voice");
+  expect(s.client.state.getState().micOn).toBe(false);
+});
+
+test("already-denied voice posture yields one outcome receipt and no card or refusal window", async (ctx) => {
+  const s = await scene(ctx); await s.start();
+  const outcome: ServerMessage & { turnId: string } = { type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-posture", toolUseId: "ithaca-posture", outcome: "denied", reason: "voice_posture" };
+  s.deliver(outcome); s.deliver(outcome);
+  await expect.poll(() => s.host.querySelectorAll('[data-voice-posture-outcome]').length).toBe(1);
+  expect(s.host.textContent).toContain("denied by voice posture · no card");
+  expect(s.host.querySelector('[data-approval-card]')).toBe(null);
+  expect(s.host.querySelector('[data-voice-refusal-window]')).toBe(null);
+  recognition(s, "brain, stop");
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.client.state.getState().text).toBe("brain, stop");
+});
+
+for (const theme of ["dark", "light"] as const) test(`permission layout ${theme} 320: review and refusal retain 264px transcript and 44px controls`, async (ctx) => {
+  const s = await scene(ctx, 320, true, theme); await s.start(); approval(s, "ithaca-layout");
+  recognition(s, "Review the departure note");
+  await expect.poll(() => s.host.querySelector('[data-voice-refusal-window]')).not.toBe(null);
+  const strip = s.host.querySelector<HTMLElement>('[data-conversation-strip]')!;
+  const area = [...s.host.querySelectorAll<HTMLElement>('div')].find(element => element.classList.contains("@container"))!;
+  expect(area.getBoundingClientRect().height).toBeGreaterThanOrEqual(264);
+  for (const target of strip.querySelectorAll<HTMLElement>('[role="button"],button')) expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  expect(strip.scrollWidth).toBeLessThanOrEqual(strip.clientWidth);
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/${theme}-320-permission.png` });
+});
