@@ -1,13 +1,11 @@
 # Storage growth and low-space guidance
 
-This is the scoped proposal from #2014, within #1779. It does not activate
-sampling, persist history, select a retention policy or approve thresholds.
-The [approved Storage design](../decisions/design-kit/storage.md) remains the
-initial product: explicit Refresh and measurements after completed owner
-operations, with the complete inspect/select/review/remove/result journey.
-The implementation decisions below require a maintainer ruling before a
-follow-on can ship them. Keeping the initial product without this extension is
-a valid outcome.
+This design implements the maintainer's [reconciled ruling](https://github.com/schlessera/brain-kit/issues/2014#issuecomment-6212070681),
+recorded durably in [Storage guidance](../decisions/storage-guidance.md).
+It specifies a later extension; it does not activate runtime collection or
+notifications. The [initial Storage design](../decisions/design-kit/storage.md)
+keeps its complete inspect/select/review/remove/result journey and does not wait
+for history. No cleanup or retention policy is changed by a pressure warning.
 
 ## Boundaries and ownership
 
@@ -27,49 +25,55 @@ capacity identity or a lifetime byte bound. Caller availability alone
 [Accounting discovery](storage-accounting.md) and
 [native brain storage](../decisions/native-brain-storage.md) bind all quantities.
 
-## Proposed bounded record
+## Bounded record and encoding
 
-Schema `storage_history_v1` stores three bounded tiers totaling at most **128 aggregate samples**,
-with at most **1,792 UTF-8 JSON bytes per sample**. A singleton metadata record
-is capped at 2,048 bytes. Thus retained serialized payload is at most 231,424
-bytes, below the proposed 256 KiB ceiling. Limits apply globally per app, not
-once per owner, root or capacity. Oversize samples are rejected visibly; values
-and scope are never silently truncated to fit.
+Schema `storage_history_v1` retains **186 aggregate samples** globally, with at
+most four capacities per sample. Its canonical UTF-8 JSON payload uses compact
+tuples, capped at **1,152 bytes per sample**, plus at most **40,960 bytes** for a
+shared descriptor dictionary and singleton warning/scheduler state. Including
+array framing (187 bytes), the maximum is **255,419 bytes**, below **256 KiB**.
+Notification delivery receipts have their own bounded operational table; they
+are not smuggled into this history-payload claim. Their physical charge is part
+of the operational DB inventory, as are SQLite pages and WAL.
 
-One sample is the following exact proposed shape. Numbers are safe nonnegative
-byte/count integers or null as specified; no floating point byte totals. Hashes
-are 32 hexadecimal characters derived from host identities, not paths.
+The conceptual fields are preserved by this exact tuple schema (no rounding,
+lossy packing or silently dropped values):
 
 ```ts
-{
-  v: 1,
-  tier: "recent" | "daily" | "weekly",
-  gap: boolean,          // incomplete or incompatible evidence within this bucket
-  at: number,             // UTC epoch milliseconds, end of observation
-  start: number,          // UTC epoch milliseconds, start of observation
-  source: "scheduled" | "refresh" | "operation",
-  collector: string,      // released package version, at most 32 ASCII bytes
-  scope: string,          // hash of root set, ownership and measurement policy
-  basis: 1,              // logical length and qualified 512*st_blocks model
-  coverage: "complete" | "partial" | "unknown",
-  reason: "none" | "partial" | "capacity" | "scope-limit" | "budget" | "changed",
-  caps: Array<{           // at most four separately comparable capacity scopes
-    id: string,          // capacity identity hash, at most 32 ASCII bytes
-    scope: string,       // identity of the permitted root set
-    total: number | null,
-    used: number | null,
-    free: number | null,
-    available: number | null,
-    coverage: "complete" | "partial" | "unknown",
-    owners: [
-      [number | null, number | null], // Brain logical/object allocation
-      [number | null, number | null], // App logical/object allocation
-      [number | null, number | null]  // Operator logical/object allocation
-    ],
-    union: [number | null, number | null] // deduplicated known-store union
-  }>
-}
+type Quantity = number | null; // safe, nonnegative byte integer; null is unknown
+type Capacity = [
+  descriptor: number, // integer 0..743; dictionary holds identity and root scope
+  total: Quantity, used: Quantity, free: Quantity, available: Quantity,
+  coverage: 0 | 1 | 2, // complete, partial, unknown
+  brainLogical: Quantity, brainAllocated: Quantity,
+  appLogical: Quantity, appAllocated: Quantity,
+  operatorLogical: Quantity, operatorAllocated: Quantity,
+  unionLogical: Quantity, unionAllocated: Quantity,
+];
+type Sample = [
+  version: 1, tier: 0 | 1 | 2, gap: 0 | 1,
+  at: number, start: number, // actual UTC epoch milliseconds; safe nonnegative
+  source: 0 | 1 | 2, // scheduled, refresh, operation
+  descriptor: number, // integer 0..185: collector, global scope and basis
+  coverage: 0 | 1 | 2,
+  reason: 0 | 1 | 2 | 3 | 4 | 5, // none, partial, capacity, scope-limit, budget, changed
+  capacities: Capacity[], // at most four
+];
 ```
+
+Dictionary entries are fixed tuples. A sample descriptor holds package version
+(at most 32 ASCII characters), 32-character scope hash and basis version 1.
+A capacity descriptor holds a 32-character identity hash and 32-character root
+scope hash. The combined serialized dictionary and singleton must fit 40,960
+bytes; do not reserve an independent budget per dictionary kind. Descriptor IDs
+are local immutable references while used by retained samples, never reused
+under an existing sample. Garbage-collect unreferenced descriptors in the same
+transaction as tier replacement. If churn exhausts this budget, pause history
+and expose the reason while preserving the previous valid set. The maximum
+field-length experiment separately qualifies four capacities and 186 samples;
+it does not pretend worst-case unique scope churn fits the dictionary forever.
+No per-file names, paths or content are retained. Public JSON uses named fields
+and documented versioning; compact tuples are private persistence encoding.
 
 `owners` are attribution views, not additive physical partitions. `union` is
 computed once from object identities; never sum overlapping owners. Shared
@@ -93,7 +97,7 @@ headroom preserves the previous valid tiers and reports “History paused.” Ne
 force vacuum, truncate WAL, expire journal objects or delete backups to fit
 history. Sampling failure must not destroy recovery.
 
-## Proposed cadence, replacement and cost
+## Cadence, replacement and cost
 
 Sample **once per six-hour UTC bucket**, at the first eligible opportunity while
 the server runs. No catch-up scans after restart/sleep. No startup admission or
@@ -107,20 +111,20 @@ retain only the newest pending aggregate. A crash loses that pending observation
 not content. A partial observation may be retained only if no complete sample
 exists in the bucket; otherwise expose the failure without erasing good evidence.
 
-Retain three overlapping UTC tiers, with **128 total slots**, including current
+Retain three overlapping UTC tiers, with **186 total slots**, including current
 buckets:
 
 | Tier | Bucket width | Slots | Nominal retained horizon |
 | --- | --- | --- | --- |
 | Recent | Six hours | 64 | 16 days |
-| Daily | One UTC day | 32 | 32 days |
+| Daily | One UTC day | 90 | 90 days |
 | Weekly | Seven days, Monday 00:00 UTC | 32 | 224 days (about seven months) |
 
 Each collected observation updates the current bucket in all three tiers in
 **one transaction**. Each tier retains the latest actual observation in its
 bucket, with its original timestamp and values; these are endpoints, not sums,
 averages or peaks. The same observation may occupy three slots. Overlap is
-intentional and included in the 128-slot bound, not added to the horizon.
+intentional and included in the 186-slot bound, not added to the horizon.
 No scans run for compaction, and no raw history is retained behind these tiers.
 Updating three bounded records replaces the old single-record write while the
 scan cadence and transaction rate remain unchanged.
@@ -145,12 +149,11 @@ This conservative flag applies to all capacity series in that sample.
 The table labels Recent/Daily/Weekly and the actual observation time. Older
 history uses discrete points, without interpolating daily or weekly endpoints
 or implying that peaks between them were retained. Missing buckets and flagged
-buckets are visibly incomplete. The recent rate described below uses only Recent
-samples with `gap: false`; a coarse point cannot fill a recent gap or count as
-additional evidence. Long-term daily/weekly history is available for inspection;
-long-term rates or forecasts are not part of this proposal.
+buckets are visibly incomplete. Observed recent rates use only Recent samples with `gap: false`. Forecasts use
+the separately qualified windows below. A coarse point cannot fill a recent gap
+or count as an extra recent observation; weekly history is inspection-only.
 
-The bounded singleton records schema, last attempted bucket, last persisted
+The bounded dictionary/singleton records schema, last attempted bucket, last persisted
 time and current episode states for four scopes. Tier indexes derive from
 sample timestamps, and gap flags live in the capped samples. No unbounded event
 log or separate rollup staging buffer.
@@ -163,7 +166,7 @@ store total under a new timestamp.
 
 Maximum scheduled cost is four bounded scans and four small transactions per
 running day. A tick coalesces with an active scan and never queues a backlog.
-Explicit refresh retains owner-coordinator rate limits. This is a proposed cost
+Explicit refresh retains owner-coordinator rate limits. This is a cost
 ceiling, not proof that large-corpus scanning is cheap. Implementation needs
 real runtime/cancellation evidence and no-stall proof for concurrent turns.
 
@@ -176,7 +179,7 @@ allocation, unsupported identity, overflow, root changes and partial samples
 create labelled gaps. Never interpolate across them. Reflink allocation is a
 qualified charge, not exclusive physical usage or reclaimable space.
 
-The proposed initial rate is **observed endpoint change divided by elapsed
+The observed rate is **observed endpoint change divided by elapsed
 time** across the latest contiguous comparable Recent window, at most seven days.
 Require five complete samples spanning at least 48 hours and no gap over
 12 hours. Display signed decimal bytes/day, basis and interval:
@@ -188,41 +191,124 @@ filesystem overhead and delayed reclamation can change it independently of the
 known-store union. Never label all capacity loss as App growth or all observed
 post-operation gain as reclaimed by that operation.
 
-**No time-to-full estimate is proposed initially.** A constant-growth forecast
-would read as a deadline despite bursts, concurrent writers and temporary
-headroom. Copy says “No exhaustion estimate.” A later estimator needs an explicit
-reliability decision and traces establishing useful error bounds.
+### Qualified exhaustion scenarios
 
-## Proposed low-space states and hysteresis
+Compute depletion from **available capacity**, independently of the known-store
+union. A capacity's total, identity, permitted-root scope and basis must match
+throughout a window. Never use logical/allocated App growth to forecast capacity.
 
-These are recommendations, not approved policy. Evaluate each capacity using
-fresh caller availability and total. Unknown capacity has no inferred percent,
-zero meter or healthy verdict. Six-hour-old observations are stale: retain the
-historical warning and its age without claiming current safety.
+| Window | Evidence |
+| --- | --- |
+| Short | Recent points within seven days; at least five distinct endpoints spanning 48 hours; no interval over 12 hours. |
+| Long | Completed Daily endpoints within 28 days plus the latest Recent endpoint; at least 15 distinct endpoints spanning 14 days; no interval over 48 hours. |
 
-| State | Proposed transition | Copy/action |
+Deduplicate identical timestamps. The latest point must be the current complete
+capacity observation and at most six hours old, with no future timestamp. Walk
+back only through a contiguous compatible suffix: partial, unknown, gap, changed
+identity/total/basis, invalid ordering or excess interval breaks the window.
+Coarse gap flags reject incomplete daily buckets; weekly points never qualify.
+The current day's provisional daily point supplies no extra evidence.
+
+For each qualified window, observed depletion/day is `(first.available -
+last.available) / elapsedDays`. Require at least two-thirds of intervals to
+move in the net direction (flat intervals qualify), and no single interval's
+absolute change to exceed half the absolute net change. This rejects a lone
+burst/cleanup and inconsistent reversals; it does not establish statistical
+accuracy. A perfectly flat window qualifies as non-depleting. A mixed window
+with zero net change is unavailable. A smoothly replenishing qualified window
+also reports **No depletion observed**, without a numeric exhaustion horizon.
+
+For positive depletion, horizon is `latest.available / depletionPerDay` in days,
+with finite arithmetic. Keep exact values for severity comparisons; round only
+copy. Zero available bytes can yield zero days. Qualified non-depleting evidence
+is distinct from missing/incompatible evidence and may satisfy forecast recovery;
+it never says unlimited space or guarantees a write will fit.
+
+Show both labelled window scenarios and their actual intervals. If both finite
+estimates differ, show their min–max range with “If these observed rates continue.”
+If one is unavailable, show the other with the missing window's reason; a sole
+projection can trigger Low, never forecast-driven Critical. If one is
+non-depleting and the other positive, show the finite scenario and “No depletion
+observed in the other window,” not a numeric range to infinity. Rapid acceleration
+may remain underpredicted: capacity thresholds and owner refusals remain independent.
+No probabilistic confidence, countdown promise or causal cleanup-savings claim.
+
+## Low-space states and hysteresis
+
+Evaluate each resolved capacity independently. Fresh means a complete trustworthy
+observation no older than six hours. Unknown capacity has no inferred percentage,
+zero meter or healthy verdict. Preserve warning age when evidence goes stale.
+
+| State | Entry | Copy/action |
 | --- | --- | --- |
 | Unknown | Missing trustworthy total/available/identity | “Capacity unavailable. Refresh or inspect host capacity.” |
-| Observed | Available above 10%, no active episode | “Capacity observed … ago.” No promise an operation fits. |
-| Low | Fresh available at or below 10% | “Low space on Brain volume. Files and retained history share this capacity.” |
-| Critical | Fresh available at or below 5%, or owner-confirmed no-space refusal | “Very low space. Some writes may be refused. Add capacity or review eligible cleanup.” |
-| Stale | Last usable observation older than six hours | “Refresh before planning maintenance.” Preserve the old age/value. |
+| Observed | No active cause | “Capacity observed … ago.” No promise an operation fits. |
+| Low | Available at or below 10%, or either qualified finite scenario at or below 30 days | “Low space. Review capacity and observed trends.” |
+| Critical | Available at or below 5%, both finite scenarios at or below seven days, or an owner-confirmed no-space refusal | “Very low space. Some writes may be refused.” |
+| Stale | Current evidence older than six hours | “Refresh before planning maintenance.” Preserve active warnings. |
 
-A no-space refusal identifies its affected target, not a fabricated percentage
-or proof all capacities are full. Show it even when statfs is unknown. Maintain
-one episode per scope. Worsen on one fresh observation. Clear Critical only after
-two fresh observations at least 60 seconds apart above 7%, returning to Low;
-clear Low after two additional
-such observations above 12%. A scope change starts Unknown, not resolved.
-Unknown/partial/stale samples never clear warnings. Clock reversal or a future
-timestamp breaks comparability; retain the last trustworthy state rather than
-using a negative age or growth interval.
+Track causes separately within a capacity episode; never clear one cause using
+another cause's unrelated evidence. Worsening takes one qualifying observation.
+Recovery takes two successive qualifying fresh observations at least 60 seconds
+apart; intervening failure, incompatible evidence or reversal resets that pair.
+Critical drops to Low first; two additional observations are needed to clear Low.
 
-Proposed notification scope is **in-pane only**: no push, email, OS notification,
-sound, chat message or global toast. Repeated scans update the same state and age.
-Explicit Refresh announces completion once with polite status text. Critical
-copy is associated with the capacity heading, not a repeated assertive live
-region. No new navigation destination or shortcut.
+- Capacity recovery: above 7% to leave Critical; above 12% to leave Low.
+- Forecast recovery: to leave Critical, at least one qualified scenario beyond
+  ten days (or qualified non-depletion) breaks the two-scenario Critical condition.
+  To leave Low, both must be qualified beyond 45 days or non-depleting. Missing
+  evidence cannot be the recovering scenario.
+- Refusal recovery: require a subsequent owner-reported successful write in the
+  same affected target and resource class, after the last refusal, plus the two
+  fresh above-7% observations. No synthetic write probe, empty-file test or
+  disappearance of the failing operation establishes recovery. Unresolved quota,
+  inode or unknown-target refusals stay explicit until the owning operation can
+  provide matching recovery evidence. After downgrade, the capacity Low rule
+  still applies. A new refusal resets recovery.
+
+Every active cause must satisfy its own exit rule before severity falls.
+Clock reversal, unknown/partial/stale data and scope changes cannot clear an
+old episode. A changed scope is Unknown; retain the unresolved prior episode
+as requiring inspection, without transferring its measurements into the new scope.
+Explicit Refresh can provide the recovery pair without extra background scans.
+
+## Indicator and Critical Web Push
+
+Storage shows capacity-specific evidence; a persistent app indicator shows the
+highest active severity and opens Storage. Neither adds a main destination or
+shortcut. Unknown/stale state is labelled, never silently green. Storage and the
+indicator remain usable without push permission. Repeated scans update the same
+state without repeated assertive announcements; explicit Refresh announces its
+completion once politely. Critical text is associated with the capacity heading.
+
+Use only existing authenticated, opt-in **owner** Web Push subscriptions, with
+revocation rechecked at dispatch. Ordinary content readers and agents must not
+receive operational information. Send at most one successful transport submission
+per Critical episode/subscription; no daily reminders initially. An episode starts
+on entry to Critical and ends only after confirmed downgrade. A later re-entry is
+a new episode. Persist episode and destination receipt identities across restarts.
+Bound episode state to the four tracked capacities; purge retired episodes after
+all pending delivery is terminal, retaining active and latest resolved identity
+per capacity. Destination rows cannot outlive their existing subscription.
+
+Use a unique durable `(episode, subscription)` intent before transport. Cap all
+attempts at three per pair, with retry delays of one and five minutes only for
+known non-delivery/rejection. An ambiguous timeout or crash after dispatch is
+**unknown**, not a reason to resend; expose that delivery state in Storage.
+No exactly-once device-display claim: push transport acceptance is not delivery.
+A browser notification tag derived from the opaque episode coalesces replacement
+at the destination, but is not used to justify duplicate server submissions.
+
+All attempts respect device-local **[22:00, 08:00)** quiet hours, without refusal
+exceptions. Use authenticated timezone reporting; an absent/invalid zone keeps
+delivery pending without guessing. Recompute eligibility after timezone/clock
+changes. When eligible, revalidate current owner access, subscription, active
+Critical state and fresh supporting evidence. A stale/unknown warning stays
+visible but sends no push until refreshed; confirmed recovery suppresses pending
+notices. Coalesce multiple eligible capacities into one generic notification,
+recording every included episode's receipt. No backlog replay or new scans solely
+for delivery. Contents say only “Storage needs attention. Open Storage for details.”
+Do not expose capacity IDs, amounts, paths or filenames on a lock screen.
 
 A status never authorizes writes. Packing, index rebuild/compaction, pin refresh,
 retained binary removal/Undo and backups may need headroom. Label those actions
@@ -251,7 +337,8 @@ Growth · On disk
 App: +120 MB/day observed
 Over 3 days · 13 samples
 Shared extents may overlap
-No exhaustion estimate
+Capacity scenarios: 18–42 days
+If observed rates continue
 [View observations]
 
 Review cleanup
@@ -276,7 +363,8 @@ Storage                              [Refresh]  Observed 4 minutes ago
 | history                         |                                  |
 +----------------------------------+----------------------------------+
 Growth · On disk  App +120 MB/day over 3 days · 13 samples
-[View observations] Shared extents may overlap · No exhaustion estimate
+[View observations] Shared extents may overlap · Capacity scenarios 18–42 days
+If observed rates continue · Short 3 days / long 21 days
 Treemap / equivalent table                  Existing inspect/remove flow
 Maintenance: [Prune eligible scratch] [Pack Git objects · Needs headroom]
 ```
@@ -311,51 +399,41 @@ animation. Runtime/browser/accessibility proof belongs to implementation.
 ## Synthetic decision examples
 
 The companion [trace experiment](storage-growth-experiment.ts) evaluates these
-proposed rules offline using Odysseus observations anchored to 2026-07-12. It is
-not production history, shipped policy or a benchmark.
+rules offline using Odysseus observations anchored to 2026-07-12. It is
+not production history, implemented runtime or a benchmark.
 
 | Trace | Required interpretation |
 | --- | --- |
-| Steady growth, 13 samples over three days | Signed endpoint rate and interval; no exhaustion estimate. |
-| Burst then steady size | Interval average, not a forecast; no pressure warning without capacity evidence. |
+| Steady growth, 13 samples over three days | Signed rate; no long-window scenario until its evidence minimum is met. |
+| Burst then steady size | Signed rate; burst-dominated depletion window yields no projection. |
 | Reclamation | Negative observed change; no causal savings claim. |
 | Capacity/root change | New epoch; old observations cannot supply a rate. |
 | Partial/unknown midpoint | Break the window; too little new evidence means no rate. |
 | Retained-only pressure | Low/Critical plus no eligible cleanup; capacity provision is legitimate. |
 | Concurrent unowned writer | Capacity falls while store usage is flat; do not attribute loss to App. |
-| Year of six-hour observations | At most 64/32/32 slots; weekly history reaches approximately seven months without extra scans. |
+| Year of six-hour observations | At most 64/90/32 slots; weekly history reaches approximately seven months without extra scans. |
 | Missing interval inside a daily/weekly bucket | Sticky gap survives replacement by a later complete endpoint. |
 | Long outage | Empty periods remain empty; age-expired buckets disappear without catch-up scans. |
 | Threshold oscillation | Worsen immediately; clear only with two qualifying observations 60 seconds apart. |
 
-The experiment serializes worst-case field lengths and four capacities, checks
-1,792 bytes/sample and the global payload ceiling, and checks all three tier caps, UTC boundaries, missing buckets, sticky gaps,
-long outages and clock reversal across a year of synthetic observations.
-Physical SQLite/WAL overhead remains an implementation measurement, not an
-invented exact charge in this spike.
+The experiment checks maximum-width numeric tuple encoding for four capacities,
+the 186-record payload ceiling, all tier caps and seven-month weekly reach. It
+also checks forecast windows, burst/reclamation rejection, divergent scenarios,
+missing evidence, direct warnings, cause-specific recovery, refusal evidence and
+restart/deduplication/quiet-hours suppression with a deterministic local model.
+These traces qualify rules, not real-world forecast error bounds or transport
+reliability. Implementation issues require genuine runtime/browser/migration proof
+and physical SQLite/WAL measurements. No fixture sends a notification.
 
-## Decisions and later implementation
+## Implementation boundaries
 
-The maintainer must choose before implementation:
-
-1. Six-hour collection with 64 recent, 32 daily and 32 weekly slots (128 total),
-   1,792-byte samples, four historical
-   capacity scopes and these coalescing rules, or explicit refresh only.
-2. Observed endpoint rates with this evidence window and no exhaustion estimate,
-   or defer growth display.
-3. In-pane 10%/5% guidance and 12%/7% two-observation clearing, without outward
-   notifications, or retain capacity figures and owner refusals alone.
-
-The recommended bundle adopts all three additions. It bounds cost and provides
-capacity-specific guidance without predictive certainty or a new deletion policy.
-Keeping explicit-only behavior is a valid outcome. Different rules require an
-updated proposal and synthetic examples before ready implementation issues.
-
-Once settled, scope two native #1779 children: server history/capacity state
-(migration, payload bounds, owner auth, coalescing, recovery, cancellation,
-versioned HTTP/config contracts and minor changeset), then growth/low-space UI
-(layouts, table, copy, accessibility and browser proof). Each carries the actual
-ruling and failing-first/runtime criteria. The proposal alone is not approval.
+Server history/state/delivery and UI guidance are separate native children of
+#1779, after this design spike. The server issue owns migration, bounded payload
+and receipts, authoritative owner checks, shared scan coalescing, timers,
+cancellation, recovery and versioned HTTP/config contracts. The UI issue owns
+history tables/charts, labelled scenarios, persistent indicator, accessible
+capacity guidance and notification navigation. Initial pane delivery is #2013;
+these additions must not introduce an incomplete public pane before it.
 
 Remote/provider usage needs an authenticated provider-specific scope/quota
 contract. Host/container stores need explicit owner-approved roots and safe
