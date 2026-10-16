@@ -1,8 +1,9 @@
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync } from "node:fs";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync, readdirSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKeyedLock, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
@@ -88,21 +89,38 @@ for (const alias of ["symlink", "hardlink", "ancestor"] as const) test(`policy p
   f.answer(true); expect((await pending).state).toBe("refused"); expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toHaveLength(0);
 });
 
-test("the concrete journal records user/policy bytes and the next journal admission captures the new policy hash", async () => {
+for (const creating of [false, true]) test(`the concrete journal records user/policy bytes without host staging (${creating ? "creation" : "replacement"}) and the next admission captures the new hash`, async () => {
   let journal!: ReturnType<typeof createTurnJournal>;
-  const f = fixture({ observeUserPolicy: (id, write) => journal.observeUserPolicy(id, write) });
+  const f = fixture({ observeUserPolicy: async (id, write) => {
+    const publication = journal.observeUserPolicy(id, write);
+    // A scope/tool observation already queued during publication must also
+    // see canonical versions, never extend the host staging lifetime.
+    await Promise.all([publication, journal.observe()]);
+  } });
   const objects = mkdtempSync(join(tmpdir(), "policy-journal-state-")); cleanup.push(() => rmSync(objects, { recursive: true, force: true }));
   const native = createNativeJournalFixture(f.root, objects); cleanup.push(() => native.close());
   journal = createTurnJournal(f.db, { nativeManager: native.manager, brainPath: f.root, dbPath: ":memory:", objectsRoot: objects }); cleanup.push(() => journal.close());
   f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
   f.turn.sessionId = () => "ithaca";
+  if (creating) rmSync(f.path);
+  const agentPath = "context/policies/.brain-policy-agent-owned.md";
+  writeFileSync(join(f.root, agentPath), "Odysseus starts a real note.\n");
   const reader = createGovernancePolicyReader(f.root), initial = reader.load();
   await journal.begin("policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: initial.hash }, error => { throw error; });
+  writeFileSync(join(f.root, agentPath), "Athena edits a similarly named real note.\n");
   const pending = f.service.propose(f.turn, "policy-1", input); f.answer(true); const result = await pending; expect(result.state).toBe("updated");
   await journal.finish("policy-turn");
   const details = journal.details("ithaca", "policy-turn")!, change = details.changes.find(change => change.path === "context/policies/governance.md")!;
+  expect(details.changes.filter(item => item.path.includes("/.brain-policy-") && item.path !== agentPath), "POLICY_PUBLICATION_HAS_NO_AGENT_STAGING_NOISE").toEqual([]);
+  expect(details.changes.filter(item => item.path === "context/policies/governance.md")).toHaveLength(1);
   expect(change).toMatchObject({ actor: "user", class: "policy" });
-  expect(journal.version("ithaca", "policy-turn", change.sequence, "before")!.bytes(1024).toString()).toBe(original);
+  if (creating) expect(change.before).toBeNull();
+  else expect(journal.version("ithaca", "policy-turn", change.sequence, "before")!.bytes(1024).toString()).toBe(original);
+  const agent = details.changes.find(item => item.path === agentPath)!;
+  expect(agent, "POLICY_SIMILARLY_NAMED_AGENT_CHANGE_RETAINED").toMatchObject({ actor: "agent", class: "content" });
+  expect(journal.version("ithaca", "policy-turn", agent.sequence, "after")!.bytes(1024).toString()).toBe("Athena edits a similarly named real note.\n");
+  expect(readdirSync(join(f.root,"context/policies")).sort()).toEqual([".brain-policy-agent-owned.md","governance.md"]);
+  expect(f.events).toHaveLength(1); expect(f.count()).toBe(1);
   expect(journal.version("ithaca", "policy-turn", change.sequence, "after")!.bytes(1024).toString()).toBe(proposed);
   const next = reader.load();
   expect(next.hash).toBe(result.proposedHash); expect(next.policy.profiles.interactive).toBe("strict");
@@ -180,4 +198,73 @@ test("post-approval validation refuses unsupported selection before dispatch or 
     expect(result.state).toBe("invalid"); expect(result.message).toContain("use YAML data only");
     expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
   } finally { sentinel.restore(); }
+});
+
+
+test("journal overflow after approved publication retains truthful partial/unknown receipts without staging noise", async () => {
+  let journal!: ReturnType<typeof createTurnJournal>;
+  const f=fixture({observeUserPolicy:(id,write)=>journal.observeUserPolicy(id,write)});
+  const objects=mkdtempSync(join(tmpdir(),"policy-overflow-"));cleanup.push(()=>rmSync(objects,{recursive:true,force:true}));
+  const native=createNativeJournalFixture(f.root,objects);cleanup.push(()=>native.close());
+  journal=createTurnJournal(f.db,{nativeManager:native.manager,brainPath:f.root,dbPath:":memory:",objectsRoot:objects,capBytes:512*1024});cleanup.push(()=>journal.close());
+  let stopped=false;
+  await journal.begin("policy-turn",{sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null},()=>{stopped=true;});
+  const content=proposed+"Odysseus records the approved boundary.\n".repeat(17000);
+  const pending=f.service.propose(f.turn,"policy-overflow",{content,rationale:"Retain the exact approved policy."});f.answer(true);
+  const result=await pending;
+  expect(result.state,"POLICY_OVERFLOW_NEVER_CLAIMS_COMPLETE_RECEIPT").toBe("unknown");
+  expect(readFileSync(f.path,"utf8")).toBe(content);expect(stopped).toBe(true);
+  expect(journal.summary("policy-turn").state).toBe("partial");
+  expect(journal.details("ithaca","policy-turn")?.changes.some(change=>change.path.includes("/.brain-policy-"))).toBe(false);
+  expect(readdirSync(join(f.root,"context/policies"))).toEqual(["governance.md"]);
+  expect(f.events).toHaveLength(0);
+  try{await journal.finish("policy-turn");}catch{/* The retained partial state is authoritative. */}
+});
+
+
+test("a failed staged write cleans up before observation and leaves the approved policy unchanged", async () => {
+  let journal!: ReturnType<typeof createTurnJournal>;
+  const f=fixture({observeUserPolicy:(id,write)=>journal.observeUserPolicy(id,write)});
+  const objects=mkdtempSync(join(tmpdir(),"policy-write-refusal-"));cleanup.push(()=>rmSync(objects,{recursive:true,force:true}));
+  const native=createNativeJournalFixture(f.root,objects);cleanup.push(()=>native.close());
+  journal=createTurnJournal(f.db,{nativeManager:native.manager,brainPath:f.root,dbPath:":memory:",objectsRoot:objects});cleanup.push(()=>journal.close());
+  await journal.begin("policy-turn",{sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null},error=>{throw error;});
+  const originalWrite=fs.writeFileSync;let refused=0;
+  const write=spyOn(fs,"writeFileSync").mockImplementation((...args)=>{
+    if(typeof args[0]==="number"){refused++;throw Object.assign(Error("fixture staged write unavailable"),{code:"EIO"});}
+    return originalWrite(...args);
+  });
+  try{
+    const pending=f.service.propose(f.turn,"policy-write-refusal",input);f.answer(true);
+    expect((await pending).state).toBe("refused");expect(refused).toBe(1);
+  }finally{write.mockRestore();}
+  await journal.finish("policy-turn");
+  expect(readFileSync(f.path,"utf8"),"POLICY_FAILED_STAGING_PRESERVES_ORIGINAL_BYTES").toBe(original);
+  expect(journal.details("ithaca","policy-turn")?.changes,"POLICY_FAILED_STAGING_HAS_NO_AGENT_HISTORY").toEqual([]);
+  expect(readdirSync(join(f.root,"context/policies"))).toEqual(["governance.md"]);
+  expect(f.events).toHaveLength(0);
+});
+
+
+test("an occupied staging name never grants cleanup ownership of a real similarly named file", async () => {
+  let journal!: ReturnType<typeof createTurnJournal>;
+  const collision="11111111-1111-4111-8111-111111111111";
+  const f=fixture({observeUserPolicy:(id,write)=>journal.observeUserPolicy(id,()=>{
+    const uuid=spyOn(crypto,"randomUUID").mockReturnValue(collision);
+    try{write();}finally{uuid.mockRestore();}
+  })});
+  const objects=mkdtempSync(join(tmpdir(),"policy-stage-collision-"));cleanup.push(()=>rmSync(objects,{recursive:true,force:true}));
+  const native=createNativeJournalFixture(f.root,objects);cleanup.push(()=>native.close());
+  journal=createTurnJournal(f.db,{nativeManager:native.manager,brainPath:f.root,dbPath:":memory:",objectsRoot:objects});cleanup.push(()=>journal.close());
+  await journal.begin("policy-turn",{sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null},error=>{throw error;});
+  const name=`context/policies/.brain-policy-${collision}`,bytes="Athena owns this real file.\n";
+  writeFileSync(join(f.root,name),bytes);
+  const pending=f.service.propose(f.turn,"policy-stage-collision",input);f.answer(true);expect((await pending).state).toBe("refused");
+  await journal.finish("policy-turn");
+  expect(existsSync(join(f.root,name)),"POLICY_COLLISION_PRESERVES_UNOWNED_STAGING_NAME").toBe(true);
+  expect(readFileSync(join(f.root,name),"utf8")).toBe(bytes);
+  expect(readFileSync(f.path,"utf8")).toBe(original);
+  const changes=journal.details("ithaca","policy-turn")!.changes;
+  expect(changes).toHaveLength(1);expect(changes[0]).toMatchObject({path:name,actor:"agent",class:"content"});
+  expect(journal.version("ithaca","policy-turn",changes[0]!.sequence,"after")!.bytes(1024).toString()).toBe(bytes);
 });

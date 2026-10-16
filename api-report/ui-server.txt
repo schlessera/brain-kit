@@ -483,7 +483,7 @@ signatures (every public export and the types it is made of)
         confirm: number[];
     }
   GovernancePolicyInput (packages/common/src/governance-policy.ts)
-    export type GovernancePolicyInput = z.infer<typeof GovernancePolicySchema>;
+    export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
         budgets: z.ZodOptional<z.ZodObject<{
@@ -561,10 +561,19 @@ signatures (every public export and the types it is made of)
             }>>;
         }, z.core.$strict>>;
         protect: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        providers: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        providers: z.ZodOptional<z.ZodArray<z.ZodPipe<z.ZodObject<{
             allow: z.ZodArray<z.ZodString>;
-            paths: z.ZodArray<z.ZodString>;
-        }, z.core.$strict>>>;
+            paths: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            types: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>, z.ZodTransform<{
+            allow: string[];
+            paths: string[];
+            types?: string[] | undefined;
+        }, {
+            allow: string[];
+            paths?: string[] | undefined;
+            types?: string[] | undefined;
+        }>>>>;
         release: z.ZodOptional<z.ZodArray<z.ZodString>>;
         schema_version: z.ZodLiteral<1>;
         scope: z.ZodOptional<z.ZodObject<{
@@ -1634,10 +1643,11 @@ signatures (every public export and the types it is made of)
             voice: "governed" | "strict";
         };
         protect: string[];
-        providers: Array<{
+        providers: {
             allow: string[];
             paths: string[];
-        }>;
+            types?: string[] | undefined;
+        }[];
         release: string[];
         schema_version: 1;
         scope: {

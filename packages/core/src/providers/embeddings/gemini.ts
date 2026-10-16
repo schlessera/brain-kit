@@ -13,6 +13,17 @@ import { withRetry } from "../../lib/llm-util.js";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults.js";
 
 const TEXT_BATCH_SIZE = 100;
+const installedProviders = new WeakMap<object, { initialize(): Promise<unknown>; recipient(): string | undefined }>();
+/** Concrete factory/client provenance, never a provider's self-declared model id. */
+export async function geminiEmbeddingRecipient(provider: EmbeddingProvider | undefined): Promise<string | undefined> {
+  try { const installed = provider && installedProviders.get(provider); await installed?.initialize(); return installed?.recipient(); }
+  catch { return undefined; }
+}
+
+/** Synchronous admission beside the actual call, after asynchronous work. */
+export function currentGeminiEmbeddingRecipient(provider: EmbeddingProvider | undefined): string | undefined {
+  try { return provider && installedProviders.get(provider)?.recipient(); } catch { return undefined; }
+}
 
 // gemini-embedding-2 (GA) has no taskType parameter. Retrieval asymmetry is
 // expressed through prompt prefixes instead (per the Gemini embeddings docs):
@@ -191,7 +202,7 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
     return new Float32Array(response.embeddings[0].values);
   }
 
-  return {
+  const provider = {
     id: `gemini:${model}`,
     dimensions,
     embed,
@@ -199,4 +210,17 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
     embedImage,
     embedPdf,
   };
+  installedProviders.set(provider, { initialize: getClient, recipient() {
+    const ai = client;
+    if (!ai || Object.entries({ embed, embedQuery, embedImage, embedPdf })
+      .some(([name, method]) => Object.getOwnPropertyDescriptor(provider, name)?.value !== method)) return undefined;
+    // Inspect this concrete SDK client's resolved transport, including SDK
+    // environment/default endpoint overrides. Unknown SDK shapes fail closed.
+    const endpoint = ai.apiClient?.getBaseUrl?.();
+    if (ai.vertexai !== false || typeof endpoint !== "string") return undefined;
+    const url = new URL(endpoint);
+    return url.protocol === "https:" && url.hostname === "generativelanguage.googleapis.com"
+      && !url.port && !url.username && !url.password ? "google" : undefined;
+  } });
+  return provider;
 }
