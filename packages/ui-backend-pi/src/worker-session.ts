@@ -384,7 +384,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       const application = Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)
         && !(workerSandbox?.profile === "governed" && ["write_file", "edit_file"].includes(msg.toolName));
-      if (application && !bridge.applyBrain) return { behavior: "deny", message: "No server application route is available in this turn." };
+      if (!turnContext.autonomous && application && !bridge.applyBrain) return { behavior: "deny", message: "No server application route is available in this turn." };
       if (application && bridge.applyBrain) {
         // Exact application authorization belongs to the server route.
         return { behavior: "allow" };
