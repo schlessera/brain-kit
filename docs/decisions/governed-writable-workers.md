@@ -1042,7 +1042,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:440`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,

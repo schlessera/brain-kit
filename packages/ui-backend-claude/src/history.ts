@@ -12,6 +12,7 @@ import type {
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
 import { listArchivedSessions, restoreArchivedSession } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
+import { usageLimitText } from "./usage-limit.js";
 import { statusFromText } from "./stream-adapter.js";
 
 /**
@@ -288,6 +289,8 @@ export function apiErrorFailure(message: unknown, content: unknown[]): TurnFailu
     .trim();
   // A turn the user cancelled is written the same way, and is not a failure.
   if (ABORTED_TEXT.test(text)) return null;
+  const limitText = usageLimitText(message, content);
+  if (limitText) return { errorClass: FIRST_PARTY_FAILURE_CLASSES.rate_limit, message: limitText };
   const known = API_ERROR_TEXTS.find(({ pattern }) => pattern.test(text));
   if (!known) return null;
   const status = statusFromText(text);
