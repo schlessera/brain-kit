@@ -14,10 +14,11 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
   const brain = mkdtempSync(join(tmpdir(), "odysseus-roster-"));
   const rosters: string[] = [], exclusions: string[] = [];
   try {
-    for (const mode of ["voice", "typed", "missing", "strict", "no-grant"] as const) {
+    for (const mode of ["voice", "typed", "missing", "strict", "no-grant", "unhosted"] as const) {
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
         prompt: "Return to Ithaca", signal: new AbortController().signal,
-        bridge: (mode === "missing" ? {} : bridge()) as never,
+        bridge: (["missing", "unhosted"].includes(mode) ? {} : bridge()) as never,
+        ...(mode !== "unhosted" ? { applicationAuthority: "server" as const } : {}),
         ...(mode === "voice" ? { posture: "voice", enforceAllowedTools: true } : {}),
         noGrantSurface: mode === "voice" || mode === "no-grant",
         workerSandbox: { brain, profile: mode === "strict" ? "strict" : "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
@@ -31,7 +32,7 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
         await client.connect(ct);
         const tools = (await client.listTools()).tools;
         for (const legacy of ["brain_add", "brain_update", "brain_archive"])
-          expect(turn.options.disallowedTools?.includes(`mcp__brain__${legacy}`), `LEGACY_DEPLOYMENT_MEMBERSHIP_${mode}_${legacy}`).toBe(mode !== "missing");
+          expect(turn.options.disallowedTools?.includes(`mcp__brain__${legacy}`), `LEGACY_DEPLOYMENT_MEMBERSHIP_${mode}_${legacy}`).toBe(mode !== "unhosted");
         for (const name of [...refused, "brain_read_base", "brain_add", "show_block", "turn_temp"])
           expect(tools.some(tool => tool.name === name), `FULL_ROSTER_${mode}_${name}`).toBe(true);
         rosters.push(JSON.stringify(tools)); exclusions.push(JSON.stringify(turn.options.disallowedTools?.filter(name => ["Write", "Edit", "NotebookEdit"].includes(name))));

@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:529`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:553`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:535`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:559`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools

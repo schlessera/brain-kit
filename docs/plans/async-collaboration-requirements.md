@@ -248,7 +248,7 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:470-558`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:470-564`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
@@ -256,7 +256,7 @@ Stated before the requirements because five of them derive from it.
   (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:100-171`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1105-1117`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1106-1118`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk

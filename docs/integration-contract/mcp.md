@@ -222,7 +222,11 @@ remembered allows. Governed typed calls retain their stale-read and write-lock
 checks. Pi still rejects voice dispatch before a provider request: the stable
 roster does not add a voice posture. Restricted autonomous rosters remain exact
 server authority and are outside this interactive stability rule. Existing tool
-names, inputs and result shapes are unchanged.
+names, inputs and result shapes are unchanged. Hosted legacy project-MCP
+shadowing uses the session-stable trusted
+`StartTurnRequest.applicationAuthority: "server"` declaration even when its
+route handler is absent; direct unhosted consumers retain their legacy tools.
+See [the package API](package-api.md#stable-hosted-application-roster-2048).
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive

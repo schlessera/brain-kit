@@ -119,7 +119,7 @@ function assembleClaudeSdkTurn(
   // it by the server's held descriptor, so it needs no approval. Not in the
   // restricted envelope, whose roster is exact server authority.
   const turnTempTool = !req.autonomous;
-  const hosted = Boolean(req.bridge.applyBrain);
+  const hosted = (!req.autonomous && req.applicationAuthority === "server") || Boolean(req.bridge.applyBrain);
   const migrations: Record<string, string> = {
     mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
     mcp__brain__brain_archive: "mcp__brain-ui__brain_archive", Write: "mcp__brain-ui__write_file", Edit: "mcp__brain-ui__edit_file",
