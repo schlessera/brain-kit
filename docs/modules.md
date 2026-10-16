@@ -387,8 +387,12 @@ The opt-in `@schlessera/brain-module-diagrams` contributes
 `brain diagram check <file|-> --json` and [upstream review tooling](../packages/module-diagrams/UPSTREAM.md).
 The [v1 spec contract](integration-contract/diagrams.md) defines standalone and fenced YAML,
 strict family grammars, finding envelopes, budgets and free-layout geometry checks.
-Its client/static entries are reserved stubs; no diagram renderer or authoring
-skill is registered yet.
+Its client/static packs render the shipped node-link, ordered-axis and positional
+families through the configured host. The [diagram authoring skill](../packages/module-diagrams/skills/diagram/SKILL.md)
+teaches selection, taste and fence/check workflow, loading type references and
+worked examples on demand. `brain module enable diagrams` synchronizes that
+skill and its generated module instructions. Use Mermaid for a quick sketch;
+pictorial illustrations and image edits remain image-gen work.
 
 This list follows `main`. Travel and module-contributed MCP tools join the
 next release (0.40.0); they are absent from published 0.39.0. Speaking's travel
