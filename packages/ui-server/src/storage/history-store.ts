@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { capacityEvidence } from "./history-evidence.js";
-import { newPressure, observePressure, type Pressure } from "./pressure.js";
+import { newPressure, observePressure, ownerWrite, type Pressure, type Refusal } from "./pressure.js";
 import { HISTORY_LIMITS, bucket, hashScope, jsonBytes, retainAggregate, validateHistory, type Aggregate, type HistoryPayload } from "./history-model.js";
 export interface HistoryState {
   version: 1; salt: string;
@@ -16,6 +16,7 @@ export interface HistoryState {
 }
 export type StoredHistory = HistoryPayload<HistoryState>;
 type Pending = { kind: "aggregate"; value: Aggregate } | { kind: "failure"; at: number };
+export interface StorageWriteReport { identity: string; rootScope: string; target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }
 export const storageBrainKey = (brainPath: string) => hashScope(realpathSync(brainPath));
 export function emptyHistory(): StoredHistory {
   return { metadata: { samples: {}, capacities: {}, state: { version: 1, salt: randomBytes(32).toString("hex"), lastPersistedAt: 0, lastObservedAt: 0, lastAttemptBucket: null, paused: null, pressures: [], suppressedEpisodes: [], scopeLimit: false } }, samples: [] };
@@ -48,10 +49,13 @@ export function readStoredHistory(db: Database, brain: string): StoredHistory | 
 }
 export function createStorageHistory(db: Database, brainPath: string, options: { now?: () => number } = {}) {
   const brain = storageBrainKey(brainPath), now = options.now ?? Date.now;
+  const initial = emptyHistory();
   let pending: Pending | null = null, unavailable: string | null = null, closed = false;
+  let pendingWrites: StorageWriteReport[] = [], interrupted = false;
   // Constructing the store never collects filesystem inventory. Failure here is
   // a capability result; it cannot prevent existing recovery operations booting.
-  try { db.query("INSERT OR IGNORE INTO storage_history (brain, payload_json) VALUES (?, ?)").run(brain, JSON.stringify(emptyHistory())); }
+  const initialize = () => db.query("INSERT OR IGNORE INTO storage_history (brain, payload_json) VALUES (?, ?)").run(brain, JSON.stringify(initial));
+  try { initialize(); }
   catch { unavailable = "history-write-unavailable"; }
   const read = () => {
     try { return readStoredHistory(db, brain); }
@@ -63,6 +67,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     const stored = read();
     if (stored && at < stored.metadata.state.lastObservedAt) {
       unavailable = "history-clock-reversal";
+      interrupted = true;
       // Do not overwrite a newer pending observation after a clock reversal.
       return;
     }
@@ -71,21 +76,26 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     flush();
   }
   function flush(): boolean {
-    if (closed || !pending) return false;
-    const candidate = pending, at = candidate.kind === "aggregate" ? candidate.value.at : candidate.at, time = now();
+    if (closed || !pending && !pendingWrites.length) return false;
+    const candidate = pending, writes = pendingWrites, time = now();
+    const at = Math.max(candidate ? candidate.kind === "aggregate" ? candidate.value.at : candidate.at : 0, ...writes.map(row => row.at));
     try {
       const changed = db.transaction(() => {
+        initialize();
         const previous = readStoredHistory(db, brain);
         if (!previous) throw Error("history-unavailable");
         const state = previous.metadata.state;
         if (time < state.lastPersistedAt || at < state.lastObservedAt || at > time) throw Error("history-clock-reversal");
         if (time - state.lastPersistedAt < HISTORY_LIMITS.writeInterval) return false;
         let next: StoredHistory;
-        if (candidate.kind === "aggregate") {
+        if (interrupted) state.pressures = state.pressures.map(value => ({ ...value, recoveryAt: null, supportAt: null }));
+        if (candidate?.kind === "aggregate") {
           next = retainAggregate(previous, candidate.value);
+          if (interrupted || state.paused) for (const sample of next.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
           // A partial refresh may preserve the complete stored endpoint. Evaluate
           // the actual new capacity observation, never give the old total a new time.
           const evaluation = retainAggregate({ ...structuredClone(next), samples: next.samples.filter(row => row[1] !== 0 || bucket(0, row[3]) !== bucket(0, at)) }, candidate.value);
+          if (interrupted || state.paused) for (const sample of evaluation.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
           const incoming = candidate.value.capacities.map(row => row.descriptor);
           const pressures = state.pressures.filter(value => value.severity !== "observed" || incoming.some(([identity]) => identity === value.identity))
             .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
@@ -93,34 +103,66 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
           next.metadata.state.pressures = pressures.map(value => observePressure(value, capacityEvidence(evaluation, value.identity, time), time));
           next.metadata.state.scopeLimit = candidate.value.reason === 3 || incoming.some(([identity]) => !pressures.some(value => value.identity === identity));
           next.metadata.state.paused = null;
-        } else {
+        } else if (candidate) {
           next = structuredClone(previous);
           for (const row of next.samples) if (bucket(row[1], row[3]) === bucket(row[1], at)) row[2] = 1;
           next.metadata.state.pressures = state.pressures.map(value => observePressure(value, null, time));
           next.metadata.state.paused = "collection-unavailable";
+        } else next = structuredClone(previous);
+        for (const report of writes) {
+          let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
+          if (!pressure && report.outcome === "success") continue;
+          if (!pressure) {
+            if (next.metadata.state.pressures.length >= 4) throw Error("history-pressure-capacity-budget");
+            pressure = newPressure(report.identity, report.rootScope); next.metadata.state.pressures.push(pressure);
+          }
+          const index = next.metadata.state.pressures.indexOf(pressure);
+          // Buffered reports were checked when received. A newer capacity sample
+          // from this or another process cannot erase an intervening refusal.
+          if (pressure.refusals.some(value => value.target === report.target && value.resource === report.resource && value.at > report.at)) continue;
+          const changed = ownerWrite({ ...pressure, at: Math.min(pressure.at, report.at) }, report, time);
+          changed.at = Math.max(changed.at, pressure.at);
+          next.metadata.state.pressures[index] = changed;
         }
         next.metadata.state.lastPersistedAt = time;
-        next.metadata.state.lastObservedAt = at;
-        next.metadata.state.lastAttemptBucket = bucket(0, at);
+        if (candidate) {
+          const observedAt = candidate.kind === "aggregate" ? candidate.value.at : candidate.at;
+          next.metadata.state.lastObservedAt = observedAt;
+          next.metadata.state.lastAttemptBucket = bucket(0, observedAt);
+        }
         const episodes = new Set(next.metadata.state.pressures.flatMap(value => [value.episode, value.resolvedEpisode].filter((id): id is string => id !== null)));
         next.metadata.state.suppressedEpisodes = next.metadata.state.suppressedEpisodes.filter(value => episodes.has(value));
-        validateHistory(next);
+        validateHistory(next); stateSchema.parse(next.metadata.state);
         db.query("UPDATE storage_history SET payload_json = ?, revision = revision + 1 WHERE brain = ?").run(JSON.stringify(next), brain);
         return true;
       }).immediate();
-      if (changed) { if (pending === candidate) pending = null; unavailable = null; }
+      if (changed) { if (pending === candidate) pending = null; if (pendingWrites === writes) pendingWrites = []; interrupted = false; unavailable = null; }
       return changed;
     } catch (error) {
+      interrupted = true;
       unavailable = error instanceof Error && error.message.startsWith("history-") ? error.message : "history-write-unavailable";
       return false;
     }
   }
   return {
-    brain, read, flush,
+    brain, read, flush, salt: read()?.metadata.state.salt ?? initial.metadata.state.salt,
     offer(value: Aggregate) { offer({ kind: "aggregate", value }); },
-    failure(at = now()) { offer({ kind: "failure", at }); },
-    status() { const history = read(); return { history, pending: pending !== null, paused: unavailable ?? history?.metadata.state.paused ?? null, payloadBytes: history ? jsonBytes(history) : null }; },
-    close() { closed = true; pending = null; },
+    failure(at = now()) { interrupted = true; offer({ kind: "failure", at }); },
+    ownerWrite(report: StorageWriteReport) {
+      if (closed) return;
+      if (![report.identity, report.rootScope, report.target].every(value => /^[a-f0-9]{32}$/.test(value)) || !Number.isSafeInteger(report.at) || report.at < 0 || report.at > now()) throw Error("history-write-report-invalid");
+      if (report.at < (read()?.metadata.state.lastPersistedAt ?? 0)) { interrupted = true; unavailable = "history-clock-reversal"; return; }
+      const next = [...pendingWrites, report];
+      if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) { unavailable = "history-owner-evidence-budget"; return; }
+      pendingWrites = next; flush();
+    },
+    status() {
+      const history = read();
+      const scan = db.query("SELECT result_at FROM storage_scan_leases WHERE brain = ?").get(brain) as { result_at: number | null } | null;
+      const waiting = scan?.result_at !== null && scan?.result_at !== undefined && scan.result_at > (history?.metadata.state.lastObservedAt ?? 0);
+      return { history, pending: pending !== null || pendingWrites.length > 0 || waiting, paused: unavailable ?? (history && now() < history.metadata.state.lastPersistedAt ? "history-clock-reversal" : history?.metadata.state.paused ?? null), payloadBytes: history ? jsonBytes(history) : null };
+    },
+    close() { closed = true; pending = null; pendingWrites = []; },
   };
 }
 export type StorageHistory = ReturnType<typeof createStorageHistory>;

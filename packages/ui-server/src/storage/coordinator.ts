@@ -1,3 +1,6 @@
+import { hashScope, type Source } from "./history-model.js";
+import type { SharedStorageScan, SharedScan } from "./shared-scan.js";
+import type { StorageWriteReport } from "./history-store.js";
 import { projectStorageTree, sortStorageRows } from "./tree.js";
 import { storageReferences } from "./process.js";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -8,12 +11,17 @@ export class StorageUnavailable extends Error {
 }
 export function createStorageCoordinator(options: Omit<StorageCollectOptions, "salt"> & {
   authorized(principalId: string): boolean;
+  salt?: string;
+  shared?: SharedStorageScan;
+  onCollection?(collection: StorageCollection, source: Source): void;
+  onFailure?(at: number): void;
+  onWrite?(report: StorageWriteReport): void;
   /** Host/backend owners resolve exact roots; this callback never receives request data. */
   storesNow?(): { stores: StorageCollectOptions["stores"]; unavailable: NonNullable<StorageCollectOptions["unavailable"]> };
 }) {
-  const salt = randomBytes(32).toString("hex");
+  const salt = options.salt ?? randomBytes(32).toString("hex");
   let current: StorageCollection | null = null, previous: StorageCollection | null = null;
-  let active: { id: string; principal: string; controller: AbortController; promise: Promise<void> } | null = null;
+  let active: { id: string; principal: string; controller: AbortController; promise: Promise<void>; lease?: SharedScan } | null = null;
   let lastAttempt = 0, closed = false;
   let referenceJob: { controller: AbortController; promise: Promise<StorageReferenceEvidence> } | null = null;
   let lastFailure: { scanId: string; at: number; reason: string } | null = null;
@@ -32,28 +40,72 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
   }
   const api = {
     status,
-    start(principal: string, fresh = false): StorageStatus {
+    /** Internal owning-operation report. No request route accepts these fields. */
+    ownerWrite(rootIdentity: string, target: string, resource: StorageWriteReport["resource"], outcome: StorageWriteReport["outcome"]) {
+      const key = (value: string) => createHmac("sha256", salt).update(value).digest("hex").slice(0, 32);
+      const root = key(`root:${rootIdentity}`), latest = [current, previous].filter(value => value !== null).sort((a, b) => b.summary.observedAt - a.summary.observedAt)[0];
+      const capacity = latest?.summary.capacities.find(value => value.rootIds.includes(root));
+      const report: StorageWriteReport = { identity: capacity?.id ?? key(`unresolved:${rootIdentity}`), rootScope: hashScope(capacity ? [...capacity.rootIds].sort() : [root]), target: key(`write:${rootIdentity}:${target}`), resource, outcome, at: Date.now() };
+      try { options.onWrite?.(report); } catch { /* Telemetry cannot alter the owning operation's result. */ }
+    },
+    start(principal: string, fresh = false, source: Source = 1): StorageStatus {
       authorized(principal);
       if (closed) throw new StorageUnavailable(503, "Storage is shutting down.");
       if (active) return status(principal);
       if (!fresh && Date.now() - lastAttempt < 5_000) throw new StorageUnavailable(429, "Wait before refreshing Storage again.");
+      const dynamic = options.storesNow?.() ?? { stores: [], unavailable: [] };
+      const scope = hashScope({ brain: options.brainPath, stores: [...options.stores, ...dynamic.stores], git: options.gitRoots ?? [], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable] });
+      let lease: SharedScan | undefined;
+      const requestId = randomUUID();
+      if (options.shared) {
+        try {
+          const acquired = options.shared.acquire(principal, requestId, scope, source, fresh);
+          if (!acquired) return status(principal);
+          lease = acquired;
+        } catch (error) {
+          authorized(principal);
+          const message = error instanceof Error ? error.message : "storage-lease-unavailable";
+          throw new StorageUnavailable(message === "storage-scan-cooldown" ? 429 : message === "storage-scan-other-scope-busy" ? 409 : 503, message);
+        }
+      }
       lastAttempt = Date.now();
-      const id = randomUUID(), controller = new AbortController();
-      const job = { id, principal, controller, promise: Promise.resolve() };
+      const id = lease?.id ?? requestId, controller = new AbortController();
+      const job = { id, principal, controller, promise: Promise.resolve(), lease };
       active = job;
       const timeout = setTimeout(() => controller.abort(), STORAGE_SERVER_LIMITS.milliseconds);
-      const revocation = setInterval(() => { if (!options.authorized(principal)) controller.abort(); }, 250);
+      const revocation = setInterval(() => {
+        if (!options.authorized(principal)) controller.abort();
+        if (lease?.owner) { try { options.shared!.check(lease); } catch { controller.abort(); } }
+      }, 250);
       job.promise = (async () => {
         try {
-          const dynamic = options.storesNow?.() ?? { stores: [], unavailable: [] };
           controller.signal.throwIfAborted();
-          const result = await collectStorage({ ...options, stores: [...options.stores, ...dynamic.stores], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable], salt }, id, controller.signal);
+          if (lease?.owner) await options.shared!.reap(lease);
+          const result = lease && !lease.owner ? await options.shared!.wait(lease, controller.signal)
+            : await collectStorage({ ...options, stores: [...options.stores, ...dynamic.stores], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable], salt,
+              ...(lease ? { workerLease: { register: (pid: number) => options.shared!.register(lease!, pid), unregister: (pid: number) => options.shared!.unregister(lease!, pid) } } : {}) }, id, controller.signal);
           authorized(principal); controller.signal.throwIfAborted();
+          if (lease?.owner) {
+            let cached = await options.shared!.publish(lease, result);
+            authorized(principal); controller.signal.throwIfAborted();
+            if (!options.shared!.finish(lease, cached, false, result.summary.observedAt)) {
+              cached = await options.shared!.publish(lease, result);
+              authorized(principal); controller.signal.throwIfAborted();
+              if (!options.shared!.finish(lease, cached, false, result.summary.observedAt)) throw Error("storage-scan-authority-lost");
+            }
+          }
+          if (!lease || lease.owner) { try { options.onCollection?.(result, source); } catch { /* History failure cannot remove an inventory result. */ } }
           if (result.summary.coverage === "complete" || !current || current.summary.coverage !== "complete") { previous = current; current = result; }
           else previous = result; // A partial refresh never erases the last complete observation.
           if (current && previous && current.bytes + previous.bytes > STORAGE_SERVER_LIMITS.cacheBytes) previous = null;
           lastFailure = null;
-        } catch { lastFailure = { scanId: id, at: Date.now(), reason: controller.signal.aborted || !options.authorized(principal) ? "cancelled-or-revoked" : "collection-unavailable" }; }
+        } catch {
+          lastFailure = { scanId: id, at: Date.now(), reason: controller.signal.aborted || !options.authorized(principal) ? "cancelled-or-revoked" : "collection-unavailable" };
+          if (!lease || lease.owner) {
+            try { options.onFailure?.(lastFailure.at); } catch { /* Last valid history stays intact. */ }
+            if (lease) { try { options.shared!.finish(lease, false, true, lastFailure.at); } catch { /* Preserve unresolved lease authority for recovery. */ } }
+          }
+        }
         finally { clearTimeout(timeout); clearInterval(revocation); if (active === job) active = null; }
       })();
       return status(principal);
@@ -61,7 +113,9 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
     cancel(principal: string, id: string): StorageStatus {
       authorized(principal);
       if (active?.id !== id) throw new StorageUnavailable(409, "That scan is no longer active.");
-      active.controller.abort(); return status(principal);
+      active.controller.abort();
+      if (active.lease) options.shared!.cancel({ ...active.lease, principal });
+      return status(principal);
     },
     page(principal: string, id: string, filter: StorageFilter): StoragePage {
       const value = collection(principal, id);
@@ -137,14 +191,18 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
       })();
       return job.promise;
     },
-    /** Internal operation evidence: joins existing collection, then takes a fresh bounded observation. */
+    /** Operation evidence joins an active live observation; it never schedules a duplicate scan behind it. */
     async measure(principal: string, signal: AbortSignal): Promise<StorageSnapshot | null> {
       signal.throwIfAborted(); authorized(principal);
-      while (active) { await active.promise; signal.throwIfAborted(); }
-      const id = api.start(principal, true).activeScanId;
-      const abort = () => { if (active?.id === id) active.controller.abort(); };
+      const joined = active !== null;
+      const id = active?.id ?? api.start(principal, true, 2).activeScanId;
+      const job = active;
+      if (!job || !id) return null;
+      let rejectAbort: (reason: unknown) => void = () => {};
+      const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+      const abort = () => { if (!joined && active === job) job.controller.abort(); rejectAbort(signal.reason ?? Error("Storage observation cancelled.")); };
       signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort();
-      try { await api.idle(); signal.throwIfAborted(); authorized(principal); return [current, previous].find(value => value?.summary.id === id)?.summary ?? null; }
+      try { await Promise.race([job.promise, cancelled]); signal.throwIfAborted(); authorized(principal); return [current, previous].find(value => value?.summary.id === id)?.summary ?? null; }
       finally { signal.removeEventListener("abort", abort); }
     },
     async idle() { await active?.promise; },

@@ -101,7 +101,7 @@ export function retainAggregate<S>(previous: HistoryPayload<S>, input: Aggregate
     else if (old < current && bucket(0, row[3]) < bucket(0, bucketStart(row[1], old + 1) - 1)) row[2] = 1;
   }
   const lastRecent = samples.filter(row => row[1] === 0).sort((a, b) => b[3] - a[3])[0];
-  const changed = lastRecent && (JSON.stringify(metadata.samples[lastRecent[6]]) !== JSON.stringify(input.descriptor)
+  const changed = lastRecent && (JSON.stringify(metadata.samples[lastRecent[6]]?.slice(1)) !== JSON.stringify(input.descriptor.slice(1))
     || JSON.stringify(lastRecent[9].map(row => metadata.capacities[row[0]])) !== JSON.stringify(input.capacities.map(row => row.descriptor)));
   const missed = !!lastRecent && bucket(0, input.at) > bucket(0, lastRecent[3]) + 1;
   const incomplete = (input.coverage !== 0 && input.reason !== 3) || input.capacities.some(row => row.values[4] !== 0);

@@ -120,3 +120,66 @@ test("delegated principals cannot dispatch or read Storage notice receipts", asy
   expect(() => f.notices.receipts(agent.id, start)).toThrow();
   expect(f.db.query("SELECT COUNT(*) AS count FROM storage_notice_receipts").get()).toEqual({ count: 0 });
 });
+
+test("native concurrent senders submit once; a SIGKILL after transport entry is terminal unknown on reopen", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const { resolve } = await import("node:path");
+  const driver = resolve(import.meta.dir, "fixtures/storage-notify-process.ts"), preload = resolve(import.meta.dir, "../../../scripts/test-network-child-preload.ts");
+  const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+  for (const mode of ["accepted", "crash"]) {
+    const f = fixture(); f.device("Ithaca"); f.observe(start);
+    const marker = join(f.root, "dispatch.txt"), children = Array.from({ length: mode === "accepted" ? 2 : 1 }, () => Bun.spawn([process.execPath, "--preload", preload, driver, f.root, mode, marker, String(start)], { stdin: "pipe", stdout: "pipe", stderr: "pipe" }));
+    const outputs = children.map(() => ""), readers = children.map((child, index) => (async () => { for await (const bytes of child.stdout) outputs[index] += Buffer.from(bytes).toString(); })());
+    const errors = children.map(child => new Response(child.stderr).text());
+    try {
+      const deadline = Date.now() + 5000;
+      while (!outputs.every(value => value.includes("READY\n")) && Date.now() < deadline) await sleep(10);
+      expect(outputs.every(value => value.includes("READY\n"))).toBe(true);
+      for (const child of children) { child.stdin.write("deliver\n"); child.stdin.end(); }
+      if (mode === "crash") {
+        while (!existsSync(marker) && Date.now() < deadline) await sleep(10);
+        expect(existsSync(marker), "STORAGE_PUSH_ACTUAL_DISPATCH_ENTERED").toBe(true);
+        expect(readFileSync(marker, "utf8")).toBe("DISPATCHED\n");
+        children[0]!.kill("SIGKILL"); expect(await children[0]!.exited).not.toBe(0);
+      } else expect(await Promise.all(children.map(child => child.exited)), (await Promise.all(errors)).join("\n")).toEqual([0, 0]);
+      await Promise.all(readers);
+      expect(readFileSync(join(f.root, "transport-attempts.txt"), "utf8"), "STORAGE_PUSH_NATIVE_EXCLUSIVE_INTENT").toBe("attempt\n");
+      expect(await f.deliver(), "STORAGE_PUSH_SIGKILL_NEVER_REPLAYS").toBe(0);
+      expect(f.notices.receipts(f.owner.id, start)[0]).toMatchObject({ state: mode === "crash" ? "unknown" : "accepted", attempts: 1 });
+    } finally {
+      for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
+      await Promise.all(children.map(child => child.exited)); await Promise.allSettled([...readers, ...errors]);
+    }
+  }
+});
+
+test("a newer cross-process collection defers old Critical delivery until its history commits", async () => {
+  const f = fixture(); f.device("Ithaca"); f.observe(start);
+  f.db.query("INSERT INTO storage_scan_leases (brain, result_at) VALUES (?, ?)").run(f.history.brain, start + 60_000);
+  expect(await f.deliver(), "STORAGE_PUSH_PENDING_SHARED_OBSERVATION").toBe(0);
+  f.observe(start + 60_000); expect(await f.deliver()).toBe(1);
+});
+
+test("fresh owner refusal supports Critical delivery independently of unavailable capacity", async () => {
+  const f = fixture(); f.device("Ithaca"); f.observe(start, 50_000);
+  f.at(start + 60_000); f.history.failure(start + 60_000);
+  f.at(start + 120_000);
+  const pressure = f.history.read()!.metadata.state.pressures[0]!;
+  f.history.ownerWrite({ identity: pressure.identity, rootScope: pressure.rootScope, target: hashScope("retained attachment"), resource: "unknown", at: start + 120_000, outcome: "no-space" });
+  expect(f.history.status().paused).toBe("collection-unavailable");
+  expect(await f.deliver(), "STORAGE_REFUSAL_INDEPENDENT_PUSH_EVIDENCE").toBe(1);
+  expect(f.notices.receipts(f.owner.id, start + 120_000)[0]?.state).toBe("accepted");
+});
+
+test("retired episodes are purged and receipt rows cannot outlive subscriptions", async () => {
+  const f = fixture(), endpoint = f.device("Ithaca", null);
+  let time = start;
+  for (let episode = 0; episode < 8; episode++) {
+    f.observe(time, 5000, 4); await f.deliver();
+    for (let step = 1; step <= 4; step++) { f.observe(time + step * 60_000, 50_000, 4); f.notices.sweep(time + step * 60_000); }
+    expect((f.db.query("SELECT COUNT(*) AS count FROM storage_notice_receipts").get() as { count: number }).count, "STORAGE_RECEIPT_ACTIVE_LATEST_BOUND").toBeLessThanOrEqual(8);
+    time += 5 * 60_000;
+  }
+  f.sender.unsubscribe(endpoint, f.owner.id);
+  expect(f.db.query("SELECT COUNT(*) AS count FROM storage_notice_receipts").get()).toEqual({ count: 0 });
+});

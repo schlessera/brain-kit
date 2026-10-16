@@ -3,6 +3,9 @@
 A file-first personal knowledge base your coding agent operates. Markdown is the
 source of truth; the search index is disposable and rebuilt on demand.
 
+[Storage history and pressure evidence](storage-history.md) describes bounded
+operational sampling, recovery and Critical notification receipts.
+
 ## Get started
 
 - [Quickstart](quickstart.md) — create a private brain, capture a note and find

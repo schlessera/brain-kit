@@ -29,8 +29,15 @@ export function createStorageRemoval(db: Database, options: {
   authorized(principal: string): boolean;
   /** Existing operator-owned stores, represented relative to the canonical brain when applicable. */
   protectedPaths: readonly string[];
+  retainedRoot?: string;
 }) {
   const brain = realpathSync(options.brainPath), journal = options.journal;
+  const record = (root: string, target: string, outcome: "success" | "no-space", error?: unknown) => {
+    const code = (error as { code?: string; reason?: string } | undefined)?.code;
+    const quota = code === "EDQUOT" || (error as { reason?: string } | undefined)?.reason === "journal_capacity";
+    if (outcome === "success") for (const resource of ["bytes", "quota", "inodes", "unknown"] as const) options.storage.ownerWrite(root, target, resource, outcome);
+    else if (quota || code === "ENOSPC") options.storage.ownerWrite(root, target, quota ? "quota" : "unknown", outcome);
+  };
   const active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   const reviews = new Set<AbortController>(), pendingReviews = new Set<Promise<void>>(); let closed = false;
   const key = (id: string) => `${brain}:${id}`;
@@ -162,7 +169,10 @@ export function createStorageRemoval(db: Database, options: {
             if (row.action === "remove") {
               const current = await inspectStorageAttachment(brain, item.path, controller.signal);
               if (JSON.stringify(current) !== JSON.stringify(privateFile.version)) throw new StorageAttachmentRefusal("changed");
-              privateFile.retained = await journal.retainBefore(row.journal_turn_id, item.path, controller.signal);
+              try {
+                privateFile.retained = await journal.retainBefore(row.journal_turn_id, item.path, controller.signal);
+                if (privateFile.retained && options.retainedRoot) record(`store:${options.retainedRoot}`, "retained-attachment", "success");
+              } catch (error) { if (options.retainedRoot) record(`store:${options.retainedRoot}`, "retained-attachment", "no-space", error); throw error; }
               if (!privateFile.retained || privateFile.retained.hash !== current.hash || privateFile.retained.bytes !== current.bytes || privateFile.retained.mode !== current.mode || !journal.hasRetainedVersion(row.journal_turn_id, privateFile.retained)) throw Error("retained_before_unavailable");
             } else {
               const source = select(row.source_id!);
@@ -172,7 +182,10 @@ export function createStorageRemoval(db: Database, options: {
             check(); if (protectedReason(item.path)) throw new StorageAttachmentRefusal("protected");
             item.state = "applying"; save(row, result, versions); // Durable retained identity and item intent precede the first file effect.
             if (row.action === "remove") await removeStorageAttachment(brain, item.path, privateFile.version!, controller.signal, check);
-            else journal.withRetainedRemoval(select(row.source_id!)!.journal_turn_id, privateFile.retained!, copy => restoreStorageAttachment(brain, item.path, privateFile.version!, copy, check));
+            else {
+              try { journal.withRetainedRemoval(select(row.source_id!)!.journal_turn_id, privateFile.retained!, copy => restoreStorageAttachment(brain, item.path, privateFile.version!, copy, check)); record("brain", item.path, "success"); }
+              catch (error) { record("brain", item.path, "no-space", error); throw error; }
+            }
             effects = true; item.state = row.action === "remove" ? "removed" : "restored"; item.reason = null;
             save(row, result, versions); // An acknowledgement failure cannot authorize another file.
             await journal.observe();

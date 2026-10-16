@@ -95,6 +95,9 @@ export function createStorageMaintenance(db: Database, options: {
         if (value.schema_version !== 1 || value.action !== "pack" || !["complete", "partial", "refused"].includes(value.state ?? "") || value.packed !== null && !count(value.packed)) throw Error("packing_report_unavailable");
         result.outcome.packed = value.packed as number | null;
         result.state = value.state as "complete" | "partial" | "refused"; result.reason = value.reason === "no_space" ? "no_space" : result.state === "complete" ? null : "git_maintenance_incomplete";
+        // The existing core owner reports its worker result. It does not identify
+        // a host mount or distinguish byte/inode exhaustion, so neither do we.
+        if (value.reason === "no_space" || value.state === "complete") options.storage.ownerWrite("unavailable:Native checkpoints and output", "git-packing", "unknown", value.reason === "no_space" ? "no-space" : "success");
       } else if (result.operation === "prune-scratch") {
         let raw: string;
         try { raw = await options.scratch.run({ signal: controller.signal, assertAuthorized, bounded: true }); }

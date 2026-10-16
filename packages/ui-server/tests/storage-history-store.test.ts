@@ -95,3 +95,47 @@ test("malformed persisted warning authority is rejected instead of interpreted a
   (payload.metadata.state.pressures[0] as unknown as { severity: string }).severity = "unrecognised";
   expect(() => parseStoredHistory(JSON.stringify(payload))).toThrow();
 });
+
+test("an intervening buffered failure resets recovery even when the newest pending observation succeeds", () => {
+  const f = fixture(); f.history.offer(aggregate(start, 50_000_000));
+  f.advance(start + 60_000); f.history.offer(aggregate(start + 60_000, 80_000_000));
+  f.advance(start + 70_000); f.history.failure();
+  f.advance(start + 80_000); f.history.offer(aggregate(start + 80_000, 80_000_000));
+  f.advance(start + 120_000); f.history.flush();
+  const result = f.history.read()!;
+  expect(result.metadata.state.pressures[0], "STORAGE_PENDING_FAILURE_RESETS_PAIR").toMatchObject({ severity: "critical", recoveryAt: start + 80_000 });
+  expect(result.samples.every(row => row[2] === 1)).toBe(true);
+});
+
+test("buffered owning-operation refusals survive a newer capacity sample and require matching writes", () => {
+  const f = fixture(); f.history.offer(aggregate(start));
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus attachment"), resource: "bytes" as const, outcome: "no-space" as const, at: start + 10_000 };
+  f.advance(report.at); f.history.ownerWrite(report);
+  f.advance(start + 20_000); f.history.offer(aggregate(start + 20_000));
+  f.advance(start + 60_000); f.history.flush();
+  let pressure = f.history.read()!.metadata.state.pressures[0]!;
+  expect(pressure, "STORAGE_OWNER_REFUSAL_SURVIVES_BUFFER").toMatchObject({ severity: "critical", refusals: [{ target: report.target, at: report.at, successAt: null }] });
+  f.advance(start + 120_000); f.history.ownerWrite({ ...report, at: start + 120_000, outcome: "success" });
+  f.advance(start + 180_000); f.history.offer(aggregate(start + 180_000));
+  f.advance(start + 240_000); f.history.offer(aggregate(start + 240_000));
+  pressure = f.history.read()!.metadata.state.pressures[0]!;
+  expect(pressure.severity).toBe("low"); expect(pressure.refusals).toHaveLength(0);
+});
+
+test("initial history admission can recover while keeping the already selected opaque identity salt", () => {
+  const f = fixture(); f.db.query("DELETE FROM storage_history").run();
+  f.db.exec("CREATE TRIGGER refuse_history_seed BEFORE INSERT ON storage_history BEGIN SELECT RAISE(ABORT, 'history storage unavailable'); END");
+  const history = createStorageHistory(f.db, f.root, { now: () => start }), salt = history.salt;
+  expect(history.status().history).toBeNull(); expect(history.status().paused).toBe("history-write-unavailable");
+  f.db.exec("DROP TRIGGER refuse_history_seed"); history.offer(aggregate(start));
+  expect(history.read()?.metadata.state.salt, "STORAGE_INITIAL_ADMISSION_RECOVERS_STABLE_SALT").toBe(salt);
+  expect(history.status().paused).toBeNull(); expect(history.read()?.samples).toHaveLength(3);
+});
+
+test("a failed bucket stays a comparison gap after history reopens before its first successful endpoint", () => {
+  const f = fixture(); f.history.offer(aggregate(start));
+  f.advance(start + RECENT); f.history.failure(start + RECENT); f.history.close();
+  const recovered = createStorageHistory(f.db, f.root, { now: () => start + RECENT + 60_000 });
+  recovered.offer(aggregate(start + RECENT + 60_000));
+  expect(recovered.read()!.samples.find(row => row[1] === 0 && row[3] === start + RECENT + 60_000)?.[2], "STORAGE_DURABLE_FAILURE_BREAKS_COMPARISON").toBe(1);
+});

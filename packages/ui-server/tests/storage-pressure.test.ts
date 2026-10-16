@@ -16,7 +16,7 @@ test("capacity exact entry/recovery boundaries require two additional observatio
   const episode = value.episode; expect(episode).toBeTruthy();
   value = observePressure(value, evidence(at + 60_002, 7000), at + 60_002); expect(value.recoveryAt).toBeNull();
   value = observePressure(value, evidence(at + 120_002, 7001), at + 120_002); expect(value.severity).toBe("critical");
-  value = observePressure(value, evidence(at + 180_001, 7001), at + 180_001); expect(value.severity).toBe("critical");
+  value = observePressure(value, evidence(at + 180_001, 7001), at + 180_001); expect(value.severity, "STORAGE_RECOVERY_REQUIRES_SIXTY_SECONDS").toBe("critical");
   value = observePressure(value, evidence(at + 180_002, 7001), at + 180_002); expect(value.severity, "STORAGE_PRESSURE_TWO_FRESH_OBSERVATIONS").toBe("low");
   expect(value.resolvedEpisode).toBe(episode); expect(value.episode).toBeNull();
   value = observePressure(value, evidence(at + 240_002, 12000), at + 240_002); expect(value.recoveryAt).toBeNull();

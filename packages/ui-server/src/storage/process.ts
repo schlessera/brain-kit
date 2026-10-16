@@ -1,3 +1,4 @@
+import { processStart } from "../brain/writer-gate.js";
 import { fileURLToPath } from "node:url";
 import { dirname, relative, isAbsolute } from "node:path";
 import { realpathSync, readFileSync } from "node:fs";
@@ -12,14 +13,28 @@ function coreReader(brainPath: string, subpath: "storage" | "queries"): string {
   if (inside(brain, manifestPath) || inside(brain, entry) || !inside(dirname(manifestPath), entry)) throw Error("storage-reader-untrusted");
   return entry;
 }
-export async function coreMetadata(brainPath: string, gitRoots: string[], signal: AbortSignal): Promise<unknown> {
+/** Concrete lease bookkeeping for the two fixed metadata readers. */
+export interface StorageWorkerLease { register(pid: number): void; unregister(pid: number): void }
+export function storageReaderSource(source: string): string {
+  const parent = { pid: process.pid, start: processStart(process.pid) };
+  return `import {readFileSync as storageReadParent} from "node:fs";
+const storageParent=${JSON.stringify(parent)};
+const storageGuard=setInterval(()=>{try {
+  const text=storageReadParent("/proc/"+storageParent.pid+"/stat","utf8");
+  const start=text.slice(text.lastIndexOf(")")+2).split(" ")[19];
+  if(storageParent.start===null || start===storageParent.start)return;
+}catch{}process.kill(process.pid,"SIGKILL");},250);storageGuard.unref();
+const storageDeadline=setTimeout(()=>process.kill(process.pid,"SIGKILL"),35000);storageDeadline.unref();
+${source}`;
+}
+export async function coreMetadata(brainPath: string, gitRoots: string[], signal: AbortSignal, lease?: StorageWorkerLease): Promise<unknown> {
   const source = `import {readStorageInventory} from ${JSON.stringify(coreReader(brainPath, "storage"))};
 const controller=new AbortController();process.once("SIGTERM",()=>controller.abort());
 console.log(JSON.stringify(await readStorageInventory({...${JSON.stringify({ brainPath, gitRoots })},signal:controller.signal})));`;
-  return storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", source], { signal });
+  return storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", storageReaderSource(source)], { signal, lease });
 }
 /** No shell, inherited secrets, repository config or unbounded stdout. Waits for cancellation cleanup. */
-export async function storageProcess(argv: string[], options: { signal: AbortSignal; bytes?: number }): Promise<unknown> {
+export async function storageProcess(argv: string[], options: { signal: AbortSignal; bytes?: number; lease?: StorageWorkerLease }): Promise<unknown> {
   options.signal.throwIfAborted();
   const child = Bun.spawn(argv, { cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" }, stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true });
   let reason: string | null = null, force: ReturnType<typeof setTimeout> | undefined;
@@ -38,6 +53,7 @@ export async function storageProcess(argv: string[], options: { signal: AbortSig
     return Buffer.concat(chunks).toString("utf8");
   };
   try {
+    options.lease?.register(child.pid);
     const [out, , code] = await Promise.all([read(child.stdout), read(child.stderr), child.exited]);
     if (reason || code !== 0) throw Error(reason ?? "collector-unavailable");
     return JSON.parse(out);
@@ -46,13 +62,14 @@ export async function storageProcess(argv: string[], options: { signal: AbortSig
     options.signal.removeEventListener("abort", abort);
     signal("SIGKILL");
     await child.exited;
+    options.lease?.unregister(child.pid);
   }
 }
-export async function serverMetadata(roots: MetadataRoot[], signal: AbortSignal, entries: number): Promise<MetadataResult> {
+export async function serverMetadata(roots: MetadataRoot[], signal: AbortSignal, entries: number, lease?: StorageWorkerLease): Promise<MetadataResult> {
   const source = `import {collectMetadata} from ${JSON.stringify(import.meta.resolve("./metadata.js"))};
 const controller=new AbortController();process.once("SIGTERM",()=>controller.abort());
 console.log(JSON.stringify(await collectMetadata(${JSON.stringify(roots)},{signal:controller.signal,entries:${entries}})));`;
-  return await storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", source], { signal }) as MetadataResult;
+  return await storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", storageReaderSource(source)], { signal, lease }) as MetadataResult;
 }
 
 /** Isolated supported core query, with the same trusted-installation boundary as inventory. */
@@ -61,5 +78,5 @@ export async function storageReferences(brainPath: string, path: string, signal:
   const source = `import {createCoreQueryAccess} from ${JSON.stringify(import.meta.resolve("../core-queries.js"))};
 const feature=createCoreQueryAccess().storage?.();
 console.log(JSON.stringify(feature?.ok?feature.queries.readStorageReferences(${JSON.stringify({ brainPath, path })}):{ok:false}));`;
-  return storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", source], { signal, bytes: 1024 * 1024 });
+  return storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", storageReaderSource(source)], { signal, bytes: 1024 * 1024 });
 }

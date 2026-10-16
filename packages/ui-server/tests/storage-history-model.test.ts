@@ -127,3 +127,11 @@ test("changed capacity, roots, unknown allocation and unrounded zero horizon pre
   const zero = steady(30, i => (120 - i) * 1_000_000);
   expect(capacityEvidence(zero, identity, at + 30 * DAY)?.short.days).toBe(0);
 });
+
+test("collector patch versions keep comparable scopes without manufacturing gaps", () => {
+  const payload = steady(3), latest = payload.samples.filter(row => row[1] === 0).at(-1)![3];
+  const next = observation(latest + RECENT, 887_000_000); next.descriptor[0] = "0.44.1";
+  const changed = retainAggregate(payload, next);
+  expect(changed.samples.find(row => row[1] === 0 && row[3] === next.at)?.[2], "STORAGE_PATCH_VERSION_SAME_BASIS").toBe(0);
+  expect(capacityEvidence(changed, identity, next.at)?.short.state).toBe("finite");
+});

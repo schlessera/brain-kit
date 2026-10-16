@@ -16,6 +16,8 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // More detailed existing behavior checks are linked by the coverage matrix;
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
+  "GET /api/storage/history": { body: { version: 1, state: "available", observations: [] } },
+  "GET /api/storage/guidance": { body: { version: 1, state: "unknown", severity: null, capacities: [] } },
   "GET /api/storage/removals": { verify: async r => { const value = await r.json(); expect(value).toHaveProperty("available"); expect(value.limits.items).toBe(32); } },
   "POST /api/storage/removals/inspection": { init: json("POST", {paths: []}), status: 400, body: {error:"Select bounded attachment paths for inspection."} },
   "POST /api/storage/removals/reviews": { init: json("POST", { id: "odysseus-mounted-review", paths: [] }), status: 400, body: {error:"Select bounded attachment paths and a new review identity."} },

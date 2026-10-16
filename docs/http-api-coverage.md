@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:129-162`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:131-164`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -39,6 +39,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/storage/maintenance` | `mounted supported handler: POST /api/storage/maintenance` | SM |
 | `GET /api/storage/maintenance/:id` | `mounted supported handler: GET /api/storage/maintenance/:id` | SM |
 | `DELETE /api/storage/maintenance/:id` | `mounted supported handler: DELETE /api/storage/maintenance/:id` | SM |
+| `GET /api/storage/history` | `mounted supported handler: GET /api/storage/history` | SG |
+| `GET /api/storage/guidance` | `mounted supported handler: GET /api/storage/guidance` | SG |
 | `GET /api/storage` | `mounted supported handler: GET /api/storage` | ST |
 | `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
 | `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
@@ -486,3 +488,12 @@ and [real Git history preservation and a full private tmpfs](../packages/core/te
 Existing [inbox unwind](../packages/ui-server/tests/inbox-unwind.test.ts) and
 [resolution](../packages/ui-server/tests/inbox-resolve.test.ts) tests retain live
 settlement and unacknowledged staging protections.
+
+SG: [Storage guidance](../packages/ui-server/tests/storage-guidance.test.ts)
+checks real mounted owner/agent/revocation boundaries, named output, no scan on
+read, actual background collection and operational export/restore suppression.
+[Native scan tests](../packages/ui-server/tests/storage-shared-scan.test.ts)
+exercise two processes, cancellation, cache failure and parent SIGKILL.
+[Delivery tests](../packages/ui-server/tests/storage-notify.test.ts) use the
+existing injected transport, including concurrent native senders and SIGKILL
+after dispatch entry; they never contact a push provider.

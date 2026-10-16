@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 152 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 154 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -37,6 +37,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/storage/maintenance` | S | Admit one identified maintenance operation | Durable owner-bound identity and credential-free worker execution. |
 | GET | `/api/storage/maintenance/:id` | S | Read the original operation receipt | Readback never replays an effect. |
 | DELETE | `/api/storage/maintenance/:id` | S | Request cancellation of remaining work | Existing committed effects remain in the receipt. |
+| GET | `/api/storage/history` | S | Read bounded aggregate history | Current human-owner access; no scan on read. |
+| GET | `/api/storage/guidance` | S | Read pressure, scenarios and delivery evidence | Current human-owner access; no scan on read. |
 | GET | `/api/storage` | S | Read current bounded inventory state | Human-owner Storage inspection; no delegated or worker access. |
 | POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
 | DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
@@ -185,7 +187,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 152 declared endpoints are mounted regardless of backend, renderer or
+All 154 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1473,3 +1475,46 @@ retains existing receipts. This is an admission bound, not a new retention expir
 Invalid requests are 400, oversized bodies 413, wrong content type 415, contention
 409 and unavailable evaluation/recovery/admission 503 or an explicit refused/failed
 receipt. The Storage pane is delivered by its complete UI issue.
+
+## Storage history and pressure guidance
+
+`GET /api/storage/history` and `GET /api/storage/guidance` require the same
+current human-owner authority as inventory. They accept no body or options,
+use `Cache-Control: private, no-store`, and never collect filesystem inventory.
+Unauthenticated callers receive 401; delegated principals receive 403; an
+unavailable operational read returns 503. Unknown evidence is a nullable or
+explicit unavailable field in a successful response, never a zero.
+
+History returns SDK `StorageHistoryResponse`, version 1: state, pause reason,
+pending status, last actual observation time, serialized payload bytes, limits
+and at most 186 named observations. Each observation identifies its UTC tier,
+actual start/end, source, collector version, opaque scope, basis, coverage and
+gap/reason. Its at most four capacities carry nullable total/used/free/available,
+three owner attribution views and a separately deduplicated union. History has
+no paths, filenames, content, credentials or persistent display names. The
+private compact encoding is not a wire contract. The 256 KiB ceiling applies
+to that canonical persisted payload; named HTTP expansion and SQLite pages/WAL
+are separate charges. Limits are 64 six-hour, 90 daily and 32 Monday-weekly slots.
+
+Guidance returns SDK `StorageGuidanceResponse`, version 1: current/unknown/
+unavailable state, highest retained severity, pause/pending status, last actual
+observation time, scope-limit flag, up to four capacity pressure records and
+untracked current inventory IDs. Each pressure record retains independent
+capacity, forecast and owner-refusal causes, recovery time and opaque episode.
+Current authorized inventory supplies optional store display labels. Its
+nullable evidence identifies observed rate windows and short/long conditional
+capacity scenarios; unavailable scenarios carry a reason, never a guessed
+number. `non-depleting` does not mean unlimited capacity. Unknown state can
+retain Low/Critical severity until the cause-specific recovery rules are met.
+Older retained complete observations keep their own timestamps even when newer
+partial evidence changes pressure.
+
+Notification status uses existing browser-managed permission. It includes
+strict local 22–08 quiet hours, up to 100 subscription zone/quiet summaries and
+200 episode receipts, with separate truncation flags. It exposes neither
+endpoints nor credentials. Receipts distinguish pending, sending, accepted,
+known failure, unknown and suppressed. Accepted means transport submission;
+unknown is terminal for automatic retry. Three attempts per episode/subscription
+are the maximum, with one/five-minute delays only after known non-delivery.
+Restored episodes never regain notification authority. See
+[Storage history](storage-history.md) for sampling, recovery and physical costs.

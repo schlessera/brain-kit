@@ -54,7 +54,7 @@ export interface PushSender {
    */
   deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
   /** One durable Critical Storage submission per episode and subscription. */
-  deliverStorage(notices: StorageNotifier, now?: number): Promise<number>;
+  deliverStorage(notices: StorageNotifier, now?: number, signal?: AbortSignal): Promise<number>;
 }
 
 export interface CreatePushSenderOptions {
@@ -287,7 +287,7 @@ export function createPushSender(
       return attempts;
     },
 
-    async deliverStorage(notices, at) {
+    async deliverStorage(notices, at, signal) {
       let attempts = 0;
       // Resolve credentials first, then acquire each durable intent immediately
       // before its transport call. Authority/zone/time are rechecked per device.
@@ -295,6 +295,7 @@ export function createPushSender(
       if (!subs.length) return 0;
       const keys = vapid();
       for (const sub of subs) {
+        if (signal?.aborted) break;
         const attempt = notices.begin(sub.endpoint, at ?? Date.now());
         if (!attempt) continue;
         let outcome: StorageNoticeOutcome;

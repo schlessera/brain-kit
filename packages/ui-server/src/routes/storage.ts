@@ -1,10 +1,11 @@
+import type { StorageGuidance } from "../storage/guidance.js";
 import { Hono } from "hono";
 import { requireJson } from "../middleware/origin.js";
 import type { AppEnv } from "../app-env.js";
 import type { StorageFilter, StorageTreeFilter } from "@schlessera/brain-ui-sdk/protocol";
 import { StorageUnavailable, type StorageCoordinator } from "../storage/coordinator.js";
 /** Ordinary content authorization does not grant access to deployment inventory. */
-export function createStorageRoutes(storage: StorageCoordinator): Hono<AppEnv> {
+export function createStorageRoutes(storage: StorageCoordinator, guidance?: StorageGuidance): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
   routes.onError((error, c) => c.json({ error: error instanceof StorageUnavailable ? error.message : "Storage temporarily unavailable." }, error instanceof StorageUnavailable ? error.status : 503));
   routes.use("/storage*", async (c, next) => {
@@ -15,6 +16,10 @@ export function createStorageRoutes(storage: StorageCoordinator): Hono<AppEnv> {
     try { storage.status(principal.id); await next(); }
     catch (error) { return c.json({ error: error instanceof StorageUnavailable ? error.message : "Storage temporarily unavailable." }, error instanceof StorageUnavailable ? error.status : 503); }
   });
+  if (guidance) {
+    routes.get("/storage/history", c => c.json(guidance.history(c.get("principal")!.id)));
+    routes.get("/storage/guidance", c => c.json(guidance.guidance(c.get("principal")!.id)));
+  }
   routes.get("/storage", c => c.json(storage.status(c.get("principal")!.id)));
   routes.post("/storage/scans", requireJson(), async c => {
     let body: unknown; try { body = await c.req.json(); } catch { return c.json({ error: "Expected an empty JSON object." }, 400); }

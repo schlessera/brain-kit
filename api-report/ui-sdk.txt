@@ -306,18 +306,27 @@ export "." (./src/index.ts)
   type SpeechCapabilities
   type StateRoomObservation
   type StorageBytes
+  type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
+  type StorageGuidanceResponse
+  type StorageHistoryCapacity
+  type StorageHistoryObservation
+  type StorageHistoryResponse
+  type StorageHistoryTier
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
   type StorageMaintenanceReceipt
   type StorageMaintenanceRequest
   type StorageMaintenanceRow
+  type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureView
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
@@ -329,6 +338,8 @@ export "." (./src/index.ts)
   type StorageRemovalStartRequest
   type StorageRemovalUndoRequest
   type StorageRoot
+  type StorageScenario
+  type StorageSeverity
   type StorageSnapshot
   type StorageStatus
   type StorageTreeFilter
@@ -782,18 +793,27 @@ export "./client" (./src/client/index.ts)
   type SpeechCapabilities
   type StateRoomObservation
   type StorageBytes
+  type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
+  type StorageGuidanceResponse
+  type StorageHistoryCapacity
+  type StorageHistoryObservation
+  type StorageHistoryResponse
+  type StorageHistoryTier
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
   type StorageMaintenanceReceipt
   type StorageMaintenanceRequest
   type StorageMaintenanceRow
+  type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureView
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
@@ -805,6 +825,8 @@ export "./client" (./src/client/index.ts)
   type StorageRemovalStartRequest
   type StorageRemovalUndoRequest
   type StorageRoot
+  type StorageScenario
+  type StorageSeverity
   type StorageSnapshot
   type StorageStatus
   type StorageTreeFilter
@@ -1413,18 +1435,27 @@ export "./protocol" (./src/protocol.ts)
   type SpeechCapabilities
   type StateRoomObservation
   type StorageBytes
+  type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
+  type StorageGuidanceResponse
+  type StorageHistoryCapacity
+  type StorageHistoryObservation
+  type StorageHistoryResponse
+  type StorageHistoryTier
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
   type StorageMaintenanceReceipt
   type StorageMaintenanceRequest
   type StorageMaintenanceRow
+  type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureView
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
@@ -1436,6 +1467,8 @@ export "./protocol" (./src/protocol.ts)
   type StorageRemovalStartRequest
   type StorageRemovalUndoRequest
   type StorageRoot
+  type StorageScenario
+  type StorageSeverity
   type StorageSnapshot
   type StorageStatus
   type StorageTreeFilter
@@ -2115,18 +2148,27 @@ export "./server" (./src/server/index.ts)
   type StartTurnRequest
   type StateRoomObservation
   type StorageBytes
+  type StorageCapacityEvidence
   type StorageCapacityView
   type StorageCoverage
+  type StorageEvidenceReason
   type StorageFileEntry
   type StorageFilter
+  type StorageGuidanceResponse
+  type StorageHistoryCapacity
+  type StorageHistoryObservation
+  type StorageHistoryResponse
+  type StorageHistoryTier
   type StorageMaintenanceItem
   type StorageMaintenanceKind
   type StorageMaintenanceObservation
   type StorageMaintenanceReceipt
   type StorageMaintenanceRequest
   type StorageMaintenanceRow
+  type StorageObservedRate
   type StorageOwner
   type StoragePage
+  type StoragePressureView
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
@@ -2138,6 +2180,8 @@ export "./server" (./src/server/index.ts)
   type StorageRemovalStartRequest
   type StorageRemovalUndoRequest
   type StorageRoot
+  type StorageScenario
+  type StorageSeverity
   type StorageSnapshot
   type StorageStatus
   type StorageTreeFilter
@@ -9297,6 +9341,20 @@ signatures (every public export and the types it is made of)
         allocated: number | null;
         coverage: StorageCoverage;
     }
+  StorageCapacityEvidence (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageCapacityEvidence {
+        identity: string;
+        rootScope: string;
+        at: number;
+        total: number | null;
+        available: number | null;
+        fresh: boolean;
+        short: StorageScenario;
+        long: StorageScenario;
+        appLogical: StorageObservedRate | null;
+        appAllocated: StorageObservedRate | null;
+        availableChange: StorageObservedRate | null;
+    }
   StorageCapacityView (packages/ui-sdk/src/storage.ts)
     export interface StorageCapacityView {
         id: string;
@@ -9315,6 +9373,8 @@ signatures (every public export and the types it is made of)
     }
   StorageCoverage (packages/ui-sdk/src/storage.ts)
     export type StorageCoverage = "complete" | "partial" | "unknown";
+  StorageEvidenceReason (packages/ui-sdk/src/storage-guidance.ts)
+    export type StorageEvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
   StorageFileEntry (packages/ui-sdk/src/storage.ts)
     export interface StorageFileEntry {
         id: string;
@@ -9350,6 +9410,89 @@ signatures (every public export and the types it is made of)
         largerThan?: number;
         cursor?: string;
     }
+  StorageGuidanceResponse (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageGuidanceResponse {
+        version: 1;
+        state: "current" | "unknown" | "unavailable";
+        severity: StorageSeverity | null;
+        paused: string | null;
+        pending: boolean;
+        observedAt: number | null;
+        scopeLimit: boolean;
+        capacities: StoragePressureView[];
+        untracked: string[];
+        notifications: {
+            permission: "browser-managed";
+            quietHours: {
+                start: 22;
+                end: 8;
+                unknownZone: "defer";
+            };
+            subscriptionsTruncated: boolean;
+            receiptsTruncated: boolean;
+            subscriptions: Array<{
+                zoneKnown: boolean;
+                quiet: boolean | null;
+            }>;
+            receipts: Array<{
+                episode: string;
+                state: "pending" | "sending" | "accepted" | "failed" | "unknown" | "suppressed";
+                attempts: number;
+                nextAt: number | null;
+            }>;
+        };
+    }
+  StorageHistoryCapacity (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageHistoryCapacity {
+        identity: string;
+        rootScope: string;
+        total: number | null;
+        used: number | null;
+        free: number | null;
+        available: number | null;
+        coverage: StorageCoverage;
+        owners: Record<StorageOwner, {
+            logical: number | null;
+            allocated: number | null;
+        }>;
+        union: {
+            logical: number | null;
+            allocated: number | null;
+        };
+    }
+  StorageHistoryObservation (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageHistoryObservation {
+        tier: StorageHistoryTier;
+        gap: boolean;
+        at: number;
+        startedAt: number;
+        source: "scheduled" | "refresh" | "operation";
+        collector: string;
+        scope: string;
+        basis: "storage-v1";
+        coverage: StorageCoverage;
+        reason: "none" | "partial" | "capacity" | "scope-limit" | "budget" | "changed";
+        capacities: StorageHistoryCapacity[];
+    }
+  StorageHistoryResponse (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageHistoryResponse {
+        version: 1;
+        state: "available" | "unavailable";
+        paused: string | null;
+        pending: boolean;
+        lastObservedAt: number | null;
+        payloadBytes: number | null;
+        limits: {
+            sixHour: 64;
+            daily: 90;
+            weekly: 32;
+            capacities: 4;
+            payloadBytes: 262144;
+        };
+        observations: StorageHistoryObservation[];
+    }
+  StorageHistoryTier (packages/ui-sdk/src/storage-guidance.ts)
+    export type StorageHistoryTier = "six-hour" | "daily" | "weekly";
   StorageMaintenanceItem (packages/ui-sdk/src/storage.ts)
     export interface StorageMaintenanceItem {
         id: string;
@@ -9415,6 +9558,13 @@ signatures (every public export and the types it is made of)
         headroom: StorageMaintenanceReceipt["headroom"];
         latest: StorageMaintenanceReceipt | null;
     }
+  StorageObservedRate (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageObservedRate {
+        start: number;
+        end: number;
+        samples: number;
+        bytesPerDay: number;
+    }
   StorageOwner (packages/ui-sdk/src/storage.ts)
     export type StorageOwner = "brain" | "app" | "operator";
   StoragePage (packages/ui-sdk/src/storage.ts)
@@ -9426,6 +9576,32 @@ signatures (every public export and the types it is made of)
         fileLogicalTotal: number | null;
         matched: number;
         totals: StorageBytes;
+    }
+  StoragePressureView (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StoragePressureView {
+        identity: string;
+        rootScope: string;
+        severity: StorageSeverity;
+        at: number;
+        state: "current" | "unknown";
+        scopeChanged: boolean;
+        recoveryAt: number | null;
+        episode: string | null;
+        causes: {
+            capacity: boolean;
+            forecast: boolean;
+            refusals: Array<{
+                target: string;
+                resource: "bytes" | "quota" | "inodes" | "unknown";
+                at: number;
+                successAt: number | null;
+            }>;
+        };
+        stores: Array<{
+            label: string;
+            owner: StorageOwner;
+        }>;
+        evidence: StorageCapacityEvidence | null;
     }
   StorageReferenceEvidence (packages/ui-sdk/src/storage.ts)
     export interface StorageReferenceEvidence {
@@ -9543,6 +9719,18 @@ signatures (every public export and the types it is made of)
         owner: StorageOwner;
         reason: string | null;
     }
+  StorageScenario (packages/ui-sdk/src/storage-guidance.ts)
+    export interface StorageScenario {
+        state: "unavailable" | "finite" | "non-depleting";
+        reason: StorageEvidenceReason | null;
+        start: number | null;
+        end: number | null;
+        samples: number;
+        depletionPerDay: number | null;
+        days: number | null;
+    }
+  StorageSeverity (packages/ui-sdk/src/storage-guidance.ts)
+    export type StorageSeverity = "observed" | "low" | "critical";
   StorageSnapshot (packages/ui-sdk/src/storage.ts)
     export interface StorageSnapshot {
         id: string;

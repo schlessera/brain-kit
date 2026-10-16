@@ -28,30 +28,41 @@ export function createStorageNotifier(db: Database, history: StorageHistory) {
       db.query("UPDATE storage_notice_receipts SET state = 'unknown', next_at = NULL, pid = NULL, process_start = NULL WHERE brain = ? AND episode = ? AND endpoint = ? AND state = 'sending'").run(brain, row.episode, row.endpoint);
     }
   }
+  function maintain(now: number) {
+    reap(now);
+    const state = history.read()?.metadata.state;
+    if (!state) return;
+    const retained = new Set(state.pressures.flatMap(row => [row.episode, row.resolvedEpisode].filter((id): id is string => id !== null)));
+    const active = new Set(state.pressures.filter(row => row.severity === "critical" && row.episode).map(row => row.episode!));
+    const rows = db.query("SELECT * FROM storage_notice_receipts WHERE brain = ?").all(brain) as Receipt[];
+    for (const row of rows) {
+      if (!active.has(row.episode) && ["pending", "failed"].includes(row.state)) db.query("UPDATE storage_notice_receipts SET state = 'suppressed', next_at = NULL WHERE brain = ? AND episode = ? AND endpoint = ?").run(brain, row.episode, row.endpoint);
+      if (!retained.has(row.episode) && row.state !== "sending") db.query("DELETE FROM storage_notice_receipts WHERE brain = ? AND episode = ? AND endpoint = ?").run(brain, row.episode, row.endpoint);
+    }
+  }
   return {
+    sweep(now = Date.now()) { db.transaction(() => maintain(now)).immediate(); },
     begin(endpoint: string, now = Date.now()): StorageNoticeAttempt | null {
       if (!Number.isSafeInteger(now) || now < lastClock) return null;
       lastClock = now;
       return db.transaction((): StorageNoticeAttempt | null => {
         if (db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get()) return null;
-        reap(now);
+        maintain(now);
         const status = history.status(), payload = status.history;
         if (!payload) return null;
         const state = payload.metadata.state;
+        // Another process may have a newer observation waiting for the bounded
+        // history write. Never dispatch using the older durable pressure state.
+        const scan = db.query("SELECT result_at FROM storage_scan_leases WHERE brain = ?").get(brain) as { result_at: number | null } | null;
+        if (scan?.result_at !== null && scan?.result_at !== undefined && scan.result_at > state.lastObservedAt) return null;
         const lastAttempt = db.query("SELECT MAX(attempted_at) AS at FROM storage_notice_receipts WHERE brain = ?").get(brain) as { at: number | null };
         if (state.lastPersistedAt > now || lastAttempt.at !== null && lastAttempt.at > now) return null;
-        const retained = new Set(state.pressures.flatMap(row => [row.episode, row.resolvedEpisode].filter((id): id is string => id !== null)));
-        const active = new Set(state.pressures.filter(row => row.severity === "critical" && row.episode).map(row => row.episode!));
-        const rows = db.query("SELECT * FROM storage_notice_receipts WHERE brain = ?").all(brain) as Receipt[];
-        for (const row of rows) {
-          if (!active.has(row.episode) && ["pending", "failed"].includes(row.state)) db.query("UPDATE storage_notice_receipts SET state = 'suppressed', next_at = NULL WHERE brain = ? AND episode = ? AND endpoint = ?").run(brain, row.episode, row.endpoint);
-          if (!retained.has(row.episode) && row.state !== "sending") db.query("DELETE FROM storage_notice_receipts WHERE brain = ? AND episode = ? AND endpoint = ?").run(brain, row.episode, row.endpoint);
-        }
         const sub = db.query("SELECT principal_id, time_zone, p256dh, auth FROM push_subscriptions WHERE endpoint = ?").get(endpoint) as { principal_id: string | null; time_zone: string | null; p256dh: string; auth: string } | null;
         if (!sub?.principal_id || !owner(sub.principal_id, now)) return null;
         const eligible = state.pressures.filter(row => row.severity === "critical" && row.episode && !row.scopeChanged && row.supportAt !== null && row.supportAt <= now && now - row.supportAt <= RECENT && !state.suppressedEpisodes.includes(row.episode));
         for (const row of eligible) db.query("INSERT OR IGNORE INTO storage_notice_receipts (brain, episode, endpoint, principal_id, state) VALUES (?, ?, ?, ?, 'pending')").run(brain, row.episode!, endpoint, sub.principal_id);
-        if (status.paused || status.pending) return null;
+        if (status.pending || status.paused && status.paused !== "collection-unavailable") return null;
+        if (status.paused === "collection-unavailable" && !eligible.some(row => row.refusals.some(refusal => refusal.at >= state.lastObservedAt))) return null;
         const zone = noticeTimeZone(sub.time_zone);
         if (!zone) return null;
         const hour = localHour(zone, now);
@@ -83,7 +94,7 @@ export function createStorageNotifier(db: Database, history: StorageHistory) {
     },
     receipts(principalId: string, now = Date.now()): Array<{ episode: string; state: StorageNoticeState; attempts: number; nextAt: number | null }> {
       if (!owner(principalId, now)) throw Error("Storage requires current human-owner access.");
-      return db.query("SELECT r.episode, r.state, r.attempts, r.next_at AS nextAt FROM storage_notice_receipts r JOIN push_subscriptions s ON s.endpoint = r.endpoint WHERE r.brain = ? AND s.principal_id = ? AND r.principal_id = ? ORDER BY r.episode, r.endpoint").all(brain, principalId, principalId) as Array<{ episode: string; state: StorageNoticeState; attempts: number; nextAt: number | null }>;
+      return db.query("SELECT r.episode, r.state, r.attempts, r.next_at AS nextAt FROM storage_notice_receipts r JOIN push_subscriptions s ON s.endpoint = r.endpoint WHERE r.brain = ? AND s.principal_id = ? AND r.principal_id = ? ORDER BY r.episode, r.endpoint LIMIT 201").all(brain, principalId, principalId) as Array<{ episode: string; state: StorageNoticeState; attempts: number; nextAt: number | null }>;
     },
   };
 }
