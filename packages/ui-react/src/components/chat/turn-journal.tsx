@@ -74,7 +74,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
     {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
     <Disclosure label={label} open={open} onOpenChange={setOpen}>
-      <div className="grid gap-3 text-sm min-w-0">
+      <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
         <p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
         {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
         {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}

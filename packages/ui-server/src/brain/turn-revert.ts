@@ -1,6 +1,7 @@
 /** Authenticated history operations, with durable identity and journal-owned storage. */
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
+import { lstatSync, realpathSync } from "node:fs";
 import type { JournalVersion, TurnRevertPlan, TurnRevertReceipt, TurnRevertPath, TurnRevertRequest, TurnHistoryAction, ConflictVersionSelection, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
@@ -36,7 +37,7 @@ export function createTurnReverts(db: Database, options: {
     }
     return [...folded.values()].map(item => {
       let reason: string | null = null;
-      if (!reversibleJournalPath(item.path)) reason = "non_reversible_metadata";
+      if (!reversibleJournalPath(item.path) && !journal.claudeMemoryTarget(turnId, item.path)) reason = "non_reversible_metadata";
       else if (details.missing.some(missing => prefix(item.path, missing.path))) reason = "incomplete_observation";
       else if ([item.before, item.after].some(version => version && (version.ignored || version.kind === "other" || version.kind === "file" && !version.hash))) reason = "version_unavailable";
       else if (action === "restore" && (!item.quarantined || !item.after)) reason = "not_quarantined";
@@ -94,7 +95,7 @@ export function createTurnReverts(db: Database, options: {
         if (!options.isAuthorized(row.principal_id)) throw new RevertUnavailable("authorization_changed");
         let observationFailure: Error | undefined;
         const source = journal.summary(row.journal_turn_id);
-        await journal.begin(row.journal_turn_id, { sessionId: row.session_id, actor: "user", model: null, profile: source.profile ?? "strict", policyHash: source.policyHash, coveredPaths: selected.map(item => item.path) }, error => { observationFailure = error; });
+        await journal.begin(row.journal_turn_id, { sessionId: row.session_id, actor: "user", model: null, profile: source.profile ?? "strict", policyHash: source.policyHash, coveredPaths: selected.filter(item => !journal.claudeMemoryTarget(row.source_turn_id, item.path)).map(item => item.path) }, error => { observationFailure = error; });
         observed = true;
         journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state='applying' WHERE id=?").run(row.id));
         for (const path of selected) {
@@ -102,7 +103,15 @@ export function createTurnReverts(db: Database, options: {
           if (observationFailure || !options.isAuthorized(row.principal_id)) throw observationFailure ?? new RevertUnavailable("authorization_changed");
           let state: TurnRevertPath["state"], code = "";
           try {
-            state = journal.withRetainedVersion(path.before, copy => restoreJournalPath(options.brainPath, path.path, path.after, path.before, copy));
+            const target = journal.claudeMemoryTarget(row.source_turn_id, path.path);
+            if (target) {
+              const info = lstatSync(target.directory);
+              if (!info.isDirectory() || realpathSync(target.directory) !== target.directory || String(info.dev) !== target.device || String(info.ino) !== target.inode) state = "conflict";
+              else {
+                state = journal.withRetainedVersion(path.before, copy => restoreJournalPath(target.directory, target.note, path.after, path.before, copy));
+                if (state === "restored") journal.recordClaudeMemory(row.journal_turn_id, path.path, target, path.after, path.before);
+              }
+            } else state = journal.withRetainedVersion(path.before, copy => restoreJournalPath(options.brainPath, path.path, path.after, path.before, copy));
             code = state === "conflict" ? "changed_since_observation" : "";
           } catch { state = "failed"; code = "restoration_unavailable"; }
           journal.writeOperation(() => db.query("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?").run(state, code.padEnd(64), row.id, path.path));

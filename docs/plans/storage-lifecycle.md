@@ -84,11 +84,11 @@ Source foundations for the matrix:
 - Claude publishes and verifies cold copies before deleting the live source
   (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:188-242`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:138-162`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:138-163`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:278-307`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:279-308`).
   Object copies reserve temporary bytes before writing
-  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:66-118`).
+  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:92-144`).
 - Turn-temp purge has its own scope and measured result
   (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-533`),
   and tool validation/recording
