@@ -3,6 +3,115 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Storage inventory (additive, #2009)
+
+`BRAIN_ROOT=/absolute/brain brain storage inventory --json` emits one bounded
+metadata observation as JSON plus a newline. It never evaluates brain config,
+loads providers, opens SQLite, reads attachment contents or runs maintenance.
+`BRAIN_ROOT` is required explicitly. Trusted host configuration may set
+`BRAIN_STORAGE_GIT_ROOTS` to a JSON array of at most 16 absolute external Git
+roots (each at most 4096 characters); absent means no external stores. There is
+no request/command-line root override. Git administrative paths and ordinary
+unquoted alternate paths are resolved before approved stores are walked.
+Unapproved external stores and unsupported alternate encodings make coverage
+partial; they do not expand the allowlist. Configured root aliases are resolved
+once. Descendant symlinks are metadata entries, never traversed.
+
+The version-1 envelope is:
+
+```ts
+{
+  schema_version: 1,
+  scanId: string, revision: string,
+  startedAt: string, finishedAt: string, expiresAt: string, // ISO timestamps
+  status: "complete" | "partial" | "unsupported",
+  consistency: "live-observation",
+  allocationBasis: "512 * st_blocks; shared extents may be charged more than once",
+  roots: Array<{ id: string; kind: "brain" | "git"; path: string }>,
+  entries: StorageEntry[], capacities: StorageCapacity[],
+  pages: Array<{
+    cursor: string; parentId: string | null;
+    entryIds: string[]; nextCursor: string | null;
+  }>,
+  totals: {
+    entryLogicalBytes: number | null; objectLogicalBytes: number | null;
+    objectAllocatedBytes: number | null; objects: number; entries: number;
+    lowerBound: boolean;
+  },
+  errors: Array<{ path: string; reason: string }>, omittedErrors: number,
+  limits: {
+    entries: number; depth: number; milliseconds: number; errors: number;
+    page: number; freshness: number; gitBytes: number;
+  }
+}
+```
+
+`StorageEntry` contains `id`, nullable `parentId`, `rootId`, root-relative `path`,
+`name`, `kind` (`file`, `directory`, `symlink`, `special`), `objectId`,
+`capacityId`, nullable `logicalBytes`, nullable `allocatedBytes`, nullable
+`measurementReason`, `version`, `links`, boolean `pdfOver5MB`, and nullable
+`aliasOf`. Logical bytes apply only to regular files. Allocation includes
+filesystem-reported directory/link metadata. Hard-link names count independently
+in entry logical totals, once in object totals. Repeated directory objects point
+to the first observed entry through `aliasOf` instead of recursively duplicating
+its descendants. No measurement promises exclusive physical extent ownership or
+reclaimable bytes. Integers outside the safe JSON integer range are null, with
+an error; totals are accumulated without floating-point rounding.
+
+`pdfOver5MB` means a regular file whose filename ends in `.pdf`, case-insensitive,
+and whose logical length is **strictly greater than 5,000,000 bytes**. It is not
+MIME detection, a reference count, Git tracking status or removal eligibility.
+
+`StorageCapacity` contains `id`, `device`, `mountId`, `filesystemType`, nullable
+`totalBytes`, `usedBytes`, `freeBytes`, `availableBytes`, nullable `reason`,
+`provenance: "statfs"`, `quota: null`, and `quotaReason: "unsupported"`.
+Values are respectively `blocks*bsize`, `(blocks-bfree)*bsize`, `bfree*bsize`,
+and `bavail*bsize`. Available means available to the caller, not quota headroom.
+Overlay capacity is null with `overlay-capacity-not-attributable`. Bind mounts
+may expose the same capacity under distinct mount observations: **never sum
+capacity rows**. Quotas and exclusive/shared extent measurements are unsupported.
+
+IDs are opaque and scoped to a scan. `revision` is a SHA-256 digest of ordered
+entry metadata and coverage errors; it is not a content hash or filesystem
+snapshot. Capacity observations can change independently. Writes continue during
+collection; detectable replacements/changes make coverage partial. The observed
+interval is explicit. A regular-file version includes device/inode, mode, size,
+mtime/ctime nanoseconds and link count; it is inspection evidence, not deletion
+authority or a guarantee against later edits.
+
+The snapshot includes all its hierarchy pages. Each has at most 200 entry IDs,
+ordered by code-unit entry ID; root entries have a null parent. Follow
+`nextCursor` only within this envelope. Cursors are not filesystem paths or
+continuation capabilities. Consumers must reject absent/foreign cursors and must
+not reuse any cursor after `expiresAt` (60 seconds after completion). Refresh
+means a new invocation and scan ID, not resuming a partial scan. An owner server
+can cache this finite envelope and serve its pages without rescanning per page.
+
+Collection uses one metadata walker, at most 100,000 visited entries, depth 64,
+a 30-second cooperative deadline, 100 retained errors (plus an omitted count),
+and 65,536 bytes per Git-resolution response/alternate file. Git-root discovery
+is bounded to 64 candidates. The CLI isolates collection in a process group,
+requests cancellation at 30 seconds, and kills remaining work after 500 ms;
+output is capped at 64 MiB. If the worker cannot return its observation, the
+coordinator returns an empty **partial lower bound**, with the failure reason.
+As with all process cancellation, uninterruptible kernel I/O can delay reaping;
+this is not a hard real-time kernel guarantee. No missing observation is a claim
+of zero usage. Directory iteration and error paths consume finite budgets.
+
+Linux `/proc` descriptor metadata is required. Each descendant is opened with
+`O_PATH|O_NOFOLLOW`, never a FIFO/device I/O open. Directory traversal checks
+mount IDs, including same-device bind boundaries. A separately approved external
+Git root may have its own mount. Other platforms return `unsupported`; unknown
+mount identity, inaccessible paths, disappearance, unsupported filename encoding,
+Git failure, cancellation and exhausted budgets return partial evidence. Error
+reasons are extensible strings; consumers must tolerate unknown reasons.
+
+A successfully emitted complete/partial/unsupported observation exits 0. Invalid
+usage or allowlist input exits 1 with a diagnostic on stderr; an unexpected
+coordinator failure exits 2. SIGINT/SIGTERM request cancellation and an explicit
+partial result when stdout remains writable. Existing `brain stats` and MCP
+contracts are unchanged.
+
 <a id="governance-policy-check-additive-1650"></a>
 
 ## Governance policy check (additive, #1650)

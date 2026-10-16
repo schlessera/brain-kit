@@ -30,6 +30,7 @@ to touch `process.env`.
 | `BRAIN_CHROME_NO_SANDBOX` | "1" launches the render Chrome without its sandbox (required when running as root). | sandbox on |
 | `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. Cannot enable model reranking: reranker.enabled must be true. | the configured provider when enabled and available, else heuristic |
 | `BRAIN_ROOT` | Brain repository root, overriding cwd-based discovery. | nearest ancestor with brain.config.* or .git, else cwd |
+| `BRAIN_STORAGE_GIT_ROOTS` | Trusted storage inventory allowlist: JSON array of up to 16 absolute external Git store roots. Request flags cannot expand it. | no external Git stores |
 | `BRAIN_UI_CHROME_NO_SANDBOX` | Same as BRAIN_CHROME_NO_SANDBOX, in the BRAIN_UI_* spelling a chat-server deployment sets; the server passes it to the brain CLI it spawns. | sandbox on |
 | `BRAIN_WORKER_CONFIG_ROOT` | Internal immutable maintenance configuration execution root. Only applies when the requested root equals BRAIN_WORKER_DATA_ROOT. | — |
 | `BRAIN_WORKER_DATA_ROOT` | Internal maintenance output root, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input. | — |
