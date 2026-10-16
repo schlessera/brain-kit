@@ -9,6 +9,7 @@ import { renderBlockHtml, shareStyle } from "../packages/ui-react/src/components
 import { buildHtmlDocument } from "../packages/render-template/src/template.ts";
 import puppeteer, { type Page, type ScreenshotOptions } from "puppeteer-core";
 import { createRenderer, type Renderer } from "../packages/ui-render-puppeteer/src/renderer.ts";
+import { expectAsyncRejection } from "./fixtures/async-rejection.ts";
 
 const chromePath = [process.env.PUPPETEER_EXECUTABLE_PATH, process.env.BRAIN_UI_CHROME_PATH,
   "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
@@ -278,7 +279,7 @@ describe.skipIf(!chromePath)("alternate markup and final styled output", () => {
 describe.skipIf(!chromePath)("export visibility fails closed", () => {
   test("a painted pointer-events:none overlay cannot conceal a live destination", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"></head><body><a href="https://ithaca.example/">Tides</a><div style="position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none"></div></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
-    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("destination is obscured");
+    await expectAsyncRejection(renderer.renderPdf({ html, linkPolicy: "visible-destinations" }), "destination is obscured");
   });
   test.each([
     ["source shorthand", '<style>@layer supplied{.cover{position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none}}</style>', '<div class="cover" style="pointer-events:none;all:revert-layer!important"></div>'],
@@ -306,7 +307,7 @@ describe.skipIf(!chromePath)("export visibility fails closed", () => {
   });
   test("a content security policy that blocks the protective stylesheet refuses export", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><meta http-equiv="Content-Security-Policy" content="style-src \'none\'"></head><body><a href="https://ithaca.example/">Tides</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
-    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("protection stylesheet is blocked");
+    await expectAsyncRejection(renderer.renderPdf({ html, linkPolicy: "visible-destinations" }), "protection stylesheet is blocked");
   });
   test("a document with no accepted links does not need the protective stylesheet", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><meta http-equiv="Content-Security-Policy" content="style-src \'none\'"></head><body><a href="javascript:alert(1)">Inert words</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
@@ -319,7 +320,7 @@ describe.skipIf(!chromePath)("export visibility fails closed", () => {
 describe.skipIf(!chromePath)("bounded PNG disclosure", () => {
   test("a destination below the existing bitmap cap refuses PNG rather than silently cropping it", async () => {
     const html = buildHtmlDocument({ content: '<div style="height:9000px"></div><a href="https://ithaca.example/">Tides</a>', contentType: "html", linkPolicy: "visible-destinations" });
-    await expect(renderer.renderPng({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("exceeds PNG capture bounds");
+    await expectAsyncRejection(renderer.renderPng({ html, linkPolicy: "visible-destinations" }), "exceeds PNG capture bounds");
   });
 });
 
@@ -350,11 +351,11 @@ describe.skipIf(!chromePath)("approved print blocks with export protection", () 
 describe.skipIf(!chromePath)("finished PDF disclosure", () => {
   test("custom small pages cannot keep a live annotation after cropping its host", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:80px 80px;margin:0}body{width:600px;font:16px system-ui;margin:8px}</style></head><body><a href="https://ithaca-harbour.example/tides">Safe label</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
-    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination");
+    await expectAsyncRejection(renderer.renderPdf({ html, linkPolicy: "visible-destinations" }), "PDF link destination");
   });
   test("print scaling cannot shrink a live destination below the legibility floor", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:A4;margin:0 200px}body{width:720px;font:16px system-ui;margin:8px}</style></head><body><a href="https://ithaca-harbour.example/tides">Safe label</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
-    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination");
+    await expectAsyncRejection(renderer.renderPdf({ html, linkPolicy: "visible-destinations" }), "PDF link destination");
   });
   test("host words in author-supplied code cannot stand in for the cropped disclosure", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:320px 300px;margin:0}body{width:2000px;font:32px system-ui;margin:8px}a{display:flex;width:2000px;justify-content:space-between}</style></head><body><a href="https://ithaca-harbour.example/tides"><code>ithaca-harbour.example</code></a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
@@ -363,7 +364,7 @@ describe.skipIf(!chromePath)("finished PDF disclosure", () => {
     expect(unchecked.annotations.some((a) => a.url === "https://ithaca-harbour.example/tides")).toBe(true);
     expect(unchecked.heights.length).toBeGreaterThan(0);
     expect(Math.min(...unchecked.heights)).toBeGreaterThanOrEqual(8.99);
-    await expect(renderer.renderPdf({ html, width: 4096, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination is incomplete");
+    await expectAsyncRejection(renderer.renderPdf({ html, width: 4096, linkPolicy: "visible-destinations" }), "PDF link destination is incomplete");
   });
   test("exact URL words and multiple mail recipients retain useful finished PDF links", async () => {
     record("final-case-start", {});

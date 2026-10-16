@@ -434,9 +434,12 @@ refuses rather than run git on the host.
   validated output workspace. Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
-  root remain read-only. After that worker and all its descendants have
-  exited, the host rejects linked storage and object alternates and runs
-  `git fsck --full --strict` before pushing. The transport has an explicit
+  root remain read-only. Maintenance completion awaits both the outer
+  bubblewrap monitor and EOF on the output pipes retained by namespace init.
+  A descendant can leave files between CLI exit and namespace teardown;
+  file presence alone does not show a surviving process. Before admitting
+  another transport, the host rejects linked storage and object alternates
+  and runs `git fsck --full --strict` before pushing. The transport has an explicit
   system/mirror mount list and never mounts the brain or its `.git`.
   It uses the literal protected `remote.origin.url`, without loading includes;
   writable Git includes cannot choose the credential's destination.
@@ -1001,9 +1004,13 @@ index refresh after its workers exit, serialized on the server lock.
 
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
-the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials and egress retain the interim
-limits stated in the capabilities note. The journal keeps observed canonical
+the actual mounts, fallback cause and limits. Both governed and strict notes
+state that the worker shares the server's uid and server-state protection is
+mask-only. A read-only brain does not prevent reads of other host paths
+available to that uid. The separate-uid broker in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) is not implemented
+yet. Maintenance credentials and egress retain the interim limits stated in
+the capabilities note. The journal keeps observed canonical
 brain/workspace versions, not every write between observations; external
 persisted Claude auto-memory remains outside that review/revert coverage.
 Native read observations survive ordinary turns on the running backend but
