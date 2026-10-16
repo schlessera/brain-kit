@@ -14,10 +14,10 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
   const brain = mkdtempSync(join(tmpdir(), "odysseus-roster-"));
   const rosters: string[] = [], exclusions: string[] = [];
   try {
-    for (const mode of ["voice", "typed", "missing", "strict", "no-grant", "unhosted"] as const) {
+    for (const mode of ["voice", "typed", "missing", "strict", "no-grant", "unhosted", "partial"] as const) {
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
         prompt: "Return to Ithaca", signal: new AbortController().signal,
-        bridge: (["missing", "unhosted"].includes(mode) ? {} : bridge()) as never,
+        bridge: (["missing", "unhosted"].includes(mode) ? {} : mode === "partial" ? { ...bridge(), inboxList: undefined } : bridge()) as never,
         ...(mode !== "unhosted" ? { applicationAuthority: "server" as const } : {}),
         ...(mode === "voice" ? { posture: "voice", enforceAllowedTools: true } : {}),
         noGrantSurface: mode === "voice" || mode === "no-grant",
@@ -31,6 +31,7 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
         await (turn.options.mcpServers!["brain-ui"] as any).instance.connect(st);
         await client.connect(ct);
         const tools = (await client.listTools()).tools;
+        if (mode === "partial") expect(turn.options.allowedTools, "PARTIAL_INBOX_HANDLER_AUTO_ALLOWED").toContain("mcp__brain-ui__inbox_add");
         for (const legacy of ["brain_add", "brain_update", "brain_archive"])
           expect(turn.options.disallowedTools?.includes(`mcp__brain__${legacy}`), `LEGACY_DEPLOYMENT_MEMBERSHIP_${mode}_${legacy}`).toBe(mode !== "unhosted");
         for (const name of [...refused, "brain_read_base", "brain_add", "show_block", "turn_temp"])

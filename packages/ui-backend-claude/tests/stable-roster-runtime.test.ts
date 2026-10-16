@@ -16,13 +16,13 @@ test("installed Claude keeps request tools fixed and refuses every unavailable t
     const bridgeNames = ["request_image_mask", "ask_user_list", "ask_user_rank", "ask_user_form", "propose_policy_change", "inbox_add", "resolve_action", "complete_share"].map(name => `mcp__brain-ui__${name}`);
     const natives = ["Write", "Edit", "NotebookEdit"];
     const missing = ["ask_user", "get_current_location", "query_activity", "brain_read_base", "brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].map(name => `mcp__brain-ui__${name}`);
-    expect(captures).toHaveLength(9);
+    expect(captures).toHaveLength(10);
     expect(new Set(captures.slice(0, 3).map((c: any) => c.sessionId)).size).toBe(1);
-    expect(new Set(captures.slice(3, 7).map((c: any) => c.sessionId)).size).toBe(1);
+    expect(new Set(captures.slice(3, 8).map((c: any) => c.sessionId)).size).toBe(1);
     expect(captures[0].sessionId).not.toBe(captures[3].sessionId);
     for (const capture of captures) {
       if (capture.mode === "unhosted") {
-        expect(JSON.stringify(capture.tools), "BYTE_IDENTICAL_UNHOSTED_TOOLS").toBe(JSON.stringify(captures[7].tools));
+        expect(JSON.stringify(capture.tools), "BYTE_IDENTICAL_UNHOSTED_TOOLS").toBe(JSON.stringify(captures[8].tools));
         for (const name of ["brain_add", "brain_update", "brain_archive"])
           expect(capture.tools.some((tool: any) => tool.name === `mcp__brain__${name}`), `UNHOSTED_LEGACY_ROSTER_${name}`).toBe(true);
         expect(capture.cards).toBe(0); expect(capture.results[0].is_error).not.toBe(true);
@@ -31,7 +31,7 @@ test("installed Claude keeps request tools fixed and refuses every unavailable t
       }
       expect(JSON.stringify(capture.tools), `BYTE_IDENTICAL_PROVIDER_TOOLS_${capture.mode}`).toBe(JSON.stringify(captures[0].tools));
       expect(capture.cards, `NO_PERMISSION_CARDS_${capture.mode}`).toBe(0);
-      if (capture.mode === "typed") { expect(capture.calls).toEqual(["askUserList"]); expect(capture.results[0].is_error).not.toBe(true); continue; }
+      if (["typed", "partial"].includes(capture.mode)) { expect(capture.calls, `TYPED_AVAILABLE_HANDLER_${capture.mode}`).toEqual([capture.mode === "partial" ? "inboxAdd" : "askUserList"]); expect(capture.results[0].is_error).not.toBe(true); continue; }
       const expected = capture.mode === "strict" ? natives : capture.mode === "voice" ? [...bridgeNames, ...natives] : capture.mode === "missing" ? [...bridgeNames, ...missing] : bridgeNames;
       for (const name of expected) expect(capture.denials, `RUNTIME_HOOK_REFUSAL_${capture.mode}_${name}: ${JSON.stringify(capture.results)}`).toContain(name);
       expect(capture.calls, `NO_PRIVILEGED_HANDLER_${capture.mode}`).toEqual([]);

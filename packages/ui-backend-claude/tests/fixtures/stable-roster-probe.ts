@@ -50,7 +50,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (pendingRead) { pendingRead = false; return response([{ type: "tool_use", id: "toolu_loom_read", name: "Read", input: { file_path: join(brain, "notes/loom.ipynb") } }]); }
   if (!pending) return response([]);
   pending = false;
-  const selected = active.mode === "unhosted" ? ["mcp__brain__brain_add"] : active.mode === "typed" ? ["ask_user_list"] : active.mode === "strict" ? names.filter(n => !n.startsWith("mcp") && /^[A-Z]/.test(n)) : active.mode === "voice" ? names : names.filter(n => !/^[A-Z]/.test(n));
+  const selected = active.mode === "unhosted" ? ["mcp__brain__brain_add"] : active.mode === "partial" ? ["inbox_add"] : active.mode === "typed" ? ["ask_user_list"] : active.mode === "strict" ? names.filter(n => !n.startsWith("mcp") && /^[A-Z]/.test(n)) : active.mode === "voice" ? names : names.filter(n => !/^[A-Z]/.test(n));
   if (active.mode === "missing") selected.push(...Object.keys(missingInputs));
   return response(selected.map((name, index) => ({ type: "tool_use", id: `toolu_raft_${captures.length}_${index}`,
     name: /^[A-Z]/.test(name) || name.startsWith("mcp__") ? name : `mcp__brain-ui__${name}`, input: inputs[name] ?? missingInputs[name] ?? {} })));
@@ -65,8 +65,8 @@ function response(calls: unknown[]) {
 }
 let sessionId: string | undefined;
 try {
-  for (const mode of ["typed", "voice", "strict", "voice", "typed", "missing", "no-grant", "unhosted", "unhosted"]) {
-    if ([3, 7].includes(captures.length)) sessionId = undefined;
+  for (const mode of ["typed", "voice", "strict", "voice", "typed", "missing", "no-grant", "partial", "unhosted", "unhosted"]) {
+    if ([3, 8].includes(captures.length)) sessionId = undefined;
     active = { mode, tools: undefined, results: [], denials: [], calls: [], cards: 0 }; captures.push(active); pending = true; pendingRead = true;
     const controller = new AbortController();
     const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: mode === "strict" ? "strict" : "governed", areas: [] });
@@ -74,6 +74,7 @@ try {
     const unavailable = (name: string) => async () => { active.calls.push(name); throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
     const bridge: any = { emit() {}, checkpointPermission() {}, async requestPermission() { active.cards++; return { behavior: "allow" }; } };
     if (!["missing", "unhosted"].includes(mode)) for (const name of ["askUserList", "askUserRank", "askUserForm", "requestMask", "proposePolicyChange", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "applyBrain", "readBrainBase"]) bridge[name] = unavailable(name);
+    if (mode === "partial") { delete bridge.inboxList; bridge.inboxAdd = async () => { active.calls.push("inboxAdd"); return { itemId: "raft" }; }; }
     if (mode === "typed") bridge.askUserList = async () => { active.calls.push("askUserList"); return { answers: { raft: "Keep" }, skipped: [] }; };
     const lock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
     const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {

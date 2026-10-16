@@ -147,8 +147,8 @@ function assembleClaudeSdkTurn(
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
     if (turnTempTool) allowed.push(TURN_TEMP_TOOL_NAME);
-    if (req.bridge.inboxList) allowed.push(visibleToolName("inbox_list", "claude"), visibleToolName("inbox_get", "claude"));
-    if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"), visibleToolName("complete_share", "claude"));
+    for (const [name, handler] of [["inbox_list", "inboxList"], ["inbox_get", "inboxGet"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
+    if (!req.noGrantSurface && req.posture !== "voice") for (const [name, handler] of [["inbox_add", "inboxAdd"], ["resolve_action", "resolveAction"], ["complete_share", "completeShare"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -322,7 +322,7 @@ function assembleClaudeSdkTurn(
       getLocation,
       requestMask,
       queryActivity,
-      ...(req.bridge.inboxList ? { inbox: req.bridge } : {}),
+      ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
       ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
         try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
       }) } : {}),
