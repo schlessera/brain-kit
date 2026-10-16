@@ -79,6 +79,7 @@ describe("backend registry", () => {
         id: "claude",
         label: "Claude",
         vendor: "anthropic",
+        model: "claude-opus-5-5",
         source: "builtin",
         thinkingLevel: "medium",
         supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
@@ -333,7 +334,7 @@ describe("configured GPT-6 profiles", () => {
       const providers = createProviderRoutes({ registry });
       const models = createModelRoutes({ registry, db });
       const expected = profiles.map(({ id, label, vendor, model, thinkingLevel }) => ({
-        id, label, vendor, thinkingLevel, backendId: "pi",
+        id, label, vendor, model, thinkingLevel, backendId: "pi",
         supportedThinkingLevels: [
           ...(["gpt-5.6-sol", "gpt-6-sol", "gpt-6-luna"].includes(model) ? ["off"] : []),
           ...(vendor === "openai-codex" ? ["minimal"] : []),
