@@ -535,3 +535,6 @@ receipts, documented in the [package API](integration-contract/package-api.md#pr
 `brain render` replaces configured active module fences having a static entry with its scriptless, resource-free output, always with `theme: "print"`, including HTML. Browser-only entries remain code. Failure or unsafe static output retains the original fence and adds a fence-named string to the existing `warnings` envelope. Local markdown SVG images are embedded only after brain containment and static-resource validation.
 
 `POST /api/render` applies the same print conversion using trusted build-bundled static registrations filtered by active configured module declarations; content-repository export specifiers are metadata and never imported by the server. Browser-only entries must already have been prepared by the client. Diagnostics use the URI-encoded JSON `X-Brain-Render-Warnings` header (at most 3500 encoded characters, messages truncated to 200 characters), with `X-Brain-Render-Warnings-Truncated: true` when findings were omitted. The binary response and request schema are unchanged.
+
+- [Content renderer bootstrap declarations (additive, #2087)](integration-contract/http.md#content-renderer-bootstrap-declarations-additive-2087).
+- [Deployment renderer registration (additive, #2087)](integration-contract/package-api.md#deployment-renderer-registration-additive-2087).

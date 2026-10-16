@@ -2,6 +2,7 @@ import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: 
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
+import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
@@ -37,6 +38,8 @@ export function createHealthRoutes(deps: { db: Database }): Hono {
 }
 
 export interface StatusDeps {
+  /** Trusted metadata from configured modules; absent with an older CLI. */
+  getContentRenderers?(): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
   sourceCommit: string;
   getCronStatus(): unknown;
@@ -57,7 +60,9 @@ export interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono {
   return new Hono().get("/status", async (c) => {
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
+    const contentRenderers = await deps.getContentRenderers?.().catch(() => undefined);
     return c.json({
+      ...(contentRenderers !== undefined ? { contentRenderers } : {}),
       healthy: true,
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,

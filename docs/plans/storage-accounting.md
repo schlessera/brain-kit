@@ -67,7 +67,7 @@ Source anchors, checked against the reviewed commit:
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:252-287`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:253-288`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:107-113`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
@@ -372,7 +372,7 @@ Proposed implementation slices, not commitments or status:
    object/capacity merge and authenticated cached transport. No new public SDK
    seam; inventory access needs host/operator authorization reviewed separately
    from ordinary content read permission. Public health remains minimal
-   (`createStatusRoutes`, `packages/ui-server/src/routes/health.ts:57-77`).
+   (`createStatusRoutes`, `packages/ui-server/src/routes/health.ts:60-82`).
 3. Server-owned bounded aggregate history/capacity refresh and low-space signals,
    after cadence/threshold design; no persistence in core `brain.db`.
 4. The #1782 treemap/list/filter/inspection design, followed by separately scoped
