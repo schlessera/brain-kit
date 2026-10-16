@@ -30,10 +30,13 @@ for (const adapter of ["claude", "pi"] as const)
       await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
       await mkdir(resolve(brain, "context/policies"), { recursive: true });
       await writeFile(resolve(brain, "context/policies/governance.md"), "---\nschema_version: 1\nbudgets: { turn: { warn_usd: 5, block_usd: 10, block_tokens: 10 }, session: { block_tokens: 100 }, day: { block_tokens: 100 } }\n---\nAthena reviews inference limits.\n");
-      let called = 0, aborted = false, maxBudget: number | undefined;
+      let called = 0, aborted = false, maxBudget: number | undefined, receivedPrompt: string | undefined, receivedLimits: string | undefined, receivedContext: string | undefined;
       const backend = makeFakeBackend({ id: `budget-${adapter}`, startTurn: async (req) => {
           called++;
           maxBudget = req.maxBudgetUsd;
+          receivedPrompt = req.prompt;
+          receivedLimits = req.sessionBudgetLimits;
+          receivedContext = req.budgetContext;
           await writeFile(resolve(brain, "notes/partial.md"), "# Odysseus\nPartial work remains.\n");
           if (adapter === "claude") {
             req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
@@ -84,6 +87,9 @@ for (const adapter of ["claude", "pi"] as const)
             throw Error(JSON.stringify(frames()));
           await Bun.sleep(5);
         }
+        expect(receivedPrompt, "GOVERNED_PROMPT_PRESERVES_USER_BYTES").toBe("Record Ithaca");
+        expect(receivedLimits, "STATIC_BUDGET_LIMITS_STILL_TRANSPORTED").toContain("turn: warn $5; stop $10");
+        expect(receivedContext, "NO_ROUTINE_BUDGET_TAIL_AT_ADMISSION").toBeUndefined();
         expect(called, "BUDGET_ACTUAL_ADAPTER_LAUNCHED").toBe(1);
         expect(aborted, "BUDGET_HOST_ABORTS_ACTUAL_ADAPTER").toBe(true);
         expect(maxBudget).toBe(10);
