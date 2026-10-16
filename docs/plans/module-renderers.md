@@ -145,9 +145,9 @@ A test regenerates the block and fails on any difference.
 | white card | `--bk-diagram-node` |
 | ink (primary stroke and text) | `--bk-diagram-text` |
 | muted (default arrow) | `--bk-diagram-line` |
-| soft (sublabel) | `--bk-color-ink-mute` |
+| soft (sublabel) | `--bk-color-ink-mute`, or `--bk-diagram-text` on a focal tint |
 | rule / rule-solid | `--bk-color-line` / `--bk-diagram-cluster-border` |
-| accent (one or two focal elements) | `--bk-amber-ink` stroke and text, an `--bk-amber-fill` tint, `--bk-on-fill` on a solid fill |
+| accent (one or two focal elements) | `--bk-amber-ink` stroke and text, the solid `--bk-diagram-focal-tint`, `--bk-on-fill` on a solid fill |
 | link (HTTP and external calls) | `--bk-blue-ink` |
 | series 1–5 | `--bk-canvas-slot-1…` (`--bk-canvas-slot-1`, `packages/ui-kit/src/tokens.css:756`) |
 | ink at opacity (tints, ramps) | solid `color-mix(in srgb, <ink> N%, <ground>)` steps; alpha ink is banned |
@@ -160,10 +160,12 @@ Type follows the kit:
   the 9.5px / 600 / 0.09em uppercase label style.
 - **Floor:** nothing below 9px.
 
-Label widths are budgeted per character, not per script, as upstream measures
-them, so system fallbacks never clip. The accent hue, whether amber is the
-focal hue at all, ramp steps and radii are open questions for the design
-briefs. This table is the starting point they test, not the answer.
+Label widths are budgeted per character, including tracking and wide glyphs.
+The shared fit policy refuses sizes below 9px. The [adopted design](https://github.com/schlessera/brain-kit/blob/ce92ea1d4142481fadf6cef08bfef7eecf02543b/docs/assets/diagrams-2091/README.md)
+uses amber focal ink, solid named focal grounds, 5px node and 8px group radii,
+and diagram-text for focal sublabels. Optional authored 320px placement shares
+semantic IDs; missing placement selects caption/summary and Open diagram,
+without automatic reflow or a shrunken inline figure.
 
 ## Surfaces
 
