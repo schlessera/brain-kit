@@ -861,6 +861,8 @@ export "./internal" (./src/internal.ts)
   DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
+  type EgressProxyOptions
+  type EgressRecord
   GIT_LOCK_KEY
   HOST_MASKS
   INFERENCE_PLACEHOLDER
@@ -926,6 +928,8 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_PROVIDER_KEYS
   WORKER_AREAS
   WORKER_AREA_ROOT
+  WORKER_EGRESS_DIR
+  WORKER_EGRESS_SOCKET
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
@@ -1040,6 +1044,7 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorkerSync
   sessionPromptContext
   sessionReplay
+  startEgressProxy
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
