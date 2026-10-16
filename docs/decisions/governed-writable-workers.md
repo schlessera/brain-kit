@@ -591,6 +591,10 @@ module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
 through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
+Publication also refuses deletion of a tier A ancestor directory, including an
+empty `context` or `.git` whose protected descendants are currently absent.
+This host-side check applies before any changed output is installed; worker
+namespace mount points alone do not constrain the host publisher.
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
