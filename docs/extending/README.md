@@ -101,8 +101,8 @@ its SDK, configuration and wire surface. It does not replace dictation's
 `SpeechProvider` / `AsrClient` or introduce a standalone TTS provider; no
 adapter ships yet.
 
-There are eleven. This table is the list; the integration contract's
-"Extension interfaces" table names the same eleven, and `tests/seam-list.test.ts`
+There are twelve. This table is the list; the integration contract's
+"Extension interfaces" table names the same twelve, and `tests/seam-list.test.ts`
 fails when the two or the `@experimental` tags in the source disagree.
 
 | Seam                                | Interface            | Imported from                     | What it swaps                            |
@@ -117,9 +117,10 @@ fails when the two or the `@experimental` tags in the source disagree.
 | Speech                              | `AsrClient`          | `@schlessera/brain-ui-sdk/client` | The browser end of that session          |
 | Live conversation                   | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` | The voice service a live conversation runs on |
 | Tool renderers                      | `ToolRenderer`       | `@schlessera/brain-ui-sdk/client` | How one tool call looks in the timeline  |
+| [Content renderers](content-renderers.md) | `ContentRenderer` | `@schlessera/brain-ui-sdk/client` | How a fence language or file type is drawn |
 | Site adapters                       | `SiteAdapter`        | `@schlessera/brain-scrape`        | The site a module fetches from           |
 
-The first five live in core. The self-hosted chat UI adds five in
+The first five live in core. The self-hosted chat UI adds six in
 `@schlessera/brain-ui-sdk` (`packages/ui-sdk` in this monorepo).
 
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
