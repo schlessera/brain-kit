@@ -5,3 +5,5 @@
  */
 export { applyExportLinkPolicy, protectExportLinkDestinations } from "./link-policy.js";
 export { documentTitle, isFullDocument } from "./template.js";
+
+export { prepareStaticDocument } from "./static.js";

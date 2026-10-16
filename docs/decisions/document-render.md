@@ -27,7 +27,7 @@ Rejected:
 - **Markup in the skill.** Every use would pay for every kind's HTML in
   tokens, and the markup would drift from the CSS it depends on. The skill
   names the kinds; `brain render --kind <kind> --scaffold` prints the one it
-  needs (`function runReference`, `packages/core/src/cli/commands/render.ts:157-188`).
+  needs (`function runReference`, `packages/core/src/cli/commands/render.ts:158-189`).
 - **`generate-pdf/kinds/<kind>.md` reference files**, the drop's fallback if
   the CLI flag was out of scope. They would be a second copy of each skeleton.
 
@@ -121,7 +121,7 @@ render is already under half a second), `--single-process` and `--no-zygote`
 
 A misspelt component class renders silently unstyled, which is the failure an
 agent composing from classes will hit most. `lintDocument`
-(`export function lintDocument`, `packages/render-template/src/lint.ts:51-142`)
+(`export function lintDocument`, `packages/render-template/src/lint.ts:52-143`)
 checks the built document for unknown classes and accents, a second opener or
 one that is not first (a document with none is fine), skeleton placeholder
 images, links to `#`, remote images,
