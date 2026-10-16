@@ -1802,8 +1802,8 @@ is now consumer-qualified independently of reference classification (#2028). The
 | Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
 
 This mapping was checked against core's (`loadModules`,
-`packages/core/src/lib/module-loader.ts:93-101`), (`importManifest`,
-`packages/core/src/lib/module-loader.ts:187-219`), Pi's (`build`,
+`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
 `packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
