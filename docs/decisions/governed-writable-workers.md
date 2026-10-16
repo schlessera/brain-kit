@@ -1323,7 +1323,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1594`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1596`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1449,6 +1449,13 @@ syscalls. Contents and permitted siblings remain writable. Missing or aliased
 folder topology is not invented through placeholder creation or overlays.
 Resolver-owned folder qualification is private and tied to the exact brain
 identity; public layout facts or copied layouts cannot mint folder mounts.
+The governed live launcher verifies the actual retained mount points and inode
+identities through its authenticated, still-gated worker view. A host-path check
+before spawning does not prove what bubblewrap subsequently mounted. Unknown
+views refuse before payload start; the existing separate-UID broker does not
+attest these folder mounts, and its state/temp authority is not repurposed into
+generic process inspection. This closes a launch-time check/mount gap without
+claiming complete active-peer or protected-reader admission.
 
 These are topology primitives, not complete privacy admission or recipient
 proof. Gate root sets are plans rather than attested mounted identities; legacy

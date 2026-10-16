@@ -1,12 +1,18 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, existsSync, linkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher.js";
-import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
+import { prepareWorkerSandbox, workerCommand, launchAgentWorker } from "../src/server/worker-launcher.js";
+import { createFixtureWorkerStartupView as createWorkerStartupView, launchFixtureAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { workerSandboxNote } from "../src/server/worker-sandbox.js";
 import { resolveWorkerProtection } from "../src/server/worker-protection.js";
 import { protectedPaths } from "../src/server/protected-paths.js";
+
+async function collectLaunched(stream: NodeJS.ReadableStream): Promise<string> {
+  let text = "";
+  for await (const chunk of stream as AsyncIterable<Buffer>) text += chunk.toString();
+  return text;
+}
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -231,4 +237,98 @@ test("copied, caller-constructed and foreign-brain folder layouts cannot mint fo
   expect(Object.isFrozen(sandbox.protection)).toBe(true);
   expect(Object.isFrozen(sandbox.protection!.paths)).toBe(true);
   expect(Object.isFrozen(sandbox.protection!.ancestors)).toBe(true);
+});
+
+
+test.each([false, true])("launch refuses a folder identity swapped after planning before payload start (host restored: %s)", async restoreHost => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  const spawn = Bun.spawn;
+  let swapped = false;
+  const hook = spyOn(Bun, "spawn").mockImplementation((...args: any[]) => {
+    if (!swapped && args[1]?.env?.BRAIN_WORKER_LAUNCH) {
+      swapped = true;
+      renameSync(join(brain, "group"), join(brain, "retired-group"));
+      mkdirSync(join(brain, "group/private"), { recursive: true });
+    }
+    return (spawn as any)(...args);
+  });
+  let worker: ReturnType<typeof launchAgentWorker> | undefined, refusal: unknown;
+  try {
+    try { worker = launchAgentWorker({ brainPath: brain, sandbox, env: {},
+      ...(restoreHost ? { stateBytes: 1024 * 1024, populateState: () => {
+        renameSync(join(brain, "group"), join(brain, "replacement-group"));
+        renameSync(join(brain, "retired-group"), join(brain, "group"));
+      } } : {}),
+      command: ["/bin/sh", "-c", "printf Odysseus > payload-started.md"] }); }
+    catch (error) { refusal = error; }
+  } finally { hook.mockRestore(); }
+  if (worker) {
+    worker.stdin.end();
+    const [exit] = await Promise.all([worker.exited, collectLaunched(worker.stdout), collectLaunched(worker.stderr)]);
+    expect(exit).toBe(0);
+  }
+  expect(swapped).toBe(true);
+  expect(String(refusal), "FOLDER_POSTMOUNT_IDENTITY_BEFORE_PAYLOAD").toContain("provider folder topology");
+  if (restoreHost) expect(String(refusal), "ACTUAL_MOUNTED_FOLDER_IDENTITY_IS_REQUIRED").toContain("retained folder mount points are unavailable");
+  expect(existsSync(join(brain, "payload-started.md")), "UNQUALIFIED_FOLDER_PAYLOAD_NEVER_STARTS").toBe(false);
+});
+
+
+test("the live launch qualifies mounted folders before preserving their ordinary writes", async () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  const worker = launchAgentWorker({ brainPath: brain, sandbox, env: {}, command: ["/bin/sh", "-c",
+    "if mv group/private group/moved-private 2>/dev/null; then exit 41; fi; if mv group retired-group 2>/dev/null; then exit 42; fi; printf Athena > group/private/inside.md; printf Odysseus > sibling.md"] });
+  worker.stdin.end();
+  const [exit, out, err] = await Promise.all([worker.exited, collectLaunched(worker.stdout), collectLaunched(worker.stderr)]);
+  expect(exit, out + err).toBe(0);
+  expect(readFileSync(join(brain, "group/private/inside.md"), "utf8")).toBe("Athena");
+  expect(readFileSync(join(brain, "sibling.md"), "utf8")).toBe("Odysseus");
+});
+
+
+test("live namespace inode evidence cannot be replaced by a matching host path", async () => {
+  const brain = fixture();
+  mkdirSync(join(brain, "group/private"), { recursive: true });
+  mkdirSync(join(brain, "group/public"));
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  const spawn = Bun.spawn; let changed = false;
+  const hook = spyOn(Bun, "spawn").mockImplementation((...args: any[]) => {
+    if (!changed && args[1]?.env?.BRAIN_WORKER_LAUNCH) {
+      const payload = JSON.parse(args[1].env.BRAIN_WORKER_LAUNCH);
+      const at = payload.argv.findIndex((value: string, i: number) => value === "--bind" && payload.argv[i + 1] === join(brain, "group/private"));
+      expect(at).toBeGreaterThan(0);
+      payload.argv[at + 1] = join(brain, "group/public"); changed = true;
+      args[1] = { ...args[1], env: { ...args[1].env, BRAIN_WORKER_LAUNCH: JSON.stringify(payload) } };
+    }
+    return (spawn as any)(...args);
+  });
+  let worker: ReturnType<typeof launchAgentWorker> | undefined, refusal: unknown;
+  try {
+    try { worker = launchAgentWorker({ brainPath: brain, sandbox, env: {},
+      command: ["/bin/sh", "-c", "printf Odysseus > payload-started.md"] }); }
+    catch (error) { refusal = error; }
+  } finally { hook.mockRestore(); }
+  if (worker) {
+    worker.stdin.end();
+    const [exit] = await Promise.all([worker.exited, collectLaunched(worker.stdout), collectLaunched(worker.stderr)]);
+    expect(exit).toBe(0);
+  }
+  expect(changed).toBe(true);
+  expect(String(refusal), "ACTUAL_NAMESPACE_INODE_MUST_MATCH_QUALIFIED_FOLDER").toContain("mounted folder identity changed");
+  expect(existsSync(join(brain, "payload-started.md"))).toBe(false);
+});
+
+
+test("strict snapshot consumers keep folder publication plans without claiming live pins", async () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  writeFileSync(join(brain, "group/private/witness.md"), "Athena");
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: [], folderPaths: ["group/private"] });
+  const worker = launchFixtureAgentWorker({ brainPath: brain, sandbox, env: {}, command: ["/bin/cat", "group/private/witness.md"] });
+  worker.stdin.end();
+  const [exit, out, err] = await Promise.all([worker.exited, collectLaunched(worker.stdout), collectLaunched(worker.stderr)]);
+  expect(exit, err).toBe(0);
+  expect(out).toBe("Athena");
 });

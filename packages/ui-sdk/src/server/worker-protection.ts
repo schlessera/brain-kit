@@ -1,5 +1,5 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
-import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
@@ -161,4 +161,49 @@ export function protectedWorkerMounts(brain: string, protection: WorkerProtectio
     else if (mode === "mask_file") argv.push("--ro-bind", "/dev/null", path);
   }
   return argv;
+}
+
+
+/** Qualify this concrete launch's mounts while its trusted start gate is closed. */
+export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtection | undefined,
+  retainedFolders: readonly string[] | undefined, pid: number, deadline: number): void {
+  if (!retainedFolders?.length) return;
+  const qualified = protection && qualifiedFolders.get(protection);
+  if (!qualified || retainedFolders.some(root => !qualified.roots.includes(root)))
+    throw new Error("provider folder topology was not qualified by the resolver");
+  const identity = () => {
+    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
+    if (["Z", "X", "x"].includes(fields[0]!) || !/^\d+$/.test(fields[19] ?? ""))
+      throw new Error("provider folder topology worker identity is unavailable");
+    return fields[19]!;
+  };
+  try {
+    const started = identity();
+    for (;;) {
+      const mounts = new Set(readFileSync(`/proc/${pid}/mountinfo`, "utf8").trim().split("\n").map(line => {
+        const field = line.split(" ")[4];
+        if (!field) throw new Error("invalid worker mount record");
+        return field.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8)));
+      }));
+      // The authenticated PID can be reported before bubblewrap finishes its
+      // mount sequence. No payload runs while this bounded observation waits.
+      if (qualified.pins.every(pin => mounts.has(join(brain, pin.rel)))) break;
+      if (Date.now() >= deadline) throw new Error("retained folder mount points are unavailable");
+      if (identity() !== started) throw new Error("worker identity changed");
+      Bun.sleepSync(1);
+    }
+    // Check the still-live brain paths as well as the actual namespace view.
+    protectedWorkerMounts(brain, protection!, retainedFolders);
+    const root = statSync(`/proc/${pid}/root${brain}`, { bigint: true });
+    if (!root.isDirectory() || String(root.dev) !== qualified.device || String(root.ino) !== qualified.inode)
+      throw new Error("mounted brain identity changed");
+    for (const pin of qualified.pins) {
+      const mounted = statSync(`/proc/${pid}/root${join(brain, pin.rel)}`, { bigint: true });
+      if (!mounted.isDirectory() || String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
+        throw new Error(`mounted folder identity changed: ${pin.rel}`);
+    }
+    if (identity() !== started) throw new Error("worker identity changed");
+  } catch (error) {
+    throw new Error(`provider folder topology could not be qualified before payload start: ${error instanceof Error ? error.message : code(error)}`);
+  }
 }
