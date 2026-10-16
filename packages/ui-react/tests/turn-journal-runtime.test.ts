@@ -498,6 +498,10 @@ for (const [width, theme] of journalRuntimeCells) test(`persisted external memor
     expect(await readFile(note,"utf8")).toBe("Athena remembers the crossing.\r\n");
     await review.click();await heading.waitFor();
     await page.evaluate(()=>(window as any).__journalFixture.switchSession());
+    // The store switches synchronously; the session effect closes the reader
+    // in a later React commit. Observe that commit before checking ownership.
+    try { await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 3000 }); }
+    catch (error) { throw new Error("MEMORY_CROSS_SESSION_READER_CLOSED: the prior reader remained committed", { cause: error }); }
     expect(await page.getByRole("dialog").count(),"MEMORY_CROSS_SESSION_READER_CLOSED").toBe(0);
     expect(outside).toEqual([]);
   } finally { await context.close(); }

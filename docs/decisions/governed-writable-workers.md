@@ -359,10 +359,16 @@ required missing admission refuses before process creation. A streaming host
 command retains admission through process exit and both output EOFs, including
 inherited descendant output. Credential exclusion follows writer admission.
 Optional missing gates and trusted `gate: none` readers retain their existing
-behavior. A host holder records its planned folders, without claiming physical
-folder pins; an earlier holder missing a newly required folder causes governed
-admission to refuse. No existing writer is killed or made exclusive by that
-refusal.
+behavior. Before spawning, a concrete host holder records negative provenance
+alongside its advisory folder roots. Such a holder has no physical folder pins,
+even if every requested root is named. Protected governed admission refuses an
+active unpinned host peer; the inverse ordering refuses a new host before spawn
+beside an active peer that may depend on retained folders. Those checks and the
+negative record use the same cross-process gate transaction. Known host peers
+remain concurrent, as do native shared holders; an unknown legacy peer refuses
+protected admission. No existing writer is killed or made exclusive. This
+negative accounting does not qualify a native plan as mounted-writer attestation
+or complete the all-writer proof for provider exclusions.
 
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
