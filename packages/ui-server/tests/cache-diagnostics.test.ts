@@ -82,6 +82,7 @@ test("missing cache evidence stays unknown and arbitrary prompt text cannot be p
     const store = createActivityStore(db, { writer: "test" });
     const recorder = createTurnRecorder({ store }, { turnId: "unknown", sessionId: "odyssey" });
     recorder.observeActivity({ kind: "prompt_prefix", resumed: true, prefix: { ...promptPrefixFingerprint(inputs), system: "secret prompt" } });
+    recorder.observeActivity({ kind: "prompt_prefix", resumed: "secret prompt", prefix: promptPrefixFingerprint(inputs) } as any);
     recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: null, cacheReadTokens: null, cacheCreationTokens: null, source: "claude_root_stream", coverage: "provider_reported" } });
     recorder.finish("success");
     expect(cacheDiagnostics(store.getSpan("unknown:turn")!.attrs)).toMatchObject({ prefix: null, suspectedBreak: null, changed: "unknown" });

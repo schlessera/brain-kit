@@ -351,7 +351,7 @@ export function createTurnRecorder(
         switch (event.kind) {
 
           case "prompt_prefix": {
-            if (prefixRecorded || turn.origin === "autonomous" || !validPrefix(event.prefix)) break;
+            if (prefixRecorded || turn.origin === "autonomous" || typeof event.resumed !== "boolean" || !validPrefix(event.prefix)) break;
             ensureRoot();
             prefixRecorded = true;
             const prior = sessionId ? store.previousSessionRoot?.(rootSpanId, sessionId) : null;
