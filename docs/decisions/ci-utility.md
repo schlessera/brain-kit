@@ -99,6 +99,15 @@ fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
 Two layout shards, per-project serial execution and all deadlines remain unchanged.
+
+Unit weights have the same explicit reviewed path:
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
+successful exhaustive unit jobs and binds actual checkout logs, immutable
+source discovery, complete JUnit/timing partitions and downloaded archive
+digests. `scripts/unit-shard-measurement.json` records that provenance; the
+refresh names any observed unweighted file exceeding 30 seconds. Timings
+are reviewed inputs, never fetched during contribution CI.
+
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
