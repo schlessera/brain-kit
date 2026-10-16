@@ -54,7 +54,7 @@ test("Explicit positional references reject structural ambiguity and old v1 form
  const venn=example("venn");venn.positional.venn.intersections[0].members=["crew","crew"];expect(checkDiagram(JSON.stringify(venn)).errors.some(e=>e.message.includes("distinct"))).toBe(true);
 });
 test("Each positional family reports editorial one-over-budget warnings",()=>{
- for(const type of types){const spec=example(type),count=type==="quadrant"?13:type==="venn"?4:type==="loop"||type==="flywheel"?10:7;spec.nodes=Array.from({length:count},(_,i)=>({id:`n${i}`,label:`N${i}`}));delete spec.positional;const result=checkDiagram(JSON.stringify(spec));expect(result.errors,`BUDGET_NOT_FATAL_${type}`).toEqual([]);expect(result.warnings.some(e=>e.code==="budget"),`BUDGET_WARNING_${type}`).toBe(true);}
+ for(const type of types){const spec=example(type),count=type==="quadrant"?13:type==="venn"?4:type==="loop"||type==="flywheel"?10:7;spec.nodes=Array.from({length:count},(_,i)=>({id:`n${i}`,label:`N${i}`}));delete spec.positional;const result=checkDiagram(JSON.stringify(spec));expect(result.errors,`BUDGET_NOT_FATAL_${type}`).toEqual([]);const noun=type==="quadrant"?"quadrant items":type==="loop"||type==="flywheel"?"loop stations":type==="venn"?"Venn sets":type==="layer-stack"?"layers":`${type} layers`;expect(result.warnings.some(e=>e.code==="budget"&&e.message.includes(noun)),`FAMILY_BUDGET_WARNING_${type}`).toBe(true);}
 });
 
 test("Generated scenes contain finite full strokes, arrowheads, circles, masks and circular extrema",()=>{
