@@ -84,7 +84,7 @@ test("dormant declared targets and their imports remain immutable input bytes", 
 
 test("actual bounded audit identity rejects config, runner, callback and imported helper drift", () => {
   const {root,write}=fixture();
-  const files=["packages/ui-kit/vitest.config.ts","packages/ui-kit/vite.config.ts","scripts/visual.mjs","packages/ui-react/tests/browser/hygiene-completion-frame.ts",...[
+  const files=["packages/ui-kit/vitest.config.ts","packages/ui-kit/vite.config.ts","scripts/visual.mjs","packages/ui-react/tests/browser/hygiene-completion-frame.ts","packages/ui-react/tests/browser/mermaid-proof-command.ts","packages/ui-react/tests/browser/offline/scene-commands.ts",...[
     "hygiene-loop","hygiene-server","policy-server","dispatch-actions"
   ].map(name=>`packages/ui-react/tests/browser/${name}-command.ts`)];
   for(const file of files) write(file,readFileSync(join(import.meta.dir,"..",file),"utf8"));

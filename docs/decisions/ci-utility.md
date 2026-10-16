@@ -285,7 +285,7 @@ checked when making fresh receipts and revalidating current/source evidence.
 A verified literal producer in an owned temporary root alone does not bind a
 consumer reached through CLI arguments, cwd or configuration redirection.
 
-A bounded command-activation audit covers the four server fixture callbacks
+A bounded command-activation audit covers eight server, Mermaid and scene callbacks
 registered exclusively in the layout and endurance projects. It checks the
 complete selected spec inventory, inherited setup/global hooks and their static
 imports; active registrations, callback escapes, dynamic loaders and aliased
@@ -307,6 +307,19 @@ fresh receipt. Three audited command readers additionally bind the runner's
 binding unavailable. Current `dist` bytes never substitute for source inputs.
 Other generated artifacts, external assets and temporary readers remain unknown
 until their own bindings are validated.
+
+Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
+asset. Its explicit resource identity records package name/version, relative
+asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
+frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
+remain fresh. This is exact-file validation, not a scan of `node_modules` or a
+claim that arbitrary installed files belong to a domain.
+
+Two exact source-owned literal payloads—the rectangle SVG fixture and the
+black/white pixel probe—have no resource loads or executable content. Their
+complete owner and call identities validate the actual Playwright sink and
+lexical binding. Interpolated HTML and other payloads remain unresolved; this
+support cannot certify arbitrary generated documents.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and

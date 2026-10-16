@@ -57,7 +57,7 @@ export function auditCommandActivation(root: string, config: string, selected: r
     const ownerReferences = (node: ts.Node) => {
       if (node === callback.initializer) return;
       if (ts.isIdentifier(node) && node.text === candidate.name && node !== callback.name &&
-          !(ts.isPropertySignature(node.parent) && node.parent.name === node)) unsafe = true;
+          !((ts.isPropertySignature(node.parent) || ts.isMethodSignature(node.parent)) && node.parent.name === node)) unsafe = true;
       ts.forEachChild(node, ownerReferences);
     };
     ownerReferences(owner);
@@ -203,10 +203,12 @@ export function auditCommandActivation(root: string, config: string, selected: r
   return { candidates: inactive, files: [...files].sort(), unresolved: [...unresolved].sort(), executionExcluded: false };
 }
 
-// This is a bounded audit of one actual runner/configuration and its four
-// callback modules, not a JavaScript partial evaluator. A source edit requires
+// This is a bounded audit of one actual runner/configuration and its eight
+// callbacks, not a JavaScript partial evaluator. A source edit requires
 // an explicit new audit; imports still run through normal runtime closure.
 const auditedSources: Record<string,string> = {
+  "packages/ui-react/tests/browser/mermaid-proof-command.ts": "df7cc849b743c55c897236cd021793ad489548d780db2d053248116563832d3c",
+  "packages/ui-react/tests/browser/offline/scene-commands.ts": "ad76a69e553d1d0208a5a92c8270876403930788964bd75f3887d06a426c17d2",
   "packages/ui-kit/vitest.config.ts": "d15a5d28ec9c4e94fedf836a6eeece71c7963b315e1fc8d51d14a6ca0aa519dc",
   "packages/ui-kit/vite.config.ts": "ffdb82cbcf2fd0106799690580ca7af612a0bcceeacf198ef0e8a77313b4cb91",
   "scripts/visual.mjs": "b962d19b0ca03167aa52cf5e9a5456d1c610f934d5b8dffd360ac06e903e2874",
@@ -222,6 +224,10 @@ export function auditedInactiveCommands(root: string, selected: readonly Spec[])
     if (!existsSync(absolute) || realpathSync(absolute) !== absolute || createHash("sha256").update(readFileSync(absolute)).digest("hex") !== expected) return undefined;
   }
   return {config:"packages/ui-kit/vitest.config.ts",selected,candidates:[
+    {name:"mermaidMedia",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
+    {name:"mermaidOutput",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
+    {name:"mermaidScreenComparison",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
+    {name:"offlineScene",owner:"packages/ui-react/tests/browser/offline/scene-commands.ts"},
     {name:"hygieneLoop",owner:"packages/ui-react/tests/browser/hygiene-loop-command.ts"},
     {name:"hygieneServer",owner:"packages/ui-react/tests/browser/hygiene-server-command.ts"},
     {name:"policyServer",owner:"packages/ui-react/tests/browser/policy-server-command.ts"},

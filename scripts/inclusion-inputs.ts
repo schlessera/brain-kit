@@ -106,7 +106,7 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     const partitions = balanceBrowserSpecs(selected.map(spec => ({ key: `${spec.project}::${spec.file}`, project: spec.project })),
       2, readBrowserCosts(join(snapshot, "scripts/browser-shard-costs.json"))).map(part => part.map(spec => spec.key));
     const files = entries.filter(entry => included.has(entry.path));
-    const material = { version: 2, category, runner, inventory, partitions, directories: closure.directories ?? [], files };
+    const material = { version: 2, category, runner, inventory, partitions, directories: closure.directories ?? [], external: closure.external ?? [], files };
     return { version: 2, category, runner, inventory, partitions, excluded: [],
       fingerprint: createHash("sha256").update(JSON.stringify(material)).digest("hex") };
   } finally { rmSync(snapshot, { recursive: true, force: true }); }

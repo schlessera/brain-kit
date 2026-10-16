@@ -4,6 +4,8 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
+import { sourceBrowserPayload } from "./source-browser-payloads";
+import { lockedBrowserAsset, type LockedBrowserAsset } from "./locked-browser-assets";
 import { generatedCssInputs, generatedCssReadInputs } from "./generated-build-inputs";
 import { cssInputs } from "./css-inputs";
 import { normalizeInventory, type Spec } from "./proof-inputs";
@@ -19,7 +21,7 @@ export interface IndirectInput {
   observation?: "linux-proc-self-identity";
 }
 export interface InputDeclaration { owner: string; inputs: IndirectInput[]; }
-export interface InputClosure { files: string[]; directories?: string[]; unresolved: string[]; }
+export interface InputClosure { files: string[]; directories?: string[]; external?: LockedBrowserAsset[]; unresolved: string[]; }
 const builtins = new Set(builtinModules.flatMap(name => [name, `node:${name}`]));
 const sourceExtension = /\.[cm]?[jt]sx?$/;
 const readOperations = new Set(["readFile", "readFileSync", "readdir", "readdirSync", "readlink", "readlinkSync", "createReadStream", "open", "openSync", "opendir", "opendirSync", "access", "accessSync", "existsSync", "stat", "statSync", "lstat", "lstatSync", "watch", "watchFile", "spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]);
@@ -32,6 +34,7 @@ function inside(root: string, file: string): string | undefined {
 export function discoverInputClosure(root: string, entrypoints: readonly string[], declarations: readonly InputDeclaration[] = [], activation?: { config: string; selected: readonly Spec[]; candidates: readonly CommandCandidate[] }): InputClosure {
   root = realpathSync(root);
   const unresolved = new Set<string>(), files = new Set<string>(), directories = new Set<string>();
+  const external = new Map<string, LockedBrowserAsset>();
   const declared = new Map<string, Map<string, IndirectInput>>();
   const inactive = new Map<string, Set<string>>();
   if (activation) {
@@ -237,17 +240,24 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           [...namespaces].some(name => originalCallee.startsWith(name + ".") && readOperations.has(originalCallee.split(".").at(-1)!)) ||
           /^(?:require|Bun\.(?:file|spawn|spawnSync|build|resolveSync)|import\.meta\.glob)$/.test(originalCallee) || ts.isElementAccessExpression(node.expression) || /\.(?:fulfill|setContent)$/.test(originalCallee)) {
           const path = node.arguments[0];
-          const generated = filesystemAliases.has(originalCallee) && !shadowedBindings.has(originalCallee) && callee === "readFile" &&
+          const literalRead = filesystemAliases.has(originalCallee) && !shadowedBindings.has(originalCallee) && callee === "readFile" &&
             node.arguments.length === 2 && ts.isStringLiteral(node.arguments[1]!) && node.arguments[1]!.text === "utf8" &&
             path && ts.isCallExpression(path) && ts.isIdentifier(path.expression) && pathResolveAliases.has(path.expression.text) &&
-            path.arguments.length === 1 && ts.isStringLiteral(path.arguments[0]!) ? generatedCssReadInputs(root, normalized, path.arguments[0]!.text) : undefined;
+            path.arguments.length === 1 && ts.isStringLiteral(path.arguments[0]!) ? path.arguments[0]!.text : undefined;
+          const generated = literalRead ? generatedCssReadInputs(root, normalized, literalRead) : undefined;
+          const locked = literalRead ? lockedBrowserAsset(root, normalized, literalRead) : undefined;
+          const literalPayload = /\.(?:fulfill|setContent)$/.test(originalCallee) && sourceBrowserPayload(root, normalized, expression);
+          if (locked) {
+            external.set(`${locked.package}/${locked.asset}`, locked);
+            visit("package.json", true); visit("bun.lock", true);
+          }
           if (generated) {
             visit(generated.entry);
             for (const producer of generated.producer) visit(producer, true);
           }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length && !generated) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated && !locked && !literalPayload) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
@@ -264,7 +274,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   };
   for (const file of entrypoints) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);
-  return { files: [...files].sort(), directories: [...directories].sort(), unresolved: [...unresolved].sort() };
+  return { files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
 }
 export function closureSelects(changed: readonly string[], closure: InputClosure, broad: boolean): boolean {
   const inputs = new Set(closure.files);

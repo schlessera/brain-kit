@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { inclusionInputs } from "../scripts/inclusion-inputs";
@@ -68,4 +68,22 @@ test("workspace source resolution stays inside its immutable snapshot instead of
   write(root, "packages/lib/src/index.ts", "export const value = 2;\n"); commit(root);
   expect(inclusionInputs(root, "browser", inventory, "fixed-runner", source).fingerprint).toBe(original.fingerprint);
   expect(inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint).not.toBe(original.fingerprint);
+});
+
+test("validated installed asset bytes and mode join immutable source fingerprints",()=>{
+  const root=fixture();rmSync(join(root,"node_modules"));mkdirSync(join(root,"node_modules"));
+  const installed=resolve(import.meta.dir,"../node_modules");
+  for(const entry of readdirSync(installed)) if(entry!=="axe-core") symlinkSync(join(installed,entry),join(root,"node_modules",entry),"dir");
+  const owner="packages/ui-react/tests/browser/offline/cold-capture/commands.ts";
+  for(const file of [owner,"scripts/build.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","packages/ui-react/package.json","packages/ui-kit/package.json"])
+    write(root,file,readFileSync(resolve(import.meta.dir,"..",file),"utf8"));
+  write(root,spec,`import "../../../ui-react/tests/browser/offline/cold-capture/commands.ts";`);
+  write(root,"node_modules/axe-core/package.json",JSON.stringify({name:"axe-core",version:"4.13.0"}));write(root,"node_modules/axe-core/axe.min.js","owned asset before");commit(root);
+  const initial=inclusionInputs(root,"browser",inventory,"fixed-runner").fingerprint;
+  write(root,"node_modules/axe-core/axe.min.js","owned asset after");
+  expect(inclusionInputs(root,"browser",inventory,"fixed-runner").fingerprint).not.toBe(initial);
+  const beforeMode=inclusionInputs(root,"browser",inventory,"fixed-runner").fingerprint;chmodSync(join(root,"node_modules/axe-core/axe.min.js"),0o755);
+  expect(inclusionInputs(root,"browser",inventory,"fixed-runner").fingerprint).not.toBe(beforeMode);
+  rmSync(join(root,"node_modules/axe-core/axe.min.js"));
+  expect(()=>inclusionInputs(root,"browser",inventory,"fixed-runner")).toThrow("Unresolved immutable");
 });
