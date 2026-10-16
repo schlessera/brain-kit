@@ -42,6 +42,8 @@ import { scheduleCommand } from "./schedule.js";
 import { hygieneCommand } from "./hygiene.js";
 import { policyCommand } from "./policy.js";
 
+import { storageCommand } from "./storage.js";
+
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
   context: contextCommand,
@@ -58,6 +60,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   maintain: maintainCommand,
   registry: registryCommand,
   stats: statsCommand,
+  storage: storageCommand,
   graph: graphCommand,
   geo: geoCommand,
   render: renderCommand,
