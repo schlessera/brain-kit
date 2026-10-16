@@ -90,7 +90,10 @@ checkpoint identities. It executes no brain configuration, Git, hooks or CLI.
 Workers receive no manager endpoint, block device or administrative capability.
 Untrusted writers must be prevented from creating nested subvolumes or changing
 snapshot flags; otherwise native snapshots could omit writable content or lose
-immutability. Read-only mounts and inaccessible private aliases remain required.
+immutability. Read-only mounts and inaccessible private aliases remain required. Maintenance
+masking covers exact regular-file paths as well as directories; the qualified
+loop backing file does not rely on its parent being masked or its DAC mode
+denying reads.
 
 > **2026-10-15 — Recovery scope for mutable private storage.** The
 > [runtime-state recovery amendment](policy-write-boundary.md#cross-uid-runtime-state-and-best-effort-recovery--2026-10-15)

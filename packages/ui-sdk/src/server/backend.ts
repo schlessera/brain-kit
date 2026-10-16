@@ -474,6 +474,10 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Static configured limits, snapshotted once into the session append. */
+  sessionBudgetLimits?: string;
+  /** @internal Actionable threshold notices, delivered only as owned new tail context. */
+  budgetContext?: string;
   /** @internal Host-prepared native immutable input owner; non-governed workers retain one reference per child. */
   workerStartupView?: import("./worker-startup-view.js").WorkerStartupView;
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
@@ -509,10 +513,16 @@ export interface StartTurnRequest {
   maxBudgetUsd?: number;
   bridge: BackendBridge;
   /**
+   * Trusted deployment fact, stable across a hosted session even when a turn
+   * temporarily lacks applyBrain. Never supplied by a client/model, and never
+   * a grant. Omitted direct consumers retain their project MCP writer roster.
+   */
+  applicationAuthority?: "server";
+  /**
    * What the reader is on, as the browser measured it at send time. Absent
-   * when the client is older or headless. Backends that can vary their system
-   * prompt per turn should feed it to `buildSystemPromptAppend()`; it is
-   * advisory and never required.
+   * when the client is older or headless. Backends with a session-stable system
+   * append should keep its bytes stable and deliver changed device facts in
+   * new tail context. It is advisory and never required.
    */
   client?: ClientEnvironment;
   /**

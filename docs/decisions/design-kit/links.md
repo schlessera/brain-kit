@@ -286,13 +286,13 @@ while and then pruned, so a link in an older answer can outlive its file.
 - **Only scratch.** A reference under `.brain/scratch/` is checked; anything
   else keeps its not-found behaviour, because a missing canonical note is a
   real problem the user should see as one (`scratchPath`,
-  `packages/ui-react/src/stores/file-state.ts:538-544`).
+  `packages/ui-react/src/stores/file-state.ts:539-545`).
 - **The client asks, once.** No new route: the store sends one `HEAD` on the
   existing raw files route per scratch file, deduplicated per store. Only a
   404 counts. A 2xx or a 413 (over the size cap, but there) is present;
   anything else, including offline or signed out, is not evidence and leaves
   the ordinary link for a later render to ask again (`checkScratchFile`,
-  `packages/ui-react/src/stores/file-state.ts:421-448`). Images are checked
+  `packages/ui-react/src/stores/file-state.ts:422-449`). Images are checked
   only after they fail to load, since loading is already the check, and a
   failed load asks again even about a file seen earlier. Expired is final,
   and an older answer never overwrites a newer one, such as the 404 from
@@ -333,7 +333,7 @@ Secondary PDF, image and HTML failures are checked through the existing
 authorized files route before declaring expiry or offering the ordinary
 unsupported-preview download. An uncertain check stays uncertain. The
 current request owns every completion, including secondary checks
-(`checkPreview`, `packages/ui-react/src/stores/file-state.ts:336-362`).
+(`checkPreview`, `packages/ui-react/src/stores/file-state.ts:337-363`).
 
 Keyboard entry focuses the file heading. Closing Files returns to its
 surviving opener or its containing paragraph after the surface closes;

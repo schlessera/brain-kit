@@ -15,7 +15,7 @@
  * writes into the rest of the brain (`EXDEV`/`EROFS`); this walk covers the
  * links made before the turn.
  */
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSync } from "./maintenance-worker.js";
@@ -499,6 +499,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "3. **The brain: canonical and versioned.**",
       "",
       linkRule(scratch?.rel),
+      `The brain's packaged CLI directory \`${join(sandbox.brain, "node_modules", ".bin")}\` is first on PATH.`,
+      ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
+        ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
   }
   if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {

@@ -19,7 +19,7 @@ focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
 CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
-unit/integration discovery includes affected workspaces and every reverse
+unit/integration discovery normally includes affected workspaces and every reverse
 dependant, plus root tooling tests. Global/unknown inputs expand to complete
 default discovery. Newly added files are discovered, not admitted through a
 fixed allowlist. Shipped changes retain all packed-consumer probes; selected
@@ -30,6 +30,18 @@ native delegation/capability/Haiku probes, measurement isolation and shared
 process cleanup. Native probes run against loopback fixtures without live keys.
 The Linux runner setup retains the existing ephemeral namespace prerequisite;
 the test/preload and offline namespace guards remain enabled.
+
+
+Root `tests/**`, `scripts/**`, `experiments/**` and `website/**` now use a
+conservative reverse reference closure to select root and package test consumers,
+plus the reviewed category table in `scripts/ci-plan.ts`. Root test leaves select
+themselves. Narrow unit inventories include the tooling fast invariants exactly
+once: when complete unit proof is selected, verify does not repeat the fast
+subset. Package changes still discover all root tests alongside affected packages.
+Unreadable inputs, outside symlinks, conflicting mappings and inputs without a
+recognised test/category consumer remain global. Lockfiles, root manifests,
+changeset configuration, workflows and unknown roots remain global. Exhaustive
+and event/candidate/aggregate requirements are unchanged.
 
 Complete local commands remain available: `check:pr --full` runs the affected
 full inventory and `check:pr --all` runs every category for releases or diagnosis.
@@ -86,8 +98,28 @@ the observation record. Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
-with `bun scripts/refresh-browser-costs.ts <run-id> <attempt>`; reviewed CI
-reports are measurement inputs, never runtime dependencies.
+with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(the default remains browser). Each domain retains its own run/attempt/job,
+checkout/tree/parent and pinned-image provenance. Refresh requires both fresh
+successful jobs from a successful CI run, matching actual checkouts, complete
+reported project/file coverage and source/image attribution; cancelled,
+partial or retained-only proof supplies no measurements. Refreshing one domain
+preserves the other's costs and provenance. Reviewed CI reports are measurement
+inputs, never runtime dependencies. Layout refresh admits ordinary
+`ui-react-layout` measurements; `ui-react-endurance` remains a separate mandatory
+fresh job and never becomes an ordinary browser/layout weight. Requalify timing
+inputs after scenario ownership changes: the former combined recording-file
+measurement includes endurance and is not its current ordinary-layout cost.
+Two layout shards, per-project serial execution and all deadlines remain unchanged.
+
+Unit weights have the same explicit reviewed path:
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
+successful exhaustive unit jobs and binds actual checkout logs, immutable
+source discovery, complete JUnit/timing partitions and downloaded archive
+digests. `scripts/unit-shard-measurement.json` records that provenance; the
+refresh names any observed unweighted file exceeding 30 seconds. Timings
+are reviewed inputs, never fetched during contribution CI.
+
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
@@ -261,3 +293,21 @@ paths or immutable entries. Neither is the first cost lever here: inspected
 dependency installs were short, and expensive automatic browser jobs have moved
 to required local checks. Do not cache a passing test result as a substitute
 for proving the changed checkout.
+
+### Independent Bun test-only changes
+
+A PR changing only unreferenced Bun test files and prose selects those
+files plus their owning fast invariant groups. Other tracked files must not
+name a test basename, the files must export nothing, and expanded package build
+inventories must not consume them. Source and shared helper inputs are unchanged,
+so executing the changed leaves covers their changed results without repeating
+reverse dependants or unrelated browser, layout, endurance and capture domains.
+A named runtime command retains ordinary runtime selection through the reference
+fallback. Fixtures (including Markdown), helpers, snapshots, exported/referenced
+or deleted tests, unknown inputs and unavailable scans retain ordinary selection.
+Main pushes and exhaustive runs retain complete affected/default discovery.
+
+The exact unit inventory is validated against default Bun discovery. It includes
+owning fast tests once, and uses at most the existing four partitions, reduced
+only when fewer files exist; no empty partition or duplicate execution substitutes
+for coverage. Selected categories remain required by the unchanged aggregate.

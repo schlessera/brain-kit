@@ -122,11 +122,11 @@ The property under test is: with `enforceAllowedTools: true`, a `Bash` call
 outside the turn's roster cannot execute unless the host bridge grants that
 call, including when settings or a rewrite could otherwise auto-approve it.
 The backend builds the actual turn options and production permission handlers
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:85-202`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:88-399`).
 The explicit ask lives in
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:189-218`)
 and is registered under enforcement in
-(`...(enforced ?`, `packages/ui-backend-claude/src/permission-hooks.ts:529-532`).
+(`...(enforced ?`, `packages/ui-backend-claude/src/permission-hooks.ts:552-555`).
 
 `scripts/measure-claude-enforcement.ts` runs `createClaudeBackend().startTurn()`
 and forwards to the SDK resolved from that backend. Its query wrapper only

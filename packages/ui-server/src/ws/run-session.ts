@@ -1,4 +1,5 @@
-import { BudgetExceeded, BudgetUnavailable, inferenceBudgetNote } from "../brain/turn-budgets.js";
+import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
+import { BudgetExceeded, BudgetUnavailable, inferenceBudgetNote, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
 import { withTrackFiles } from "../tracks/read.js";
 import type {
   BillingMode,
@@ -55,9 +56,15 @@ import {
 function recordPendingCancellations(
   host: WsHost,
   turn: RunningTurn,
-  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined
+  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined,
+  lifecycle?: ReturnType<typeof createTurnLifecycle>
 ): void {
   if (turn.pendingCancellationPrincipalIds.length === 0) return;
+  if (lifecycle && !turn.recorder) {
+    for (const principalId of turn.pendingCancellationPrincipalIds) lifecycle.recordCancellation(principalId);
+    turn.pendingCancellationPrincipalIds.length = 0;
+    return;
+  }
   const recorder =
     turn.recorder ??
     (host.activity
@@ -161,11 +168,17 @@ function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readon
 export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
   if (host.closing) throw new Error("The host is shutting down; no new turn was started.");
   const releaseAuthorization = initial.authorization.retain();
-  const task = runRetainedSession(host, initial);
+  const turnId = crypto.randomUUID();
+  const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump()) : undefined;
+  const task = runRetainedSession(host, initial, turnId, lifecycle);
   host.turnTasks.add(task);
   try {
     await task;
+  } catch (error) {
+    lifecycle?.finish("error", error instanceof Error ? error.message : String(error));
+    throw error;
   } finally {
+    lifecycle?.finish("cancelled", "The session ended before backend entry");
     // Every early exit (cancelled while routing, revoked) lands here; a work
     // item that ran has settled already and ignores this.
     try { initial.work?.settle("cancelled", { reason: "The session ended before this request ran" }); }
@@ -178,7 +191,9 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
 
 async function runRetainedSession(
   host: WsHost,
-  initial: RunSessionInput
+  initial: RunSessionInput,
+  initialTurnId: string,
+  initialLifecycle: ReturnType<typeof createTurnLifecycle> | undefined
 ): Promise<void> {
   const { coordinator } = host;
   const starting: { queue: QueuedFollowUp[]; cancelled: boolean; revision?: number } = {
@@ -193,6 +208,7 @@ async function runRetainedSession(
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    initialLifecycle?.finish("error", message);
     // No turn exists yet — routing failed before one was minted — so the
     // report carries only the session identity the client asked for.
     host.reportTurnFailed("BACKEND_ERROR", { sessionId: initial.sessionId }, message);
@@ -245,7 +261,7 @@ async function runRetainedSession(
     principalId: initial.authorization.principalId,
     authorization: initial.authorization,
     sessionId: initial.sessionId ?? null,
-    turnId: crypto.randomUUID(),
+    turnId: initialTurnId,
     // Only meaningful when the client had no session id to send.
     draftId: initial.sessionId ? null : (initial.draftId ?? null),
     providerId: initialProfileId ?? null,
@@ -293,7 +309,7 @@ async function runRetainedSession(
     if (entry) {
       // A queued follow-up is its own turn — give it a fresh identity, and
       // its own terminal disposition.
-      turn.turnId = crypto.randomUUID();
+      turn.turnId = entry.lifecycleTurnId ?? crypto.randomUUID();
       turn.lastResult = null;
     }
     return entry;
@@ -305,9 +321,14 @@ async function runRetainedSession(
     coordinator.queueChanged(turn.sessionId, { dropped: { entries: [entry], reason } });
   };
 
+  let activeLifecycle = initialLifecycle;
   try {
     while (next && !turn.cancelled) {
       const current: QueuedFollowUp = next;
+      const lifecycle = turn.turnId === initialTurnId ? initialLifecycle : current.lifecycle ?? (host.activity
+        ? createTurnLifecycle(host.activity.store, turn.turnId, turn.sessionId, current.queuedAt ?? Date.now(), () => host.activity!.stream.pump()) : undefined);
+      activeLifecycle = lifecycle;
+      if (current.queuedAt !== undefined) lifecycle?.mark("dequeuedAt");
       releaseActiveAuthorization = current.releaseAuthorization;
       // The slot now holds this request; recovery reads it as queued until
       // its turn is handed to the backend (#964).
@@ -316,6 +337,7 @@ async function runRetainedSession(
       turn.principalId = current.principalId;
       turn.authorization = current.authorization;
       if (!turn.authorization.valid) {
+        lifecycle?.finish("cancelled", REVOKED_REASON);
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
         host.budgets?.end(turn.turnId);
@@ -341,6 +363,7 @@ async function runRetainedSession(
           throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
       }
       catch (error) {
+        lifecycle?.finish("denied", error instanceof Error ? error.message : String(error));
         emitTurnError(host, turn, error);
         work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });
         break;
@@ -388,13 +411,14 @@ async function runRetainedSession(
         turn.revision = undefined;
         await failureRecording.finish();
         clearTimeout(timeoutHandle);
-        releaseActiveAuthorization();
-        releaseActiveAuthorization = undefined;
         // A cancellation accepted while billing was in flight is already a
         // decision someone made; losing it because the turn's own principal
         // was revoked a moment later would erase the actor, not the turn. Drain
         // the buffer before leaving.
-        recordPendingCancellations(host, turn, billing);
+        recordPendingCancellations(host, turn, billing, lifecycle);
+        lifecycle?.finish("cancelled", REVOKED_REASON);
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
         dropHandedOver(current, REVOKED_REASON);
         next = dequeue();
         continue;
@@ -413,6 +437,7 @@ async function runRetainedSession(
               turnId: turn.turnId,
               sessionId: turn.sessionId,
               principalId: turn.principalId,
+              lifecycle,
               ...billing,
               ...(work?.posture === "voice" ? { posture: "voice" as const } : {}),
             }
@@ -457,6 +482,7 @@ async function runRetainedSession(
       }
       host.reportTurnStarted(turn);
       work?.started(turn.turnId);
+      let lifecycleOutcome: import("@schlessera/brain-ui-sdk/protocol").ActivitySpanOutcome = "error";
       let workOutcome: HostWorkOutcome = "error";
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
@@ -474,11 +500,18 @@ async function runRetainedSession(
         const origin = work?.posture === "voice" ? "voice" : "interactive";
         const preference = origin === "interactive"
           ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
+        if (host.governedTurns) lifecycle?.mark("governedStartedAt");
+        else lifecycle?.skip("governed");
         governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference);
+        if (governedHold) lifecycle?.mark("governedAcquiredAt");
+        if (!governedHold || !host.budgets) lifecycle?.skip("budget");
+        if (!governedHold || !host.journal) lifecycle?.skip("journal");
         if (governedHold && host.budgets) {
+          lifecycle?.mark("budgetStartedAt");
           try { host.budgets.begin(turn.turnId,resumeId,governedHold.policy.policy,billing?.pricingRoute); }
           catch (error) { if(error instanceof BudgetExceeded) throw error; throw new BudgetUnavailable(); }
         }
+        if (governedHold && host.budgets) lifecycle?.mark("budgetAdmittedAt");
         try { if(governedHold && host.budgets) for(const item of host.budgets.warnings(turn.turnId)) host.activity?.governance?.({
           kind:"budget_warning",turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,profile:governedHold.sandbox.profile ?? "strict",
           payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
@@ -486,6 +519,7 @@ async function runRetainedSession(
             observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,source:governedHold.policy.hash ? "policy":"default"}}); } catch {throw new BudgetUnavailable();}
         if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
         if (governedHold && host.journal) {
+          lifecycle?.mark("journalStartedAt");
           await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
             actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
@@ -496,6 +530,7 @@ async function runRetainedSession(
             abortController.abort(error);
             coordinator.drainPendingForTurn(turn, error.message);
           }, abortController.signal);
+          lifecycle?.mark("journalBeganAt");
         }
         abortController.signal.throwIfAborted();
         const scopeTurnId = turn.turnId;
@@ -610,7 +645,9 @@ async function runRetainedSession(
         }
         enteredBackend = true;
         turn.backendStarted = true;
+        lifecycle?.mark("backendInvokedAt");
         await backend.startTurn({
+          applicationAuthority: "server",
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
@@ -619,7 +656,10 @@ async function runRetainedSession(
               userRevert: Boolean(host.turnReverts && host.journal && host.journal.summary(turn.turnId).state === "recording" && work?.posture !== "voice") },
           } }, workerLock: host.workerLock } : {}),
           prompt: host.budgets && governedHold ? `${prompt}\n\n${inferenceBudgetNote(host.budgets.receipt(turn.turnId))}` : prompt,
-          ...(host.budgets && governedHold ? {maxBudgetUsd:host.budgets.remaining(turn.turnId)} : {}),
+          ...(host.budgets && governedHold ? {maxBudgetUsd:host.budgets.remaining(turn.turnId),
+            sessionBudgetLimits: inferenceBudgetLimits(host.budgets.receipt(turn.turnId)),
+            budgetContext: inferenceBudgetContext(host.budgets.receipt(turn.turnId)),
+          } : {}),
           attachments,
           sessionId: resumeId,
           profileId,
@@ -664,6 +704,7 @@ async function runRetainedSession(
         }
         // Terminal precedence: cancellation and timeout are host-owned facts;
         // otherwise the recorder refines from the buffered result frame.
+        lifecycleOutcome = turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : turn.lastResult === "error" ? "error" : "success";
         recorder?.finish(
           turn.cancelled
             ? "cancelled"
@@ -674,6 +715,7 @@ async function runRetainedSession(
                 : "success"
         );
       } catch (err) {
+        lifecycle?.mark("failureObservedAt");
         const terminal = budgetFailure ?? journalFailure ?? err;
         if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {
           recorder?.recordBudgetStop(terminal.message);
@@ -689,6 +731,7 @@ async function runRetainedSession(
         cancelledAdmission = !enteredBackend && (turn.cancelled || revokedAdmission) && !budgetFailure && !journalFailure && !scopeStopReason;
         turn.backendStarted = false;
         if (!cancelledAdmission && (!scopeStopReason || budgetFailure || journalFailure)) emitTurnError(host, turn, terminal);
+        lifecycleOutcome = terminal instanceof BudgetExceeded && terminal.stage === "admission" ? "denied" : budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error";
         recorder?.finish(
           budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
@@ -734,6 +777,7 @@ async function runRetainedSession(
         // A backend result can precede asynchronous journal finalization.
         // Recovery now reads the committed terminal, before a successor starts.
         else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
+        lifecycle?.finish(lifecycleOutcome, workReason ?? null);
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });
@@ -756,6 +800,10 @@ async function runRetainedSession(
       if (!turn.cancelled && turn.queue.length > 0) await settleDeliveries(turn);
       if (!turn.cancelled) next = dequeue();
     }
+  } catch (error) {
+    activeLifecycle?.finish(turn.cancelled ? "cancelled" : turn.abortController?.signal.aborted ? "timeout" : "error",
+      error instanceof Error ? error.message : String(error));
+    throw error;
   } finally {
     releaseActiveAuthorization?.();
     next?.releaseAuthorization();
@@ -897,6 +945,12 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   }
   entry.followUpId = crypto.randomUUID();
   entry.queuedAt = Date.now();
+  if (host.activity && !entry.lifecycle) {
+    entry.lifecycleTurnId = crypto.randomUUID();
+    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump());
+    const release = entry.releaseAuthorization;
+    entry.releaseAuthorization = () => { entry.lifecycle?.finish("cancelled", "Removed from the queue before completion"); release(); };
+  }
   if (later === -1) slot.queue.push(entry);
   else slot.queue.splice(later, 0, entry);
   const total = parked + incoming;

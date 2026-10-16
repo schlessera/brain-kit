@@ -107,3 +107,40 @@ test("required endurance proof cannot be absent even when every other job passes
   delete needs.endurance;
   expect(proofProblems(needs)).toContain("endurance: selected proof did not pass (missing)");
 });
+
+
+test("root consumer unit proof executes exactly selected consumers and tooling once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "consumer-unit-proof-")); directories.push(dir);
+  const files = ["tests/owned.test.ts", "tests/tooling.test.ts", "packages/core/tests/consumer.test.ts"];
+  for (const file of [...files, "tests/unrelated.test.ts"]) {
+    mkdirSync(join(dir, file, ".."), { recursive: true });
+    writeFileSync(join(dir, file), `import { test, expect } from "bun:test"; test(${JSON.stringify(file)}, () => expect(1).toBe(1));`);
+  }
+  const plan = { ...planChecks(["README.md"], []), unitTests: files, local: {
+    fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false } };
+  expect(unitFiles(plan, dir), "SELECTED_UNIT_EXACT_EXECUTION").toEqual([...files].sort());
+  const command = categoryCommands("unit", plan, dir)[0]!;
+  // Drive Bun itself, preserving explicit paths, rather than inspecting argv alone.
+  const child = Bun.spawn([process.execPath, "test", ...unitFiles(plan, dir).map(file => join(dir, file))], {
+    cwd: dir, stdout: "pipe", stderr: "pipe" });
+  const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code, err).toBe(0); expect(err).toContain("3 pass"); expect(err).not.toContain("unrelated.test.ts");
+  expect(command.argv.filter(arg => arg.endsWith(".test.ts"))).toHaveLength(3);
+  expect(() => unitFiles({ ...plan, unitTests: [...files, files[0]!] }, dir)).toThrow("Invalid selected unit inventory");
+  expect(() => unitFiles({ ...plan, unitTests: ["tests/missing.test.ts"] }, dir)).toThrow("Invalid selected unit inventory");
+});
+
+test("explicit leaf inventory is exact, validated and preserves aggregate obligations", () => {
+  const plan = planChecks(["packages/ui-sdk/tests/leaf.test.ts"], workspaces(ROOT));
+  plan.unitTests = ["tests/ci-plan.test.ts", "tests/hosted-proof.test.ts"];
+  expect(unitFiles(plan, ROOT)).toEqual(plan.unitTests);
+  const parts = ["1/2", "2/2"].flatMap(shard => unitFiles(plan, ROOT, shard)).sort();
+  expect(parts, "EXACT_LEAF_INVENTORY_ONCE").toEqual([...plan.unitTests].sort());
+  expect(new Set(parts).size).toBe(2);
+  const command = categoryCommands("unit", plan, ROOT)[0]!;
+  expect(command.argv.filter(file => file.endsWith(".test.ts"))).toEqual(plan.unitTests.map(file => join(ROOT, file)));
+  plan.unitTests = ["tests/does-not-exist.test.ts"];
+  expect(() => unitFiles(plan, ROOT), "UNKNOWN_LEAF_REJECTED").toThrow("Invalid selected unit inventory");
+  plan.unitTests = ["tests/ci-plan.test.ts", "tests/ci-plan.test.ts"];
+  expect(() => unitFiles(plan, ROOT)).toThrow("Invalid selected unit inventory");
+});

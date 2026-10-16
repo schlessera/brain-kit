@@ -5,6 +5,8 @@
 import { describe, expect, test } from "bun:test";
 import type { getSessionMessages, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
+import { USAGE_LIMIT_ERROR_PREFIXES, USAGE_WARNING_PREFIXES, USAGE_TRANSITION_PREFIXES, ORG_POLICY_LIMIT_PREFIXES } from "@anthropic-ai/claude-agent-sdk";
+import { USAGE_LIMIT_PREFIXES } from "../src/usage-limit";
 import { buildSessionHistory } from "../src/history";
 import {
   INVALID_TOKEN_TEXT,
@@ -19,7 +21,7 @@ import {
 } from "./fixtures/api-failures";
 
 const read = (entries: SessionMessage[]) =>
-  buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, "/brain");
+  buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, import.meta.dir);
 
 describe("an API error replays as the turn's failure", () => {
   test("the unsupported-model turn: an empty answer that failed, with the status its text states", async () => {
@@ -68,6 +70,34 @@ describe("an API error replays as the turn's failure", () => {
       errorClass: "authentication_failed",
       message: "Invalid API key · Fix external API key",
     });
+  });
+
+  test("a synthetic weekly usage-limit stop replays as a rate_limit failure", async () => {
+    const text = "You've hit your weekly limit · resets July 12";
+    const [, message] = await read([userTurn("Continue the plan"), syntheticEntry(text)]);
+    expect(message!.failure).toEqual({ errorClass: "rate_limit", message: text });
+    expect(message!.content).toBe("");
+    expect(message!.parts).toEqual([]);
+  });
+
+  test("vendored usage-limit prefixes match the installed SDK and all replay as failures", async () => {
+    expect(USAGE_LIMIT_PREFIXES).toEqual(USAGE_LIMIT_ERROR_PREFIXES);
+    for (const prefix of USAGE_LIMIT_PREFIXES) {
+      const [, message] = await read([userTurn("Continue"), syntheticEntry(prefix)]);
+      expect(message!.failure).toEqual({ errorClass: "rate_limit", message: prefix });
+      expect(message!.content).toBe("");
+      const [, answer] = await read([userTurn("Explain"), answerEntry(prefix)]);
+      expect(answer!.failure).toBeUndefined();
+      expect(answer!.content).toBe(prefix);
+    }
+  });
+
+  test("usage warnings, transitions and org-policy notices remain text", async () => {
+    for (const text of [...USAGE_WARNING_PREFIXES, ...USAGE_TRANSITION_PREFIXES, ...ORG_POLICY_LIMIT_PREFIXES]) {
+      const [, message] = await read([userTurn("Continue"), syntheticEntry(text)]);
+      expect(message!.failure).toBeUndefined();
+      expect(message!.content).toBe(text);
+    }
   });
 
   test("the runtime's other synthetic messages replay as text", async () => {
