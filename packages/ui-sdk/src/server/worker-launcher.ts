@@ -513,10 +513,20 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   let egressMounts: string[] = [];
   if (input.egress) {
-    const directory = realpathSync(input.egress.proxyDir);
-    if (directory !== normalize(input.egress.proxyDir) || !lstatSync(directory).isDirectory() || (statSync(directory).mode & 0o077) !== 0
-      || within(brain, directory) || within(directory, brain)
-      || !lstatSync(join(directory, "proxy.sock")).isSocket()) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
+    const separateIdentity = Boolean(workerIdentityHelper());
+    const serverUid = process.getuid?.(), serverGid = process.getgid?.();
+    let directory = "", valid = false;
+    try {
+      directory = realpathSync(input.egress.proxyDir);
+      const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, "proxy.sock"));
+      valid = directory === normalize(input.egress.proxyDir) && directoryInfo.isDirectory() && socketInfo.isSocket()
+        && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
+        && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+        && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+        && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
+        && !within(brain, directory) && !within(directory, brain);
+    } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+    if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
   }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {

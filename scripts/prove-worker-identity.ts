@@ -98,6 +98,25 @@ mkdir -p /identity-fixture /identity-server-private
 chown 21001:21001 /identity-fixture /identity-server-private
 chmod 2775 /identity-fixture
 chmod ${mutation==="sentinel-modes"?"750":"700"} /identity-server-private
+/usr/bin/python3 -I -S - <<'PY_EGRESS_IPC'
+import os,socket
+os.mkdir('/identity-fixture/egress-setgid-temp',0o3777)
+os.chown('/identity-fixture/egress-setgid-temp',0,21002)
+previous_gid=os.getegid()
+os.setegid(21002)
+try: os.chmod('/identity-fixture/egress-setgid-temp',0o3777)
+finally: os.setegid(previous_gid)
+for name,uid,gid in [('owner',21002,21001),('group',21001,21002)]:
+    path='/identity-fixture/egress-foreign-'+name
+    os.mkdir(path,0o750)
+    channel=socket.socket(socket.AF_UNIX)
+    channel.bind(path+'/proxy.sock')
+    channel.close()
+    os.chown(path,uid,gid)
+    os.chmod(path,0o750)
+    os.chown(path+'/proxy.sock',uid,gid)
+    os.chmod(path+'/proxy.sock',0o660)
+PY_EGRESS_IPC
 printf 'Odysseus private server sentinel' > /identity-server-private/sentinel
 chown 21001:21001 /identity-server-private/sentinel
 chmod ${mutation==="sentinel-modes"?"640":"600"} /identity-server-private/sentinel

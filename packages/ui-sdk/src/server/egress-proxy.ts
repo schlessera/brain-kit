@@ -1,8 +1,9 @@
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { connect, type Socket } from "node:net";
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
@@ -53,8 +54,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
+  const separateIdentity = Boolean(workerIdentityHelper());
   const dir = mkdtempSync(join(tmpdir(), "brain-egress-"));
-  chmodSync(dir, 0o700);
+  try {
+    if (separateIdentity) chownSync(dir, process.getuid!(), process.getgid!());
+    chmodSync(dir, separateIdentity ? 0o750 : 0o700);
+  } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
   const socketPath = join(dir, "proxy.sock");
   const connections = new Set<Socket>();
   const controllers = new Set<AbortController>();
@@ -183,7 +188,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.on("clientError", (_error, socket) => socket.destroy());
   try {
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, () => { server.removeListener("error", reject); resolve(); }); });
-    chmodSync(socketPath, 0o600);
+    if (separateIdentity) chownSync(socketPath, process.getuid!(), process.getgid!());
+    chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
   } catch (error) { server.close(); rmSync(dir, { recursive: true, force: true }); throw error; }
   const stop = () => {
     if (stopped) return;
