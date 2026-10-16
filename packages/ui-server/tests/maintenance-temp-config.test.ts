@@ -1,3 +1,9 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+installFixtureNativeStartupViews();
 /** Ordinary edge/configuration proof only; no namespace worker or external transport runs. */
 import { expect, spyOn, test } from "bun:test";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
@@ -56,17 +62,20 @@ test("hosted turn admission forwards maintenance identity before backend startup
   const maintenance = { tempLimits: { allowanceBytes: 8388608, budgetBytes: 16777216 },
     tempDomain: { statePath: "/tmp/odysseus-state/ui.db" }, maskPaths: ["/tmp/odysseus-state"] };
   let released = 0;
-  const execution = { boundary: { maintenance, governed: () => ({ available: true }) },
+  const execution = { boundary: { maintenance, prepare: async () => ({ available: true }), governed: () => ({ available: true }) },
     gate: () => ({ acquire: async () => ({ release: () => { released++; } }) }),
     manifests: () => ({}) } as unknown as HostExecution;
-  const prepare = spyOn(worker, "prepareWorkerSandbox").mockReturnValue({ profile: "strict" } as worker.WorkerSandbox);
+  const root = mkdtempSync(join(tmpdir(), "odysseus-maintenance-config-")), brain = join(root,"brain"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain,root);
+  const prepare = spyOn(worker, "prepareWorkerSandbox").mockReturnValue({ brain, restricted: false, profile: "strict", areas: [], scratchAliasesRemoved: [] } as worker.WorkerSandbox);
   try {
-    const turns = createGovernedTurns({ brainPath: "/tmp/odysseus-brain", execution,
+    const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, execution,
       profile: "strict", maskPaths: maintenance.maskPaths, index: async () => {}, report: () => {} });
     const hold = await turns.begin("odysseus-turn", new AbortController().signal);
-    expect(prepare.mock.calls[0]?.[1]?.maintenance, "HOSTED_TURN_SHARED_MAINTENANCE_ADMISSION").toEqual(maintenance);
-    hold.end();
+    expect(prepare.mock.calls[0]?.[1]?.maintenance, "HOSTED_TURN_SHARED_MAINTENANCE_ADMISSION").toMatchObject(maintenance);
+    expect(prepare.mock.calls[0]?.[1]?.maintenance?.startupView).toBe(hold.startupView);
+    await hold.end();
     expect(released).toBe(1);
     await turns.close();
-  } finally { prepare.mockRestore(); }
+  } finally { prepare.mockRestore(); await native.close(); rmSync(root,{recursive:true,force:true}); }
 });

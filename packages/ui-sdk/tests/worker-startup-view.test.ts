@@ -2,21 +2,38 @@ import * as fs from "node:fs";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, closeSync, writeSync, ftruncateSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createWorkerStartupView } from "../src/server/worker-startup-view.js";
+import { dirname, join } from "node:path";
+import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { text } from "node:stream/consumers";
-import { prepareWorkerOutput, WORKER_OUTPUT } from "../src/server/worker-output.js";
+import { WORKER_OUTPUT } from "../src/server/worker-output.js";
+import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { WORKER_AREA_ROOT } from "../src/server/worker-sandbox.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { once } from "node:events";
 import { workerCommand, prepareWorkerSandbox, launchAgentWorker } from "../src/server/worker-launcher.js";
+
+test("native-style FIFO secret aliases and destinations are masked before execution", async () => {
+  const brain = fixture(); mkdirSync(join(brain, "tokens"));
+  const view = createWorkerStartupView(brain); cleanup.push(view.cleanup);
+  const fifo = join(view.root, "tokens/private-channel");
+  const make = Bun.spawnSync(["/usr/bin/mkfifo", fifo], { env: {}, stdout: "pipe", stderr: "pipe" });
+  expect(make.exitCode, make.stderr.toString()).toBe(0);
+  fs.symlinkSync("tokens/private-channel", join(view.root, ".env"));
+  const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: view, credentials: false, env: {},
+    command: [process.execPath, "--no-env-file", "-e", `const fs=require("node:fs");
+      const inspect=path=>{try{const fd=fs.openSync(path,fs.constants.O_RDONLY|fs.constants.O_NONBLOCK);try{return fs.fstatSync(fd).isFIFO()}finally{fs.closeSync(fd)}}catch(error){return error.code}};
+      console.log(JSON.stringify([inspect(".env"),inspect("tokens/private-channel")]));`] });
+  expect(result.exitCode, result.stderr).toBe(0);
+  const receipt = JSON.parse(result.stdout);
+  expect(receipt.every((value: unknown) => value === false || value === "EACCES"), "SPECIAL_NODE_SECRET_DESTINATION_MASKED").toBe(true);
+});
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-startup-"));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-  const brain = join(root, "brain"); mkdirSync(brain);
+  const brain = join(root, "brain"); mkdirSync(brain); mkdirSync(join(root, "state"));
   writeFileSync(join(brain, "brain.config.ts"), 'import value from "./helper.ts"; export default value;');
   writeFileSync(join(brain, "helper.ts"), 'export default "Odysseus before launch";');
   return brain;
@@ -56,7 +73,7 @@ test("strict persistent-area aliases cannot expose a governed peer's later confi
   writeFileSync(join(brain, "workspaces/helper.ts"), 'export default "Odysseus before launch";');
   writeFileSync(join(brain, "brain.config.ts"), 'export {default} from "/tmp/brain-worker-areas/workspaces/helper.ts";');
   const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] });
-  const worker = launchAgentWorker({ brainPath: brain, sandbox, env: {}, command: ["/bin/sh", "-c",
+  const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, env: {}, command: ["/bin/sh", "-c",
     'printf "ready\\n"; IFS= read -r go; exec "$1" --no-env-file -e \'console.log((await import("./brain.config.ts")).default)\'', "odysseus-reader", process.execPath] });
   try {
     const [ready] = await once(worker.stdout, "data");
@@ -102,7 +119,7 @@ test("strict output publication holds the same path lock as a governed native wr
   const destination = join(brain, "workspaces/shared.md"); writeFileSync(destination, "before");
   const lock = createKeyedLock(); const release = await lock.acquire(`path:${destination}`);
   const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"] });
-  const worker = launchAgentWorker({ brainPath: brain, sandbox, outputLock: lock, env: {},
+  const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, outputLock: lock, env: {},
     command: ["/bin/sh", "-c", "printf staged > /tmp/brain-worker-areas/workspaces/shared.md"] });
   let settled = false;
   const done = worker.exited.finally(() => { settled = true; });
@@ -150,14 +167,14 @@ for (const mode of ["strict", "restricted", "maintenance"] as const) for (const 
     const program = `import{readFileSync}from"node:fs";const read=p=>{try{return readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(".env"),target:read("tokens/harbor.txt"),public:read("helper.ts")}));`;
     let output: string;
     if (mode === "maintenance") {
-      const result = await runMaintenanceWorker({ brainPath: brain, credentials: false, env: {},
+      const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: createWorkerStartupView(brain), credentials: false, env: {},
         command: [process.execPath, "--no-env-file", "-e", program] });
       expect(result.exitCode, result.stderr).toBe(0); output = result.stdout;
     } else {
       const sandbox = prepareWorkerSandbox(brain, { profile: "strict", restricted: mode === "restricted", areas: [], readPaths: [process.execPath] });
       const inferenceDir = mode === "restricted" ? mkdtempSync("/var/tmp/odysseus-secret-relay-") : undefined;
       if (inferenceDir) cleanup.push(() => rmSync(inferenceDir, { recursive: true, force: true }));
-      const worker = launchAgentWorker({ brainPath: brain, sandbox, ...(inferenceDir ? { restricted: { readPaths: [process.execPath], inferenceDir } } : {}), env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
+      const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, ...(inferenceDir ? { restricted: { readPaths: [process.execPath], inferenceDir } } : {}), env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
       try {
         const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
         const code = await worker.exited, [stdout, stderr] = await streams;
@@ -179,7 +196,7 @@ for (const link of ["relative", "absolute", "output-root"] as const) test(`maint
     : `${WORKER_OUTPUT}/tokens/harbor.txt`, join(brain, ".env"));
   const outputs = prepareWorkerOutput(brain);
   try {
-    const result = await runMaintenanceWorker({ brainPath: brain, startupView: outputs.view, output: outputs.output,
+    const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(dirname(brain), "state/ui.db") }, startupView: outputs.view, output: outputs.output,
       credentials: false, env: {}, command: [process.execPath, "--no-env-file", "-e",
         'const fs=require("node:fs"),root=process.env.BRAIN_ROOT,read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};console.log(JSON.stringify({alias:read(root+"/.env"),copy:read(root+"/tokens/harbor.txt"),public:read("helper.ts")}));'] });
     expect(result.exitCode, result.stderr).toBe(0);
@@ -196,7 +213,7 @@ for (const link of ["relative", "absolute", "area-root"] as const) test(`strict 
   fs.symlinkSync(link === "relative" ? "workspaces/harbor.txt" : link === "absolute" ? join(brain, "workspaces/harbor.txt")
     : `${WORKER_AREA_ROOT}/workspaces/harbor.txt`, join(brain, ".env"));
   const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] });
-  const worker = launchAgentWorker({ brainPath: brain, sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e",
+  const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e",
     `const fs=require("node:fs"),root=${JSON.stringify(WORKER_AREA_ROOT + "/workspaces")},read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};fs.writeFileSync(root+"/voyage.md","Odysseus keeps writing.");console.log(JSON.stringify({alias:read(".env"),copy:read(root+"/harbor.txt"),public:read("helper.ts")}));`] });
   try {
     const streams = Promise.all([text(worker.stdout),text(worker.stderr)]), code = await worker.exited, [stdout,stderr] = await streams;

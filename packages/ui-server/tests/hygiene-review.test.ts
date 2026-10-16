@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
-import { createBrainClient } from "../src/brain/client.js";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
+import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
 import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxStream } from "../src/inbox/stream.js";
@@ -385,10 +386,12 @@ test("HTTP review and preview reject extra authority/input fields and expose the
 
 test("killed process after content write recovers with check and never runs resolve twice", async () => {
   const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!, ready = join(f.root, "written.flag");
-  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "fixtures/hygiene-review-worker.ts"), f.root, f.principal.id, item.id, ready], { stdout: "pipe", stderr: "pipe" });
-  clean.push(() => child.kill());
-  for (let i = 0; i < 1000 && !existsSync(ready); i++) await Bun.sleep(10);
-  expect(existsSync(ready)).toBe(true);
+  const native = createNativeAppFixture(f.root); clean.push(native.close);
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "fixtures/hygiene-review-worker.ts"), f.root, f.principal.id, item.id, ready, JSON.stringify(native.nativeBrain)], { stdout: "pipe", stderr: "pipe" });
+  clean.push(async () => { child.kill(); await child.exited; });
+  const errors = new Response(child.stderr).text();
+  for (let i = 0; i < 1000 && !existsSync(ready) && child.exitCode === null; i++) await Bun.sleep(10);
+  expect(existsSync(ready), child.exitCode !== null ? await errors : "repair crash point not reached").toBe(true);
   expect(f.applies()).toHaveLength(1);
   const written = readFileSync(join(f.root, item.hygiene!.finding.path as string), "utf8");
   expect(written).not.toContain(`[[${item.hygiene!.finding.evidence as string}]]`);
@@ -459,7 +462,7 @@ test("due hygiene snoozes cannot create a second pending review card through the
 
 test("createApp mounts authenticated review operations and invokes no backend through start, pause or resume", async () => {
   const f = setup();
-  const { createApp } = await import("../src/app.js");
+  const { createFixtureApp: createApp } = await import("./helpers/native-app-fixture.js");
   const { resolveServerConfig } = await import("../src/config/env.js");
   const { createStaticBackendRegistry } = await import("../src/agent/backend.js");
   const { makeFakeBackend } = await import("./helpers/fake-backend.js");

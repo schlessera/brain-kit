@@ -1,3 +1,7 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
 import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,11 +34,11 @@ test.each(["claude", "pi"] as const)("%s first-party curated update respects the
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const turns = createGovernedTurns({ brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
+  const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   const firstParty = kind === "claude" ? createClaudeBackend({ brainPath: brain }) : createPiBackend({ brainPath: brain, loadExtensions: false });
   let applied: BrainApplicationResult | undefined;
   const backend = { ...makeFakeBackend({ id: kind, startTurn: async request => {
-    const child = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
+    const child = Bun.spawnSync(workerCommand({ brainPath: brain, startupView: request.workerStartupView, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
       'if printf attack > me/identity.md; then exit 41; fi; printf DIRECT_POLICY_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     expect(child.stdout.toString()).toBe("DIRECT_POLICY_WRITE_REFUSED");
@@ -101,7 +105,7 @@ test("a later session's policy load cannot replace the first admitted applicatio
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const turns = createGovernedTurns({ brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
+  const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   let captured!: () => void, resume!: () => void;
   const firstCaptured = new Promise<void>(resolve => { captured = resolve; }), firstResume = new Promise<void>(resolve => { resume = resolve; });
   const results: BrainApplicationResult[] = [];
@@ -140,7 +144,8 @@ test("an allowed scratch mask's actual cleanup retains protected files and direc
   const imagePath = ".brain/scratch/raft.png", maskPath = ".brain/scratch/raft-mask.png", protectedPath = ".brain/scratch/kept/old.png";
   writeFileSync(join(root, imagePath), png); writeFileSync(join(root, protectedPath), png);
   utimesSync(join(root, protectedPath), new Date(0), new Date(0));
-  const apply = createMaskApplication({ root, principalId: "odysseus", turnId: "protected-cleanup", signal: new AbortController().signal,
+  const scratchView = createFixtureWorkerStartupView(root);
+  const apply = createMaskApplication({ maintenance: { startupView: scratchView, tempDomain: { statePath: join(scratchView.storage.root, "maintenance-state.db") } }, root, principalId: "odysseus", turnId: "protected-cleanup", signal: new AbortController().signal,
     protectedPaths: [".brain/scratch/kept", ".brain/scratch/empty", ".brain/scratch/anchor/future.png"], lock: createKeyedLock(), isAuthorized: () => true, isAvailable: () => true, record() {} });
   try {
     const result = await apply({ principalId: "odysseus", turnId: "protected-cleanup", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
@@ -149,7 +154,7 @@ test("an allowed scratch mask's actual cleanup retains protected files and direc
     expect(readFileSync(join(root, protectedPath))).toEqual(png);
     expect(existsSync(join(root, ".brain/scratch/empty/branch")), "POLICY_MASK_CLEANUP_PROTECTED_DIRECTORY").toBe(true);
     expect(existsSync(join(root, ".brain/scratch/anchor")), "POLICY_MASK_CLEANUP_PROTECTED_ANCESTRY").toBe(true);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { scratchView.cleanup(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test.each(["claude protected", "pi protected", "claude permitted", "pi permitted"] as const)("%s actual submitted PNG mask obeys admitted protection", async variant => {
@@ -165,12 +170,12 @@ test.each(["claude protected", "pi protected", "claude permitted", "pi permitted
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const authorization = testAuthorization(principal.id);
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const turns = createGovernedTurns({ brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
+  const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   const firstParty = kind === "claude" ? createClaudeBackend({ brainPath: brain }) : createPiBackend({ brainPath: brain, loadExtensions: false });
   const submitted = Buffer.from([...png, 1]);
   let applied: BrainApplicationResult | undefined;
   const backend = { ...makeFakeBackend({ id: kind, startTurn: async request => {
-    const child = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
+    const child = Bun.spawnSync(workerCommand({ brainPath: brain, startupView: request.workerStartupView, sandbox: request.workerSandbox, env: {}, command: ["/bin/sh", "-c",
       `${protectedTarget ? `if printf attack > ${maskPath}; then exit 41; fi;` : ""} printf control > permitted.md || exit 42; printf DIRECT_MASK_CONTROL_PASSED`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, child.stderr.toString()).toBe(0); expect(child.stdout.toString()).toBe("DIRECT_MASK_CONTROL_PASSED");
     const response = await request.bridge.requestMask!("assets/raft.png", "Mark the raft sail.");

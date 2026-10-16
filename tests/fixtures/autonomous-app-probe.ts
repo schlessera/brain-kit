@@ -49,7 +49,9 @@ async function main(): Promise<void> {
       "claude-sonnet-4-6": { input: 3e-6, output: 1.5e-5, cacheRead: 3e-7, cacheWrite: 3.75e-6 } } },
     openrouter: { fetchedAt: later, rates: {} } }));
 
-  const { createApp } = await import("../../packages/ui-server/src/app.js");
+  // This fixture qualifies the real restricted worker and inference relay.
+  // Native Btrfs acquisition has its own privileged runtime proof.
+  const { createFixtureApp: createApp } = await import("../../packages/ui-server/tests/helpers/native-app-fixture.js");
   const { resolveServerConfig } = await import("../../packages/ui-server/src/config/env.js");
   const { createStaticBackendRegistry } = await import("../../packages/ui-server/src/agent/backend.js");
   const { createSilentObservability } = await import("../../packages/ui-server/src/observability/index.js");

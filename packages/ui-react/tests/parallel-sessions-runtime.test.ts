@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Request as BrowserRequest } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
+import { expectRejectedValue } from "./fixtures/expect-rejected-value.js";
 
 // Parallel sessions end to end (#953, the #929 epic's integrated proof): the
 // whole app as a hosting shell composes it (AppShell, Chat, Actions, Graph)
@@ -122,6 +124,7 @@ function scriptedBackend(): AgentBackend {
       if (!titles.has(sessionId)) titles.set(sessionId, title);
       // A first message the host has not named a session for yet.
       if (prompt.startsWith("Late:")) await new Promise<"ok" | "fail">((release) => gates.set(prompt, release));
+      if (signal.aborted) return;
       bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
@@ -207,9 +210,11 @@ async function dropConnections() {
 async function restartHost() {
   server?.stop(true);
   app!.cancelActiveTurns();
-  await app!.close();
+  // Shutdown drains admitted turns. Resolve the fixture waits after cancellation
+  // so unfinished work cannot be reported successful while close waits for it.
   for (const release of gates.values()) release("ok");
   gates.clear();
+  await app!.close();
   await startHost();
 }
 
@@ -237,10 +242,10 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
+  app?.cancelActiveTurns();
   for (const release of gates.values()) release("ok");
   await browser?.close();
   server?.stop(true);
-  app?.cancelActiveTurns();
   await app?.close();
   if (scratch) await rm(scratch, { recursive: true, force: true });
 });
@@ -268,6 +273,19 @@ async function until(page: Page, predicate: string, timeout = 15_000) {
     console.error(`never held: ${predicate}`, JSON.stringify(await page.evaluate("({ views: window.__parallel?.views(), active: window.__parallel?.activeSessionId(), draft: window.__parallel?.draft() })").catch(() => null)));
     throw error;
   }
+}
+
+/** A streamed result precedes native cleanup; recovery is terminal only after durable host settlement. */
+async function terminalRecovery(sessionId: string, turnId: string): Promise<SessionRecovery> {
+  const deadline = Date.now() + 5_000;
+  do {
+    const response = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
+    expect(response.status, "the host supplied completion evidence").toBe(200);
+    const recovery = await response.json() as SessionRecovery;
+    if (recovery.latest?.turnId === turnId && recovery.latest.state === "terminal") return recovery;
+    await Bun.sleep(25);
+  } while (Date.now() < deadline);
+  throw new Error(`PARALLEL_DURABLE_TERMINAL_NOT_OBSERVED: ${sessionId} ${turnId}`);
 }
 
 async function release(prompt: string, how: "ok" | "fail" = "ok") {
@@ -531,10 +549,10 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     const failure = new Error("the fixture deliberately stops before upload");
     try {
       await a.page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false }));
-      await expect(withTrackOnline(a.page, async () => {
+      await expectRejectedValue(withTrackOnline(a.page, async () => {
         expect(await a.page.evaluate(() => navigator.onLine)).toBe(true);
         throw failure;
-      })).rejects.toBe(failure);
+      }), failure);
       expect(await a.page.evaluate(() => navigator.onLine), "the following offline sentinel").toBe(false);
     } finally {
       await a.context.close();
@@ -858,9 +876,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             expect(a.approvals.filter(({ event, frame }) => event === "framereceived" && frame.type === "tool_result" && frame.toolUseId === original.toolUseId).map(({ frame }) => frame)).toEqual([
               expect.objectContaining({ type: "tool_result", sessionId: ids[approve], turnId: original.turnId, isError: false, output: "Ears sealed." }),
             ]);
-            const response = await fetch(`${origin}/api/sessions/${ids[approve]}/recovery`);
-            expect(response.status, "the host supplied completion evidence").toBe(200);
-            const recovery = await response.json() as SessionRecovery;
+            const recovery = await terminalRecovery(ids[approve]!, original.turnId!);
             expect(recovery).toMatchObject({ sessionId: ids[approve], latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
             expect(replies(), "completion introduced no duplicate decision").toHaveLength(1);
             for (const v of (await states()).filter((v) => v.sessionId !== ids[approve])) {
@@ -989,8 +1005,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             expect(replies()[0]!.frame).toMatchObject({ type: decision === "Deny" ? "tool_denial" : "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card", ...(decision === "Always allow" ? { always: true } : {}) });
             expect(answers.get(approve), "the backend settled the original decision").toBe(decision === "Deny" ? "deny" : "allow");
             await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(sessionId)} && v.state === "done")`);
-            const terminal = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
-            expect(await terminal.json()).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+            const terminal = await terminalRecovery(sessionId, original.turnId!);
+            expect(terminal).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
             expect(answers.has(question), "the other question remains unanswered").toBe(false);
             expect((await probe(a.page, (p) => p.views())).find((v) => v.sessionId === otherId)).toMatchObject({ state: "needs_you", pendingKind: "question", cleared: false });
             expect(replies(), "completion sends no duplicate decision").toHaveLength(1);

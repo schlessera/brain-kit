@@ -62,12 +62,43 @@ export function leakagePattern(): RegExp {
   return new RegExp(PATTERNS.join("|"), "i");
 }
 
-export function scanText(file: string, text: string): Finding[] {
+export interface ScanTextOptions {
+  /** Tracker issue/comment bodies only. Never enable for repository files. */
+  allowUploadImages?: boolean;
+}
+
+const UPLOAD_HOST = "uploads." + "schles" + "ser.net";
+
+function withoutUploadImages(line: string): string {
+  // Match complete URL tokens, including other hosts, so an allowed URL nested
+  // in another URL's query cannot hide the outer URL's personal strings.
+  return line.replace(/https?:\/\/[^\s<>"'()[\]`]+/gi, (token) => {
+    try {
+      const url = new URL(token);
+      if (
+        url.protocol === "https:" &&
+        url.host === UPLOAD_HOST &&
+        !url.username && !url.password &&
+        url.pathname.startsWith("/gh/")
+      ) return "";
+    } catch {
+      // Malformed URLs remain subject to the same personal-string scan.
+    }
+    return token;
+  });
+}
+
+export function scanText(
+  file: string,
+  text: string,
+  options: ScanTextOptions = {},
+): Finding[] {
   const pattern = leakagePattern();
   const findings: Finding[] = [];
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    if (pattern.test(lines[i])) {
+    const scanned = options.allowUploadImages ? withoutUploadImages(lines[i]) : lines[i];
+    if (pattern.test(scanned)) {
       findings.push({ file, line: i + 1, text: lines[i].slice(0, 200) });
     }
   }

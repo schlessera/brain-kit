@@ -1260,6 +1260,11 @@ heading and must change.
 ## 7. The off switch — CONFIRMED, one ruling
 
 Settings › **Input**, beside Appearance, kit `Toggle`, the copy as shipped.
+
+> **2026-10-13 — Placement amended by [the approved Settings organization](design-kit/navigation.md#2026-10-13--approved-settings-organization-1773).**
+> Appearance & input is a pane at every width; Input and its banner no longer
+> occupy shared compact chrome. The existing toggle and shortcut policy remain.
+
 When off, the printed keys disappear (as shipped). D5 draws the Input section
 as a `Surface` of group `ListRow`s with toggles plus a neutral banner
 `Callout` explaining the rule.
@@ -1321,7 +1326,10 @@ modes). Statuses, and what the kit and the app do about each:
 dimmed — "they were never the record") · `typed` (the user answered in the
 composer; the card quotes what it took, neutral border). All three stay in
 the transcript at full contrast; nothing rolls up. "Other" opens a real
-field in place of the Submit row. Kit: the prop and the stories. App: the
+field above the Submit row (the original replacement-row ruling is
+superseded by the explicit user correction in #1887 on 2026-10-14). Submit
+remains available for current nonblank custom text; Enter is an additional
+route. Kit: the prop and the stories. App: the
 hand-drawn card with its collapsed summary row retires for the kit card,
 and a composer send while a question is pending becomes the answer rather
 than a new message.

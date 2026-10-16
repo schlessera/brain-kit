@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Real installed SDK hook transport and actual isolated worker, with a keyless native protocol fixture. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -48,9 +49,10 @@ for (const percent of [50, 80]) test(`${percent}% copied state reaches the insta
     }) },
   })) as typeof query;
   try {
+    const workerStartupView = createFixtureWorkerStartupView(brain);
     const backend = createClaudeBackend({ brainPath: brain, queryFn, workerState: { allowanceBytes: allowance, budgetBytes: allowance } });
-    await backend.startTurn({ sessionId: SESSION, prompt: "Return to Ithaca", signal: new AbortController().signal,
-      bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "allow" }) } });
+    try { await backend.startTurn({ workerStartupView, sessionId: SESSION, prompt: "Return to Ithaca", signal: new AbortController().signal,
+      bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "allow" }) } }); } finally { workerStartupView.cleanup(); }
     const terminal = frames.find(frame => frame.type === "result");
     expect(terminal?.isError, "REAL_SDK_HOOK_COMPLETED_NATIVE_RESULT").toBe(false);
     expect(terminal?.stateRoom?.usedBytes).toBe(percent * 4096);

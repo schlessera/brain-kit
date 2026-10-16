@@ -1,3 +1,5 @@
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { afterEach, expect, test } from "bun:test";
 import type { AgentBackend, BackendBridge, BillingMode, InboxActionItem, InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { BackendRequestError, requestToolPermission, SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/server";
@@ -21,9 +23,12 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 const operation: InboxOperation = { toolName: "write", input: { path: "notes/harbor.md", content: "Odysseus returned." }, targetPath: "notes/harbor.md" };
 
 function setup(billingMode: BillingMode = "subscription") {
-  const root = mkdtempSync(join(tmpdir(), "brain-inbox-unwind-"));
-  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-  const path = join(root, "ui.sqlite"), db = createUiDb(path);
+  const directory = mkdtempSync(join(tmpdir(), "brain-inbox-unwind-")), root = join(directory, "brain");
+  mkdirSync(root);
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  // Copying a live SQLite guard into worker inputs opens/closes its inode and
+  // releases the same process's POSIX lock. Operational state stays outside brain.
+  const path = join(directory, "ui.sqlite"), db = createUiDb(path);
   cleanup.push(() => db.close());
   const now = Date.now(), stagingId = crypto.randomUUID(), staging = join(root, SHARE_STAGING_DIR, stagingId);
   const bytes = Buffer.from("Odysseus's staged harbor notes\n");
@@ -41,7 +46,9 @@ function setup(billingMode: BillingMode = "subscription") {
       { id: "deny", label: "Cancel", effect: { kind: "cancel_blocked" } },
       { id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } },
     ] };
-  return { root, path, db, store, budget, principal, action, staging, stagingId, bytes, billingMode };
+  const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
+  cleanup.push(native.close);
+  return { root, path, db, store, budget, principal, action, staging, stagingId, bytes, billingMode, nativeBrain: native.nativeBrain, nativeManager };
 }
 
 test("cancellation preserves staging while a real backend is held after denial", async () => {
@@ -64,7 +71,7 @@ test("cancellation preserves staging while a real backend is held after denial",
     backendAlive = false;
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
   } };
-  const turn = runAutonomousTurn({ db: f.db, store: activity, backend, checkpoint: escalation => {
+  const turn = runAutonomousTurn({ brainPath: f.root, nativeManager: f.nativeManager, db: f.db, store: activity, backend, checkpoint: escalation => {
     escalateInbox(f.db, { itemId: "share", expectedVersion: 2, escalation, action: f.action, allowedOperations: [operation] });
   } }, { turnId: "run", principalId: f.principal.id, prompt: "Inspect Odysseus's harbor", billingMode: "subscription", allowedTools: ["read"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   try {
@@ -113,7 +120,7 @@ function holdBackend(f: ReturnType<typeof setup>, cap?: number) {
     alive = false;
     bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "cancelled", isError: false, durationMs: 1, numTurns: 1 });
   } };
-  const turn = runAutonomousTurn({ db: f.db, store: activity, backend, checkpoint: escalation => {
+  const turn = runAutonomousTurn({ brainPath: f.root, nativeManager: f.nativeManager, db: f.db, store: activity, backend, checkpoint: escalation => {
     escalateInbox(f.db, { itemId: "share", expectedVersion: 2, escalation, action: f.action, allowedOperations: [operation], cap });
   } }, { turnId: "run", principalId: f.principal.id, prompt: "Inspect Odysseus's harbor", billingMode: f.billingMode, allowedTools: ["read"], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   return { reached, activity, turn, completed, bridge: () => bridge,
@@ -252,7 +259,7 @@ test("expired Queue leases do not recover an actually running backend", async ()
     held(); await gate;
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
   } };
-  const turn = runAutonomousTurn({ db: f.db, store: activity, backend, checkpoint: () => {} }, { turnId: "run", principalId: f.principal.id, prompt: "Inspect Odysseus's harbor", billingMode: "subscription", allowedTools: [], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
+  const turn = runAutonomousTurn({ brainPath: f.root, nativeManager: f.nativeManager, db: f.db, store: activity, backend, checkpoint: () => {} }, { turnId: "run", principalId: f.principal.id, prompt: "Inspect Odysseus's harbor", billingMode: "subscription", allowedTools: [], systemPromptAppend: "Server instructions", signal: new AbortController().signal });
   let runtime: ReturnType<typeof createInboxRuntime> | undefined;
   try {
     await reached;
@@ -268,7 +275,7 @@ test("expired Queue leases do not recover an actually running backend", async ()
 
 async function spawnHeldWorker(f: ReturnType<typeof setup>, mode: "escalated" | "claimed") {
   const fixture = join(f.root, "worker.json"), ready = join(f.root, "worker-ready.json");
-  writeFileSync(fixture, JSON.stringify({ principalId: f.principal.id, action: f.action, operation, stagingId: f.stagingId }));
+  writeFileSync(fixture, JSON.stringify({ principalId: f.principal.id, action: f.action, operation, stagingId: f.stagingId, brainPath: f.root, nativeBrain: f.nativeBrain }));
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/inbox-unwind-worker.ts"), f.path, fixture, ready, mode], { stdout: "pipe", stderr: "pipe" });
   cleanup.push(async () => { if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; });
   const deadline = Date.now() + 5000;

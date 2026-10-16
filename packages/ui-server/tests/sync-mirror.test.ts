@@ -1,18 +1,20 @@
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { maintenanceLaunch, probeWorkerHost, runMaintenanceWorker } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, maintenanceLaunch, probeWorkerHost, runMaintenanceWorker } from "@schlessera/brain-ui-sdk/internal";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { BrainSyncError, createBrainClient } from "../src/brain/client";
 import { assertMirrorStorage, syncMirrorPath, syncTransportCommand } from "../src/brain/sync-mirror";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createUiDb } from "../src/db/client";
+import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-sync-token-never-for-the-brain";
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+const nativeCleanup: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 beforeAll(() => {
   mkdirSync(join(ROOT, "tmp"), { recursive: true });
   const root = mkdtempSync(join(ROOT, "tmp/sync-mirror-probe-"));
@@ -63,7 +65,9 @@ appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/config.
   mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
   const cli = join(brain, "node_modules/.bin/brain");
   writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
-  return { root, brain, remote, state, dbPath: join(state, "ui.db") };
+  const native = createNativeAppFixture(brain); nativeCleanup.push(native.close);
+  const nativeManager = createNativeBrainManagerClient(native.nativeBrain);
+  return { root, brain, remote, state, nativeManager, dbPath: join(state, "ui.db") };
 }
 
 /** Real loopback smart-HTTP Git; neither the CGI process nor the remote needs a credential. */
@@ -95,7 +99,7 @@ function fixtureRemote(root: string, remote: string, received?: string[], refuse
 
 test("full hosted sync commits, pulls and pushes while config and included filter see no credential", async () => {
   const f = fixture();
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
   expect(boundary.isolated()).toBe(true);
   const server = fixtureRemote(f.root, f.remote);
   git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
@@ -122,7 +126,7 @@ test("full hosted sync commits, pulls and pushes while config and included filte
 
 test("hosted sync retains startup imports while publishing outputs beside a newer governed edit", async () => {
   const f = fixture();
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
   expect(boundary.isolated()).toBe(true);
   const original = Bun.spawn;
   let changed = false;
@@ -158,7 +162,7 @@ test("credentialed transport mounts no brain, Git config or broad host ancestor,
   expect(mounts).not.toContain(join(f.brain, ".git"));
   expect(mounts).not.toContain("/");
   const command = ["/bin/sh", "-c", `test ! -e "$1" && test ! -e "$1/.git/config" && test "$BRAIN_SYNC_TOKEN" = "$2" && printf TRANSPORT_BOUNDARY_OK`, "probe", f.brain, TOKEN];
-  const result = await runMaintenanceWorker({ ...transport, command });
+  const result = await runMaintenanceWorker({ ...transport, tempDomain: { statePath: f.dbPath }, command });
   expect(result.exitCode, result.stderr).toBe(0);
   expect(result.stdout, "REAL_TRANSPORT_CANNOT_READ_BRAIN_AND_HAS_ITS_KEY").toBe("TRANSPORT_BOUNDARY_OK");
   expect(existsSync(join(f.brain, "filter.sentinel")), "NO_FILTER_IN_TRANSPORT").toBe(false);
@@ -175,28 +179,111 @@ test("linked objects, refs and object alternates are rejected before transport a
   expect(() => assertMirrorStorage(mirror), "LINKED_OBJECT_REFUSED").toThrow("linked");
 });
 
-test("maintenance cannot write mirror config or hooks; a background writer cannot survive into credentialed transport", async () => {
-  const f = fixture();
-  const mirror = syncMirrorPath(f.brain, f.dbPath);
-  const poison = join(f.brain, "poison.sentinel");
-  writeFileSync(join(f.brain, "helper.ts"), readFileSync(join(f.brain, "helper.ts"), "utf8") + `
+for (const holdMonitor of [false, true]) {
+  test(`maintenance protects mirror metadata and refuses teardown writes before transport (held monitor: ${holdMonitor})`, async () => {
+    const f = fixture();
+    const mirror = syncMirrorPath(f.brain, f.dbPath);
+    const alternate = join(mirror, "objects/info/alternates");
+    const ready = join(mirror, "objects/info/child-ready");
+    const poison = join(f.brain, "poison.sentinel");
+    // Hold the original monitor only in the controlled ordering: namespace
+    // init reports CLI exit before waiting for all descendants. The writer can
+    // therefore run before monitor exit, without surviving host settlement.
+    writeFileSync(join(f.brain, "helper.ts"), readFileSync(join(f.brain, "helper.ts"), "utf8") + `
 for (const name of ["config", "HEAD", "hooks/pre-receive"]) {
   try { require("node:fs").writeFileSync(${JSON.stringify(mirror)} + "/" + name, "poison"); require("node:fs").appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/poison.sentinel", "WROTE " + name + "\\n"); }
   catch (error) { require("node:fs").appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/poison.sentinel", name + ":" + error.code + "\\n"); }
 }
-// The namespace init reaps this descendant when the CLI exits. It cannot
-// race the host's storage validation after runMaintenanceWorker settles.
-Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('while kill -0 "$2" 2>/dev/null; do sleep 0.02; done; printf poisoned > "$1"')}, "child", ${JSON.stringify(join(mirror, "objects/info/alternates"))}, String(process.pid)], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('printf ready > "$3"; while kill -0 "$2" 2>/dev/null; do sleep 0.02; done; printf poisoned > "$1"; sleep 10')}, "child", ${JSON.stringify(alternate)}, String(process.pid), ${JSON.stringify(ready)}], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
 `);
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
-  let syncError: unknown;
-  await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync().catch(error => { syncError = error; });
-  expect(readFileSync(poison, "utf8"), "MIRROR_METADATA_IMMUTABLE").not.toContain("WROTE");
-  await Bun.sleep(1_100);
-  expect(existsSync(join(mirror, "objects/info/alternates")), "MAINTENANCE_CHILD_GONE_BEFORE_TRANSPORT").toBe(false);
-  if (syncError) throw syncError;
-  expect(git(f.remote, "show", "main:notes/harbor.md")).toContain("Penelope checks the ropes.");
-}, 120_000);
+    type Identity = { pid: number; start: string };
+    const status = (pid: number) => {
+      try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" "); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+    };
+    const running = (identity: Identity) => {
+      const fields = status(identity.pid);
+      return fields?.[19] === identity.start && !["Z", "X"].includes(fields[0]!);
+    };
+    const descendants = (pid: number): number[] => {
+      let children: number[];
+      try { children = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+      return children.flatMap(child => [child, ...descendants(child)]);
+    };
+    let writer: Identity | undefined;
+    let init: Identity | undefined;
+    let monitor: number | undefined;
+    let held = false;
+    let wroteBeforeExit = false;
+    let localExited = false;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const admissions: boolean[] = [];
+    const resume = () => { if (held && monitor !== undefined) { try { process.kill(monitor, "SIGCONT"); } catch { /* Already exited. */ } held = false; } };
+    const original = Bun.spawn;
+    const intercept = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      const encoded = (args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH;
+      const argv = encoded ? (JSON.parse(encoded) as { argv: string[] }).argv : [];
+      if (localExited && argv.includes("--git-dir") && argv.includes(mirror)) admissions.push(Boolean(writer && init && !running(writer) && !running(init)));
+      const child = original(...args);
+      if (argv.includes(join(f.brain, "node_modules/.bin/brain"))) {
+        monitor = child.pid;
+        poll = setInterval(() => {
+          const pids = !writer || !init ? descendants(child.pid) : [];
+          if (!init && pids[0]) { const fields = status(pids[0]); if (fields) init = { pid: pids[0], start: fields[19]! }; }
+          if (!writer) for (const pid of pids) {
+            try {
+              const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+              const fields = status(pid);
+              if (command[0] === "/bin/sh" && command.includes(alternate) && fields) writer = { pid, start: fields[19]! };
+            } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+          }
+          if (holdMonitor && writer && !held && !wroteBeforeExit && existsSync(ready)) {
+            process.kill(child.pid, "SIGSTOP"); held = true;
+            // A broken fixture must release the real monitor, rather than hang CI.
+            watchdog = setTimeout(resume, 5_000);
+          }
+          if (held && existsSync(alternate)) { wroteBeforeExit = true; resume(); }
+        }, 1);
+        void child.exited.then(() => { localExited = true; if (poll) clearInterval(poll); });
+      }
+      return child;
+    }) as typeof Bun.spawn);
+    try {
+      const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
+      let syncError: unknown;
+      await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync().catch(error => { syncError = error; });
+      expect(readFileSync(poison, "utf8"), "MIRROR_METADATA_IMMUTABLE").not.toContain("WROTE");
+      expect(writer, "REAL_BACKGROUND_WRITER_OBSERVED").toBeDefined();
+      expect(init, "REAL_NAMESPACE_INIT_OBSERVED").toBeDefined();
+      expect(running(writer!), "MAINTENANCE_WRITER_GONE_AT_SYNC_SETTLEMENT").toBe(false);
+      expect(running(init!), "MAINTENANCE_NAMESPACE_GONE_AT_SYNC_SETTLEMENT").toBe(false);
+      expect(admissions, "NO_LIVE_DESCENDANT_AT_TRANSPORT_ADMISSION").not.toContain(false);
+      if (holdMonitor) expect(wroteBeforeExit, "CONTROLLED_WRITE_PRECEDES_MONITOR_EXIT").toBe(true);
+      const written = existsSync(alternate);
+      if (written) {
+        expect(String(syncError), "TEARDOWN_ALTERNATES_REFUSED").toContain("sync mirror object alternates are forbidden");
+        expect(admissions, "NO_TRANSPORT_AFTER_TEARDOWN_WRITE").toEqual([]);
+        expect(Bun.spawnSync(["/usr/bin/git", "--git-dir", f.remote, "cat-file", "-e", "main:notes/harbor.md"],
+          { env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } }).exitCode,
+          "TEARDOWN_WRITE_NEVER_PUSHED").not.toBe(0);
+      } else {
+        if (syncError) throw syncError;
+        expect(admissions.length, "REAL_POST_MAINTENANCE_TRANSPORT_RAN").toBeGreaterThan(0);
+        expect(git(f.remote, "show", "main:notes/harbor.md")).toContain("Penelope checks the ropes.");
+      }
+      await Bun.sleep(1_100);
+      expect(existsSync(alternate), "NO_WRITE_AFTER_SYNC_SETTLEMENT").toBe(written);
+      expect(running(writer!), "BACKGROUND_WRITER_REMAINS_GONE").toBe(false);
+    } finally {
+      resume(); if (poll) clearInterval(poll); if (watchdog) clearTimeout(watchdog);
+      intercept.mockRestore();
+      // A failed lifecycle assertion still owns cleanup of its namespace.
+      if (init && running(init)) { try { process.kill(init.pid, "SIGKILL"); } catch { /* Raced exit. */ } }
+    }
+  }, 120_000);
+}
 
 test("a regular corrupt object fails host fsck before the external remote is pushed", async () => {
   const f = fixture();
@@ -209,7 +296,7 @@ require("node:fs").mkdirSync(${JSON.stringify(join(mirror, "objects/aa"))}, { re
 require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/aa", "0".repeat(38)))}, "not a compressed git object");
 `);
   try {
-    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
     await expect(createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync(), "CORRUPT_OBJECT_FSCK_REFUSED").rejects.toThrow(/inflate|corrupt|unable to unpack|bad object/);
     expect(received, "NO_PUSH_AFTER_FAILED_FSCK").not.toContain("POST /remote.git/git-receive-pack");
   } finally { server.stop(true); }
@@ -218,7 +305,7 @@ require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/aa", "0"
 test("a sync launch that fails during preparation releases the writer gate for another request", async () => {
   const f = fixture();
   const db = createUiDb(f.dbPath);
-  const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: { wrapper: join(f.root, "missing-wrapper") } });
+  const execution = createHostExecution({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath, exec: { wrapper: join(f.root, "missing-wrapper") } });
   try {
     execution.attach(db);
     await expect(execution.boundary.launch({ argv: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
@@ -233,7 +320,7 @@ test("a sync launch that fails during preparation releases the writer gate for a
 test("an abort immediately after gate acquisition starts no sync worker and releases the gate", async () => {
   const f = fixture();
   const db = createUiDb(f.dbPath);
-  const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: {} });
+  const execution = createHostExecution({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath, exec: {} });
   const controller = new AbortController();
   try {
     execution.attach(db);
@@ -264,7 +351,7 @@ test("worker-created object alternates are refused before any credentialed trans
   writeFileSync(join(f.brain, "helper.ts"), readFileSync(join(f.brain, "helper.ts"), "utf8") + `
 require("node:fs").writeFileSync(${JSON.stringify(join(mirror, "objects/info/alternates"))}, ${JSON.stringify(join(f.brain, ".git/objects") + "\n")});
 `);
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
   await expect(createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync(), "ALTERNATES_REFUSED_BEFORE_TRANSPORT")
     .rejects.toThrow("sync mirror object alternates are forbidden");
   expect(git(f.remote, "show", "main:notes/sea.md")).toContain("Telemachus watches the tide.");
@@ -279,7 +366,7 @@ test("a successful local mirror workflow reports failure when the external push 
   const server = fixtureRemote(f.root, f.remote, requests, true);
   git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
   try {
-    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.dbPath });
+    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
     let failure: BrainSyncError | undefined;
     await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync().catch(error => {
       expect(error).toBeInstanceOf(BrainSyncError); failure = error;
@@ -295,7 +382,7 @@ for (const output of ["stdout", "stderr"] as const) {
   test(`cancelling sync ${output} while the worker runs preserves exit status and releases its gate`, async () => {
     const f = fixture();
     const db = createUiDb(f.dbPath);
-    const execution = createHostExecution({ brainPath: f.brain, dbPath: f.dbPath, exec: {} });
+    const execution = createHostExecution({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath, exec: {} });
     try {
       execution.attach(db);
       const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", "sleep 0.2; printf local-work-done"],
@@ -319,7 +406,7 @@ test("an in-memory host uses its private temporary mirror for a real sync", asyn
   // This host has no operational state directory to mask. The configured
   // host credential-file proof belongs to the persistent-database test.
   rmSync(join(f.state, "credential"));
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: ":memory:", exec: {} });
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: ":memory:", exec: {} });
   const result = await createBrainClient({ brainPath: f.brain, boundary, exec: {} }).sync();
   expect(result.result?.run.status, "TEMP_MIRROR_FILE_TRANSPORT_WORKS").toBe("complete");
   expect(git(f.brain, "rev-parse", "HEAD")).toBe(git(f.remote, "rev-parse", "main"));

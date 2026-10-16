@@ -1,3 +1,4 @@
+import { createNativeAppFixture } from "./native-app-fixture.js";
 /**
  * Per-test-suite `createApp()` wiring. App-level suites share one real app,
  * while this helper owns the ambient environment and disposable filesystem
@@ -29,6 +30,10 @@ const BASE_ENV = [
   "BRAIN_UI_PRICING_DISCOVERY",
   "PI_CODING_AGENT_DIR",
   "CLAUDE_CODE_PATH",
+  "BRAIN_UI_NATIVE_BRAIN_SOCKET",
+  "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH",
+  "BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS",
+  "BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES",
 ] as const;
 
 let nextId = 0;
@@ -108,6 +113,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     }
     rmSync(brainPath, { recursive: true, force: true });
     rmSync(piAgentDir, { recursive: true, force: true });
+    rmSync(dbPath + ".journal", { recursive: true, force: true });
   };
 
   mkdirSync(brainPath, { recursive: true });
@@ -132,10 +138,13 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   process.env.PI_CODING_AGENT_DIR = piAgentDir;
   process.env.BRAIN_UI_PRICING_DISCOVERY = "0";
 
+  const native = createNativeAppFixture(brainPath);
+  Object.assign(process.env,native.env);
   let app: BrainUiApp;
   try {
     app = await createApp(options.appOptions);
   } catch (error) {
+    await native.close();
     removeTemporaryState();
     restoreEnv();
     throw error;
@@ -155,6 +164,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       try {
         await app.close();
       } finally {
+        await native.close();
         removeTemporaryState();
         restoreEnv();
       }

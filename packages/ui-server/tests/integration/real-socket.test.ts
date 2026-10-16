@@ -19,7 +19,7 @@ import { join } from "path";
 
 import { BrainUiClient, PROTOCOL_REV, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
-import { createApp } from "../../src/app";
+import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { createRecordingObservability } from "../../src/observability/index";
 import { resolveServerConfig } from "../../src/config/env";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
@@ -32,12 +32,18 @@ interface Running {
 }
 
 const running: Running[] = [];
+const brainRoots: string[] = [];
+function fixtureBrain() {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-socket-brain-"));
+  brainRoots.push(root); return root;
+}
 afterEach(async () => {
   while (running.length) {
     const r = running.pop()!;
     r.server.stop(true);
     await r.app.close();
   }
+  for (const root of brainRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 /** Boot a real app on an ephemeral port, loopback so AUTH_MODE=none is legal. */
@@ -48,7 +54,7 @@ async function start(env: Record<string, string> = {}) {
     AUTH_MODE: "none",
     HOST: "127.0.0.1",
     DB_PATH: ":memory:",
-    BRAIN_PATH: "/tmp/brain-real-socket-test",
+    BRAIN_PATH: fixtureBrain(),
     BRAIN_UI_PRICING_DISCOVERY: "0",
     ...env,
   });
@@ -198,7 +204,7 @@ describe("the SPA fallback", () => {
       AUTH_MODE: "none",
       HOST: "127.0.0.1",
       DB_PATH: ":memory:",
-      BRAIN_PATH: "/tmp/brain-spa-test",
+      BRAIN_PATH: fixtureBrain(),
       BRAIN_UI_PRICING_DISCOVERY: "0",
     });
     const backend = makeFakeBackend({ id: "fake" });

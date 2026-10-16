@@ -45,7 +45,7 @@ This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
 `packages/ui-backend-claude/src/sdk-options.ts:85-262`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:28-105`). A child-only wrapper
+`packages/ui-backend-pi/src/session-resources.ts:29-113`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
 the concrete unsandboxed extension-initialization escape.
 
@@ -437,17 +437,24 @@ fails with `ENOSPC` in that worker and nowhere else. No `/dev/shm` space is
 used any more, so Docker's 64 MiB `/dev/shm` no longer limits parallel
 sessions.
 
+> **2026-10-15 — Cross-uid access and recovery amendment.** The direct procfs
+> access and absolute writer/reclamation claims in the following historical
+> copy-out steps are superseded by the [broker and recovery amendment](#cross-uid-runtime-state-and-best-effort-recovery--2026-10-15)
+> below. The private tmpfs, start gate, fixed allowances, aggregate budgets and
+> bounded-file validation remain binding. This is a policy correction, not a
+> claim that the separate-uid broker is implemented.
+
 **Copy-in and copy-out from the server side.** The server must fill the tmpfs
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:946-1052`):
+`packages/ui-sdk/src/server/worker-launcher.ts:976-1098`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:791-816`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:807-831`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -457,7 +464,7 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:42`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:44`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
@@ -503,6 +510,78 @@ native and 0.9.0 in Docker, Bun 1.4.2):
 Cost: launching a worker with private state takes a median 32 ms (empty) to
 70 ms (30 MiB copied in), against about 2 ms to spawn one without state.
 
+### Cross-uid runtime state and best-effort recovery — 2026-10-15
+
+The October 14 selections and October 15 **option E** ruling on
+[#1677](https://github.com/schlessera/brain-kit/issues/1677), recorded through
+[#1894](https://github.com/schlessera/brain-kit/issues/1894), amend the historical
+copy-in/copy-out mechanism above. The full [external worker broker decision](governed-writable-workers.md#external-worker-broker-and-best-effort-recovery--2026-10-15)
+defines the launch authority, ownership, failure policy and integrated proof.
+Approval is distinct from implementation and qualification.
+
+In the recorded non-root cross-uid control, the server could not open the
+worker's private mount through `/proc/<pid>/root`; shared group directory modes
+alone did not solve that barrier. One unprivileged external supervisor per worker uses
+narrow short-lived privileged helpers to authenticate the original launch,
+verify uid/ancestry/namespace and PID lifetime, acquire the authorized mount
+handles and signal the verified worker tree. No long-lived root supervisor,
+shared daemon, arbitrary host-path opener or broad server inspection privilege
+is selected.
+
+The server receives only the verified private runtime-state and turn-temp
+handles, checks mount identity/type/exact allowance, populates bounded state
+before releasing the existing start gate and retains the handles for space
+observation and post-exit access. Control/authorization/mount descriptors stay
+outside the agent payload; the existing descriptor filter is preserved. This
+extends access to the selected private kernel-bounded mounts, not to shared
+unbounded storage. The state/temp allowances, aggregate admission budgets and
+native staged-output capacity/authority rules do not change.
+
+For a worker-private file or directory, use a fixed trusted uncredentialed
+reader under the worker uid, supplied only authorized retained handles. It
+imports/evaluates no repository code; raw reads retain the anchored path/alias,
+regular-file and byte limits. A file still unreadable is name/size-only, not
+revertible, with the governance event and roadblock. Neither descriptor transfer
+alone nor privileged root byte streaming is the selected private-file solution.
+
+Supervisor/control loss terminates the owned worker tree through a mechanism
+that survives that loss, and the turn fails. Server death, cancellation and
+partial setup also terminate owned descendants and reconcile owned resources;
+there is no replacement-supervisor recovery, replay or same-uid fallback when
+configured for separate identity. Recovery starts only after verified owned-tree
+termination and implemented owned-I/O cleanup. Never copy out for persistence
+or promotion while a known owned-tree writer survives. A failed cleanup or
+recovery remains visible and cannot be reported as successful execution.
+
+This supersedes the historical assertions that namespace exit removes every
+possible writer, that entry checks cannot race, that closing a descriptor proves
+physical reclamation, or that server death leaves no possible external storage
+reference. In #1677's narrow descriptor-transfer control, a cooperating external
+process retained a writable private-tmpfs handle after origin-tree termination.
+External handles, mappings and outstanding operations may retain or mutate a
+source beyond that tree. Recovery is best effort over observed bytes; a stable
+copied result is not necessarily an atomic snapshot of mutable state.
+
+Preserve configured bounds and charge known retained/recovery resources until
+owned storage and handles are released, exactly once. An empty cgroup or closed
+server handles do not establish globally quiescent objects or reclaimed host
+memory; external-reference accounting remains a stated limit. The approved
+scope is practical safeguards with proportionate targeted controls for the
+observed channel and obvious reachable defects, not universal OS capability
+confinement. Existing guards and truthful incomplete/refused outcomes remain
+required. Read-only native checkpoints retain their separate immutable-input
+role under [native brain storage](native-brain-storage.md); they do not capture
+mutable runtime-state or turn-temp tmpfs contents.
+
+brain-kit owns protocol/integration/status/budgeting and fixture qualification;
+[brain-hosting-template #18](https://github.com/schlessera/brain-hosting-template/issues/18)
+owns production helper packaging, identities, ownership, migration and container
+proof. No production setuid binary is built or shipped here. The original
+same-uid optional-host path remains available with masks and explicit exposure
+disclosure. Real second-uid launch, post-exit reads, namespace/signalling,
+supervisor/server death, descriptor filtering and negative/mutation evidence
+are required by #1677; this amendment claims none of that runtime delivery.
+
 **Exhaustion is named, not polled.** The native runtime does not fail when its
 runtime state is full: measured with Claude Code 2.1.292, a turn whose tool
 filled the tmpfs still streamed its answer and reported success, while the
@@ -520,7 +599,12 @@ message says so instead. A copy-out refusal without exhaustion is named
 `worker_state_save_refused` (#1697), with a safe reason and an explicit
 incomplete-save disclosure; retry does not recover unsaved state. A reported write error stays on record however much
 the worker prints after it, and a refusal is recognized by its class from any
-copy of the module. A host cancellation outranks it.
+copy of the module. A host cancellation outranks it. Cancellation is checked
+again after worker settlement, so a buffered SDK success or error cannot
+replace an accepted cancellation while exit or copy-out is pending
+(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:250-268`).
+Generated terminals also await worker settlement before emission
+(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:312-352`).
 **Residual:** a turn that fills the tmpfs and frees space again between those
 two checks is named only if the runtime printed the write error.
 

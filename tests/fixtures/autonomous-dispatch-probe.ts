@@ -1,3 +1,6 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
+import { Database } from "bun:sqlite";
+import { createFixtureWorkerStartupView } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * Follow-up scope proof (#689, moved from #676 AC3), run behind the caller's
  * offline network namespace. Nothing here reaches a real network or provider.
@@ -19,7 +22,7 @@ const brainPath = join(root, "brain");
 const receiptPath = join(root, "receipt.json");
 const KEY = "sk-odysseus-fixture-relay-key";
 export const NOTE = "notes/ithaca-loom.md";
-export const CONTENT = "Penelope keeps the loom until Odysseus returns.\n";
+export const CONTENT = "---\ntitle: Ithaca loom\ntype: note\n---\nPenelope keeps the loom until Odysseus returns.\n";
 const EXISTING = "notes/quick-note-water.md";
 
 async function main(): Promise<void> {
@@ -89,6 +92,7 @@ async function main(): Promise<void> {
       profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }] });
 
   const db = createUiDb(join(root, "ui.sqlite"));
+  const nativeHost = createFixtureTurnHost(brainPath, db);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const intake = createInboxIntake(db, brainPath);
   const arrival = await intake.cli({ text: "Penelope asks that her loom be recorded in Ithaca's notes.", files: [] }, "odysseus-loom", principal);
@@ -99,7 +103,7 @@ async function main(): Promise<void> {
     return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 100, output_tokens: 10 }, answers: Object.fromEntries(ids.map(id => [id,
       { type: "choice", choice: "needs_agent", confidence: 0.9, probabilities: { drop: 0.03, rule: 0.03, needs_agent: 0.91, needs_user: 0.03 } }])) });
   };
-  const dispatcher = createInboxDispatcher(db, { brainRoot: brainPath, budget, classification: { apiKey: "fixture-classification-key" }, fetch: classify,
+  const dispatcher = createInboxDispatcher(db, { nativeManager: nativeHost.nativeManager, brainRoot: brainPath, budget, classification: { apiKey: "fixture-classification-key" }, fetch: classify,
     store: createActivityStore(db, { writer: "autonomous-dispatch", pricing: budget.pricing }),
     select: async () => ({ backend, profileId: "fixture", model: "claude-sonnet-4-6", billingMode: "api",
       maximumTokens: { inputTokens: 20_000, outputTokens: 2_000, cacheReadTokens: 20_000, cacheCreationTokens: 20_000 } }) });
@@ -126,15 +130,26 @@ async function main(): Promise<void> {
     passes.push(await runtime.tick());
     passes.push(await runtime.tick());
   }
+  // Read a frozen view so the assertion cannot mutate live SQLite sidecars.
+  let indexedNote: { path: string; content: string } | null = null;
+  const view = createFixtureWorkerStartupView(brainPath);
+  try {
+    if (existsSync(join(view.root, "brain.db"))) {
+      const index = new Database(join(view.root, "brain.db"), { readonly: true });
+      try { indexedNote = index.query<{ path: string; content: string }, [string]>("SELECT path, content FROM documents WHERE path = ?").get(NOTE); }
+      finally { index.close(); }
+    }
+  } finally { await view.cleanup(); }
+  const applications = db.query<{ payload: string }, []>("SELECT payload FROM activity_events WHERE event_type = 'brain_application'").all().map(row => JSON.parse(row.payload));
   const read = (path: string) => existsSync(join(brainPath, path)) ? readFileSync(join(brainPath, path), "utf8") : null;
-  writeFileSync(receiptPath, JSON.stringify({ passes, proposed, decisions: decisions(), requests, principalId: principal.id,
+  writeFileSync(receiptPath, JSON.stringify({ passes, proposed, indexedNote, applications, decisions: decisions(), requests, principalId: principal.id,
     arrival: store.getItem(arrival.itemId), followUp: followUpId ? store.getItem(followUpId) : null,
     executes: store.snapshot().items.filter(item => item.queue === "queue" && item.type === "execute").length,
     files: { note: read(NOTE), suitors: read("notes/suitors.md"), existing: read(EXISTING) === existing ? "unchanged" : read(EXISTING) },
     reservations: db.query("SELECT purpose, status, charged_turns, observed_cost_usd, charged_cost_usd, reserved_cost_usd FROM inbox_budget_reservations ORDER BY rowid").all(),
     checkpoints: db.query("SELECT facts_json FROM inbox_checkpoints WHERE id NOT LIKE 'triage-%' ORDER BY rowid").all()
       .map(row => JSON.parse((row as { facts_json: string }).facts_json).operations) }));
-  await runtime.close(); await intake.close(); upstream.stop(true); db.close();
+  await runtime.close(); await intake.close(); upstream.stop(true); await nativeHost.close(); db.close();
   process.exit(0);
 }
 

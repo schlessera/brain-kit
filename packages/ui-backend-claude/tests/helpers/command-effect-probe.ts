@@ -1,3 +1,4 @@
+import { createFixtureMaintenanceHost } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Hand-driven SDK hooks, with actual offline fake-git execution as the negative control. */
 import { afterEach, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import type { WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { createPermissionWiring } from "../../src/permission-hooks";
 import { createTurnLockBinding } from "../../src/turn-lock";
 import { MUTATING_TOOL_MATCHER } from "../../src/tool-policy";
+import { resetRtkProbe } from "../../../ui-sdk/src/server/rtk.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -35,7 +37,10 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
   const turnLock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() },
     writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {}, admission: { signal } });
   const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [] };
-  const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", signal,
+  const maintenance = createFixtureMaintenanceHost(root);
+  // Every probe owns its PATH; do not reuse another fixture's availability result.
+  resetRtkProbe();
+  const wiring = createPermissionWiring({ maintenance, req: { prompt: "Return to Ithaca", signal,
     workerSandbox: { commandPolicy, brain: root, profile: "governed" } as unknown as WorkerSandbox,
     ...(options.voice ? { posture: "voice" as const, enforceAllowedTools: true } : {}), noGrantSurface: options.noGrantSurface,
     bridge: { emit: () => {}, activity: event => events.push(event), requestPermission: async request => {
@@ -69,5 +74,5 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
     }
     return { requests, events, outputs, rewritten: existsSync(rewriteMarker), executed: existsSync(marker),
       bytes: existsSync(marker) ? readFileSync(marker, "utf8") : null };
-  } finally { turnLock.close(); }
+  } finally { resetRtkProbe(); turnLock.close(); maintenance.cleanup(); }
 }

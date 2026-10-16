@@ -204,15 +204,28 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
-        run: bash scripts/ci-runtime-setup.sh
+        run: bash scripts/ci-runtime-setup.sh --native
+      # Diagnostic only: names the task that queues each deleted checkpoint (#1967).
+      - name: Start btrfs dead-root kernel trace
+        run: |
+          mkdir -p tmp/native-host-proof
+          sudo bash scripts/native-proof/dead-root-trace.sh start tmp/native-host-proof/dead-root-trace.txt
       - name: Complete runtime proof
         run: bun scripts/ci-proof.ts runtime
+      - name: Stop and classify btrfs dead-root kernel trace
+        if: always()
+        run: |
+          sudo bash scripts/native-proof/dead-root-trace.sh stop
+          if [ -f tmp/native-host-proof/dead-root-trace.txt ]; then
+            bun scripts/native-proof/dead-root-trace.ts tmp/native-host-proof/dead-root-trace.txt tmp/native-host-proof
+          fi
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: runtime-proof
           path: |
+            tmp/native-host-proof/
             tmp/proof-checkout.json
             tmp/unit-report.xml
             tmp/unit-timings.json

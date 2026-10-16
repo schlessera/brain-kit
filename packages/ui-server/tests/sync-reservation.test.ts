@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainRoutes } from "../src/routes/brain";
-import { createHostBoundary } from "../src/brain/host-boundary";
+import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
 import type { BrainClient } from "../src/brain/client";
 import type { KeytermSettings } from "../src/voice/keyterm-builder";
 

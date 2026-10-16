@@ -16,7 +16,7 @@ import {
   chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { boundaryPlanner, createBrainApplication } from "../src/brain/application";
 import { createBrainClient } from "../src/brain/client";
@@ -29,7 +29,8 @@ import { createUiDb } from "../src/db/client";
 import { createWriterGate } from "../src/brain/writer-gate";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createApp, type CreateAppOptions } from "../src/app";
+import type { CreateAppOptions } from "../src/app";
+import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers/native-app-fixture";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
@@ -37,7 +38,14 @@ const ROOT = resolve(import.meta.dir, "../../..");
 const CORPUS = join(ROOT, "packages/core/fixtures/corpus");
 const CORE = join(ROOT, "packages/core/src/index.ts");
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+const nativeCleanup: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+
+/** Only input acquisition is replaced; the namespace worker and publication remain real. */
+function nativeManager(brain: string) {
+  const fixture = createNativeAppFixture(brain); nativeCleanup.push(fixture.close);
+  return createNativeBrainManagerClient(fixture.nativeBrain);
+}
 
 /** Whether this host runs the worker boundary at all; every test here needs it. */
 let supported = false;
@@ -122,7 +130,7 @@ function bootApp(brain: string, dbPath: string, options: Pick<CreateAppOptions, 
 function boundaryFor(brain: string, outside: string) {
   const state = dirname(outside);
   mkdirSync(state, { recursive: true });
-  return createHostBoundary({ brainPath: brain, dbPath: join(state, "brain-ui.db") });
+  return createHostBoundary({ brainPath: brain, dbPath: join(state, "brain-ui.db"), nativeManager: nativeManager(brain) });
 }
 
 describe("the host execution boundary (#1648)", () => {
@@ -209,11 +217,12 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
     expect(boundaryFor(f.brain, f.outside).isolated()).toBe(true);
   });
 
-  test("governed needs a maintenance worker that starts, network namespace included", () => {
+  test("governed needs a maintenance worker that starts, network namespace included", async () => {
     const f = fixture({ config: "plain" });
     const maintenance = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: false, requirement: "network namespaces are denied" });
     try {
-      const boundary = createHostBoundary({ brainPath: f.brain, workerHost: () => ({ ok: true }) });
+      const boundary = createHostBoundary({ brainPath: f.brain, workerHost: () => ({ ok: true }), nativeManager: nativeManager(f.brain) });
+      await boundary.prepare();
       expect(boundary.governed(), "MAINTENANCE_PROBED").toEqual({ available: false, reason: "worker_host_unavailable", detail: "network namespaces are denied" });
     } finally { maintenance.mockRestore(); }
   });
@@ -242,7 +251,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
     installCli(f.brain);
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
-    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {} });
+    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain) });
     const db = createUiDb(dbPath);
     try {
       execution.attach(db);
@@ -281,7 +290,7 @@ describe("cron jobs (#1648)", () => {
     installCli(f.brain);
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
-    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, requireGate: true });
+    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
     const db = createUiDb(dbPath);
     try {
       execution.attach(db);
@@ -348,7 +357,7 @@ describe("governed availability", () => {
     try {
       const status = (await (await app.fetch(new Request("http://localhost/api/status"))).json()) as SystemStatus;
       expect(status.runtime?.workerHost?.governed).toMatchObject({ available: false, reason: "server_cwd_in_brain",
-        detail: expect.stringContaining("start the server from a directory outside the brain"), hostExecution: "host" });
+        detail: expect.stringContaining("start the server from a directory outside the brain"), hostExecution: "worker" });
       const db = new Database(dbPath);
       try {
         createGovernedManifests(db, { brainPath: f.brain, quarantineDir: quarantineDirFor(dbPath) }).begin("turn-history");

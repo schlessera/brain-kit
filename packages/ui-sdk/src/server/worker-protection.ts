@@ -1,6 +1,7 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
   type WorkerProtection, type ProtectedWorkerPath } from "./worker-sandbox.js";
@@ -48,9 +49,13 @@ export function resolveWorkerProtection(brain: string, options: {
     const names = [...new Set([...(options.paths ?? protectedPaths()), ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
     if (mountPointsUnder(brain).some(path => path !== brain)) throw new Error("the brain contains another mount");
     // A writable brain must not provide a writable alias to a host file.
-    const scan = scanForOutsideLinks(brain, brain);
-    if (scan.overLimit || scan.unverified || scan.brainInside || scan.outside.length) {
-      throw new Error(scan.unverified ?? (scan.outside.length ? `the brain has hardlinks outside it: ${scan.outside.slice(0, 3).join(", ")}` : "the brain's aliases could not be verified"));
+    // The qualified native brain is an entire subvolume: Btrfs forbids links
+    // crossing its root. Protected-subtree and scratch aliases still need checks.
+    if (!hasNativeBrainBoundary(brain)) {
+      const scan = scanForOutsideLinks(brain, brain);
+      if (scan.overLimit || scan.unverified || scan.brainInside || scan.outside.length) {
+        throw new Error(scan.unverified ?? (scan.outside.length ? `the brain has hardlinks outside it: ${scan.outside.slice(0, 3).join(", ")}` : "the brain's aliases could not be verified"));
+      }
     }
     for (const rel of names) {
       if (!rel || rel.startsWith("/") || rel.split("/").some(part => !part || part === "." || part === "..")) throw new Error("invalid protected path");

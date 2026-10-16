@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { DraftListResponse, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -317,10 +318,17 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await a.context.unroute("**/api/drafts/**");
         await a.page.locator('[data-draft-save="saved"]').waitFor({ timeout: 20_000 });
 
-        // Sent: the host consumes the session's draft, and nothing recreates it.
+        // Native proof owns the exact accepted revision and real host consumption.
+        // The registered-clock cases cover retired saves and stale reads on both clients.
+        const saved = await fixture(a.page, (f) => ({ view: f.view(), priorRequests: f.sends().map(send => send.requestId) }));
+        expect(saved.view.revision, "the send starts with an acknowledged host revision").not.toBeNull();
+        expect(saved.view.revision).toBeGreaterThan(0);
         await composer(a.page).press("Enter");
-        await hostUntil((d) => !d.some((x) => x.sessionId === session));
-        await Bun.sleep(1500);
+        await until(a.page, `f.sends().some(send => !${JSON.stringify(saved.priorRequests)}.includes(send.requestId) && send.state === "accepted")`);
+        const accepted = (await fixture(a.page, (f) => f.sends())).filter(send => !saved.priorRequests.includes(send.requestId));
+        expect(accepted).toHaveLength(1);
+        expect(accepted[0]?.draftRef).toEqual({ draftId: saved.view.draftId, revision: saved.view.revision! });
+        await hostUntil((d) => !d.some((x) => x.sessionId === session) && prompts.filter((p) => p === offline).length >= 1);
         expect((await hostDrafts()).some((x) => x.sessionId === session)).toBe(false);
         expect(await composer(a.page).inputValue()).toBe("");
         expect(prompts.filter((p) => p === offline)).toHaveLength(1);

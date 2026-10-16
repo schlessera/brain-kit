@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { pathToFileURL } from "node:url";
@@ -6,7 +7,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createWriterGate } from "../../ui-server/src/brain/writer-gate.js";
 import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
@@ -17,6 +19,7 @@ if (!executablePath) throw new Error("Turn journal proof requires real Chrome");
 const repo = resolve(import.meta.dir, "../../.."), password = "the bow only Odysseus can string", turnId = "odysseus-journal";
 const skillPath = ".claude/skills/voyage-log/SKILL.md";
 let taintSourceEventId = 0;
+const observability = createRecordingObservability();
 let root = "", origin = "", browser: Browser, app: Awaited<ReturnType<typeof createApp>>, server: ReturnType<typeof Bun.serve>;
 async function child(args: string[]) {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
@@ -34,23 +37,27 @@ beforeAll(async () => {
   await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
   await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
   await child([process.execPath, "-e", 'const result=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!result.success){console.error(result.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/turn-journal-client.tsx"), assets]);
+  // Seed the excluded-path receipt explicitly; background cache writes are not test inputs.
+  await writeFile(resolve(brain, ".gitignore"), "journal-ignored.tmp\n");
+  await writeFile(resolve(brain, "journal-ignored.tmp"), "Odysseus prepares a temporary draft.\n");
   const backend = makeFakeBackend({ id: "journal-fixture" });
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() });
-  app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability });
+  await app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
+  await writeFile(resolve(brain, "journal-ignored.tmp"), "Athena revises the temporary draft.\n");
   await writeFile(resolve(brain, skillPath), "# Voyage log\nAthena reviews the crossing.\n");
   app.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Homeward',1,1)").run();
   taintSourceEventId = recordGovernanceEvent(app.db, { kind: "taint", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } }).id;
   for (const decision of ["approved", "declined"] as const) recordGovernanceEvent(app.db, { kind: "outward_action", sessionId: "ithaca", turnId, actor: "interactive", model: null, profile: "governed",
     payload: { tool: "Bash", input: JSON.stringify({ command: "git push origin main" }), inputTruncated: false, action: "git_push", target: "github.com/odysseus/voyage.git", historyRewrite: false, tainted: false, decision, rule: null } });
-  app.wsHost.journal!.finish(turnId);
+  await app.wsHost.journal!.finish(turnId);
   const seed = JSON.stringify({ turnId, summary: app.wsHost.journal!.summary(turnId) });
   const conflictPath=resolve(brain,"notes/crossing.md"), conflictId="odysseus-conflict";
   await writeFile(conflictPath,"---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\nInitial crossing.\n");
   const metadata={sessionId:"ithaca",actor:"interactive" as const,model:null,profile:"governed" as const,policyHash:null};
-  app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
-  for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);app.wsHost.journal!.observe();}
-  app.wsHost.journal!.finish(conflictId);app.wsHost.journal!.finish("athena-conflict");
+  await app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});await app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
+  for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);await app.wsHost.journal!.observe();}
+  await app.wsHost.journal!.finish(conflictId);await app.wsHost.journal!.finish("athena-conflict");
   const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
   await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed}</script><script type="module" src="/client.js"></script></body></html>`);
   for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
@@ -68,7 +75,11 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
   catch { const body = await page.locator("body").innerText(); await context.close(); throw new Error(`Journal scene failed: ${body}; ${errors.join("; ")}`); }
   return { context, page, outside };
 }
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (const replay of [false, true]) test(`journal ${replay ? "replay" : "live"} ${theme} ${width} starts collapsed and reviews raw versions with stable keyboard focus`, async () => {
+// JournalTheme stories cover both themes on the actual journal and readers.
+// Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
+// real Revert/Undo file effects here with deterministic theme selection.
+const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
+for (const [width, theme] of journalRuntimeCells) for (const replay of [false, true]) test(`journal ${replay ? "replay" : "live"} ${theme} ${width} starts collapsed and reviews raw versions with stable keyboard focus`, async () => {
   const { context, page, outside } = await scene(width, theme, replay);
   try {
     const disclosure = page.getByRole("button", { name: /changed file/ });
@@ -170,7 +181,7 @@ test("stale bytes skip the reviewed path and a refused journal produces a named 
     await writeFile(resolve(root,"brain/notes/voyage.md"),"Penelope's later work\r\n");await page.getByRole("button",{name:"Revert notes/voyage.md",exact:true}).click();await page.getByRole("button",{name:"Close",exact:true}).click();
     await page.locator("[data-revert-receipt='partial']").waitFor();expect(await page.locator("[data-revert-receipt]").innerText(),"REVERT_BROWSER_CONFLICT_NAMED").toContain("notes/voyage.md: conflict");expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8")).toBe("Penelope's later work\r\n");expect(await page.getByRole("button",{name:"Undo",exact:true}).count()).toBe(0);
     await writeFile(resolve(root,"brain/notes/voyage.md"),"Athena charts the return.\r\n");
-    app.db.exec("CREATE TRIGGER refuse_user_journal BEFORE INSERT ON turn_journal_manifests WHEN NEW.turn_id LIKE 'revert_%' BEGIN SELECT RAISE(ABORT,'fixture user journal unavailable'); END");
+    app.db.exec("CREATE TRIGGER refuse_user_journal BEFORE UPDATE OF started_at ON turn_journal_turns WHEN NEW.turn_id LIKE 'revert_%' BEGIN SELECT RAISE(ABORT,'fixture user journal unavailable'); END");
     await page.getByRole("button",{name:"Review notes/voyage.md",exact:true}).click();await page.getByRole("button",{name:"Revert notes/voyage.md",exact:true}).click();await page.getByRole("button",{name:"Close",exact:true}).click();await page.locator("[data-revert-receipt='failed']").waitFor();
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"),"REVERT_FAILED_ADMISSION_NO_EFFECT").toBe("Athena charts the return.\r\n");expect(await page.getByRole("button",{name:"Undo",exact:true}).count()).toBe(0);
   } finally { app.db.exec("DROP TRIGGER IF EXISTS refuse_user_journal");await writeFile(resolve(root,"brain/notes/voyage.md"),"Athena charts the return.\r\n");await context.close(); }
@@ -193,7 +204,7 @@ test("voice and expired facts remove actions; an old POST response cannot attach
   } finally {releaseResponse?.();hold.release();await context.close();}
 });
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
+for (const [width, theme] of journalRuntimeCells) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
   const { context, page, outside } = await scene(width, theme, true);
   try {
     await page.getByRole("button", { name: /changed file/ }).click();
@@ -218,7 +229,7 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`st
   } finally { await context.close(); }
 });
 
-for(const width of [320,1280])for(const theme of ["dark","light"])test(`shared conflict reader chooses retained versions, keeps both and Undo ${theme} ${width}`,async()=>{
+for(const [width,theme] of journalRuntimeCells)test(`shared conflict reader chooses retained versions, keeps both and Undo ${theme} ${width}`,async()=>{
   const {context,page,outside}=await scene(width,theme,true,true);
   try {
     await page.getByRole("button",{name:/changed file/}).click();
@@ -246,10 +257,21 @@ test("keep-both refreshes the actual disposable index with both retained files",
     let paths:string[]=[];
     for(let attempt=0;attempt<100;attempt++){
       const path=resolve(root,"brain/brain.db");
-      if(await Bun.file(path).exists()){const db=new Database(path,{readonly:true});try{if(db.query("SELECT 1 FROM sqlite_schema WHERE name='documents'").get())paths=(db.query("SELECT path FROM documents WHERE path IN ('notes/crossing.md','notes/crossing-remote.md') ORDER BY path").all()as{path:string}[]).map(row=>row.path);}finally{db.close();}}
+      if(await Bun.file(path).exists()) {
+        // Read a frozen host view: opening live WAL-mode SQLite can mutate its SHM file.
+        let view: ReturnType<typeof createFixtureWorkerStartupView> | undefined;
+        try {
+          view = createFixtureWorkerStartupView(resolve(root, "brain"));
+          const db = new Database(resolve(view.root, "brain.db"), { readonly: true });
+          try { if(db.query("SELECT 1 FROM sqlite_schema WHERE name='documents'").get()) paths=(db.query("SELECT path FROM documents WHERE path IN ('notes/crossing.md','notes/crossing-remote.md') ORDER BY path").all() as {path:string}[]).map(row=>row.path); }
+          finally { db.close(); }
+        } catch (error) {
+          if (!(error instanceof Error) || !/startup (?:input|file|directory).*changed/.test(error.message)) throw error;
+        } finally { view?.cleanup(); }
+      }
       if(paths.length===2)break;await Bun.sleep(50);
     }
-    expect(paths,"CONFLICT_KEEP_BOTH_ACTUAL_INDEX_SEES_BOTH").toEqual(["notes/crossing-remote.md","notes/crossing.md"]);
+    expect(paths,`CONFLICT_KEEP_BOTH_ACTUAL_INDEX_SEES_BOTH ${JSON.stringify(observability.logs.records())}`).toEqual(["notes/crossing-remote.md","notes/crossing.md"]);
   }finally{await context.close();}
 });
 

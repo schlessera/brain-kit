@@ -68,6 +68,76 @@ inspecting CI on a PR live in the `work-issue` skill's
   smallest collaborator that proves the behavior; borrowing a real adapter
   for a helper's test couples that assertion to unrelated adapter changes.
 
+## PDF optimizer startup regression
+
+For #1897, an empty-cache pass alone misses the failing state: Vite can accept
+an incomplete cache created by a smaller test discovery. Late PDF discovery
+then replaces dependency URLs during an executing test. A lazy graph can
+receive a different React default export and internals from the active
+renderer, leaving its hook dispatcher null. React package deduplication does
+not prevent this URL transition. Both PDF modules belong in the eager inputs
+in `packages/ui-kit/vite.config.ts`.
+
+Keep this bounded native regression recipe when changing browser optimizer
+inputs. Use an isolated checkout with its own frozen dependencies, completed
+build and no generated `packages/ui-kit/node_modules/.vite/**` cache. Run from
+the repository root, using the pinned offline runner and its locked fonts:
+
+1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
+   only the `ui-react-layout` project's discovery array with
+   `["../ui-react/tests/browser/graph-labels.layout.tsx"]`.
+2. Seed the partial cache (all four cases must pass):
+
+   ```sh
+   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=graph-labels.layout
+   ```
+
+3. Restore the saved configuration byte for byte, retaining the generated cache.
+   Save its `_metadata.json` and hash the lockfile/config/test inputs. Run this
+   command twice, recording each exit code, complete log and optimizer metadata
+   separately, even when the first fails:
+
+   ```sh
+   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=remaining-buttons.layout
+   ```
+
+The corrected seed already contains both PDF modules. Both target invocations
+must pass all 38 cases without `optimized dependencies changed. reloading`,
+Vitest's unexpected-reload warning or hook errors. Also run the target once
+from an empty cache. Preserve graph assertions and pointer/theme coverage.
+
+For mutation proof, remove both PDF entries from the eager optimizer inputs
+**before seeding a fresh cache**, then repeat the recipe. The partial-cache
+arm reproduces two graph-row failures and null `useRef` dispatcher errors;
+the identical prepared-cache arm passes. Retain the first failed assertion;
+the second run demonstrates recovery, not correction. Restore the entries
+and repeat the seed/target pair. Merely removing entries against an already
+prepared cache does not exercise this guard.
+
+## Light and dark parity
+
+Storybook is the central owner of reusable light/dark layout and interaction
+parity: run the same meaningful geometry, focus, input and action assertions in
+both projects, with the accessibility gate enabled in each. Include actual
+consumer compositions and their shipped styles where kit-only fixtures cannot
+cover the painted result. The [coverage map](theme-parity.md) names the cases,
+assertions, explicit theme overrides and remaining runtime boundaries.
+
+Choose runtime dimensions by independent failure mode. Repeating a scenario
+in another theme requires a named theme-sensitive defect or integration
+boundary and a narrow reproducing case. Legitimate examples are theme
+persistence/switching/first paint, theme-specific styling or contrast, and a
+consumer stylesheet boundary not already covered centrally. Reconnection,
+persistence or auth alone does not justify a theme multiplier. Before reducing
+one, map every assertion to retained runtime or central coverage; preserve
+unique behavior, security, responsive and native-browser proof.
+
+## Deliberate waits
+
+Follow [the wait classification and clock rules](test-waits.md): distinguish
+actual awaited delays from failure caps and fixture holds, preserve negative
+temporal guarantees, and measure native exceptions separately.
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes

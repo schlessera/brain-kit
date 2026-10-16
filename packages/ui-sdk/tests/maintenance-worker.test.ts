@@ -1,3 +1,4 @@
+import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 /**
  * #1648: the maintenance worker, the launcher form the server's own work on a
  * governed brain runs in. The brain is writable; the host is read-only, with
@@ -11,7 +12,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
 import { HOST_MASKS, MAINTENANCE_HOME, probeWorkerHost, workerCommand } from "../src/server/worker-launcher";
-import { brainGitSync, maintenanceLaunch, runMaintenanceWorker } from "../src/server/maintenance-worker";
+import { brainGitSync as realBrainGitSync, maintenanceLaunch, runMaintenanceWorker as realRunMaintenanceWorker } from "../src/server/maintenance-worker";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const roots: string[] = [];
@@ -215,3 +216,14 @@ describe("maintenance launch refusals", () => {
     expect(() => workerCommand(maintenanceLaunch({ ...base, credentials: false, writeFiles: [inside] }))).toThrow("outside the brain");
   });
 });
+
+async function runMaintenanceWorker(input: Parameters<typeof realRunMaintenanceWorker>[0]) {
+  const maintenance = createFixtureMaintenanceHost(input.brainPath);
+  try { return await realRunMaintenanceWorker({ ...input, ...maintenance }); }
+  finally { maintenance.cleanup(); }
+}
+function brainGitSync(brain: string, args: readonly string[], options: Parameters<typeof realBrainGitSync>[2] = {}) {
+  const maintenance = createFixtureMaintenanceHost(brain, options);
+  try { return realBrainGitSync(brain, args, { ...options, ...maintenance }); }
+  finally { maintenance.cleanup(); }
+}

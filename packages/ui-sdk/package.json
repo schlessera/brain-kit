@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-sdk",
-  "version": "0.42.0",
+  "version": "0.43.1",
   "description": "brain-kit chat-UI SDK: the wire protocol, AgentBackend/SpeechProvider server seams, and client renderer/ASR registries",
   "license": "MIT",
   "keywords": [
@@ -120,5 +120,8 @@
     "@types/react": "^19.0.0",
     "@types/semver": "^7.8.0",
     "typescript": "^6.0.3"
+  },
+  "bin": {
+    "brain-native-store": "./dist/bin/brain-native-store.js"
   }
 }

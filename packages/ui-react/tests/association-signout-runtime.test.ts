@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium, type Browser, type Page, type Locator } from "playwright";
-import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
+import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { generateWav, AUDIO_FIXTURES } from "./browser/offline/audio-fixtures.ts";
@@ -197,7 +198,10 @@ async function assertEmpty(page: Page, key: string) {
   expect(sizes.filter(s => s.partition === `account:${key}`), "account size ledger is empty too").toEqual([]);
 }
 
-for (const width of [320,390,900,1280]) for (const theme of ["dark","light"]) for (const coarse of [false,true]) {
+// AccountTheme stories cover both themes on these actual consumer dialogs.
+// Keep every native width/pointer pair for auth, IndexedDB ownership, playback,
+// scoped deletion, focus and accessibility; theme selection stays deterministic.
+for (const [width, theme] of [[320,"dark"],[390,"light"],[900,"dark"],[1280,"light"]] as const) for (const coarse of [false,true]) {
   runtimeTest(`explicit association and scoped sign-out ${width}px ${theme} ${coarse ? "coarse" : "fine"}`, async () => {
     const {page,context,blocked,hostWrites} = await boot(width,theme,coarse);
     try {

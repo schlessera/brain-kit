@@ -314,7 +314,7 @@ export function rewriteTags(
 ): { text: string; from: string[]; to: string[] } | { skip: string } | null {
   let data: Record<string, unknown>;
   try {
-    data = parseFrontmatter(text).data;
+    data = parseFrontmatter(text, { dataOnly: true }).data;
   } catch {
     return { skip: "frontmatter does not parse" };
   }
@@ -379,7 +379,7 @@ export function rewriteTags(
   const result = text.slice(0, bounds.start) + rewritten + text.slice(bounds.end);
   let check: unknown;
   try {
-    check = parseFrontmatter(result).data.tags;
+    check = parseFrontmatter(result, { dataOnly: true }).data.tags;
   } catch {
     return { skip: "the rewritten frontmatter does not parse" };
   }
@@ -448,7 +448,7 @@ export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApply
       const text = readFileSync(fullPath, "utf-8");
       let type: string | null = null;
       try {
-        const data = parseFrontmatter(text).data;
+        const data = parseFrontmatter(text, { dataOnly: true }).data;
         type = typeof data.type === "string" ? data.type : null;
       } catch {
         // rewriteTags reports it as skipped.

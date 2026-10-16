@@ -198,9 +198,22 @@ no-line waypoint note. Live and replayed messages use the same mapping. These
 rows offer no open or playback action. Image attachments retain their live
 80px zoomable thumbnails and count-only history chip.
 
-System shares remain under review until **Add to brain** is tapped. Dismiss
-cancels an in-flight upload. A previously confirmed share may resume when the
-connection returns; a share the reader has not confirmed never starts itself.
+System shares remain under review until **Add to brain** is tapped. Their
+original text and files are committed to the authenticated account’s device-local
+partition before review admission; reload and same-account authentication restore
+them. A native browser lock gives one tab ownership and releases automatically
+when that tab closes. Other accounts cannot recover them. The existing stash TTL
+and intake size caps still apply. Explicit sign-out includes these originals in
+the deletion warning and clears them with the account’s other local work.
+Consumers of the same root share ownership. Leaving the last review view drops
+its memory without deleting the original, allowing another tab or a later view
+to recover it. Multiple previously confirmed shares resume one at a time.
+Dismiss cancels an in-flight upload and commits deletion of the retained original. A previously confirmed share may resume when the
+connection returns, including after reload or same-account authentication; a share
+the reader has not confirmed never starts itself. A complete successful server
+intake response transfers ownership to the server’s durable Queue before chat
+starts. A failed, missing or partial response keeps the local original. Browser
+or storage failures report that the original is kept rather than deleting it.
 Generic share intake still retains ordinary originals without track labeling.
 
 `show_block`'s `track` kind names only a staged `source.path`. The server parses
@@ -628,6 +641,16 @@ restored closed requests remain read-only. Decisions use the current shared
 request state, so a duplicate view cannot send another reply, and keyboard
 focus moves to a different pending request or the composer.
 
+## Maintenance graph tasks
+
+The Maintenance graph shows separate disclosures for Orphans, Unreachable
+from root, Broken links, and Stale notes. Each category starts collapsed;
+expand its heading to inspect its findings. Categories expand independently,
+and their choices last while the view is mounted, including data refreshes
+and filter changes. Selecting a graph node does not expand a category or
+scroll hidden rows; an expanded category follows the selected node.
+Broken-link rows open the source note.
+
 ## Knowledge graph availability
 
 When the server cannot load its optional core peer, every graph mode shows
@@ -640,3 +663,53 @@ leave the graph view and return to refresh its metadata.
 This capability failure is distinct from an old or uncomputed index. See
 [the server installation guidance](../ui-server/README.md#installing-core-for-the-graph-and-voice-vocabulary)
 for the required core package.
+
+## Discovery placement
+
+Discovery uses exact outgoing-hop bands with deterministic lanes and branch
+wedges informed by directed link predecessors. Nearby marks do not establish a
+direct link or shared parent; cross-branch edges can still be drawn. The
+placement disclosure explains missing scene predecessors and the active colour
+legend. Every visible note remains accessible through zoom and the hop-grouped,
+degree-ranked node list, including notes in the missing-predecessor wedge.
+
+Identical scene data retains coordinates under input reorder, refetch, resize
+and presentation changes. Changed data can repack any branch inside its hop
+band; Discovery cuts to those positions and preserves the camera and selected
+node identity. A selected survivor receives a brief `Layout updated` notice.
+Changing root or depth resets the scene.
+
+Select a real note and choose **Expand** to reveal its outgoing targets from the
+original root's graph. Hop labels keep that root's distances. Counts come from
+the fetched response, never from degree estimates. Expansion uses the existing
+maximum of eight hops and server node/edge limits. A limited or stale response
+cannot establish that all links are shown; the note card explains that state.
+At eight hops, earlier and same-hop targets can still be revealed.
+
+Applied expansions animate surviving marks for 200 ms and fade in new ones;
+reduced motion cuts directly to their final positions. The status announces
+distinct notes added once. Failed or superseded requests do not announce success.
+**Reset expanded** restores the selected base depth and clears expansion choices;
+it retains a selected base note, otherwise returns focus to the node list.
+
+Sync rebuilds retained expansion paths from fresh bounded evidence. Missing
+paths in shallow, limited or stale data remain unresolved. Only complete fresh
+eight-hop evidence can establish that a path is outside the supported graph;
+it does not establish deletion. A failed rebuild retains the previous scene and
+offers **Refresh and retry**. Sync and reset use immediate layout updates.
+
+## Settings organization
+
+Settings exposes the same seven panes on phone, tablet and desktop: Appearance
+& input, Models, Accounts, Skills, Modules, Security, and Devices & agents.
+Theme and the single-key shortcut switch apply only on this device and live in
+Appearance & input. Accounts holds provider sign-in and web-search settings;
+Security holds passkeys, always-allowed tool revocation and sign-out.
+
+Below 900px the tab strip scrolls horizontally; desktop groups the section
+column by This device, This brain and Access. Arrow keys and Home/End move focus
+without loading a pane; Enter/Space select it. Models remains the default and
+selection survives resize. Module drafts and pending credentials keep their
+existing navigation and dismissal protections.
+Close and Escape return focus to the opener, including after a resize;
+choosing another destination preserves that destination's focus.

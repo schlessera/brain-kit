@@ -14,8 +14,8 @@ import {
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createApp } from "../src/app";
-import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
+import { createFixtureBrainClient as createBrainClient, probeFixtureBrainCliVersion as probeBrainCliVersion } from "./helpers/native-brain-client-fixture.js";
 import { resolveServerConfig, type ServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";

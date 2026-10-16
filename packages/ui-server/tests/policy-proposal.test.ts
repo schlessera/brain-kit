@@ -1,6 +1,6 @@
+import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { createHostExecution } from "../src/brain/host-execution.js";
-import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync, linkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,8 +13,8 @@ import { createPolicyProposals, type PolicyProposalTurn } from "../src/brain/pol
 import { createGovernancePolicyReader } from "../src/brain/governance-policy.js";
 const original = "---\nschema_version: 1\nprofiles:\n  interactive: governed\n---\nOdysseus reviews the policy.\n";
 const proposed = original.replace("interactive: governed", "interactive: strict").replace("reviews", "approves");
-const cleanup: Array<() => void> = [];
-afterEach(() => { for (const fn of cleanup.splice(0).reverse()) fn(); });
+const cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 function fixture(patch: Partial<Parameters<typeof createPolicyProposals>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), "policy-proposal-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "context/policies"), { recursive: true }); const path = join(root, "context/policies/governance.md"); writeFileSync(path, original);
@@ -88,29 +88,26 @@ for (const alias of ["symlink", "hardlink", "ancestor"] as const) test(`policy p
   f.answer(true); expect((await pending).state).toBe("refused"); expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toHaveLength(0);
 });
 
-test("the concrete journal records user/policy bytes and the next actual admission/journal captures the new policy hash", async () => {
+test("the concrete journal records user/policy bytes and the next journal admission captures the new policy hash", async () => {
   let journal!: ReturnType<typeof createTurnJournal>;
   const f = fixture({ observeUserPolicy: (id, write) => journal.observeUserPolicy(id, write) });
   const objects = mkdtempSync(join(tmpdir(), "policy-journal-state-")); cleanup.push(() => rmSync(objects, { recursive: true, force: true }));
-  journal = createTurnJournal(f.db, { brainPath: f.root, dbPath: ":memory:", objectsRoot: objects }); cleanup.push(() => journal.close());
+  const native = createNativeJournalFixture(f.root, objects); cleanup.push(() => native.close());
+  journal = createTurnJournal(f.db, { nativeManager: native.manager, brainPath: f.root, dbPath: ":memory:", objectsRoot: objects }); cleanup.push(() => journal.close());
   f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
   f.turn.sessionId = () => "ithaca";
-  const execution = createHostExecution({ brainPath: f.root, dbPath: ":memory:", profile: "governed" }); execution.attach(f.db);
-  const turns = createGovernedTurns({ brainPath: f.root, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
-  const initial = turns.facts();
-  journal.begin("policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: initial.policy.hash }, error => { throw error; });
+  const reader = createGovernancePolicyReader(f.root), initial = reader.load();
+  await journal.begin("policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: initial.hash }, error => { throw error; });
   const pending = f.service.propose(f.turn, "policy-1", input); f.answer(true); const result = await pending; expect(result.state).toBe("updated");
-  journal.finish("policy-turn");
+  await journal.finish("policy-turn");
   const details = journal.details("ithaca", "policy-turn")!, change = details.changes.find(change => change.path === "context/policies/governance.md")!;
   expect(change).toMatchObject({ actor: "user", class: "policy" });
   expect(journal.version("ithaca", "policy-turn", change.sequence, "before")!.bytes(1024).toString()).toBe(original);
   expect(journal.version("ithaca", "policy-turn", change.sequence, "after")!.bytes(1024).toString()).toBe(proposed);
-  const next = await turns.begin("next-policy-turn", new AbortController().signal);
-  try {
-    expect(next.policy.hash).toBe(result.proposedHash); expect(next.policy.policy.profiles.interactive).toBe("strict");
-    journal.begin("next-policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "strict", policyHash: next.policy.hash }, error => { throw error; });
-    expect(journal.summary("next-policy-turn").policyHash).toBe(result.proposedHash); journal.finish("next-policy-turn");
-  } finally { next.end(); await turns.close(); }
+  const next = reader.load();
+  expect(next.hash).toBe(result.proposedHash); expect(next.policy.profiles.interactive).toBe("strict");
+    await journal.begin("next-policy-turn", { sessionId: "ithaca", actor: "interactive", model: null, profile: "strict", policyHash: next.hash }, error => { throw error; });
+    expect(journal.summary("next-policy-turn").policyHash).toBe(result.proposedHash); await journal.finish("next-policy-turn");
 });
 
 test("a host restart/lost recorder cannot reactivate pending or uncertain policy execution", async () => {
@@ -141,4 +138,46 @@ test("missing brain permits service startup but never creates a root or requests
   mkdirSync(root);
   expect((await service.propose(turn, "root-now-present", input)).state).toBe("updated");
   expect(readFileSync(path, "utf8")).toBe(proposed); expect(approvals).toBe(1); expect(observations).toBe(1); expect(events).toBe(1);
+});
+
+
+test("unsupported proposals and current-policy section comparison never dispatch engines", async () => {
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    for (const language of ["js", "javascript", "JS", "JavaScript", "json", "odyssey", "unknown"]) {
+      const f = fixture(), content = `---${language}\nschema_version: 1\n---\nOdysseus\n`;
+      let error: unknown;
+      const refused = f.service.propose(f.turn, "unsupported", { ...input, content }).catch(caught => { error = caught; });
+      expect(sentinel.dispatched, "PROPOSAL_NO_ENGINE_DISPATCH").toEqual([]);
+      await refused;
+      expect(String(error)).toContain("use YAML data only");
+      expect(f.count()).toBe(0); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
+      expect(f.db.query("SELECT count(*) AS n FROM policy_proposals").get()).toEqual({ n: 0 });
+      expect(readFileSync(f.path, "utf8")).toBe(original);
+      // Invalid existing policy still gets an exact byte diff, without interpreting its engine.
+      writeFileSync(f.path, content);
+      const pending = f.service.propose(f.turn, "repair", input);
+      expect(sentinel.dispatched, "POLICY_SECTIONS_NO_ENGINE_DISPATCH").toEqual([]);
+      expect(f.count()).toBe(1); f.answer(true);
+      const result = await pending;
+      expect(result.state).toBe("updated"); expect(result.frontmatterDiff + result.bodyDiff).toContain(language);
+      expect(readFileSync(f.path, "utf8")).toBe(proposed);
+      expect(sentinel.dispatched).toEqual([]);
+    }
+  } finally { sentinel.restore(); }
+});
+
+test("post-approval validation refuses unsupported selection before dispatch or publication", async () => {
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    let revalidating = false;
+    const f = fixture({ validate: bytes => parseGovernancePolicy(revalidating
+      ? Buffer.from("---javascript\nschema_version: 1\n---\nOdysseus\n") : bytes) });
+    const pending = f.service.propose(f.turn, "revalidation", input);
+    expect(f.count()).toBe(1); revalidating = true; f.answer(true);
+    const result = await pending;
+    expect(sentinel.dispatched, "REVALIDATION_NO_ENGINE_DISPATCH").toEqual([]);
+    expect(result.state).toBe("invalid"); expect(result.message).toContain("use YAML data only");
+    expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
+  } finally { sentinel.restore(); }
 });

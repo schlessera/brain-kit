@@ -32,7 +32,7 @@ import {
 import { assertTargetContained, createScheduleFiles, ScheduleContainmentError, TEMPORARY_REAP_AGE_MS, ScheduleFileConflictError, type ScheduleFiles } from "./files.js";
 import { isoInstant, latestCronInstant, nextCronInstant, parseCron, parseInstant, SCHEDULE_FRESHNESS_MS } from "./time.js";
 import { createHostBoundary, type HostBoundary } from "../brain/host-boundary.js";
-import { brainGitSync, WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
 import { subprocessEnv } from "../config/env.js";
 
 export const PROPOSAL_TTL_MS = 15 * 60_000;
@@ -124,7 +124,7 @@ export interface ScheduleServiceOptions {
   /** True only when a Queue dispatcher is wired (#915) and enabled (#689). */
   dispatchAvailable?: () => boolean;
   /** Whether Git would ignore a brain-relative path (an ignored definition would miss the content backup). */
-  gitIgnored?: (relativePath: string) => boolean;
+  gitIgnored?: (relativePath: string) => boolean | Promise<boolean>;
 }
 
 export function occurrenceId(taskId: string, dueAt: number): string {
@@ -144,17 +144,17 @@ function isOperator(principal: Principal): boolean {
  * brain's configuration and ignore files, so while the host execution
  * boundary holds (#1648) it answers from a credential-free maintenance worker.
  */
-export function gitCheckIgnored(root: string, boundary: HostBoundary = createHostBoundary({ brainPath: root })): (relativePath: string) => boolean {
-  return (relativePath) => {
+export function gitCheckIgnored(root: string, boundary: HostBoundary = createHostBoundary({ brainPath: root })): (relativePath: string) => Promise<boolean> {
+  return async (relativePath) => {
     try {
       const args = ["check-ignore", "-q", "--no-index", "--", relativePath];
-      // In a worker, through the helper that also shows a parent repository.
-      if (boundary.isolated()) return brainGitSync(root, args, boundary.maintenance) === 0;
-      const result = boundary.runSync({ argv: ["git", ...args],
-        env: subprocessEnv("brainCli"), credentials: false, purpose: "git check-ignore", timeoutMs: 10_000 });
+      const result = await boundary.run({ argv: ["git", "-c", `safe.directory=${root}`, ...args],
+        env: { ...subprocessEnv("brainCli"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" }, credentials: false,
+        gate: "none", purpose: "git check-ignore", timeoutMs: 10_000 });
+      if (result.timedOut) throw new ScheduleError("server_unavailable", "Git ignore qualification timed out.");
       return result.exitCode === 0;
     } catch (error) {
-      if (error instanceof WorkerStateError) throw error;
+      if (error instanceof WorkerStateError || boundary.isolated()) throw error;
       return false;
     }
   };
@@ -165,7 +165,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   const dispatchAvailable = options.dispatchAvailable ?? (() => false);
   let root: { path: string; identity: string; secret: Buffer; matches: boolean } | null = null;
   let files: ScheduleFiles | null = null;
-  let gitCheck: ((relativePath: string) => boolean) | undefined;
+  let gitCheck: ((relativePath: string) => boolean | Promise<boolean>) | undefined;
   const gitIgnored = () => options.gitIgnored ?? (gitCheck ??= gitCheckIgnored(rootInfo().path));
 
   function rootInfo() {
@@ -192,12 +192,12 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   }
 
   /** An ignored definition would silently miss the content backup. */
-  function ignored(taskId: string): boolean {
-    return gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`) || gitIgnored()(`${RETIRED_DIR}/${taskId}.md`);
+  async function ignored(taskId: string): Promise<boolean> {
+    return await gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`) || await gitIgnored()(`${RETIRED_DIR}/${taskId}.md`);
   }
   /** Active and retired definitions must both stay in the content backup. */
-  function assertNotIgnored(taskId: string): void {
-    if (ignored(taskId))
+  async function assertNotIgnored(taskId: string): Promise<void> {
+    if (await ignored(taskId))
       throw new ScheduleError("unsupported_capability", "Git ignores a schedule definition directory, so content backup would omit it.");
   }
 
@@ -419,7 +419,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const definition = definitionOf(row);
     const text = serializeDefinition(definition);
     if (sha256Hex(text) !== row.file_sha256) throw new ScheduleError("server_unavailable", "Schedule snapshot is inconsistent.");
-    assertNotIgnored(id);
+    await assertNotIgnored(id);
     try {
       await fileStore().publish(id, text);
     } catch (error) {
@@ -454,7 +454,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const row = taskRow(id);
     if (!row || row.retirement !== "pending" || row.publication === "pending" || restorePending()) return;
     // Never move a retained definition somewhere the content backup omits.
-    if (ignored(id)) return;
+    if (await ignored(id)) return;
     let done = false;
     try { done = await fileStore().retire(id, serializeDefinition(definitionOf(row))); }
     catch { return; } // The journal stays pending; status reports compensationPending.
@@ -523,7 +523,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         throw new ScheduleError("server_unavailable", "Schedule storage is unavailable.");
       }
     }
-    assertNotIgnored(taskId);
+    await assertNotIgnored(taskId);
     const { identity } = rootInfo();
     const fingerprint = scheduleFingerprint({ definition: materialized.definition, rootIdentity: identity,
       creatorPrincipalId: actor.id, executionPolicy: policy });
@@ -610,7 +610,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const text = serializeDefinition(definition);
     const policy = await currentPolicy();
     assertWritable();
-    assertNotIgnored(proposal.task_id);
+    await assertNotIgnored(proposal.task_id);
     const taskId = db.transaction(() => {
       const at = now();
       caller(actor);

@@ -1,3 +1,4 @@
+import { createFixtureMaintenanceHost } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Actual offline fake-git effects behind pi's host RPC and in-process tool gate. */
 import { expect, spyOn } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,6 +23,7 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
     installGitIdentity(root);
     const bin = join(root, "bin"), marker = join(root, "executed"); mkdirSync(bin);
     writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${marker}'\n`, { mode: 0o755 });
+    const maintenance = createFixtureMaintenanceHost(root); cleanup.push(() => maintenance.cleanup());
     const controller = new AbortController();
     for (const name of ["gh", "curl", "wget"]) writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${marker}'\n`, { mode: 0o755 });
     const requests: PermissionRequest[] = [], events: BackendActivityEvent[] = [];
@@ -36,7 +38,7 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
     const signal = controller.signal;
     const allowedTools = options.allowedTools ?? ["bash"];
     if (binding === "gate") {
-      const turn = { ...createTurnContext(), bridge, signal, commandPolicy, configurationRoot: root, ...(options.voice ? { posture: "voice" as const, noGrantSurface: true, enforceAllowedTools: true } : {}) };
+      const turn = { ...createTurnContext(), bridge, signal, commandPolicy, configurationRoot: root, maintenance, ...(options.voice ? { posture: "voice" as const, noGrantSurface: true, enforceAllowedTools: true } : {}) };
       let handler: ((event: any) => Promise<any>) | undefined;
       const extension = createPermissionGate({ turn, allowedTools: new Set(allowedTools), confirmPatterns: [] });
       if (typeof extension === "function") throw new Error("Expected named inline permission extension");
@@ -76,7 +78,8 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
       }); cleanup.push(() => launch.mockRestore());
       const brain = join(root, "brain"); mkdirSync(brain);
       installGitIdentity(brain);
-      const start = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), allowedTools, confirmBashPatterns: [] }).startTurn({
+      const brainMaintenance = createFixtureMaintenanceHost(brain); cleanup.push(() => brainMaintenance.cleanup());
+      const start = createPiBackend({ maintenance: brainMaintenance, brainPath: brain, sessionDir: join(root, "sessions"), allowedTools, confirmBashPatterns: [] }).startTurn({
         prompt: "Return to Ithaca", signal, bridge, workerSandbox: { ...worker.prepareWorkerSandbox(brain), commandPolicy },
         ...(options.voice ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
       });

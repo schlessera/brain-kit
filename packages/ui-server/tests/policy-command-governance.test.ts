@@ -1,3 +1,6 @@
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
+installFixtureNativeStartupViews();
 /** Policy provenance reaches the real recorder and survives Activity detail pruning. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -23,7 +26,7 @@ test("mixed invalid lists retain file indices, exact admitted hash and retained 
   expect(JSON.parse(JSON.stringify(checked))).not.toHaveProperty("commandRuleIndices");
   const dbPath = join(state, "ui.db"), db = createUiDb(dbPath);
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const turns = createGovernedTurns({ brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: () => {} });
+  const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: () => {} });
   const store = createActivityStore(db, { writer: "policy-test" });
   db.query("INSERT INTO sessions (id, title, created_at, last_active_at) VALUES ('sess-ithaca', 'Homeward', 1, 1)").run();
   const recorder = createTurnRecorder({ store, governance: input => { recordGovernanceEvent(db, input); } },
@@ -55,5 +58,5 @@ test("mixed invalid lists retain file indices, exact admitted hash and retained 
     const pruned = store.prune({ digestFloorAt: Date.now() + 1, detailRetentionMs: 0, hardCeilingMs: 0, now: Date.now() + 1 });
     expect(pruned.runsPruned).toBe(1); expect(store.snapshotRun("turn-ithaca")).toBeNull();
     expect(queryGovernanceEvents(db, { sessionId: "sess-ithaca", limit: 10 })).toEqual(records);
-  } finally { hold.end(); await turns.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await hold.end(); await turns.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

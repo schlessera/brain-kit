@@ -1,6 +1,7 @@
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
+import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +31,7 @@ let server: ReturnType<typeof Bun.serve> | undefined;
 let init: unknown, handshake: unknown, terminal: unknown, sdkOptions: unknown, identity: unknown;
 let failure: string | null = null;
 let successful = false;
+let worker: ReturnType<typeof createMeasurementWorkerFixture> | undefined;
 const saved = Object.fromEntries(["BRAIN_UI_EXEC_WRAPPER", "BRAIN_UI_EXEC_KILLER", "BRAIN_UI_SUBPROCESS_ENV_EXTRA"].map(key => [key, process.env[key]]));
 try {
   for (const key of Object.keys(saved)) delete process.env[key];
@@ -82,8 +84,9 @@ try {
       if (msg.type === "result") terminal = msg;
     }
     const frames: Array<{ type: string; outcome?: string; message?: string }> = [];
-    const backend = createClaudeBackend({ brainPath, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
-    await backend.startTurn({ profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
+    worker = createMeasurementWorkerFixture(brainPath, root);
+    const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
+    await backend.startTurn({ ...worker.request, profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "No tools in this measurement." }) } });
     assert.equal(frames.at(-1)?.outcome, "success", JSON.stringify(frames.at(-1)));
     assert.ok(requests.length > 0, "observe a real native Messages request");
@@ -113,6 +116,7 @@ try {
   successful = true;
 } catch (error) { failure = error instanceof Error ? error.message : String(error); }
 finally {
+  worker?.cleanup();
   clearTimeout(deadline); server?.stop(true);
   for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   rmSync(root, { recursive: true, force: true });

@@ -1,8 +1,21 @@
 /** Native control, always fake: no provider transport delegates to real fetch. */
 process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE = "1";
 import { writeFileSync,readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {plugin} from "bun";
 import { createHash } from "node:crypto";
+// Only this offline preload substitutes app storage; the provider-enabled entry
+// retains its native-storage requirement and never imports copied fixtures.
+plugin({ name: "offline-pi-native-app-fixture", setup(build) {
+  build.onLoad({ filter: /\/scripts\/measure-pi-schema\.ts$/ }, ({ path }) => {
+    if (path !== resolve(import.meta.dir, "measure-pi-schema.ts")) return;
+    const source = readFileSync(path, "utf8");
+    const anchor = 'import { createApp } from "../packages/ui-server/src/app.ts";';
+    if (source.split(anchor).length !== 2) throw new Error("Offline Pi app fixture import anchor drift.");
+    return { contents: source.replace(anchor,
+      'import { createFixtureApp as createApp } from "../packages/ui-server/tests/helpers/native-app-fixture.ts";'), loader: "ts" };
+  });
+} });
 if(process.env.BRAIN_MEASURE_PI_OFFLINE_MUTATION==="replay-history")plugin({name:"offline-replay-history-negative",setup(build){build.onLoad({filter:/\/pi-ai\/dist\/api\/openai-codex-responses\.js$/},({path})=>{const source=readFileSync(path,"utf8"),anchor="            const bodyJson = JSON.stringify(body);";if(source.split(anchor).length!==2)throw new Error("Offline real provider payload anchor drift.");return {contents:source.replace(anchor,'            if(body.input.some(item=>item.type==="function_call_output"))body.input=body.input.filter(item=>item.type!=="function_call"&&item.type!=="function_call_output");\n'+anchor),loader:"js"};});}});
 if(process.env.BRAIN_MEASURE_PI_OFFLINE_MUTATION==="preterminal-cancel")plugin({name:"offline-preterminal-consumer-cancel",setup(build){build.onLoad({filter:/\/pi-ai\/dist\/api\/openai-codex-responses\.js$/},({path})=>{const source=readFileSync(path,"utf8"),anchor="        yield event;\n    }\n}\nfunction normalizeCodexStatus";if(source.split(anchor).length!==2)throw new Error("Offline terminal consumer anchor drift.");return {contents:source.replace(anchor,'        if(event.type==="response.created")return;\n'+anchor),loader:"js"};});}});
 const {decodePiRequest}=await import("./pi-schema-capture.ts");

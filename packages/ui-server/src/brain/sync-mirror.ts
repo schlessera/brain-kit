@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
+import { runMaintenanceWorker, prepareNativeWorkerStartupView, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
@@ -126,18 +126,22 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
 }
 
 /** Execute repository code from immutable inputs and publish validated outputs before transport. */
-async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number }): Promise<ExecutionResult> {
-  const outputs = prepareMaintenanceOutput(command.brainPath);
+async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number }, nativeManager: Parameters<typeof prepareNativeWorkerStartupView>[1] | undefined): Promise<ExecutionResult> {
+  if (!nativeManager) throw new Error("Local sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+  const view = await prepareNativeWorkerStartupView(command.brainPath, nativeManager, command.signal);
+  let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
   try {
+    command.signal?.throwIfAborted();
+    outputs = await prepareMaintenanceOutput(command.brainPath, { startupView: view, signal: command.signal });
     const git = await prepareMaintenanceGit(command, outputs, command.signal);
     const result = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
-    if (!result.killed) outputs.publish();
+    if (!result.killed) await outputs.publish();
     return result;
-  } finally { outputs.cleanup(); }
+  } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
 }
 
 /** Full deterministic sync with the same local merge behavior; remote races repeat its existing re-pull flow. */
-export async function runMirrorSync(input: { command: MaintenanceCommand; mirror: string; transportEnv?: MaintenanceCommand["env"]; signal?: AbortSignal; timeoutMs?: number }): Promise<ExecutionResult> {
+export async function runMirrorSync(input: { nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1]; command: MaintenanceCommand; mirror: string; transportEnv?: MaintenanceCommand["env"]; signal?: AbortSignal; timeoutMs?: number }): Promise<ExecutionResult> {
   // Standalone embedders have no attached database gate. Their private
   // mirror still serializes every local/transport phase in this process.
   return mirrorLocks.withLock(input.mirror, () => executeMirrorSync(input), { signal: input.signal });
@@ -146,9 +150,13 @@ export async function runMirrorSync(input: { command: MaintenanceCommand; mirror
 async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Promise<ExecutionResult> {
   const { command, mirror } = input;
   const brain = realpathSync(command.brainPath);
-  const remote = await origin(command);
+  if (!input.nativeManager) throw new Error("Hosted sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
+  const originView = await prepareNativeWorkerStartupView(brain, input.nativeManager, input.signal);
+  let remote: string | null;
+  try { input.signal?.throwIfAborted(); remote = await origin({ ...command, startupView: originView }); }
+  finally { await originView.cleanup(); }
   if (remote === null) return runLocalSync({ ...command, credentials: false,
-    ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
+    ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager);
   prepareMirror(mirror, brain);
   const transport = async (args: readonly string[]) => {
     assertMirrorStorage(mirror);
@@ -168,10 +176,10 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
       readPaths: [...(command.readPaths ?? []), mirror],
       writeDirectories: [join(mirror, "objects"), join(mirror, "refs")],
       gitConfig: [["safe.directory", brain], ["safe.directory", mirror], [`url.file://${mirror}.insteadOf`, remote], ["remote.origin.pushurl", `file://${mirror}`]],
-      ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
+      ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager);
     if (last.exitCode !== 0) return last;
-    // runMaintenanceWorker settles only after the namespace's init exits:
-    // every child is gone before scanning the storage and admitting a key.
+    // Maintenance awaits both monitor exit and namespace-owned output EOF.
+    // A child may leave files during teardown: validate them before a key.
     const checked = await transport(["fsck", "--full", "--strict"]);
     if (checked.exitCode !== 0) return transportFailure(last, checked);
     const pushed = await transport(["push", "$REMOTE", "refs/heads/main:refs/heads/main"]);

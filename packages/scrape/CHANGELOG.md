@@ -1,5 +1,23 @@
 # @schlessera/brain-scrape
 
+## 0.43.1
+
+### Patch Changes
+
+- @schlessera/brain-common@0.43.1
+
+## 0.43.0
+
+### Patch Changes
+
+- @schlessera/brain-common@0.43.0
+
+## 0.42.1
+
+### Patch Changes
+
+- @schlessera/brain-common@0.42.1
+
 ## 0.42.0
 
 ### Patch Changes

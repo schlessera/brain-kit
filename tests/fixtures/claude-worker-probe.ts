@@ -1,3 +1,4 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
 /** Actual ordinary adapter and server bridge behind kernel loopback isolation. */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -10,6 +11,7 @@ import { createSessionCatalog } from "../../packages/ui-server/src/ws/session-ca
 import { WsHost } from "../../packages/ui-server/src/ws/host.js";
 import { runSession } from "../../packages/ui-server/src/ws/run-session.js";
 import type { InferenceProfile } from "../../packages/ui-backend-claude/src/profiles.js";
+import type { LaunchedWorker } from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 import * as core from "@schlessera/brain/internal";
 
@@ -56,6 +58,31 @@ const actions = scenario === "exceeded" ? [{ name: "Bash", input: { command: 'he
 ];
 let step = 0, calls = 0; const requests: unknown[] = []; let host: WsHost;
 const frames: ServerMessage[] = [];
+let workerStateRoot: string | undefined;
+interface TranscriptFacts {
+  id: string; bytes: number; invalid: number; types: string[];
+  user: number; bash: number; cwdMatches: boolean[];
+}
+/** Fixture-only evidence; never export transcript text, credentials or absolute paths. */
+function transcriptFacts(root: string | undefined): TranscriptFacts[] {
+  if (!root || !existsSync(join(root, "projects"))) return [];
+  const walk = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? walk(join(path, entry.name)) : entry.name.endsWith(".jsonl") ? [join(path, entry.name)] : []);
+  return walk(join(root, "projects")).map(path => {
+    const text = readFileSync(path, "utf8");
+    const lines = text.split("\n").filter(Boolean);
+    let invalid = 0;
+    const records = lines.flatMap(line => { try { return [JSON.parse(line)]; } catch { invalid++; return []; } });
+    return { id: basename(path), bytes: Buffer.byteLength(text), invalid,
+      types: records.map(record => record.type),
+      user: records.filter(record => record.type === "user").length,
+      bash: records.filter(record => record.type === "assistant").flatMap(record => record.message?.content ?? []).filter(part => part?.type === "tool_use" && part.name === "Bash").length,
+      cwdMatches: records.filter(record => record.cwd).map(record => record.cwd === brainPath),
+    };
+  });
+}
+let atAbort: unknown;
+let sawPersistedBash = false;
 let sawDetachedChild = false;
 let abortTimer: ReturnType<typeof setTimeout> | undefined;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -66,7 +93,14 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     const deadline = Date.now() + 5000;
     const check = () => {
       sawDetachedChild = readdirSync("/proc").some(pid => { try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")[0] === childMarker; } catch { return false; } });
-      if (sawDetachedChild || Date.now() > deadline) { for (const turn of host.coordinator.running) turn.abortController.abort(); }
+      // A live tool is not proof of a durable transcript: the native runtime
+      // can start Bash before its asynchronous JSONL writer creates the file.
+      // This case tests cancellation of an already-persisted tool, so establish
+      // both preconditions before the real immediate cancellation (#1883).
+      const native = transcriptFacts(workerStateRoot);
+      const sessionId = frames.find(frame => frame.type === "session_info")?.sessionId;
+      sawPersistedBash = native.some(file => file.id === `${sessionId}.jsonl` && file.bash > 0);
+      if ((sawDetachedChild && sawPersistedBash) || Date.now() > deadline) { atAbort = { native, saved: transcriptFacts(config) }; for (const turn of host.coordinator.running) turn.abortController.abort(); }
       else abortTimer = setTimeout(check, 20);
     };
     abortTimer = setTimeout(check, 20);
@@ -82,7 +116,13 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 const db = createUiDb(":memory:"); const store = createActivityStore(db, { writer: "claude-worker-test" }), stream = createActivityStream(store);
 const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
 const backend = createClaudeBackend({ brainPath, profiles: [profile], log: () => {} });
-host = new WsHost({ brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 25000 });
+const startTurn = backend.startTurn.bind(backend);
+if (scenario === "abort") backend.startTurn = request => startTurn({ ...request, workerStarted(worker) {
+  workerStateRoot = (worker as LaunchedWorker).state?.root;
+  request.workerStarted?.(worker);
+} });
+const nativeHost = createFixtureTurnHost(brainPath, db);
+host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 25000 });
 // Simulate only the browser mask response, preserving the actual server bridge.
 host.clients.add({ send(text: string) {
   const frame = JSON.parse(text); frames.push(frame);
@@ -106,9 +146,10 @@ try {
   const sessions = await backend.listSessions(); const histories = await Promise.all(sessions.map(s => backend.getHistory(s.id)));
   const appEvents = db.query("SELECT event_type, payload FROM activity_events WHERE event_type LIKE 'brain_application%'").all();
   const index = core.openDatabase(context.dbPath); const indexed = index.query("SELECT path FROM documents WHERE path = 'notes/worker-raft.md'").all(); index.close();
-  console.log(JSON.stringify({ calls, sawDetachedChild, childMarker, requests, frames, appEvents, sessions, histories, indexed,
+  const directHistory = scenario === "abort" && sessionId ? await backend.getHistory(sessionId) : null;
+  console.log(JSON.stringify({ diagnostics: { sessionId, atAbort, saved: transcriptFacts(config), directHistory: directHistory?.map(message => ({ role: message.role, tools: message.toolCalls.map(tool => tool.name) })) }, calls, sawDetachedChild, childMarker, requests, frames, appEvents, sessions, histories, indexed,
     policy: readFileSync(policyPath, "utf8"), entries: readdirSync(join(brainPath, "context/policies")).sort(),
     notebook: readFileSync(join(brainPath, "context/policies/crew.ipynb"), "utf8"),
     ordinary: existsSync(join(brainPath, "notes/worker-raft.md")) ? readFileSync(join(brainPath, "notes/worker-raft.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "assets/raft-mask.png")) ? [...readFileSync(join(brainPath, "assets/raft-mask.png"))] : null }));
-} finally { clearTimeout(abortTimer); host.close(); stream.close(); db.close(); server.stop(true); }
+} finally { clearTimeout(abortTimer); await host.close(); await nativeHost.close(); stream.close(); db.close(); server.stop(true); }

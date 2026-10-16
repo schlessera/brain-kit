@@ -1,8 +1,9 @@
+import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox } from "./helpers/worker-startup-view-fixture.js";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { appendFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync,
   statfsSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, WORKER_SCRATCH, WORKER_STATE, workerCommand } from "../src/server/worker-launcher";
+import { WORKER_SCRATCH, WORKER_STATE, workerCommand } from "../src/server/worker-launcher";
 import { rewriteLinkDestinations } from "../src/internal-client";
 import { createTurnTempPromoter, type TurnTempPromoterOptions } from "../src/server/worker-turn-temp";
 
@@ -66,7 +67,7 @@ describe("turn temp (#1655, #1703)", () => {
     const f = fixture();
     // Hold a fake launcher before any pivot. Its only child still sees the
     // outer /tmp, deliberately a tmpfs of exactly the admitted size.
-    const program = `import { launchAgentWorker } from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-launcher.ts"))};
+    const program = `import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox } from ${JSON.stringify(join(ROOT, "packages/ui-sdk/tests/helpers/worker-startup-view-fixture.ts"))};
       const spawn = Bun.spawn.bind(Bun);
       Bun.spawn = (command, options) => options?.env?.BRAIN_WORKER_LAUNCH
         ? spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options)

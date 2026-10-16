@@ -31,5 +31,5 @@ writeFileSync(ready, "ready");
 while (!existsSync(gate)) await Bun.sleep(5);
 if (mode === "admit") process.stdout.write(JSON.stringify(await h.admission.admit()));
 else await h.runtime.tick();
-await h.runtime.close();
+await h.close();
 db.close();

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { BRAIN_MASK_MAX_BYTES, createKeyedLock, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 import { createMaskApplication, readMaskBase } from "../src/brain/mask-application.js";
 
+import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+const maintenanceOwners: ReturnType<typeof createFixtureMaintenanceHost>[] = [];
 const png = Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
 let root: string, controller: AbortController, authorized: boolean, available: boolean;
 let records: BrainApplicationResult[], beforeCommit: (() => void) | undefined;
@@ -16,9 +18,10 @@ beforeEach(() => {
   writeFileSync(join(root, "context/policies/crew.md"), "Athena owns these policy bytes.\n");
   controller = new AbortController(); authorized = true; available = true; records = []; beforeCommit = undefined;
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => { for (const host of maintenanceOwners.splice(0)) host.cleanup(); rmSync(root, { recursive: true, force: true }); });
 function app() {
-  return createMaskApplication({ root, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
+  const maintenance = createFixtureMaintenanceHost(root); maintenanceOwners.push(maintenance);
+  return createMaskApplication({ root, maintenance, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
     lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available,
     record: result => records.push(result), beforeCommit: () => beforeCommit?.() });
 }

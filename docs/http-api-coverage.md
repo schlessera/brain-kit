@@ -117,32 +117,32 @@ row's real mounting check. They do not establish mounting by themselves.
 J uses the real host admission, tool-completion and terminal observations,
 checks authenticated session/turn isolation and reads exact retained CRLF bytes
 (`host admission, tool completion and terminal observation`,
-`packages/ui-server/tests/ws-turn-journal.test.ts:20-87`). The real Chrome
+`packages/ui-server/tests/ws-turn-journal.test.ts:23-92`). The real Chrome
 matrix covers live/replay at 320/1280 in both themes, receipt focus stability,
 reader heading focus, raw download, 200% zoom and Escape return; storage tests
 cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **HY — Human-started hygiene review.**
 
-- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:460-482`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
-- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:376-384`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:463-485`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
+- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:377-385`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
 
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:77-83`)
-- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:684-699`)
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:80-86`)
+- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:687-702`)
 
 **T — Operational status.**
 
 - `mounted status reports the installed release and preserves the application commit` ([source](../packages/ui-server/tests/software-status.test.ts)), (`mounted status reports the installed release and preserves the application commit`, `packages/ui-server/tests/software-status.test.ts:6-17`)
 - `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
-- `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:292-312`)
+- `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
-- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:45-62`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:126-142`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:144-153`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:180-197`)
+- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:50-67`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:131-147`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:149-158`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:185-202`)
 
 **A — Password access and revocation.**
 
@@ -284,12 +284,12 @@ checks both nonempty priced and mixed-knownness fixtures
 - `a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes`, `packages/ui-server/tests/drafts-http.test.ts:192-234`)
 - `invalid, oversized and over-capacity requests leave the committed draft as it was` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`invalid, oversized and over-capacity requests leave the committed draft as it was`, `packages/ui-server/tests/drafts-http.test.ts:236-289`)
 - `draft text and images never reach the request log` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`draft text and images never reach the request log`, `packages/ui-server/tests/drafts-http.test.ts:291-307`)
-- `server_hello advertises draft storage with its limits beside the boolean capabilities` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`server_hello advertises draft storage with its limits beside the boolean capabilities`, `packages/ui-server/tests/drafts-send.test.ts:84-91`)
-- `a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session`, `packages/ui-server/tests/drafts-send.test.ts:93-126`)
-- `an accepted send consumes its current revision and that draft's images, nothing else` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`an accepted send consumes its current revision and that draft's images, nothing else`, `packages/ui-server/tests/drafts-send.test.ts:128-148`)
-- `a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay`, `packages/ui-server/tests/drafts-send.test.ts:150-176`)
-- `a refused message consumes nothing` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a refused message consumes nothing`, `packages/ui-server/tests/drafts-send.test.ts:178-186`)
-- `draft storage operations and a refused bind never start a turn` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`draft storage operations and a refused bind never start a turn`, `packages/ui-server/tests/drafts-send.test.ts:188-200`)
+- `server_hello advertises draft storage with its limits beside the boolean capabilities` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`server_hello advertises draft storage with its limits beside the boolean capabilities`, `packages/ui-server/tests/drafts-send.test.ts:95-102`)
+- `a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session`, `packages/ui-server/tests/drafts-send.test.ts:104-137`)
+- `an accepted send consumes its current revision and that draft's images, nothing else` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`an accepted send consumes its current revision and that draft's images, nothing else`, `packages/ui-server/tests/drafts-send.test.ts:139-159`)
+- `a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay`, `packages/ui-server/tests/drafts-send.test.ts:161-189`)
+- `a refused message consumes nothing` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a refused message consumes nothing`, `packages/ui-server/tests/drafts-send.test.ts:191-199`)
+- `draft storage operations and a refused bind never start a turn` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`draft storage operations and a refused bind never start a turn`, `packages/ui-server/tests/drafts-send.test.ts:201-213`)
 - `total host capacity refuses an upload or a growing save without dropping stored content` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`total host capacity refuses an upload or a growing save without dropping stored content`, `packages/ui-server/tests/drafts-store.test.ts:32-44`)
 - `a save that drops an image to make room for text is measured after the drop` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a save that drops an image to make room for text is measured after the drop`, `packages/ui-server/tests/drafts-store.test.ts:46-54`)
 - `per-draft byte bound counts text and images together` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`per-draft byte bound counts text and images together`, `packages/ui-server/tests/drafts-store.test.ts:56-62`)

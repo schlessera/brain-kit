@@ -3,6 +3,24 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## UI-kit action accessibility and loading (additive #1756)
+
+`ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
+`aria-describedby` on the button's existing role-bearing element.
+`ContactAction` adds optional `disabled`, `ariaDisabled`, `ariaLabel`,
+`ariaDescribedBy` and `loading` fields. Accessibility and disabled fields pass
+through to the existing Button behavior. `ariaDisabled` keeps the action
+focusable; callers must guard activation while work is pending. `disabled`
+removes it from the tab order. `loading` displays a decorative spinner while
+preserving the action element and its focus; it does not implicitly disable an
+action or announce progress. The semantic `IconKey` adds `loading`.
+Spinner rotation respects reduced motion.
+
+Discovery expansion is documented [in the ui-react guide](../../packages/ui-react/README.md#discovery-placement).
+Its store state remains behind `BrainUiServices.stores`, which is explicitly
+`@internal`; no new public graph-store signature, wire endpoint or query limit
+is introduced.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -2985,13 +3003,43 @@ subject to their existing tool permissions; voice retains its narrower roster.
 ordinary turns. Autonomous turns remain restricted. Server application tools
 keep their approvals and exact-base semantics. Snapshot consumers execute
 configuration from complete read-only startup views with a separate validated
-write path, as ruled on #1649. Startup inputs and publication copies share a
+write path, as ruled on #1649. In 0.42.0, startup inputs and publication copies shared a
 separate bounded output-staging allowance (256 MiB by default), admitted through
 the worker ledger; exhausted aggregate capacity refuses as `worker_state_busy`
 with Retry. `BRAIN_UI_OUTPUT_STAGING_BYTES` and
 `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` configure it. Invalid values refuse boot;
-oversized starting copies refuse as `worker_state_exceeded`, and writes beyond
+oversized starting copies refused as `worker_state_exceeded`. Under the native
+storage requirement below, inputs use native checkpoints; writes beyond
 the filesystem allowance fail with `ENOSPC`. Internal launch/request fields remain internal.
+
+### Native hosted storage (breaking host requirement, #1790)
+
+The maintainer approved managed Btrfs storage and its capacity scope on
+2026-10-14. Hosted `createApp` requires `ServerConfig.nativeBrain` with
+`socketPath`, `timeoutMs` and `maxDeltaBytes`; environment resolution uses
+`BRAIN_UI_NATIVE_BRAIN_SOCKET`, `BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS` (30000) and
+`BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES` (67108864). The last two values are
+positive finite transport bounds, not storage allowances. Optional `leasePath`
+(`BRAIN_UI_NATIVE_BRAIN_LEASE_PATH`) selects the persistent checkpoint ownership
+ledger; it defaults to `DB_PATH.native-leases.sqlite` and is required explicitly
+for an ephemeral UI database. Keep it across restarts, outside the brain.
+Readiness verifies
+that the configured brain is the manager's authoritative live subvolume.
+Unsupported, absent or mismatched storage refuses startup with setup guidance;
+there is no full-copy fallback.
+
+The SDK ships the host-only `brain-native-store` launcher. It reads one fixed,
+root-owned configuration file and serves a Unix socket; it cannot provision,
+format or resize storage. Its manager operations and checkpoint identities are
+internal implementation details, not a new general filesystem API.
+
+Read-only native checkpoints now supply complete immutable startup inputs.
+The 256 MiB output-staging allowance still bounds writable staged outputs, but
+no longer holds full input copies. Native checkpoints instead consume the
+separate, explicitly configured finite managed-volume capacity. Retained
+changed-file versions, journal metadata and object-write reservations retain
+the existing 10 GiB journal cap. No numeric total-volume default is supplied.
+See the [storage decision](../decisions/native-brain-storage.md).
 
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
@@ -3057,3 +3105,94 @@ independent hard deadline. Kit `AskUserOption`/`ChoiceOptionProps.disabled`
 make pending/offline scope options inert with a readable reason supplied by
 the surrounding card. These additions ship in a minor; the wire behavior is
 [specified separately](wire.md#turn-scope-additive-1670).
+
+## Optional transcript diagnostics and recovery (additive, #1806)
+
+`@schlessera/brain-ui-sdk/server` exports `createTranscriptStore`, the existing
+`TranscriptStore` interface, and the additive `RecoverableTranscriptStore`,
+`TranscriptDiagnostic`, `TranscriptRecord`, `TranscriptMetaRecord`,
+`TranscriptMessageRecord`, `TranscriptFailure`, `TranscriptRecoveryProvenance`,
+`TranscriptCorruptionError` and `TranscriptRecoveryError`. The factory returns
+`RecoverableTranscriptStore`; existing third-party `TranscriptStore`
+implementations gain no required members. Healthy `create`, `append`, `list`
+and `history` signatures and results retain their existing shapes.
+
+A malformed JSON/UTF-8 line or unsupported record quarantines that file in
+place. Required metadata is the first nonblank record: `kind: "meta"`, an
+`id` matching the filename, nullable string `title` and finite nonnegative
+`createdAt`. Later records have `kind: "message"`, finite nonnegative `ts`, a
+supported `SessionHistoryMessage` and optional finite nonnegative `costUsd`.
+Unknown additive properties remain intact. Empty files, missing/wrong metadata
+and repeated metadata are corrupt. Blank lines are allowed. Valid final JSON
+without a newline is healthy; append supplies a separating newline.
+Admission also refuses malformed optional fields that the wire reader would
+normalize or discard: a verified raw prefix must remain valid without alteration.
+
+`list()` excludes quarantined files, without aborting healthy enumeration.
+`history()` and `append()` on a quarantined file throw
+`TranscriptCorruptionError` (`code: "TRANSCRIPT_CORRUPT"`, `diagnostic`). Unknown
+history remains empty; unknown append still refuses. Filesystem errors other
+than absence propagate rather than being classified as transcript corruption.
+No operation silently repairs, truncates, relocates or logs original content.
+
+- `diagnose(sessionId)` returns `{ sessionId, status: "missing" }` for absence.
+  Otherwise it returns `sessionId`, `sourceVersion` (SHA-256 of all source
+  bytes), `prefixBytes` (exclusive verified byte boundary), and `records`
+  (the contiguous admitted records, with original objects). Healthy results
+  have `status: "healthy", complete: true`; quarantined results have
+  `status: "quarantined", complete: false, failure`. The failure carries
+  one-based `line`, zero-based `byteOffset`, `position: "final" | "interior"`
+  and `reason: "invalid-json" | "invalid-record" | "invalid-utf8" | "missing-meta"`.
+  Position describes whether nonblank bytes follow the failed line, not a
+  guessed crash cause. No records after the first failure are admitted.
+- `quarantined()` explicitly enumerates only quarantined diagnostics, including
+  their qualified prefixes. Ordinary history never presents these as complete.
+- `recover(sessionId, { sourceVersion })` is explicit authorization for the
+  inspected version. It returns a **new** session id, with metadata title
+  `Recovered: <original title or source id>` and `recovery` provenance containing
+  `sourceSessionId`, `sourceVersion`, `prefixBytes`, `prefixRecords`, and the
+  original `failure`. The original identity/bytes remain unchanged. Message
+  lines, timestamps, costs and unknown properties are copied byte for byte;
+  only metadata is replaced, with a trailing separator added if needed.
+  Provenance persists in metadata and is accessible through diagnostics;
+  normal `ChatSession` and history shapes gain no required fields.
+
+Recovery refuses missing/changed source with `TranscriptRecoveryError`
+(`code: "SOURCE_CHANGED"`), healthy source or missing valid metadata with
+`"NOT_RECOVERABLE"`, and incompatible existing recovery content with
+`"RECOVERY_CONFLICT"` (corrupt existing recovery raises `TranscriptCorruptionError`).
+It hashes the full source at admission and again around publication, refusing
+observed concurrent edits. Callers must serialize external transcript edits
+with recovery: this is optimistic filesystem validation, not an OS lock against
+arbitrary writers. The store itself never appends to the quarantined source.
+
+Recovery validates its complete output, writes and fsyncs a hidden `.pending`
+file, atomically links it without replacing an existing target, then fsyncs the
+directory. The target identity is deterministic for source identity/version;
+concurrent attempts and retries converge on that identity, including after
+subsequent valid appends. Interrupted staging cannot appear in `list()`;
+a process crash can leave hidden staging evidence. A failure after publication
+may leave a complete labelled recovery, and retry validates it and syncs the
+directory instead of creating a duplicate. A different source version requires
+a new inspection/authorization and represents a distinct recovery.
+
+Only optional plain API-loop backends use this helper. No shipped backend
+currently calls it; Claude/pi keep native persistence. Adopting backends keep
+normal `listSessions`/`getHistory` delegation, catch the typed per-session
+corruption outcome, and invoke diagnostics/recovery only through deliberate
+host-owned actions. They expose the returned title unchanged and resume the
+new returned identity. No wire frame, HTTP route, UI destination or native
+backend recovery interface is added by this SDK change. These supported
+additions ship in a minor under the recorded #1806 rulings.
+
+## Custom Other drafts (additive, #1887)
+
+`AskUserCardProps` in `@schlessera/brain-ui-kit` gains optional `otherText?:
+string` and `onOtherChange?: (text: string) => void` for a controlled custom
+answer draft. Without them the card keeps a local draft. While Other is open,
+the persistent Submit action invokes the existing `onOtherSubmit` callback
+with current nonblank text, as Enter does. Blank text disables Submit with an
+explanation. `showActions={false}` and closed exchanges still omit actions.
+The client preserves selected predefined answers beside custom text in a
+multi-select and the existing grouped-question submission path. No wire,
+CLI/MCP or answer-delivery contract changes.

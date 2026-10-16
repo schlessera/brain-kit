@@ -1,10 +1,11 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher";
+import { prepareWorkerSandbox } from "../src/server/worker-launcher";
 
 const known = (text: string) => ({ status: "known" as const, hash: createHash("sha256").update(text).digest("hex") });
 test("native observation matches a real strict worker's frozen reads and private area writes", async () => {

@@ -192,6 +192,10 @@ policy mirrors the Claude backend:
 - **Allowlisted tools run with no round-trip** (`DEFAULT_PI_ALLOWED_TOOLS`:
   every curated tool except `brain_archive`, plus `pi-web-access`'s
   `web_search`/`fetch_content`).
+  This includes `brain_read_base`, which reads the authoritative content and
+  base hash before an edit. An explicit `allowedTools` list still replaces
+  the default; native base reads still require an admitted grant for the exact
+  path and a live turn.
 - **Destructive `bash` shapes confirm first** (shared
   `DEFAULT_CONFIRM_BASH_PATTERNS`: recursive delete, `git push --force`,
   `git reset --hard`, `brain archive`, …). Each pattern carries its effect
@@ -293,8 +297,12 @@ ecosystem, loaded by default (`loadExtensions: true`):
   through this backend's gate — delegation itself is the reviewed act.
 
 Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter npm:pi-subagents`); a container deployment can do this on
-boot.
+npm:pi-mcp-adapter npm:pi-subagents`) before starting turns. Ordinary workers
+reuse the prepared global `npm/node_modules` tree read-only. SDK settings,
+models and login writes stay in bounded private per-turn state. A missing or
+mismatched configured package reports a setup error before loading. Keep the
+prepared package tree stable while turns initialize; it is trusted installed
+code, not a transactional snapshot of concurrent setup changes.
 
 ## Event mapping (pi → wire protocol)
 

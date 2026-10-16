@@ -1,8 +1,9 @@
+import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox, createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher";
+import { workerCommand } from "../src/server/worker-launcher";
 import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
@@ -194,7 +195,9 @@ describe("worker sandbox writable areas (#1626)", () => {
           return (original.openSync as (...args: unknown[]) => number)(path, ...rest);
         }) as typeof fs.openSync);
       }
-      const scratchMount = resolveScratchMount(f.brain);
+      const maintenance = createFixtureMaintenanceHost(f.brain);
+      let scratchMount;
+      try { scratchMount = resolveScratchMount(f.brain, maintenance); } finally { maintenance.cleanup(); }
       spy.mockRestore();
       expect(swapped, "SWAP_HAPPENED").toBe(true);
       expect(readFileSync(join(f.brain, "notes/rule.md"), "utf8"), "SWAP_FOLLOWED").toBe(GOLDEN);
@@ -358,11 +361,19 @@ describe("the sandbox note's wording (#1654)", () => {
     ],
   };
 
+  test.each(["governed", "strict"] as const)("%s capabilities disclose shared uid and mask-only server-state protection", profile => {
+    const note = workerSandboxNote({ ...strict, profile });
+    expect(note, "SHARED_UID_DISCLOSED").toContain("The worker shares the server's uid");
+    expect(note, "MASK_ONLY_PROTECTION_DISCLOSED").toContain("server state is protected by masks only");
+    expect(note, "READ_ONLY_IS_NOT_IDENTITY_ISOLATION").toContain("A read-only brain does not prevent access to other host paths available to that uid");
+  });
+
   test("the strict note states the profile, the three areas and the link rule", () => {
     expect(workerSandboxNote(strict)).toMatchInlineSnapshot(`
       "# Where files go in this turn
 
       **Profile: \`strict\`.** The brain is read-only here: change it through \`write_file\`, \`edit_file\` and the curated brain tools. Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.
+      The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.
 
       1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
       2. **Persistent areas: kept across turns.**

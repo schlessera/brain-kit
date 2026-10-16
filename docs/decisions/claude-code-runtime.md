@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:480-480`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1041`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:504-504`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1070`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:497`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -55,14 +55,16 @@ next to it.
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
-  (`Route the Claude Code subprocess`,
-  `packages/ui-backend-claude/src/spawn-wrapper.ts:2-18`); without one the SDK
-  spawns it directly.
+  ([historical wrapper header](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)); without one the SDK
+  spawned it directly at this baseline. #1037 subsequently made worker execution
+  unconditional; #1808 retired this unused adapter. The optional exec wrapper
+  now runs inside the worker (`createWorkerSpawn`,
+  `packages/ui-backend-claude/src/worker-spawn.ts:84-268`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:363`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:381`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +73,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:49`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:471`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:474`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,11 +87,11 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:471`, eight
+  (`optionalDependencies`, `bun.lock:474`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile
   (`"@anthropic-ai/claude-agent-sdk/@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:2553`). The public SDK's platform package is nested because the
+  `bun.lock:2556`). The public SDK's platform package is nested because the
   private development-only hygiene research alias retains its original292 pair;
   the public backend still resolves293. The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
@@ -210,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:308-313`).
+  `packages/ui-server/src/app.ts:326-331`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -246,7 +248,8 @@ than refuses on a mismatch.**
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
   `{ command, args }` to `spawnClaudeCodeProcess` instead of spawning
-  (`sdk.mjs:127`), the seam `spawn-wrapper.ts` already uses. A probe can
+  (`sdk.mjs:127`), the seam the [retired spawn wrapper](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts) used
+  at this baseline (worker execution replaced it in #1037; #1808 removed it). A probe can
   supply a callback that records what it was handed and throws a sentinel
   error, so no process starts, and must tell that sentinel apart from a
   resolution error. For the native binary `command` is the binary itself. For
@@ -385,7 +388,7 @@ until re-measured.
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:11-20` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:13-18` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:629-655` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:280-293` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:291-304` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:814,832`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**

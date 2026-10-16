@@ -42,7 +42,7 @@ export function createShareStore() {
       set((state) =>
         state.queue.some((queued) => queued.id === record.id)
           ? state
-          : { queue: [...state.queue, record] }
+          : { queue: [...state.queue, record].sort((a, b) => a.receivedAt - b.receivedAt) }
       ),
 
     remove: (id) =>

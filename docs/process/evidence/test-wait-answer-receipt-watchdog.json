@@ -1,0 +1,3559 @@
+{
+  "schemaVersion": 1,
+  "issue": 1855,
+  "sourceBase": "c95223333a83fd3049749a2e68fb0c07963b7ba5",
+  "scope": "One lost-receipt native browser case, preserving real host/socket/storage/locks and replacing host-wall watchdog waiting with actual registered-clock boundary and native receipt/pong completion. No production changes.",
+  "environment": {
+    "bun": "1.4.2",
+    "playwright": "1.63.0",
+    "chrome": "140.0.7339.127",
+    "isolation": "Per-command ordinary-UID user/network namespace; loopback-only addresses/routes verified, setup capabilities dropped before bun run test; BRAIN_REQUIRE_CHROME=1 plus existing offline preload and route guards; shared benchmark lock.",
+    "build": "Original beforeAll Bun.build browser fixture from checkout source, conditions bun; no existing-built bypass or additional workspace build.",
+    "clock": "Page clock installed before navigation; host/Bun clock and native storage/socket operations remain real.",
+    "resources": "Single shared host. CPU is GNU time user+system; max RSS in KiB. Command timing excludes benchmark-lock queue."
+  },
+  "originalSources": [
+    {
+      "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "path": "packages/ui-react/src/lib/answer-delivery/types.ts",
+      "sha256": "74762dbe1f7b927dccaaf762b6003a407055d3c3732a28f448780da645892d1a",
+      "bytes": 5949
+    },
+    {
+      "path": "packages/ui-react/src/lib/answer-delivery/storage.ts",
+      "sha256": "b5fc9cef77752a3f6da9b43822457c683c8ece2dde2247cf837b5cd48036a0f6",
+      "bytes": 5872
+    },
+    {
+      "path": "packages/ui-react/src/lib/answer-delivery/tabs.ts",
+      "sha256": "d836d5d25899269f6c78313bdc4a5d2fe34fb321918f5b39d5b7c00d0640d516",
+      "bytes": 5628
+    },
+    {
+      "path": "packages/ui-react/src/connection.ts",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "path": "packages/ui-react/src/stores/chat-state.ts",
+      "sha256": "1d6fe858b14b88a5caa5d5ea429e2fd86412ec28190b92f79a013992f183e928",
+      "bytes": 99077
+    },
+    {
+      "path": "packages/ui-sdk/src/client/ws-client.ts",
+      "sha256": "2d417929468ac23abc9d6a38e6861ce32de2e30eabcf14b8b26130f39e073e11",
+      "bytes": 22168
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/answer-delivery-client.ts",
+      "sha256": "2b1478711fac6aac83cbe4b29b94ffb39877148d0899c261f387002af8f8335f",
+      "bytes": 4131
+    },
+    {
+      "path": "packages/ui-react/tests/answer-delivery.test.ts",
+      "sha256": "28507147a507c3b92bdc81eeeee27fb8374253b9e567ebd7f5456e174af03cee",
+      "bytes": 35927
+    },
+    {
+      "path": "bun.lock",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+      "bytes": 285606
+    },
+    {
+      "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+      "sha256": "23c68b1d6bd1270af810e07c03dd2d25e4f55f8654c70aae7b3f9b6a1861c678",
+      "bytes": 34615
+    },
+    {
+      "path": "package.json",
+      "sha256": "232d38504e9568ef3976dd48a38db3f732d09fcdebbead162b4f652ba93fa350",
+      "bytes": 1945
+    },
+    {
+      "path": "bunfig.toml",
+      "sha256": "3fef2f8dd575b80b8280fd9f3afe9048181df522d95232bbf2f491cbb55ba7c5",
+      "bytes": 333
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "cac6061176046c4987620622aac9b5edf89987aa712ab3d47b959e65f411ada6",
+      "bytes": 838
+    },
+    {
+      "path": "packages/ui-react/package.json",
+      "sha256": "7869524533054edb10b8cd866da2cf10c3d0dd12a9edd841a9412e70596c5031",
+      "bytes": 2152
+    },
+    {
+      "path": "packages/ui-react/bunfig.toml",
+      "sha256": "377cf4ce2d5b53c7156610958d9676a4bed896b2fd90db5c441e816c69f1c017",
+      "bytes": 135
+    },
+    {
+      "path": "scripts/test.ts",
+      "sha256": "df3f3109ec6e0e92dc21dfeaf80a5bb9bd897fb53941fa52385a4b75dd5d6a23",
+      "bytes": 7810
+    },
+    {
+      "path": "packages/ui-server/tests/helpers/native-app-fixture.ts",
+      "sha256": "e16057b525ad16fce8b3b3c5fd49036a35d56772d7a570b5f5d74ec554fca9c8",
+      "bytes": 2305
+    }
+  ],
+  "finalSources": [
+    {
+      "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    }
+  ],
+  "proof": {
+    "identity": "Successful same-stack routed client send selects the exact request, captures its actual submission, and later checks matching status/receipt identities; a known callback opens the correlated ping scope. Actual descriptor owner is discovered without changing constructor or prototype chain. Extra same-stack timer registrations fail ambiguity assertions; no delay-only or callback-text classification.",
+    "boundary": "Independent default 5000 assertion precedes pauseAt(actual registration time + 4999), then no callback/no status/still awaiting; runFor(1) delivers actual callback. Missed deadline fails closed.",
+    "nativeCompletion": "Same request/submission accepted receipts, original dropped count 2, real Answered state and one backend settlement remain. The candidate checks the rearmed watchdog clear before the matching pong wait, then verifies known ping handle clear and one connected socket. All identity/cancellation checks precede another 5001 logical advance.",
+    "wallGuaranteeChange": "Original elapsed>=4500 matcher expression retained but input is deliberately logical page time, not host wall. Default registration and before/at behavior now own this guarantee.",
+    "clockSemantics": "Installed pauseAt coalesces already-due UI/interval callbacks at target; not every display tick is replayed. Owned watchdog remains target+1 and ping/rearm are registered later. No global drain or animation cadence claim.",
+    "cleanup": "Original descriptors including flags/value restored/read back on actual owners; original context.close nested in finally. No observer cleanup clears timer handles. Failed controls may leave handles pending until context destruction; no fabricated cancellation.",
+    "overhead": "Synchronous counters, wrappers forwarding the original send and timer callback while preserving this, arguments, return and throw behavior, post-oracle/failure page snapshot and host JSON writes are included. No promise wrapper is added. Extra native polling, when needed, is counted separately.",
+    "finalMeasuredDifference": "Measured test variants add synchronous setup stopwatch and post-assertion/failure snapshot/file writes; final functional test omits those capture writes. Helper is byte-identical to v4 measured helper.",
+    "existingPolicyProof": "Existing answer-delivery.test.ts default 5000/4999+1 manager test is unchanged; no duplicate lower-layer policy test added."
+  },
+  "ast": {
+    "scope": "Pre-execution source proof; executed outcomes recorded separately below.",
+    "originalMatcherExpressions": 55,
+    "originalNameExpressions": 11,
+    "allOriginalMatchersAndNamesOrdered": true,
+    "expandedCases": 20,
+    "healthyOriginalAssertions": 111,
+    "healthyCandidateAssertions": 136,
+    "focusedCandidateAssertions": 29,
+    "conditionalCountCorrection": "Static branch-inclusive totals 112/137 include original if(premature) matcher; healthy full totals 111/136 exclude only that unexecuted original branch.",
+    "awaitChange": "Original openPage await is inlined into its same native actions so page clock installs before goto; original answer/state/receipt/settlement/close awaits retained. Additional boundary/native polling awaits are test-specific."
+  },
+  "runs": [
+    {
+      "label": "original-baseline",
+      "entries": 24,
+      "commandSeconds": 40.8,
+      "pass": 20,
+      "fail": 0,
+      "expects": 111,
+      "restored": true,
+      "exitCode": 0,
+      "setup": {
+        "ms": 1002.930717,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a first send waits for actual draft-profile facts, independently of connected transport",
+          "bodyMs": 1360.33
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1472.53
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 2375.32
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1919.88
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1545.91
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1515.53
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1963.92
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1483.2
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1390.9
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1864.54
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1634.4
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1563.12
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1941.67
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 6281.03
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a host without receipt support: Update needed, and nothing settles",
+          "bodyMs": 1574.46
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > storage that refuses writes: Not saved, nothing sent, the card stays editable",
+          "bodyMs": 1104.62
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a different principal on reconnect signs the queued answer out, unsent",
+          "bodyMs": 1183.23
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+          "bodyMs": 4233.82
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a corrupt stored answer is dropped on load and never sent",
+          "bodyMs": 1382.58
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > Liveness B: a blackholed idle socket is probed after 15 s, replaced 5 s later, and resyncs",
+          "bodyMs": 1505.7
+        }
+      ],
+      "bodyTotalMs": 39296.69,
+      "resources": {
+        "wallSeconds": 40.8,
+        "userSeconds": 9.28,
+        "systemSeconds": 4.83,
+        "maxRssKiB": 581552
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "6f047924d71b293543a9f125cb95e40a4fed5a5dfd53ea333d827c49d928ffac"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": false,
+      "revalidation": {
+        "result": "PASS on separately derived receipt; original failed count gate preserved",
+        "actualAssertions": 111,
+        "oldIncorrectStaticPrediction": 112,
+        "reason": "One original first-send expectation is conditional on the premature-keyup fault path. Healthy execution excludes it; loop-expanded original healthy total is 111 and candidate 136."
+      }
+    },
+    {
+      "label": "unexpected-descriptor-install",
+      "entries": 29,
+      "commandSeconds": 36.6,
+      "pass": 19,
+      "fail": 1,
+      "expects": 108,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1012.856077,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a first send waits for actual draft-profile facts, independently of connected transport",
+          "bodyMs": 1710.1
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1603.12
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1436.61
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1938.38
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1597.54
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1368.9
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1881.14
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 2705.42
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1384.02
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1912.54
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1643.15
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1403.79
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1888.47
+        },
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1175.29
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a host without receipt support: Update needed, and nothing settles",
+          "bodyMs": 1750.37
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > storage that refuses writes: Not saved, nothing sent, the card stays editable",
+          "bodyMs": 1225.32
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a different principal on reconnect signs the queued answer out, unsent",
+          "bodyMs": 1422.86
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+          "bodyMs": 4035.09
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a corrupt stored answer is dropped on load and never sent",
+          "bodyMs": 1312.78
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > Liveness B: a blackholed idle socket is probed after 15 s, replaced 5 s later, and resyncs",
+          "bodyMs": 1565.33
+        }
+      ],
+      "bodyTotalMs": 34960.22,
+      "resources": {
+        "wallSeconds": 36.6,
+        "userSeconds": 9.57,
+        "systemSeconds": 5.12,
+        "maxRssKiB": 580524
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "9c6f5de7e8203d13113820c7bc98d056dfc9e39e75c2060370081ce42e042f9c"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": false,
+      "failureReason": "Expected owned timer/socket method during first replace(2), before watchdog assertions. The Playwright routed subclass inherits send. Fallback disposal object is not actual installed-observer readback proof."
+    },
+    {
+      "label": "intermediate-v3-full",
+      "entries": 32,
+      "commandSeconds": 35.86,
+      "pass": 20,
+      "fail": 0,
+      "expects": 136,
+      "restored": true,
+      "exitCode": 0,
+      "setup": {
+        "ms": 1061.0098469999998,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a first send waits for actual draft-profile facts, independently of connected transport",
+          "bodyMs": 1521.66
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1590.47
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1438.68
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1897.68
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1537.88
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1427.56
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 2010.63
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1474.21
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1386.59
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 2250.11
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1514.18
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1406.2
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 2060.23
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1419.0
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a host without receipt support: Update needed, and nothing settles",
+          "bodyMs": 1643.45
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > storage that refuses writes: Not saved, nothing sent, the card stays editable",
+          "bodyMs": 1368.39
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a different principal on reconnect signs the queued answer out, unsent",
+          "bodyMs": 1320.73
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+          "bodyMs": 3993.85
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a corrupt stored answer is dropped on load and never sent",
+          "bodyMs": 1333.72
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > Liveness B: a blackholed idle socket is probed after 15 s, replaced 5 s later, and resyncs",
+          "bodyMs": 1602.42
+        }
+      ],
+      "bodyTotalMs": 34197.64,
+      "resources": {
+        "wallSeconds": 35.86,
+        "userSeconds": 8.99,
+        "systemSeconds": 4.91,
+        "maxRssKiB": 577044
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "082ed4eb83c0143b74eddb5b5621f79883d4aefbe552e2204339273bac9f543f"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          },
+          {
+            "id": 1,
+            "type": "ping",
+            "timers": [
+              1
+            ]
+          },
+          {
+            "id": 2,
+            "type": "ask_answer_status",
+            "timers": [
+              2
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5000,
+            "at": 1783857601123,
+            "fired": 1,
+            "clears": 1
+          },
+          {
+            "id": 1,
+            "scope": 1,
+            "delay": 5000,
+            "at": 1783857606123,
+            "fired": 0,
+            "clears": 1
+          },
+          {
+            "id": 2,
+            "scope": 2,
+            "delay": 5000,
+            "at": 1783857606123,
+            "fired": 0,
+            "clears": 2
+          }
+        ],
+        "observedReceiptCount": 2,
+        "originalDroppedCounter": 2,
+        "pongCount": 1,
+        "connections": 1,
+        "networkRecordCount": 38,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 1,
+          "waitedMs": 21.90163500000199
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      },
+      "recoveryTiming": {
+        "logicalMs": 5087,
+        "nativeMs": 327.6237399999991,
+        "polls": 1,
+        "waitedMs": 21.90163500000199
+      }
+    },
+    {
+      "label": "unexpected-pause-setup",
+      "entries": 31,
+      "commandSeconds": 3.46,
+      "pass": 0,
+      "fail": 1,
+      "expects": 2,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1057.578511,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1759.94
+        }
+      ],
+      "bodyTotalMs": 1759.94,
+      "resources": {
+        "wallSeconds": 3.46,
+        "userSeconds": 2.52,
+        "systemSeconds": 1.07,
+        "maxRssKiB": 577060
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "1c5c4229c9c14c53103456d6d3b0ccf213778c960d69692c70129231e6aae81d"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "a32375104de6f1b8c55d5dd8ab5066fc5950d0bb41bc26ff60f2a7cf9129f427"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": false,
+      "failureReason": "pauseAt target from earlier Date.now()+100 became past before execution; default-registration assertion was not reached. Actual 4999 registration is diagnostic only, not mutation proof."
+    },
+    {
+      "label": "v4-candidate",
+      "entries": 35,
+      "commandSeconds": 3.91,
+      "pass": 1,
+      "fail": 0,
+      "expects": 29,
+      "restored": true,
+      "exitCode": 0,
+      "setup": {
+        "ms": 1369.140648,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1867.6
+        }
+      ],
+      "bodyTotalMs": 1867.6,
+      "resources": {
+        "wallSeconds": 3.91,
+        "userSeconds": 2.52,
+        "systemSeconds": 1.21,
+        "maxRssKiB": 580188
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "97cebab0d1f342e6ca07366227458f540be236c94f23e49b1efaadbee2a80dee"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          },
+          {
+            "id": 1,
+            "type": "ping",
+            "timers": [
+              1
+            ]
+          },
+          {
+            "id": 2,
+            "type": "ask_answer_status",
+            "timers": [
+              2
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5000,
+            "at": 1783857601477,
+            "fired": 1,
+            "clears": 1
+          },
+          {
+            "id": 1,
+            "scope": 1,
+            "delay": 5000,
+            "at": 1783857606477,
+            "fired": 0,
+            "clears": 1
+          },
+          {
+            "id": 2,
+            "scope": 2,
+            "delay": 5000,
+            "at": 1783857606477,
+            "fired": 0,
+            "clears": 2
+          }
+        ],
+        "observedReceiptCount": 2,
+        "originalDroppedCounter": 2,
+        "pongCount": 1,
+        "connections": 1,
+        "networkRecordCount": 38,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 0,
+          "waitedMs": 0
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      },
+      "recoveryTiming": {
+        "logicalMs": 5081,
+        "nativeMs": 340.7001459999997,
+        "polls": 0,
+        "waitedMs": 0
+      }
+    },
+    {
+      "label": "v4-early",
+      "entries": 35,
+      "commandSeconds": 3.34,
+      "pass": 0,
+      "fail": 1,
+      "expects": 6,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1020.1924430000001,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1777.21
+        }
+      ],
+      "bodyTotalMs": 1777.21,
+      "resources": {
+        "wallSeconds": 3.34,
+        "userSeconds": 2.13,
+        "systemSeconds": 0.98,
+        "maxRssKiB": 581780
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "82b14c4e9aa8d835dd4343b03502f12cd59882916159869a13dacc80f13947dc"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "a32375104de6f1b8c55d5dd8ab5066fc5950d0bb41bc26ff60f2a7cf9129f427"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 4999,
+            "at": 1783857601387,
+            "fired": 0,
+            "clears": 0
+          }
+        ],
+        "observedReceiptCount": 1,
+        "originalDroppedCounter": 1,
+        "pongCount": 0,
+        "connections": 1,
+        "networkRecordCount": 34,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 0,
+          "waitedMs": 0
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "label": "v4-late",
+      "entries": 35,
+      "commandSeconds": 3.21,
+      "pass": 0,
+      "fail": 1,
+      "expects": 6,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1015.4559029999999,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1663.91
+        }
+      ],
+      "bodyTotalMs": 1663.91,
+      "resources": {
+        "wallSeconds": 3.21,
+        "userSeconds": 1.87,
+        "systemSeconds": 0.97,
+        "maxRssKiB": 580404
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "9ef141c248a2173b949c0d074c9ee4de46e26e0e7321097fa845381b6a6976b0"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "a6da63072eed555d60d41016669243b92b96e43671e8d966403f8a9fcf42182d"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5001,
+            "at": 1783857601168,
+            "fired": 0,
+            "clears": 0
+          }
+        ],
+        "observedReceiptCount": 1,
+        "originalDroppedCounter": 1,
+        "pongCount": 0,
+        "connections": 1,
+        "networkRecordCount": 34,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 1,
+          "waitedMs": 23.300498999999945
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "label": "v4-missing-clear",
+      "entries": 35,
+      "commandSeconds": 3.48,
+      "pass": 0,
+      "fail": 1,
+      "expects": 19,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1096.509003,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1776.81
+        }
+      ],
+      "bodyTotalMs": 1776.81,
+      "resources": {
+        "wallSeconds": 3.48,
+        "userSeconds": 2.41,
+        "systemSeconds": 1.07,
+        "maxRssKiB": 578196
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "2aa3861066c0a02749a2a6b490070575af3773b14462bed6b344edc191f7aaeb"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "e5c0752e208154730dd82bfbd94bdab6588089ade37edcf410b62ac049e9652b"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          },
+          {
+            "id": 1,
+            "type": "ping",
+            "timers": [
+              1
+            ]
+          },
+          {
+            "id": 2,
+            "type": "ask_answer_status",
+            "timers": [
+              2
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5000,
+            "at": 1783857601351,
+            "fired": 1,
+            "clears": 1
+          },
+          {
+            "id": 1,
+            "scope": 1,
+            "delay": 5000,
+            "at": 1783857606351,
+            "fired": 0,
+            "clears": 1
+          },
+          {
+            "id": 2,
+            "scope": 2,
+            "delay": 5000,
+            "at": 1783857606351,
+            "fired": 0,
+            "clears": 0
+          }
+        ],
+        "observedReceiptCount": 2,
+        "originalDroppedCounter": 2,
+        "pongCount": 1,
+        "connections": 1,
+        "networkRecordCount": 38,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 0,
+          "waitedMs": 0
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "label": "v4-missing-status",
+      "entries": 35,
+      "commandSeconds": 8.48,
+      "pass": 0,
+      "fail": 1,
+      "expects": 11,
+      "restored": true,
+      "exitCode": 1,
+      "setup": {
+        "ms": 1066.829994,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 6815.56
+        }
+      ],
+      "bodyTotalMs": 6815.56,
+      "resources": {
+        "wallSeconds": 8.48,
+        "userSeconds": 2.85,
+        "systemSeconds": 1.29,
+        "maxRssKiB": 580080
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "c02d729e52186c37e278dca455d6b897c6984dc025356f011b84f3d78a4e1ab1"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "5c121c247c8f14e82f364ed5f17845651ff557d876d9997b8ebccc379a7a544e"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+        "--test-name-pattern",
+        "a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          },
+          {
+            "id": 1,
+            "type": "ping",
+            "timers": [
+              1
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5000,
+            "at": 1783857601384,
+            "fired": 1,
+            "clears": 0
+          },
+          {
+            "id": 1,
+            "scope": 1,
+            "delay": 5000,
+            "at": 1783857606384,
+            "fired": 0,
+            "clears": 1
+          }
+        ],
+        "observedReceiptCount": 1,
+        "originalDroppedCounter": 1,
+        "pongCount": 1,
+        "connections": 1,
+        "networkRecordCount": 36,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 445,
+          "waitedMs": 4508.517409000007
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "label": "v4-restored",
+      "entries": 35,
+      "commandSeconds": 34.32,
+      "pass": 20,
+      "fail": 0,
+      "expects": 136,
+      "restored": true,
+      "exitCode": 0,
+      "setup": {
+        "ms": 1147.687937,
+        "chrome": "140.0.7339.127",
+        "bun": "1.4.2"
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a first send waits for actual draft-profile facts, independently of connected transport",
+          "bodyMs": 1446.35
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1583.35
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1506.13
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1969.71
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1506.65
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1535.53
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_list: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1923.6
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1438.02
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1366.17
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_rank: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1900.08
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: a stored principal read completed after hello still permits the first offline queue",
+          "bodyMs": 1596.41
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: online, the card says Answered only after the host's receipt, and the backend gets it once",
+          "bodyMs": 1423.59
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > ask_user_form: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+          "bodyMs": 1990.45
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a receipt lost in flight resolves to Answered on the 5-second check, without a second settlement",
+          "bodyMs": 1416.84
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a host without receipt support: Update needed, and nothing settles",
+          "bodyMs": 1689.06
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > storage that refuses writes: Not saved, nothing sent, the card stays editable",
+          "bodyMs": 1268.83
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a different principal on reconnect signs the queued answer out, unsent",
+          "bodyMs": 1329.62
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+          "bodyMs": 3272.96
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > a corrupt stored answer is dropped on load and never sent",
+          "bodyMs": 1256.82
+        },
+        {
+          "outcome": "pass",
+          "name": "answer delivery in a real browser > Liveness B: a blackholed idle socket is probed after 15 s, replaced 5 s later, and resyncs",
+          "bodyMs": 1231.87
+        }
+      ],
+      "bodyTotalMs": 32652.04,
+      "resources": {
+        "wallSeconds": 34.32,
+        "userSeconds": 8.8,
+        "systemSeconds": 4.88,
+        "maxRssKiB": 579116
+      },
+      "sourceFiles": [
+        {
+          "path": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+          "sha256": "93e2bc522f1aa55a3b067c962c0fcf380d8a2fcda42f466a61e544782c199405"
+        },
+        {
+          "path": "packages/ui-react/src/lib/answer-delivery/manager.ts",
+          "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts",
+          "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6"
+        }
+      ],
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/answer-delivery-runtime.test.ts"
+      ],
+      "environmentOverrides": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "expectedResultGatePassed": true,
+      "timerObservation": {
+        "sendOwner": {
+          "depth": 1,
+          "writable": true,
+          "enumerable": false,
+          "configurable": true
+        },
+        "errors": 0,
+        "scopes": [
+          {
+            "id": 0,
+            "type": "ask_user_response",
+            "timers": [
+              0
+            ]
+          },
+          {
+            "id": 1,
+            "type": "ping",
+            "timers": [
+              1
+            ]
+          },
+          {
+            "id": 2,
+            "type": "ask_answer_status",
+            "timers": [
+              2
+            ]
+          }
+        ],
+        "timers": [
+          {
+            "id": 0,
+            "scope": 0,
+            "delay": 5000,
+            "at": 1783857601108,
+            "fired": 1,
+            "clears": 1
+          },
+          {
+            "id": 1,
+            "scope": 1,
+            "delay": 5000,
+            "at": 1783857606108,
+            "fired": 0,
+            "clears": 1
+          },
+          {
+            "id": 2,
+            "scope": 2,
+            "delay": 5000,
+            "at": 1783857606108,
+            "fired": 0,
+            "clears": 2
+          }
+        ],
+        "observedReceiptCount": 2,
+        "originalDroppedCounter": 2,
+        "pongCount": 1,
+        "connections": 1,
+        "networkRecordCount": 38,
+        "networkDropped": 0,
+        "nativeWait": {
+          "polls": 0,
+          "waitedMs": 0
+        },
+        "descriptorRestoration": {
+          "restored": true,
+          "errors": 0
+        }
+      },
+      "recoveryTiming": {
+        "logicalMs": 5093,
+        "nativeMs": 332.0450830000009,
+        "polls": 0,
+        "waitedMs": 0
+      }
+    }
+  ],
+  "comparison": {
+    "baseline": {
+      "source": "c95223333a83fd3049749a2e68fb0c07963b7ba5",
+      "pass": 20,
+      "expects": 111,
+      "resources": {
+        "wallSeconds": 40.8,
+        "userSeconds": 9.28,
+        "systemSeconds": 4.83,
+        "maxRssKiB": 581552
+      },
+      "setupMs": 1002.930717,
+      "bodyTotalMs": 39296.69,
+      "targetBodyMs": 6281.03,
+      "originalHostElapsedMs": 5133
+    },
+    "candidate": {
+      "pass": 20,
+      "expects": 136,
+      "resources": {
+        "wallSeconds": 34.32,
+        "userSeconds": 8.8,
+        "systemSeconds": 4.88,
+        "maxRssKiB": 579116
+      },
+      "setupMs": 1147.687937,
+      "bodyTotalMs": 32652.04,
+      "targetBodyMs": 1416.84,
+      "recoveryMetrics": {
+        "logicalMs": 5093,
+        "nativeMs": 332.0450830000009,
+        "polls": 0,
+        "waitedMs": 0
+      }
+    },
+    "deltaCandidateMinusBaseline": {
+      "wallSeconds": -6.479999999999997,
+      "cpuSeconds": -0.4299999999999988,
+      "rssKiB": -2436,
+      "setupMs": 144.75721999999996,
+      "bodyTotalMs": -6644.6500000000015,
+      "targetBodyMs": -4864.19
+    },
+    "limits": "Single source-frozen equal-selection full-file pair on a shared host. Target-body reduction is an observed target-specific difference, not an exact causal estimate. Other case variation and setup contribute; no whole-CI savings claim. Old elapsed >=4500 expression now consumes logical page elapsed, explicitly distributed to independent default registration and before/at callback guarantees."
+  },
+  "nativeCommandCosts": {
+    "totalSeconds": 173.46,
+    "v4SixCommandsSeconds": 56.74,
+    "unexpectedDescriptorSeconds": 36.6,
+    "unexpectedPauseSeconds": 3.46,
+    "intermediateV3FullSeconds": 35.86,
+    "originalBaselineSeconds": 40.8,
+    "limits": "Native command time only; excludes engineering, static types and benchmark lock queue. Baseline checker correction reused bytes, cost counted once."
+  },
+  "maintenance": {
+    "netAddedLines": 159,
+    "helperLines": 88,
+    "runtimeScope": "Only lost-receipt case plus test helper; manager/SDK/storage/fixtures unchanged in final working tree.",
+    "couplings": [
+      "Playwright routed send inherited descriptor ownership; runtime owner depth/flags checked",
+      "same-stack successful request/status/ping send to timer registration; ambiguous extra registration fails closed",
+      "installed Playwright clock registration timestamp and pauseAt coalescing semantics",
+      "real receipt and pong identities with native host/IDB/Web Locks retained"
+    ]
+  },
+  "limits": [
+    "pauseAt coalesces unrelated UI timer/interval cadence; no animation/interval-equivalence or global-drain claim",
+    "Native SQLite/IDB/Web Locks/transport remain real; acceptance does not claim IDB removal completion",
+    "Known handle clear is measured before observer disposal; failed controls may leave timers pending until original context close",
+    "Both unexpected attempts and original rejected count checker retained; neither is successful mutant proof",
+    "V3 successful full file is intermediate source only; final comparison uses v4 restored full",
+    "Scope remains independent of continuity and #1909; no broader #1855 acceptance completion claim"
+  ],
+  "installedSource": {
+    "file": "node_modules/playwright-core/lib/coreBundle.js",
+    "version": "1.63.0",
+    "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+    "clockProof": "Registration Date.now syncs time; immediate addTimer does not sync again before callAt. pauseAt disables real time then fast-forwards; source excerpts and hashes indexed in frozen receipts.",
+    "routeProof": "WebSocketMock.send at 53218 and exposed subclass at 53352; actual runtime depth 1 and flags writable/configurable true, enumerable false are checked."
+  },
+  "receiptIndex": [
+    {
+      "study": "original-baseline",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "original-baseline",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "original-baseline",
+      "name": "ast-baseline.json",
+      "sha256": "6bba1c6cbbb9bcd70e95a8649a5f5df219b2671274c9f5d9b088db49f6d0002b",
+      "bytes": 2444
+    },
+    {
+      "study": "original-baseline",
+      "name": "causal-review.md",
+      "sha256": "7142469a1c792c3de75beb6eec0bca2ef021693498d4faf8b436634ce219ddd3",
+      "bytes": 6064
+    },
+    {
+      "study": "original-baseline",
+      "name": "check-result.py",
+      "sha256": "6d06e483a1c31df8cb1269789c1ec52de129b157b56d70c602bad68a6dc23f0b",
+      "bytes": 4710
+    },
+    {
+      "study": "original-baseline",
+      "name": "command-proposal.md",
+      "sha256": "9be6c90e049b1ab1546c5faa23ff4315128099f527a03820f7ec0caf3c8283aa",
+      "bytes": 5214
+    },
+    {
+      "study": "original-baseline",
+      "name": "command.json",
+      "sha256": "fe5ea1e90054e78c9428205b4d58ab7acc464fc1af00d7e9736f8894bf1af768",
+      "bytes": 1149
+    },
+    {
+      "study": "original-baseline",
+      "name": "completion.json",
+      "sha256": "c5c895c1f3697581aa95211dcf007c1f5f4e8daa676078df3de6bc845c4ac328",
+      "bytes": 83
+    },
+    {
+      "study": "original-baseline",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "original-baseline",
+      "name": "execution-manifest.json",
+      "sha256": "c49224a7a0d69dac3470455c7f1254961e9f63ecd28a619f22e5756781dde4ba",
+      "bytes": 16304
+    },
+    {
+      "study": "original-baseline",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "6f047924d71b293543a9f125cb95e40a4fed5a5dfd53ea333d827c49d928ffac",
+      "bytes": 34817
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "afc30bf6f76d543d5184a3ee7147dba166554926ca7befb3a0ecd22cae812ed5",
+      "bytes": 40420
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee",
+      "bytes": 4974
+    },
+    {
+      "study": "original-baseline",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee",
+      "bytes": 4974
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.log",
+      "sha256": "0214dde0b512c5ae709c563c9b9b856d5e3485353d29909be02f772ec233fb34",
+      "bytes": 3564
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.py",
+      "sha256": "e045d4a0c5e1a15ab62c8d6dae4a0b2ae58c0934f69c863f2d1b8b3ddd49fa1a",
+      "bytes": 4333
+    },
+    {
+      "study": "original-baseline",
+      "name": "run.time",
+      "sha256": "9f3a46e7a49c906b89aa09fe0a4d3229169303228b1a4406c9d69b7d1db363cb",
+      "bytes": 804
+    },
+    {
+      "study": "original-baseline",
+      "name": "validation.log",
+      "sha256": "31ae4e6f1da147e2ce627a0c5d893923cce01a3217934ed983c2837f8f40e024",
+      "bytes": 358
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "ast-candidate.json",
+      "sha256": "e62f2e5f472d0b3c7dc77206a41abce14fbe88c4161823648f3d1f766f117efa",
+      "bytes": 2673
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "causal-review.md",
+      "sha256": "7142469a1c792c3de75beb6eec0bca2ef021693498d4faf8b436634ce219ddd3",
+      "bytes": 6064
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "check-result.py",
+      "sha256": "062e222c9158828feefbb56391e15845093076adceb2c7e4f28bd37bc4a4cd4b",
+      "bytes": 4783
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "command-proposal.md",
+      "sha256": "b45abe64e7623fda2a62ea9b56cf4073c0718ef7528f5ca3f66b579c81b03ee1",
+      "bytes": 6125
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "command.json",
+      "sha256": "ab86c8c268f8c600abbe69557351191743d1ac411f3c47c9d7ace299ef521c6e",
+      "bytes": 1151
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "completion.json",
+      "sha256": "b737532351103ef15506d43fb16f4de8233f1e8d92a91cd62699873905653721",
+      "bytes": 83
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "diagnostic.json",
+      "sha256": "df97cc7bb946d3db98410cfb95f146f7d3a192b62aa852a658ba728992d0d957",
+      "bytes": 1462
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "execution-manifest.json",
+      "sha256": "30589c814c22dc7a95a6cabf574e2616745b33b2e00f3db478f9af519cd69723",
+      "bytes": 18492
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "9c6f5de7e8203d13113820c7bc98d056dfc9e39e75c2060370081ce42e042f9c",
+      "bytes": 41487
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "afc30bf6f76d543d5184a3ee7147dba166554926ca7befb3a0ecd22cae812ed5",
+      "bytes": 40420
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee",
+      "bytes": 4974
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "954927b0ec5453ea3ed00b9e572c854081363d70e5be0eaa6cb59c24a83d7eee",
+      "bytes": 4974
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.log",
+      "sha256": "91c2155d63123f804b88476250ff4b07e42abd2e4178ab81c5622a15fc0e3e87",
+      "bytes": 4311
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.py",
+      "sha256": "a819ec3ce4465b729f3ddd42a728989b5d576c477843b47562a3a146096d428b",
+      "bytes": 4723
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "run.time",
+      "sha256": "41a2678b180d7b141bab3901f99a5931f2484b7e31206cf55992029d297fa8d8",
+      "bytes": 842
+    },
+    {
+      "study": "unexpected-descriptor-install",
+      "name": "validation.log",
+      "sha256": "4d978753a04926ede53f49a2834b6ec1e0ab339376f4215660a5e944e1e8c182",
+      "bytes": 361
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "ast-candidate.json",
+      "sha256": "e62f2e5f472d0b3c7dc77206a41abce14fbe88c4161823648f3d1f766f117efa",
+      "bytes": 2673
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "causal-review.md",
+      "sha256": "eb901f5cd2ead21e06bc03657842d010377745fd0fa1415560ab63a72ad633ea",
+      "bytes": 6456
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "check-result.py",
+      "sha256": "92506f4f3e85cb273bcf1d8175ce4dd3c2171902b8b98661b85d4b8864f7d193",
+      "bytes": 4873
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "command-proposal.md",
+      "sha256": "886d8a7fc3c0a89228d46e0bf11879bb036582025f761f4217fe471059d29b1e",
+      "bytes": 7223
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "command.json",
+      "sha256": "d4a9c51ae7cfdcb7b3f0ff4f4c972aacaa45b5a320462b3b31137a8e3941b918",
+      "bytes": 1154
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "completion.json",
+      "sha256": "485c55a8c8395573c63f0f1982cf70b64d55e56a84df203492719d780ce77073",
+      "bytes": 83
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "diagnostic.json",
+      "sha256": "dcd21cc47b4276bdd45aa22797189a47b83a3722a192b2a18b5a34c8efaaf9a8",
+      "bytes": 3231
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "execution-manifest.json",
+      "sha256": "b101a42e4edc71b6da9403d582837bfa81a174038933ff5646e5ed3b5e99d7f0",
+      "bytes": 19588
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "082ed4eb83c0143b74eddb5b5621f79883d4aefbe552e2204339273bac9f543f",
+      "bytes": 41493
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "afc30bf6f76d543d5184a3ee7147dba166554926ca7befb3a0ecd22cae812ed5",
+      "bytes": 40420
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.log",
+      "sha256": "b7d204f51571fff8d6de9b97a74b06d7b3533ce397ba0b38fa7edea55b2987dc",
+      "bytes": 4307
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.py",
+      "sha256": "e84027f90ea1e2e7454a686eea33062fc7f4c48dde196390a658eae113e744c2",
+      "bytes": 4798
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "run.time",
+      "sha256": "86a754ad181a98936ed38d2446c47b5f2a7e225d20cec244b773506c6c4c5105",
+      "bytes": 804
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "validation.json",
+      "sha256": "f886c9c77140d17f4dd45ec91fd9211a6738ea8a4c9db4865b4606bb4124c16a",
+      "bytes": 12301
+    },
+    {
+      "study": "intermediate-v3-full",
+      "name": "validation.log",
+      "sha256": "8195a3a8957d9de71759bfc6ce0642771e68f355486b24c28c8af07772de075c",
+      "bytes": 183
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "ast-early.json",
+      "sha256": "5ab17b96a048cbe7bb545ff9e45e795f42c19bd30ef6003d0547d48ffac5c9a4",
+      "bytes": 2669
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "causal-review.md",
+      "sha256": "eb901f5cd2ead21e06bc03657842d010377745fd0fa1415560ab63a72ad633ea",
+      "bytes": 6456
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "check-result.py",
+      "sha256": "92506f4f3e85cb273bcf1d8175ce4dd3c2171902b8b98661b85d4b8864f7d193",
+      "bytes": 4873
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "command-proposal.md",
+      "sha256": "886d8a7fc3c0a89228d46e0bf11879bb036582025f761f4217fe471059d29b1e",
+      "bytes": 7223
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "command.json",
+      "sha256": "b72b19df58aad012efeb04dc3b72fee5e33a7e2106e5b07b03e044b7f8fec7b3",
+      "bytes": 1277
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "completion.json",
+      "sha256": "16f2e947d63e8c36d9a38f1d790b5594bba40b972acbfc01b7aa89499bd71018",
+      "bytes": 83
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "diagnostic.json",
+      "sha256": "d1d7321b02391085385e08140a1eb7a403f4b704c1c0a366b5e8c478e8ca77cf",
+      "bytes": 2529
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "execution-manifest.json",
+      "sha256": "b101a42e4edc71b6da9403d582837bfa81a174038933ff5646e5ed3b5e99d7f0",
+      "bytes": 19588
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "a32375104de6f1b8c55d5dd8ab5066fc5950d0bb41bc26ff60f2a7cf9129f427",
+      "bytes": 28498
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "1c5c4229c9c14c53103456d6d3b0ccf213778c960d69692c70129231e6aae81d",
+      "bytes": 41485
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "afc30bf6f76d543d5184a3ee7147dba166554926ca7befb3a0ecd22cae812ed5",
+      "bytes": 40420
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.log",
+      "sha256": "b329d4e5f9a94096d6adbe8d4b7093a387e84146e93f311769a3a0f188155e1f",
+      "bytes": 1067
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.py",
+      "sha256": "e84027f90ea1e2e7454a686eea33062fc7f4c48dde196390a658eae113e744c2",
+      "bytes": 4798
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "run.time",
+      "sha256": "3b8eebca2731885ab451055f6e410b02f6acaecc8f972bb4bf8e2d7012b4f51e",
+      "bytes": 952
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "unexpected-pause-setup",
+      "name": "validation.log",
+      "sha256": "31bccd120bcfe2bdce74074203fc8732a90188511d1b882c776ecff3c79aaab5",
+      "bytes": 355
+    },
+    {
+      "study": "v4-candidate",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-candidate",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-candidate",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-candidate",
+      "name": "ast-candidate.json",
+      "sha256": "f6610e534a841926659dcce021ef1725e9feb00b886f1fe553d4316b8d534cec",
+      "bytes": 2495
+    },
+    {
+      "study": "v4-candidate",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-candidate",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-candidate",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-candidate",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-candidate",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-candidate",
+      "name": "command.json",
+      "sha256": "5773947447b5d75ad138fb2eb32cb9643b88f21be6941a5609d6f0f5ef75cf81",
+      "bytes": 1285
+    },
+    {
+      "study": "v4-candidate",
+      "name": "completion.json",
+      "sha256": "88f4055ba479233225b0102e2b6f29d1fe3e10110c7a28485f57a5996374928f",
+      "bytes": 83
+    },
+    {
+      "study": "v4-candidate",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-candidate",
+      "name": "diagnostic.json",
+      "sha256": "99b62a17ee6287a96ab33ed34e4607d65565b829bd68beddfaac6cdf449bef17",
+      "bytes": 3211
+    },
+    {
+      "study": "v4-candidate",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-candidate",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-candidate",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-candidate",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "97cebab0d1f342e6ca07366227458f540be236c94f23e49b1efaadbee2a80dee",
+      "bytes": 41424
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-candidate",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.log",
+      "sha256": "2cddf1d29657c5926e23fedde2b3f695d80818d9a635061c102aa2823a18affa",
+      "bytes": 1458
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-candidate",
+      "name": "run.time",
+      "sha256": "c5f93c84a019664860b7e3361e815f987080d57988a6f8eb5827a547ebba40dc",
+      "bytes": 914
+    },
+    {
+      "study": "v4-candidate",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-candidate",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-candidate",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-candidate",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-candidate",
+      "name": "validation.json",
+      "sha256": "17e2493c610eadd9d45f4b4dfa8da7eea9420b4eca897c6466ad85c3191690cd",
+      "bytes": 8306
+    },
+    {
+      "study": "v4-candidate",
+      "name": "validation.log",
+      "sha256": "3e6ea8aeed17bd5d0e04d2c5e4a4813beb0c2e689fda30d3f34632a6a2262a17",
+      "bytes": 180
+    },
+    {
+      "study": "v4-early",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-early",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-early",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-early",
+      "name": "ast-early.json",
+      "sha256": "fd872b9c5e45d20b437cb6cd06e74e3621abee966c1612b645e80d991356993c",
+      "bytes": 2491
+    },
+    {
+      "study": "v4-early",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-early",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-early",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-early",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-early",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-early",
+      "name": "command.json",
+      "sha256": "b71e04870cd4d44772fea4b4386f751b1e231464f756cb6a0c791daa1b677d2f",
+      "bytes": 1277
+    },
+    {
+      "study": "v4-early",
+      "name": "completion.json",
+      "sha256": "1868b8f2e2e2a917d6621a52e2926c22267f700b949616f09bf7f391799a15ec",
+      "bytes": 83
+    },
+    {
+      "study": "v4-early",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-early",
+      "name": "diagnostic.json",
+      "sha256": "b683fb0ee4cbc914ace6844b7ea9cd7c434a0b1b444932c0024badb65749efd1",
+      "bytes": 2529
+    },
+    {
+      "study": "v4-early",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-early",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-early",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-early",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "a32375104de6f1b8c55d5dd8ab5066fc5950d0bb41bc26ff60f2a7cf9129f427",
+      "bytes": 28498
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "82b14c4e9aa8d835dd4343b03502f12cd59882916159869a13dacc80f13947dc",
+      "bytes": 41416
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-early",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-early",
+      "name": "run.log",
+      "sha256": "6c6c65ed8bc44be9fa2010dbbdd171c639ce7c93adc597a7078be6bded30ce88",
+      "bytes": 1515
+    },
+    {
+      "study": "v4-early",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-early",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-early",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-early",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-early",
+      "name": "run.time",
+      "sha256": "25ca543d79d43f5ff9438ac7421890c5ac688972441062ad4c0dff64135b6fed",
+      "bytes": 951
+    },
+    {
+      "study": "v4-early",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-early",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-early",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-early",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-early",
+      "name": "validation.json",
+      "sha256": "3b9ec335693f778eeca1c92e1448ad3149af51477705adde358d467a0f8493a9",
+      "bytes": 5511
+    },
+    {
+      "study": "v4-early",
+      "name": "validation.log",
+      "sha256": "8a8631224c565951f38e85c750b80f9d559260edae208bc1a80cf7577e4cc45c",
+      "bytes": 175
+    },
+    {
+      "study": "v4-late",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-late",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-late",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-late",
+      "name": "ast-late.json",
+      "sha256": "0a6d45ad6dc00a93eb7a1c93d5a90bedba5fcdad3fd0a2b258179619f183572d",
+      "bytes": 2490
+    },
+    {
+      "study": "v4-late",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-late",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-late",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-late",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-late",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-late",
+      "name": "command.json",
+      "sha256": "ab6371eff532dac2770a86902b4bb868b7f8e0dca6ae56f40c6152f52d98c0fb",
+      "bytes": 1275
+    },
+    {
+      "study": "v4-late",
+      "name": "completion.json",
+      "sha256": "8809178e33ada943d4cf8a7b2980adae316fc10edb0a5d5d0089326e200b03da",
+      "bytes": 83
+    },
+    {
+      "study": "v4-late",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-late",
+      "name": "diagnostic.json",
+      "sha256": "04268402469da240da31529cd631327aaab69fcbaf820778388cca9d86daf694",
+      "bytes": 2546
+    },
+    {
+      "study": "v4-late",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-late",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-late",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-late",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "a6da63072eed555d60d41016669243b92b96e43671e8d966403f8a9fcf42182d",
+      "bytes": 28498
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "9ef141c248a2173b949c0d074c9ee4de46e26e0e7321097fa845381b6a6976b0",
+      "bytes": 41414
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-late",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-late",
+      "name": "run.log",
+      "sha256": "b361959f7965b25c17298f62831812d13556774413e3379066af66a2234e50a5",
+      "bytes": 1515
+    },
+    {
+      "study": "v4-late",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-late",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-late",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-late",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-late",
+      "name": "run.time",
+      "sha256": "ccdcb8a5d6b74c9ea142043ed8cf64b989063c3c980cf4bd0d489766f8783db2",
+      "bytes": 951
+    },
+    {
+      "study": "v4-late",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-late",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-late",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-late",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-late",
+      "name": "validation.json",
+      "sha256": "db3035dcbfa63691ed585b765becf9d97f7551320a346fc0bc62b7c7b6c7ea21",
+      "bytes": 5527
+    },
+    {
+      "study": "v4-late",
+      "name": "validation.log",
+      "sha256": "77aba669291288b8a8033ccc0c7174863749c80d9a2a426db930badf98f2226f",
+      "bytes": 174
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "ast-missing-clear.json",
+      "sha256": "d7ea8bd6f1e30cb728582f2153dede514cc09cfb20721e87a8e32cc2791dee85",
+      "bytes": 2499
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "command.json",
+      "sha256": "2740e824f49bafe02206df05fc905983de4460bc6c0cfe8e83217c40341b384a",
+      "bytes": 1293
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "completion.json",
+      "sha256": "c817ddbba2cb3c9ec033455361b7de38c06ab63d7607ccc114262fd67e6c8cc8",
+      "bytes": 83
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "diagnostic.json",
+      "sha256": "990591b79e9b8b96746e956a4055beb4c09c2e4ce5c86171bf261a0a0ef0deab",
+      "bytes": 3211
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "e5c0752e208154730dd82bfbd94bdab6588089ade37edcf410b62ac049e9652b",
+      "bytes": 28579
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "2aa3861066c0a02749a2a6b490070575af3773b14462bed6b344edc191f7aaeb",
+      "bytes": 41432
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.log",
+      "sha256": "6e4e1bf079361619fe8c7587bad0dc6e9c83eb29d99425812ddf26caa80b8f1d",
+      "bytes": 1475
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "run.time",
+      "sha256": "8eba9d01d006ade11aca73cbf143c339a6467a602639342dc94a91d01b5ec837",
+      "bytes": 951
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "validation.json",
+      "sha256": "8ac182506122628291748d294955d3a4767219f5388cba971970db3d60dc5c9a",
+      "bytes": 6853
+    },
+    {
+      "study": "v4-missing-clear",
+      "name": "validation.log",
+      "sha256": "d96059c1656faebe318fa8924267e4faa00302c6827477fd80b0428eb78d48f8",
+      "bytes": 184
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "ast-missing-status.json",
+      "sha256": "afb20931f04443fa23b5d3a63754e3584a312b4b8dcd9881a34a1e33140caccc",
+      "bytes": 2500
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "command.json",
+      "sha256": "dd08ed00579aaf9a1c86b8d83470a0a3ee944153a99507871cf3947aeea28a11",
+      "bytes": 1295
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "completion.json",
+      "sha256": "7906e88f3eefd013467d5e82a555a7dc675f2ec9e93ab67e4a4c2a0c6b341cc2",
+      "bytes": 83
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "diagnostic.json",
+      "sha256": "dbe5ebfae9f1519e1947ac7a90942dedb7c403a651bb7a5487926da3fac04661",
+      "bytes": 2796
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "5c121c247c8f14e82f364ed5f17845651ff557d876d9997b8ebccc379a7a544e",
+      "bytes": 28542
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "c02d729e52186c37e278dca455d6b897c6984dc025356f011b84f3d78a4e1ab1",
+      "bytes": 41434
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.log",
+      "sha256": "c2f24d0fd802b3443472ec21fc5b063b3913d0869175c53fa4ad0f6c95a5ecbc",
+      "bytes": 1604
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "run.time",
+      "sha256": "c603285bdcf55b49b123a13d04f00e4d19c98a7060c7369df9a6233909131f53",
+      "bytes": 951
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "validation.json",
+      "sha256": "f8bcf0b9a1093f49a6d0a0f750c95829e7d8d100b5003b137cbf719dbfddfdf0",
+      "bytes": 6085
+    },
+    {
+      "study": "v4-missing-status",
+      "name": "validation.log",
+      "sha256": "3c8d37b41037645e23a9b73f5bb235fdfe89d490838d4792c99c3c524111e773",
+      "bytes": 185
+    },
+    {
+      "study": "v4-restored",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "study": "v4-restored",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "study": "v4-restored",
+      "name": "assertion-count-review.json",
+      "sha256": "be51ad21975b133e382bb0ffaf0e170d732405257ed7181aa3174ff22075b820",
+      "bytes": 10396
+    },
+    {
+      "study": "v4-restored",
+      "name": "ast-restored.json",
+      "sha256": "d2f07bd013a53f2a8ee301c7c6791e6cd7440e302ab21a8b026d2a35fea94c24",
+      "bytes": 2494
+    },
+    {
+      "study": "v4-restored",
+      "name": "baseline-evidence-bridge.json",
+      "sha256": "a9724eac07fd3fcecad2abff1ff66333f25ea95bb4dcf815e3143935b4dab741",
+      "bytes": 3303
+    },
+    {
+      "study": "v4-restored",
+      "name": "baseline-validation.json",
+      "sha256": "dc2d9607d4fc165009d26c3410726bd1c0fc91f41f4e73c6c7ab925c6e5a1ad9",
+      "bytes": 4570
+    },
+    {
+      "study": "v4-restored",
+      "name": "causal-review.md",
+      "sha256": "139380be9851f1f8300f35a157db10a40fc68999b00a859c64cf8f0da4940c4f",
+      "bytes": 6527
+    },
+    {
+      "study": "v4-restored",
+      "name": "check-result.py",
+      "sha256": "fd83c1a7f5e5d390db751bb40cf522ad4d37d467de0dd012089b4cd266de3c51",
+      "bytes": 4873
+    },
+    {
+      "study": "v4-restored",
+      "name": "command-proposal.md",
+      "sha256": "79e7b3a799b12f3086869c6bee3508168eea20ea26665e6cee3d6eec24875cdb",
+      "bytes": 8123
+    },
+    {
+      "study": "v4-restored",
+      "name": "command.json",
+      "sha256": "aea22bb09bebf0ba45d29f80204f989fb3a0fe38ff640d925fa92e7918b1c1ba",
+      "bytes": 1152
+    },
+    {
+      "study": "v4-restored",
+      "name": "completion.json",
+      "sha256": "dd2e7ce879e1dcac00ec69bd2680144f09934d86dfa89baf44e07672459c7cf7",
+      "bytes": 83
+    },
+    {
+      "study": "v4-restored",
+      "name": "deadline-causal-proposal.md",
+      "sha256": "dffc95c646081fb4fbc99c6df3c382e4535a5794563c572e566f718be82047e9",
+      "bytes": 3681
+    },
+    {
+      "study": "v4-restored",
+      "name": "diagnostic.json",
+      "sha256": "73c8564928eb512f85566803171c2a8d7be17c7ca0599416a4f9c7760a27dbdf",
+      "bytes": 3215
+    },
+    {
+      "study": "v4-restored",
+      "name": "dispose.json",
+      "sha256": "1840e50875f38da99bea23a1931bdcd30a5b510d9af8e224c5cfd9b55a798f12",
+      "bytes": 28
+    },
+    {
+      "study": "v4-restored",
+      "name": "exact-types.json",
+      "sha256": "0e3016583075c51a1d285d4bd2e3ab274d889f6479c978539cd3b6a90f35ecaf",
+      "bytes": 5089
+    },
+    {
+      "study": "v4-restored",
+      "name": "execution-manifest.json",
+      "sha256": "af31777a130b2d744837c428fa492916541d61d833518ad0be477e211b7133d4",
+      "bytes": 21299
+    },
+    {
+      "study": "v4-restored",
+      "name": "installed-clock-proof.json",
+      "sha256": "b54e846945b0fc4cfa6ca020c6ee8e5a987071e3019fd2eba448aa971d3aa041",
+      "bytes": 6282
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.executed",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__src__lib__answer-delivery__manager.ts.restored",
+      "sha256": "028d9c9832235085e95659679e9e47adde44fb22ca4933b09c7660cd47387a89",
+      "bytes": 28513
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.executed",
+      "sha256": "93e2bc522f1aa55a3b067c962c0fcf380d8a2fcda42f466a61e544782c199405",
+      "bytes": 41422
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__tests__answer-delivery-runtime.test.ts.restored",
+      "sha256": "7ff6d245188ce8516f4a8a90c339eaec4b65d1cd9a5e4a81f83773274dc78740",
+      "bytes": 40351
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.executed",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-restored",
+      "name": "packages__ui-react__tests__fixtures__receipt-watchdog-observer.ts.restored",
+      "sha256": "f41e798cb859abf57239f5ad9ee763494442dc1a5261db952558d0a3b23743f6",
+      "bytes": 5697
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.log",
+      "sha256": "39617d94fca348c1c1c5aa577034a8ab0501e14c3a87d3063c37cee84e809271",
+      "bytes": 4284
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.py",
+      "sha256": "08045a0f5cd0b56576815af842358970826a3add994366bcc3ad452c1e87a75b",
+      "bytes": 4887
+    },
+    {
+      "study": "v4-restored",
+      "name": "run.time",
+      "sha256": "0cc5c9fcb60f754a599722e802e1e868d9032be0ba42df1962c5fde6ff17c2dc",
+      "bytes": 801
+    },
+    {
+      "study": "v4-restored",
+      "name": "types-candidate-v4.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-restored",
+      "name": "types-helper-v3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "study": "v4-restored",
+      "name": "v3-source-type-provenance.json",
+      "sha256": "e5bdeb8f9ccf2f43d413cd0fe59f9363cf486d6b5ff37f30c7a3eeef136d9a52",
+      "bytes": 6435
+    },
+    {
+      "study": "v4-restored",
+      "name": "v4-source-type-provenance.json",
+      "sha256": "56e6c2b74f90a99eeb864d3cee80a17240242ac705a992c0ea630af549f29dd7",
+      "bytes": 6109
+    },
+    {
+      "study": "v4-restored",
+      "name": "validation.json",
+      "sha256": "4b44a4c9542e4a005676ea2b3129c491f2fa664eaef68daffe424c38f3a2b173",
+      "bytes": 12261
+    },
+    {
+      "study": "v4-restored",
+      "name": "validation.log",
+      "sha256": "4ed0a4188ecc0a3565f98522776367fa1f5a52960ded44bf4b0aa67d17b0e267",
+      "bytes": 181
+    }
+  ]
+}

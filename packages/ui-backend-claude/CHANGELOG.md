@@ -1,5 +1,32 @@
 # @schlessera/brain-backend-claude
 
+## 0.43.1
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.43.1
+- @schlessera/brain-common@0.43.1
+
+## 0.43.0
+
+### Minor Changes
+
+- 4af7b2f: Replace repeated whole-brain journal and worker input copies with managed Btrfs checkpoints and changed-only retained history. Hosted apps now require a qualified native storage service and explicit finite volume capacity; unsupported storage refuses with setup guidance instead of a copy fallback. The retained history limit remains 10 GiB and staged worker outputs keep their existing allowance.
+
+### Patch Changes
+
+- Updated dependencies [4af7b2f]
+  - @schlessera/brain-ui-sdk@0.43.0
+  - @schlessera/brain-common@0.43.0
+
+## 0.42.1
+
+### Patch Changes
+
+- Updated dependencies [b6f9060]
+  - @schlessera/brain-ui-sdk@0.42.1
+  - @schlessera/brain-common@0.42.1
+
 ## 0.42.0
 
 ### Minor Changes

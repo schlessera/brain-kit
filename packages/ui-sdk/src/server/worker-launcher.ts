@@ -19,7 +19,9 @@ import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
-import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
+import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
+import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -50,8 +52,10 @@ export interface WorkerLaunch {
   brainPath: string;
   /** Host-owned immutable execution view for snapshot consumers. */
   startupView?: WorkerStartupView;
+  /** Async-acquired stage and its owned startup reference, consumed by this launch. */
+  preparedOutput?: PreparedWorkerOutput;
   /** Private validated persistent outputs for snapshot consumers. */
-  areaOutput?: { source: string };
+  areaOutput?: { source: string; storage?: WorkerOutputStorage };
   /** Server native-write locks held throughout strict output publication. */
   outputLock?: import("./keyed-lock.js").KeyedLock;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
@@ -127,7 +131,7 @@ export const MAINTENANCE_XDG_DIRS = { ...WORKER_XDG_DIRS, XDG_STATE_HOME: "/tmp/
 export interface MaintenanceEnvelope {
   git?: { source: string; target: string; entry: string; binary: string };
   /** The server's named output workspace, separate from all configuration inputs. */
-  output?: { source: string; target: string };
+  output?: { source: string; target: string; storage?: WorkerOutputStorage };
   /** Agent profiles make the empty host masks read-only. */
   readOnlyMasks?: boolean;
   /** One sized /tmp for all maintenance temporary writes; never agent turn temp. */
@@ -445,7 +449,9 @@ function maintenanceEnvMasks(source: string, brain: string, copies: readonly { f
       if (covered.has(destination)) continue;
       covered.add(destination);
       if (resolved.info.isDirectory()) argv.push("--tmpfs", destination, "--remount-ro", destination);
-      else if (resolved.info.isFile()) argv.push("--ro-bind", "/dev/null", destination);
+      // Native checkpoints retain special inodes too. Never leave a FIFO,
+      // socket or device reachable through an environment-secret alias.
+      else argv.push("--ro-bind", "/dev/null", destination);
     }
   }
   return argv;
@@ -453,6 +459,9 @@ function maintenanceEnvMasks(source: string, brain: string, copies: readonly { f
 
 /** The only argv builder used by both live workers and the actual host probe. */
 export function workerCommand(input: WorkerLaunch): string[] {
+  if (input.startupView && input.sandbox?.profile === "governed" && !input.restricted && !input.maintenance) {
+    throw new WorkerHostError("governed workers require their shared live brain; an immutable startupView cannot be mounted over that writable root");
+  }
   if (process.platform !== "linux") throw new WorkerHostError("Linux namespaces are required");
   const bwrap = Bun.which("bwrap");
   if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
@@ -548,20 +557,27 @@ export function workerCommand(input: WorkerLaunch): string[] {
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
-  if (input.startupView) {
-    const storage = input.startupView.storage;
+  const outputStorage = input.areaOutput?.storage ?? maintenance?.output?.storage;
+  if (outputStorage) {
+    const storage = outputStorage;
     const nsenter = Bun.which("nsenter");
     if (!nsenter) throw new WorkerHostError("util-linux nsenter is required for bounded output staging");
     // Resolve these sources inside the trusted keeper's mount namespace. The
     // worker receives no server descriptor and still gets its own fresh namespaces.
     for (let i = 0; i < argv.length - 2; i++) {
-      if (["--bind", "--ro-bind"].includes(argv[i]!) && argv[i + 1]!.startsWith(`${storage.root}/`)) {
-        argv[i + 1] = `${storage.mount}/${argv[i + 1]!.slice(storage.root.length + 1)}`;
+      if (["--bind", "--ro-bind"].includes(argv[i]!) && (argv[i + 1] === storage.root || argv[i + 1]!.startsWith(`${storage.root}/`))) {
+        argv[i + 1] = argv[i + 1] === storage.root ? storage.mount : `${storage.mount}/${argv[i + 1]!.slice(storage.root.length + 1)}`;
       }
     }
-    return [nsenter, "--user", "--mount", "--preserve-credentials", "--target", String(storage.namespacePid), "--", ...argv];
+    return filtered([nsenter, "--user", "--mount", "--preserve-credentials", "--target", String(storage.namespacePid), "--", ...argv]);
   }
-  return argv;
+  return filtered(argv);
+
+  function filtered(command: string[]): string[] {
+    if (input.transport) return command;
+    try { return workerFilesystemFilter(brain, command); }
+    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+  }
 }
 
 /** Whether `path` is `dir` or lies below it. */
@@ -788,7 +804,7 @@ function sandboxPid(bwrap: number, deadline: number): number {
  * tmpfs of exactly the allowance, and empty. Until then it would still name
  * the host's directory, or nothing.
  */
-function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE): number {
+function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE, stagingDirectories = false): number {
   const path = `/proc/${pid}/root${mount}`;
   let last = "it never appeared";
   for (;;) {
@@ -798,7 +814,7 @@ function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: n
       const root = `/proc/self/fd/${fd}`;
       const fs = statfsSync(root);
       if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && fstatSync(fd).dev !== statSync(`${root}/..`).dev
-        && readdirSync(root).length === 0) return fd;
+        && (stagingDirectories ? readdirSync(root).every(name => ["upper", "work", "merged"].includes(name)) : readdirSync(root).length === 0)) return fd;
       last = "it was not yet the private tmpfs";
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EACCES" || (error as NodeJS.ErrnoException).code === "EPERM") {
@@ -863,9 +879,10 @@ function heldTmpfs(fd: number): WorkerStateHandle {
 /**
  * A server-owned, kernel-bounded tmpfs, held by a trusted mount helper
  * until publication finishes. No host directory backs the stored bytes.
- * Startup inputs and writable output copies occupy the same allowance.
+ * Only writable upper-layer bytes occupy this allowance. Immutable startup
+ * inputs live separately and cannot be modified through this merged view.
  */
-export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutputStagingLimits()) {
+export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutputStagingLimits(), lowerRoot?: string) {
   const reservation = processStateLedger().reserve(undefined, undefined, limits);
   let mount: string;
   try { mount = mkdtempSync("/tmp/brain-output-staging-"); } catch (error) { reservation.release(); throw error; }
@@ -876,21 +893,33 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
     validWorkerStateBytes(limits.allowanceBytes, "output staging allowance");
     const bwrap = Bun.which("bwrap");
     if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
+    if (lowerRoot && !isNativeWorkerStartupRoot(lowerRoot) && !/^\/tmp\/brain-startup-input-[A-Za-z0-9]+\/startup-[A-Za-z0-9]+\/brain$/.test(lowerRoot)) {
+      throw new WorkerHostError("output staging requires a server-owned immutable lower path");
+    }
+    if (lowerRoot && /[,:\\]/.test(lowerRoot)) throw new WorkerHostError("native output staging requires a managed store path without colon, comma or backslash mount-option delimiters");
+    if (lowerRoot && isNativeWorkerStartupRoot(lowerRoot)) throw new WorkerHostError("native output staging requires asynchronously prepared trusted OverlayFS through the configured native manager; userxattr fallback is unavailable");
+    const mountProgram = lowerRoot ? Bun.which("mount") : undefined;
+    if (lowerRoot && !mountProgram) throw new WorkerHostError("util-linux mount is required for bounded copy-on-write output staging");
     pipes = createWorkerPipes();
     // This helper executes only the literal shell below, never repository
     // inputs. Preserve source mount writability so the final worker can
     // rebind an explicitly allowed maintenance span sink. The final worker
     // applies its own read-only root and complete boundary before agent code.
-    child = Bun.spawn([bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts",
-      "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--bind", "/", "/", "--proc", "/proc",
-      ...["null", "zero", "full", "random", "urandom", "tty"].flatMap(name => ["--dev-bind", `/dev/${name}`, `/dev/${name}`]),
-      "--size", String(limits.allowanceBytes), "--tmpfs", mount,
-      "--clearenv", "--", "/bin/sh", "-c", 'printf "ready\\n"; IFS= read -r go; exit 0'],
-      { env: {}, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    const setupScript = '"$4" -i -n -t tmpfs -o "size=$3,mode=700" tmpfs "$2" && mkdir "$2/upper" "$2/work" "$2/merged" && "$4" -i -n -t overlay overlay -o "lowerdir=$1,upperdir=$2/upper,workdir=$2/work,userxattr" "$2/merged" || exit 126; printf "ready\\n"; IFS= read -r go; exit 0';
+    const unshare = lowerRoot ? Bun.which("unshare") : undefined;
+    if (lowerRoot && !unshare) throw new WorkerHostError("util-linux unshare is required for bounded copy-on-write output staging");
+    const keeperCommand = lowerRoot
+      ? [unshare!, "--user", "--map-root-user", "--mount", "--net", "--ipc", "--uts", "--fork", "--kill-child=SIGKILL",
+        "/bin/sh", "-c", setupScript, "brain-output-keeper", lowerRoot, mount, String(limits.allowanceBytes), mountProgram!]
+      : [bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts",
+        "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--bind", "/", "/", "--proc", "/proc",
+        ...["null", "zero", "full", "random", "urandom", "tty"].flatMap(name => ["--dev-bind", `/dev/${name}`, `/dev/${name}`]),
+        "--size", String(limits.allowanceBytes), "--tmpfs", mount,
+        "--clearenv", "--", "/bin/sh", "-c", 'printf "ready\\n"; IFS= read -r go; exit 0'];
+    child = Bun.spawn(keeperCommand, { env: {}, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
     const deadline = Date.now() + STATE_SETUP_MS;
-    fd = openPrivateState(child.pid, sandboxPid(child.pid, deadline), limits.allowanceBytes, deadline, mount);
-    const owned = fd;
+    fd = openPrivateState(child.pid, sandboxPid(child.pid, deadline), limits.allowanceBytes, deadline, mount, Boolean(lowerRoot));
     const namespacePid = sandboxPid(child.pid, deadline);
     // Older bubblewrap switches user namespaces after mounting. Wait for
     // the trusted shell itself before asking nsenter to join the finished pair.
@@ -906,6 +935,7 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
         Bun.sleepSync(1);
       }
     } finally { closeSync(ready); }
+    const owned = fd;
     let refs = 0, closed = false;
     // Only the server reads this descriptor alias. Worker mount sources are
     // resolved inside the keeper namespace, then masked by their own /tmp.
@@ -944,9 +974,14 @@ function launchDiagnostics(stderr: number): string {
  * verified and populated.
  */
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
-  let startupView = input.startupView;
-  let areaOutput: ReturnType<typeof prepareWorkerOutput> | undefined;
-  const plan = launchLimits(input);
+  let startupView = input.preparedOutput?.view ?? input.startupView;
+  let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
+  let plan: WorkerLimitsPlan;
+  try { plan = launchLimits(input); }
+  catch (error) {
+    void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+    throw error;
+  }
   let cgroup: WorkerCgroup | undefined;
   if (plan.cgroup.available) {
     try { cgroup = createWorkerCgroup(plan.cgroup, plan.limits); } catch (error) {
@@ -954,6 +989,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       // them. Later plans, the status and the agent's note say they are absent.
       const reason = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       workerCgroupHostFailed(reason);
+      void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
       throw new WorkerHostError(`the worker's cgroup could not be created (${reason}); the next turn runs without cgroup limits and says so`);
     }
   }
@@ -964,7 +1000,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
-    if (startupView && areas.length) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
+    if (startupView && areas.length && !areaOutput) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
     input = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
     const brain = realpathSync(input.brainPath);
     const observeFile = createWorkerFileObserver({ brain, configurationRoot: startupView?.root ?? brain,
@@ -975,6 +1011,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
     child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, child.exited);
     pipes.closeChild();
     let state: WorkerStateHandle | undefined, turnTemp: WorkerStateHandle | undefined;
     if (gated(input)) {
@@ -1033,9 +1070,9 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       cgroup?.remove();
       try {
         if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
-        else areaOutput?.publish();
+        else await areaOutput?.publish();
       }
-      finally { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
+      finally { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }
       return code;
     });
     return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
@@ -1049,8 +1086,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
     pipes?.cleanup(); cgroup?.remove();
-    if (child) void child.exited.finally(() => { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } });
-    else { try { areaOutput?.cleanup(); } finally { startupView?.cleanup(); } }
+    if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
+    else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`
@@ -1171,6 +1208,8 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       if (child.exitCode !== 0 || output.trim() !== "worker-boundary-pass" || readFileSync(target, "utf8") !== golden
         || (options.profile === "governed" && !options.restricted && (!existsSync(writableTarget) || readFileSync(writableTarget, "utf8") !== "Odysseus: governed works."))) {
         const detail = errors.trim().slice(0, 400);
+        const filesystemRefusal = workerFilesystemFilterRefusal(errors);
+        if (filesystemRefusal) throw new WorkerHostError(filesystemRefusal);
         if (FRESH_PROC_REFUSED.test(errors)) throw new Error(`${FRESH_PROC_REQUIREMENT} (${detail})`);
         if (gated(options) && NO_TMPFS_SIZE.test(errors)) {
           throw new Error(`bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`);

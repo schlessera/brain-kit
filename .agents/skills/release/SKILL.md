@@ -15,6 +15,13 @@ that hits something new is not finished until that lands here or in a test — s
 All eighteen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
+For a focused patch release, freeze a release branch at the recorded base and
+apply only its reviewed fixes. Run the normal complete proof on that candidate.
+Forward-integrate the release branch into main with a merge commit, preserving
+the tagged commit's ancestry and main's newer pending changesets. Equivalent
+squashed or cherry-picked bytes do not preserve that ancestry; the website
+requires its selected release commit to be an ancestor of main.
+
 The full sequence: changeset → `bun run version` → **read the version it
 produced** → `bun run build && bun run typecheck && bun run test` →
 `bun run test:experiments` → commit `chore: version packages to X.Y.Z` → push →
@@ -58,6 +65,15 @@ inference call is needed.
    daemon surfaces late, as `Container did not attempt ownership: failed to
    connect to the docker API at unix:///var/run/docker.sock`, after the
    complete suite has already run.
+   A local `Maintenance temporary storage is busy` can come from another
+   checkout using the standalone per-UID ledger. Inspect the live reservation
+   owner before attributing it to command cleanup. Ordinary fixtures supply
+   their existing `tempDomain` or outside-brain `dbPath`; intentional default
+   and in-memory tests keep their semantics. Isolate only the default ledger
+   directory in an owned mount namespace for the complete proof, preserving
+   UID/GID, device access and host-visible Docker bind paths. Do not hide all
+   of `/tmp`, raise budgets or remove another process's reservations. Retain
+   the failed run and record the complete isolated proof separately.
 3. **New package added this cycle?** Build, publish, clean and the CI pack
    loop pick it up from its manifest: they all read
    `scripts/publishable-packages.ts`, which lists every non-private
@@ -158,6 +174,14 @@ copies and rerun: `rm -rf node_modules && bun install --frozen-lockfile
 --backend=copyfile`. The lock is unchanged, so this does not invalidate
 anything; do not skip or edit the tests.
 
+**An offline experiment app refuses with `Hosted workers require managed Btrfs
+storage`?** Measurement harnesses are outside the normal product tests and
+hosted CI, so an app-fixture migration can first surface in this tier. Use the
+explicit native app fixture in the offline test or its offline preload; keep
+the real app, worker and measurement assertions. A provider-enabled entry still
+requires qualified native storage. Never add a copied-storage fallback to that
+entry or weaken the startup guard to make the experiment pass.
+
 ## A cold build tries to download an installed CLI
 
 `bunx @tailwindcss/cli` may search for a binary named `cli`, even though the
@@ -236,8 +260,9 @@ bun run release        # build, publish, `changeset tag`, publish the template
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
-  Use the unchanged verified publishing checkout, including a detached HEAD or
-  release worktree. Set `release_commit` to the SHA recorded for the published
+  Publication does not authorize pushing a stale local `main`. Use the exact
+  unchanged verified release checkout, including a detached HEAD or release
+  worktree. Set `release_commit` to the SHA recorded for the published
   candidate; the checkout must still have that HEAD. Derive only that version's
   package tags from its manifests and verify each annotated tag targets that
   commit. Run this block in Bash:

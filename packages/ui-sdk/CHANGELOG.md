@@ -1,5 +1,34 @@
 # @schlessera/brain-ui-sdk
 
+## 0.43.1
+
+### Patch Changes
+
+- @schlessera/brain-ui-kit@0.43.1
+- @schlessera/brain-geo@0.43.1
+- @schlessera/brain-common@0.43.1
+
+## 0.43.0
+
+### Minor Changes
+
+- 4af7b2f: Replace repeated whole-brain journal and worker input copies with managed Btrfs checkpoints and changed-only retained history. Hosted apps now require a qualified native storage service and explicit finite volume capacity; unsupported storage refuses with setup guidance instead of a copy fallback. The retained history limit remains 10 GiB and staged worker outputs keep their existing allowance.
+
+### Patch Changes
+
+- @schlessera/brain-ui-kit@0.43.0
+- @schlessera/brain-geo@0.43.0
+- @schlessera/brain-common@0.43.0
+
+## 0.42.1
+
+### Patch Changes
+
+- b6f9060: Keep complete immutable startup inputs outside the bounded staged-write allowance. Private copy-on-write output workspaces retain the 256 MiB default and aggregate admission, including after lower-only deletions. Release input copies and output namespaces on abrupt server exit, qualify actual writable staging before reporting host availability, and report named input-capacity refusals through boot/status without host execution fallback.
+  - @schlessera/brain-ui-kit@0.42.1
+  - @schlessera/brain-geo@0.42.1
+  - @schlessera/brain-common@0.42.1
+
 ## 0.42.0
 
 ### Minor Changes

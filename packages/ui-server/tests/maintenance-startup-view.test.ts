@@ -7,10 +7,10 @@ import * as workerSdk from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { createTestApp } from "./helpers/test-app";
-import { prepareMaintenanceOutput } from "../src/brain/maintenance-output.js";
+import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
-import { createHostBoundary } from "../src/brain/host-boundary.js";
-import { createHostExecution } from "../src/brain/host-execution.js";
+import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
+import { createFixtureHostExecution as createHostExecution } from "./helpers/native-host-fixture.js";
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
@@ -151,6 +151,7 @@ test("an injected final chmod error does not leave other directories in temporar
 test("maintenance publishes explicit output without opening the execution view for writes", async () => {
   const brain = fixture();
   const boundary = createHostBoundary({ brainPath: brain });
+  await boundary.prepare();
   expect(boundary.isolated()).toBe(true);
   const program = 'console.log((await import("./brain.config.ts")).default); try {await Bun.write("./harbor.md", "attack"); process.exit(43)} catch(e) {if(e.code!=="EROFS")throw e} await Bun.write(process.env.BRAIN_ROOT + "/harbor.md", "Odysseus departs.\\n");';
   const result = await boundary.run({ argv: [process.execPath, "--no-env-file", "-e", program], env: {}, credentials: false, gate: "shared", purpose: "maintenance output proof" });
@@ -236,6 +237,10 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5);
+    const fs=require("node:fs"); let refused=false;
+    try {fs.writeFileSync(process.env.BRAIN_ROOT+"/git-adapter/empty-config", "[alias]\\n");}
+    catch(error) {if(error.code!=="ENOENT")throw error;refused=true;}
+    if(!refused)throw new Error("GIT_ADAPTER_HAS_WRITABLE_PUBLICATION_ALIAS");
     await Bun.write(process.env.BRAIN_ROOT+"/raft.md", "Odysseus builds a raft.\\n");
     for(const args of [["add","raft.md"],["show",":raft.md"]]) {const p=Bun.spawnSync(["git",...args],{stdout:"pipe",stderr:"pipe"});if(p.exitCode)throw new Error(p.stderr.toString()); if(args[0]==="show")process.stdout.write(p.stdout);}`;
   const worker = await boundary.launch({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "Git startup proof" });
@@ -250,6 +255,7 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
     expect(await worker.exited, await new Response(worker.stderr).text()).toBe(0);
     expect(output, "GIT_CONFIGURATION_STARTUP_ONLY").toBe("before launch\nOdysseus builds a raft.\n");
     expect(git("show", ":raft.md").stdout.toString()).toBe(output);
+    expect(existsSync(join(brain, "git-adapter")), "SERVER_GIT_ADAPTER_NEVER_PUBLISHED").toBe(false);
     expect(readFileSync(join(brain, "filters/value.txt"), "utf8")).toBe("during launch\n");
   } finally { worker.kill("SIGKILL"); }
 });

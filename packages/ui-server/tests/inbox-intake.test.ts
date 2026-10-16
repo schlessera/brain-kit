@@ -4,7 +4,7 @@ import { createInboxIntake } from "../src/inbox/intake.js";
 import { pruneShareStaging } from "../src/share/staging.js";
 import { writeFile, chmod, mkdir, utimes, readFile } from "node:fs/promises";
 import { createRecordingObservability } from "../src/observability/index.js";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";

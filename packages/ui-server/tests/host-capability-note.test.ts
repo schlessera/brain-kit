@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { workerSandboxNote } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";

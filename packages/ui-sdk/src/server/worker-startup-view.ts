@@ -1,154 +1,130 @@
-/** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, ftruncateSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
-import { createOutputStagingStorage } from "./worker-launcher.js";
-import { WorkerStateError } from "./worker-state-budget.js";
-import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { mib } from "./worker-state-limits.js";
-import { join } from "node:path";
+/** Native immutable execution views, acquired before synchronous worker spawn. */
+import { randomUUID } from "node:crypto";
+import { lstatSync, realpathSync, statfsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { NativeCheckpoint } from "./native-brain-manager-protocol.js";
+import type { createNativeBrainManagerClient } from "./native-brain-manager-client.js";
+
+export interface WorkerStartupStorage {
+  readonly root: string;
+  retain(): void;
+  release(): void | Promise<void>;
+  readonly cleanupPid?: number;
+}
 
 export interface WorkerStartupView {
   readonly brain: string;
   readonly root: string;
-  readonly storage: ReturnType<typeof createOutputStagingStorage>;
-  cleanup(): void;
+  readonly storage: WorkerStartupStorage;
+  /** Drop this reference. The final reference awaits native deletion; failures retain broker recovery intent. */
+  cleanup(): void | Promise<void>;
 }
 
-const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
-const FILE = constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW;
-const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
+type NativeClient = ReturnType<typeof createNativeBrainManagerClient>;
+const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">> }>();
+/** Trusted acquisition metadata; no request-supplied manager or checkpoint is accepted. */
+export function nativeWorkerStartupInput(view: WorkerStartupView) {
+  if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
+  const input = nativeInputs.get(view);
+  if (!input?.manager.prepareStage || !input.manager.inspectStage || !input.manager.releaseStage) throw new Error("Native output requires a manager-acquired immutable startup view and configured stage operations.");
+  return input as { checkpoint: NativeCheckpoint; manager: NativeClient };
+}
+const releasedViews = new WeakSet<WorkerStartupView>();
+const nativeRoots = new Set<string>();
+const nativeBrains = new Map<string, { dev: bigint; ino: bigint; fsid: string; sourceUuid: string }>();
 
-/** Remove only this private copy, even when a worker removed directory access. */
-function removePrivateView(owner: string): void {
-  // O_PATH obtains an identity without requiring read permission. O_NOFOLLOW
-  // and O_DIRECTORY refuse links before chmod touches an opened directory.
-  const flags = 0x200000 | constants.O_NOFOLLOW | constants.O_DIRECTORY;
-  function empty(fd: number): void {
-    chmodSync(`/proc/self/fd/${fd}`, 0o700);
-    for (const name of readdirSync(at(fd, "."))) {
-      const path = at(fd, name);
-      if (lstatSync(path).isDirectory()) {
-        const child = openSync(path, flags);
-        try { empty(child); } finally { closeSync(child); }
-        rmdirSync(path);
-      } else unlinkSync(path);
-    }
-  }
-  const fd = openSync(owner, flags);
-  try { empty(fd); } finally { closeSync(fd); }
-  rmdirSync(owner);
+/** Private acquisition attestation, never an exemption for an arbitrary Btrfs directory. */
+export function hasNativeBrainBoundary(brain: string): boolean {
+  const owned = nativeBrains.get(brain);
+  if (!owned) return false;
+  try {
+    const current = lstatSync(brain, { bigint: true });
+    // Btrfs roots reserve inode 256 and getattr supplies the root's unique anon_dev.
+    if (current.isDirectory() && current.ino === 256n && current.ino === owned.ino
+      && current.dev === owned.dev && statfsSync(brain).type === 0x9123683e) return true;
+  } catch { /* A missing/replaced/unreadable root loses its attestation. */ }
+  nativeBrains.delete(brain);
+  return false;
+}
+
+/** Output staging accepts only a checkpoint whose native owner is still held. */
+export function isNativeWorkerStartupRoot(root: string): boolean { return nativeRoots.has(root); }
+
+/** Synchronous callers must receive a view acquired by their trusted async host context. */
+export function createWorkerStartupView(_brain: string, _options: { omitGit?: boolean; storage?: WorkerStartupStorage } = {}): never {
+  throw new Error("Immutable worker inputs require an asynchronously prepared native managed-storage checkpoint; full-copy startup fallback is unavailable. Prepare and pass startupView before spawning.");
+}
+
+/** A separate reference for one execution consumer; the supplied owner keeps its reference. */
+export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupView {
+  if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
+  view.storage.retain();
+  let released = false, completion: void | Promise<void>;
+  const retained: WorkerStartupView = { ...view, cleanup() {
+    if (!released) { released = true; releasedViews.add(retained); completion = view.storage.release(); }
+    return completion;
+  } };
+  const native = nativeInputs.get(view); if (native) nativeInputs.set(retained, native);
+  return retained;
 }
 
 /**
- * Copies raw regular-file bytes and link text through anchored descriptors.
- * Never hardlinks: a read-only bind of the live inode is not a snapshot.
- * Special nodes are refused rather than copied into a configuration view.
- * A concurrent change refuses this launch, rather than accepting torn input.
+ * Acquire a complete RO view from the one configured trusted manager. No discovery,
+ * filesystem scan, byte-copy fallback or repository execution occurs here.
+ * The owner keeps this view only for the approved turn/maintenance input lifetime.
+ * Give each worker retainWorkerStartupView(view), await its exited promise, then
+ * await the owner's cleanup. A lost RPC releases/reconciles the same identity.
  */
-export function createWorkerStartupView(brain: string, options: { omitGit?: boolean; storage?: WorkerStartupView["storage"] } = {}): WorkerStartupView {
-  // /tmp is always masked in every worker; TMPDIR must not put an unmasked
-  // alternate copy of the brain (including its secrets) on the host root.
-  const storage = options.storage ?? createOutputStagingStorage();
-  storage.retain();
-  let owner: string;
-  try { owner = mkdtempSync(`${storage.root}/startup-`); } catch (error) { storage.release(); throw error; }
-  const root = join(owner, "brain");
-  let entries = 0;
-  let bytes = 0;
-  const buffer = Buffer.alloc(64 * 1024);
-  const zeros = Buffer.alloc(buffer.length);
-  const stamps: { parts: string[]; info: import("node:fs").Stats }[] = [];
-  const same = (a: import("node:fs").Stats, b: import("node:fs").Stats) =>
-    a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
-  function copy(fd: number, destination: string, depth: number, parts: string[] = []): void {
-    if (depth > 256) throw new Error("startup view exceeds the directory depth bound");
-    const before = fstatSync(fd);
-    stamps.push({ parts, info: before });
-    mkdirSync(destination, { mode: 0o700 });
-    for (const name of readdirSync(at(fd, "."))) {
-      // Restricted consumers have no Git configuration or daemon authority.
-      if (depth === 0 && options.omitGit && name === ".git") {
-        // Keep a mount point for the launcher's empty Git mask, without
-        // carrying daemon sockets or configuration into the restricted view.
-        if (lstatSync(at(fd, name)).isDirectory()) mkdirSync(join(destination, name));
-        else writeFileSync(join(destination, name), "");
-        continue;
-      }
-      if (++entries > 200_000) throw new Error("startup view exceeds 200000 entries");
-      const source = at(fd, name);
-      const target = join(destination, name);
-      const info = lstatSync(source);
-      stamps.push({ parts: [...parts, name], info });
-      if (info.isSymbolicLink()) {
-        symlinkSync(readlinkSync(source), target);
-        if (!same(info, lstatSync(source))) throw new Error("startup input changed while copying a link");
-      } else if (info.isDirectory()) {
-        const child = openSync(source, DIRECTORY);
-        try {
-          if (!same(info, fstatSync(child))) throw new Error("startup directory changed before open");
-          copy(child, target, depth + 1, [...parts, name]);
-        } finally { closeSync(child); }
-      } else if (info.isFile()) {
-        const input = openSync(source, FILE);
-        let output: number | undefined;
-        try {
-          const opened = fstatSync(input);
-          if (!opened.isFile() || !same(info, opened)) throw new Error("startup file changed before open");
-          output = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, info.mode & 0o777);
-          let position = 0;
-          for (;;) {
-            const count = readSync(input, buffer);
-            if (!count) break;
-            bytes += count;
-            if (bytes > 4 * 1024 ** 3) throw new Error("startup view exceeds 4 GiB");
-            // Preserve zero extents as holes. A sparse scratch artifact must
-            // not allocate its logical size in the bounded private tmpfs.
-            if (!buffer.subarray(0, count).equals(zeros.subarray(0, count))) {
-              let written = 0;
-              while (written < count) written += writeSync(output, buffer, written, count - written, position + written);
-            }
-            position += count;
-          }
-          ftruncateSync(output, position);
-          if (!same(opened, fstatSync(input))) throw new Error("startup file changed while copying");
-          fchmodSync(output, info.mode & 0o777);
-          futimesSync(output, info.atime, info.mtime);
-        } finally { closeSync(input); if (output !== undefined) closeSync(output); }
-      } else {
-        throw new Error("startup view contains a socket, FIFO or device");
-      }
-    }
-    if (!same(before, fstatSync(fd))) throw new Error("startup directory membership changed while copying");
-    chmodSync(destination, before.mode & 0o777);
-    utimesSync(destination, before.atime, before.mtime);
+export async function prepareNativeWorkerStartupView(brainPath: string,
+  manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">>,
+  signal?: AbortSignal): Promise<WorkerStartupView> {
+  signal?.throwIfAborted();
+  const brain = realpathSync(brainPath), id = randomUUID();
+  if (statfsSync(brain).type !== 0x9123683e || brain !== join(dirname(brain), "brain")) {
+    throw new Error("Immutable worker inputs require the configured native Btrfs managed brain; full-copy fallback is unavailable.");
   }
-  let fd: number | undefined;
+  const expected = join(dirname(brain), ".brain-native", "checkpoints", id);
+  const sourceIdentity = lstatSync(brain, { bigint: true });
+  let checkpoint: NativeCheckpoint;
   try {
-    fd = openSync(brain, DIRECTORY);
-    copy(fd, root, 0);
-    // A file copied earlier can change while another file is being read without
-    // changing its parent's metadata. Verify every captured identity at commit.
-    if (!same(stamps[0]!.info, lstatSync(brain))) throw new Error("startup input changed at the brain root");
-    for (const stamp of stamps) {
-      if (!stamp.parts.length) {
-        if (!same(stamp.info, fstatSync(fd))) throw new Error("startup input changed at the brain root");
-        continue;
-      }
-      let parent = openSync(at(fd, "."), DIRECTORY);
-      try {
-        for (const part of stamp.parts.slice(0, -1)) {
-          const child = openSync(at(parent, part), DIRECTORY); closeSync(parent); parent = child;
-        }
-        if (!same(stamp.info, lstatSync(at(parent, stamp.parts.at(-1)!)))) throw new Error("startup input changed while copying");
-      } finally { closeSync(parent); }
+    checkpoint = await manager.checkpoint(id, signal);
+    signal?.throwIfAborted();
+    if (checkpoint.id !== id || checkpoint.path !== expected || checkpoint.readOnly !== true
+      || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(checkpoint.fsid)
+      || !/^[0-9a-f]{32}$/.test(checkpoint.sourceUuid) || !/^[0-9a-f]{32}$/.test(checkpoint.uuid) || !/^[1-9][0-9]*$/.test(checkpoint.rootId)
+      || !/^[1-9][0-9]*$/.test(checkpoint.transaction)
+      || !lstatSync(expected).isDirectory() || statfsSync(expected).type !== 0x9123683e) {
+      throw new Error("Native manager did not return the expected complete immutable checkpoint identity.");
     }
-    let removed = false;
-    return { brain, root, storage, cleanup() { if (removed) return; removed = true;
-      try { removePrivateView(owner); } finally { storage.release(); } } };
+    const current = lstatSync(brain, { bigint: true });
+    if (current.dev !== sourceIdentity.dev || current.ino !== sourceIdentity.ino)
+      throw new Error("The managed brain root changed while preparing its immutable checkpoint.");
+    if (current.isDirectory() && current.ino === 256n) {
+      // The fixed manager qualified the whole live subvolume before snapshotting.
+      // This boundary outlives the checkpoint; no descriptor or snapshot is retained.
+      nativeBrains.set(brain, { dev: current.dev, ino: current.ino, fsid: checkpoint.fsid, sourceUuid: checkpoint.sourceUuid });
+    }
   } catch (error) {
-    try { removePrivateView(owner); } finally { storage.release(); }
-    if ((error as NodeJS.ErrnoException).code === "ENOSPC") throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded,
-      `Output staging exceeds its ${mib(storage.allowanceBytes)} allowance (ENOSPC). Starting inputs and publication copies must fit before launch; nothing ran.`);
+    // Never use an aborted signal for ownership cleanup. Same-ID operations are
+    // serialized by the broker, including a checkpoint whose reply was lost.
+    try { await manager.release(id); }
+    catch (releaseError) { throw new AggregateError([error, releaseError], `Native startup checkpoint ${id} has an unknown outcome; reconcile its durable manager intent.`); }
     throw error;
-  } finally { if (fd !== undefined) closeSync(fd); }
+  }
+  let refs = 0, closing = false, deletion: Promise<void> | undefined;
+  nativeRoots.add(expected);
+  const storage: WorkerStartupStorage = { root: expected,
+    retain() { if (closing) throw new Error("native startup checkpoint is closed"); refs++; },
+    release() {
+      if (closing) return deletion;
+      if (--refs > 0) return;
+      closing = true;
+      nativeRoots.delete(expected);
+      deletion = manager.release(id).then(() => {});
+      return deletion;
+    },
+  };
+  const owner: WorkerStartupView = { brain, root: expected, storage, cleanup() {} };
+  nativeInputs.set(owner, { checkpoint, manager });
+  return retainWorkerStartupView(owner);
 }

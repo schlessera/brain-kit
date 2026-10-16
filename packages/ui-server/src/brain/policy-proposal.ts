@@ -77,8 +77,8 @@ function split(text: string) {
 }
 function sections(before: string, after: string) {
   let a: Record<string, unknown> = {};
-  try { a = parseFrontmatter(before).data; } catch { /* Invalid current bytes are still reviewed exactly. */ }
-  const b = parseFrontmatter(after).data;
+  try { a = parseFrontmatter(before, { dataOnly: true }).data; } catch { /* Invalid current bytes are still reviewed exactly. */ }
+  const b = parseFrontmatter(after, { dataOnly: true }).data;
   const changed: string[] = [];
   const walk = (left: unknown, right: unknown, path: string) => {
     if (JSON.stringify(left) === JSON.stringify(right)) return;
@@ -97,7 +97,7 @@ export interface PolicyProposalTurn {
 export function createPolicyProposals(options: {
   root: string; db: Database; lock: Pick<KeyedLock, "withLock">;
   /** The journal service owns exact user/policy attribution and its live recording window. */
-  observeUserPolicy(turnId: string, approvedWrite: () => void): void;
+  observeUserPolicy(turnId: string, approvedWrite: () => void): void | Promise<void>;
   recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): void;
   /** Deterministic race/revalidation fixtures, never wired to a worker. */
   beforeCommit?(): void;
@@ -183,7 +183,7 @@ export function createPolicyProposals(options: {
                 try { writeFileSync(fd, bytes); if (target.mode !== undefined) fchmodSync(fd, target.mode); fsyncSync(fd); } finally { closeSync(fd); }
                 options.beforeCommit?.(); authority(); verify(target, review.baseHash);
                 // No awaited code between final authority/base/topology check and publication.
-                options.observeUserPolicy(turn.turnId, () => {
+                await options.observeUserPolicy(turn.turnId, () => {
                   // Journal observation may precede this callback; recheck at the exact write.
                   authority(); verify(target!, review.baseHash);
                   if (review.baseHash === null) linkSync(temp!, target!.at); else renameSync(temp!, target!.at);

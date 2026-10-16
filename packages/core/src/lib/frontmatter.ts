@@ -1,4 +1,5 @@
 import matter from "gray-matter";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 /**
  * gray-matter parses unquoted YAML dates (`created: 2026-03-06`) into JS Date
@@ -35,7 +36,7 @@ export function stringifyDocument(
   content: string,
   data: Record<string, any>
 ): string {
-  const out = matter.stringify(content, normalizeFrontmatterDates(data), {
+  const out = matter.stringify(parseFrontmatter(content, { dataOnly: true }), normalizeFrontmatterDates(data), {
     flowLevel: 1,
   } as any);
   return out.replace(/^---\n[\s\S]*?\n---/, (block) =>

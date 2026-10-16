@@ -434,9 +434,12 @@ refuses rather than run git on the host.
   validated output workspace. Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
-  root remain read-only. After that worker and all its descendants have
-  exited, the host rejects linked storage and object alternates and runs
-  `git fsck --full --strict` before pushing. The transport has an explicit
+  root remain read-only. Maintenance completion awaits both the outer
+  bubblewrap monitor and EOF on the output pipes retained by namespace init.
+  A descendant can leave files between CLI exit and namespace teardown;
+  file presence alone does not show a surviving process. Before admitting
+  another transport, the host rejects linked storage and object alternates
+  and runs `git fsck --full --strict` before pushing. The transport has an explicit
   system/mirror mount list and never mounts the brain or its `.git`.
   It uses the literal protected `remote.origin.url`, without loading includes;
   writable Git includes cannot choose the credential's destination.
@@ -627,35 +630,52 @@ host daemons' sockets out of the brain directory on a hosted install.
 ## Output-staging allowance
 
 Strict, restricted and maintenance configuration consumers use immutable startup
-inputs. Strict persistent areas and maintenance results use private copies,
+inputs. Strict persistent areas and maintenance results use private copy-on-write outputs,
 validated against the authoritative brain before publication. Each consumer
 reserves a separate **256 MiB** allowance in the same admission ledger as runtime
-state and turn temp. Starting input bytes, publication copies, Git adapter data,
-and filesystem overhead all occupy that one bounded tmpfs. Turn temp is separate.
+state and turn temp. Newly created or copied-up output bytes, Git adapter data,
+and writable filesystem overhead occupy that bounded tmpfs. Turn temp is separate.
+Complete immutable input bytes retain their existing 4 GiB logical copy bound
+in a private snapshot in host temporary storage under `/tmp`, outside the
+output allowance. A trusted cleanup
+keeper removes that snapshot even after abrupt server exit.
 
 | Host setting | Default | Meaning |
 | --- | --- | --- |
-| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The total private startup and output staging capacity for one consumer. |
+| `BRAIN_UI_OUTPUT_STAGING_BYTES` | `268435456` (256 MiB) | The private writable output capacity for one consumer; immutable input bytes are separate. |
 | `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` | allowance × `MAX_CONCURRENT_SESSIONS` (768 MiB at defaults) | Aggregate admitted output-staging capacity. |
 
 Both values must be positive multiples of 4096, with the budget at least one
 allowance; invalid values refuse server startup. A consumer unable to reserve
 its whole allowance refuses immediately with `worker_state_busy` and Retry.
-Starting copies must fit before any repository code runs; an oversized copy
-refuses with `worker_state_exceeded`, naming output staging and `ENOSPC`.
-Subsequent writes that fill the filesystem fail with `ENOSPC` (`No space left on
-device`). A strict publication copy normally needs room for two copies of its
-starting contents, plus the turn's changes. Set an allowance and aggregate
-budget appropriate for the complete input tree, including dependencies and
-workspaces. No host-backed overflow fallback exists. The agent's limits note
-states the same resolved allowance.
+Complete starting inputs must fit their own 4 GiB logical copy bound and the
+host's free snapshot storage before repository code runs. A named
+`worker_state_exceeded` refusal reports input capacity separately from output
+staging; boot and status remain available without host execution fallback.
+New output writes that fill the upper filesystem fail with `ENOSPC` (`No space
+left on device`). Copying up a modified existing file consumes its full copied
+bytes. Deleting a lower-only baseline file does not free writable capacity.
+No host-backed output overflow fallback exists. The agent's limits note states
+the same resolved output allowance.
 
-A trusted helper keeps this private mount alive through publication. The
-launcher uses util-linux `nsenter` with `--user`, `--mount` and
-`--preserve-credentials` to start bubblewrap inside its completed mount namespace;
-bubblewrap still creates the worker's own namespaces, fresh `/proc`, masks and
-private turn temp. Install `nsenter` alongside bubblewrap and permit `setns` in
-the container seccomp profile. No added host capabilities are needed.
+A fixed trusted helper uses util-linux `unshare` and `mount` to create a
+copy-on-write overlay with immutable input as its lower layer and upper/work
+on the size-limited tmpfs. This is the separate private publication workspace,
+not a writable mount over the brain's configuration execution path. The
+launcher uses `nsenter --user --mount --preserve-credentials` to start
+bubblewrap inside that completed helper namespace; bubblewrap still creates
+the worker's own namespaces, fresh `/proc`, masks and private turn temp, and
+drops its capabilities. No added host/container capabilities are needed.
+
+The host needs kernel support for overlayfs in an unprivileged user namespace
+with `userxattr`, util-linux `unshare`, `mount` and `nsenter`, and `python3`
+for the isolated literal input-cleanup helper (`-I -S`, no brain imports).
+The maintenance qualification performs a real private output write before
+claiming availability. Missing tools or unsupported mounts produce the existing
+host-requirement refusal; no live-input or host-execution fallback is selected.
+Keep `setns`, namespace creation and mount calls allowed in the namespace
+seccomp profile. Both the private output namespace and immutable input copy
+are released after abrupt server exit.
 
 ## Running the server in a Docker container
 
@@ -672,7 +692,7 @@ each was rejected are in the
 | Create the user and PID namespaces | `bwrap: No permissions to create new namespace…` | A seccomp profile that allows `clone`, `unshare`, `mount` and `umount2` without `CAP_SYS_ADMIN`. Docker's default profile allows them only with that capability. |
 | Switch to the worker's root | `bwrap: pivot_root: Operation not permitted` | The same profile also allows `pivot_root`, which Docker's default profile never allows. |
 | Mount the worker's fresh `/proc` | "the kernel refused the worker a fresh /proc because the parent /proc has masked or covered paths; in Docker, run the container with --security-opt systempaths=unconfined" | `--security-opt systempaths=unconfined`. Inside a user namespace the kernel mounts a new procfs only when the parent `/proc` has no covered paths, and Docker covers several by default. No other option fixes this step. |
-| (AppArmor hosts) mounts inside the namespace | Not measured. Docker's `docker-default` profile contains `deny mount`. | `--security-opt apparmor=unconfined`, or an AppArmor profile that allows the worker's mounts. |
+| (AppArmor hosts) namespace setup | Docker's default profile denies mounts and the quota write used by maintenance's `--disable-userns`. | `--security-opt apparmor=unconfined`, or a derived profile that permits the worker's mounts, `pivot_root` and namespace-local quota setup at `/proc/sys/user/max_user_namespaces`. |
 
 Derive the seccomp profile from Docker's default profile for your Docker
 version, adding one rule:
@@ -752,6 +772,16 @@ logs a warning once at boot, `/api/status` keeps it as
 and the app shows a standing notice above the composer that links this
 section. The warning names what a root-run worker keeps: it can read
 root-owned files and connect to root-owned and abstract Unix sockets.
+
+Native storage accepts the server's fixed UID/GID, including UID 0 under this
+same warning (`validateNativeBrainManagerConfig`,
+`packages/ui-sdk/src/server/native-brain-manager.ts:62-83`). This does not give
+the worker capabilities or remove its masks, filesystem filter or read-only
+root `/proc`. The host still has to qualify for user namespaces. Since Linux
+5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
+namespace setup boundary; see the
+[Linux user-namespace mapping rules](https://man7.org/linux/man-pages/man7/user_namespaces.7.html).
+An unqualified root context remains a named worker-host refusal.
 
 ## Resource limits
 
@@ -974,9 +1004,13 @@ index refresh after its workers exit, serialized on the server lock.
 
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
-the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials and egress retain the interim
-limits stated in the capabilities note. The journal keeps observed canonical
+the actual mounts, fallback cause and limits. Both governed and strict notes
+state that the worker shares the server's uid and server-state protection is
+mask-only. A read-only brain does not prevent reads of other host paths
+available to that uid. The separate-uid broker in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) is not implemented
+yet. Maintenance credentials and egress retain the interim limits stated in
+the capabilities note. The journal keeps observed canonical
 brain/workspace versions, not every write between observations; external
 persisted Claude auto-memory remains outside that review/revert coverage.
 Native read observations survive ordinary turns on the running backend but

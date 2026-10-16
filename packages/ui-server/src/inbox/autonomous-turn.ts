@@ -15,10 +15,11 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, prepareNativeWorkerStartupView, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
-import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type ApplicationPlanner } from "../brain/application.js";
+import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
 
@@ -51,6 +52,9 @@ export interface AutonomousTurnInput {
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
+  /** Owned host manager; restricted workers still require immutable native inputs. */
+  nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
+  applicationPlanner?: ApplicationPlanner;
   /** Authoritative brain; standalone callers default to their working directory. */
   brainPath?: string;
   db: Database;
@@ -235,6 +239,7 @@ async function executeAutonomousTurn(
     // The server owns this policy: nothing is auto-allowed, so every
     // application reaches `approve`, whatever the backend would allow.
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
+      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
       isAuthorized: current,
       approve: async (proposal, destructive) => {
@@ -263,7 +268,13 @@ async function executeAutonomousTurn(
     bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
   }
   const principalCheck = setInterval(checkPrincipal, 100);
+  let startupView: WorkerStartupView | undefined;
   try {
+    if (!deps.nativeManager) throw new BackendRequestError("Autonomous workers require the configured native brain manager; full-copy fallback is unsupported.");
+    startupView = await prepareNativeWorkerStartupView(deps.brainPath ?? process.cwd(), deps.nativeManager, controller.signal);
+    controller.signal.throwIfAborted();
+    if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    request.workerStartupView = startupView;
     await deps.backend.startTurn(request);
     if (!terminal) {
       outcome = failed ? "error" : controller.signal.aborted ? "cancelled" : "error";
@@ -272,22 +283,29 @@ async function executeAutonomousTurn(
     }
     return { runId: input.turnId, outcome, escalated, yielded };
   } catch (error) {
+    if (!revoked && !failed && controller.signal.aborted && error === controller.signal.reason) {
+      outcome = "cancelled";
+      emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: "Autonomous turn cancelled before worker startup." });
+      return { runId: input.turnId, outcome, escalated, yielded };
+    }
     outcome = "error";
     emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: error instanceof Error ? error.message : String(error) });
     throw error;
   } finally {
     closed = true;
-    await intake.close();
     clearInterval(principalCheck);
     input.signal.removeEventListener("abort", abort);
-    // The backend has returned. Release its kernel lock under the operational
-    // write lock, then settle before another connection can claim cleanup.
-    deps.db.transaction(() => {
-      lifetime.release();
-      if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
-      recorder.finish(outcome);
-      if (yielded) finishYield(deps.db, input.turnId);
-    }).immediate();
+    try {
+      await intake.close();
+      // The backend has returned. Release its kernel lock under the operational
+      // write lock, then settle before another connection can claim cleanup.
+      deps.db.transaction(() => {
+        lifetime.release();
+        if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
+        recorder.finish(outcome);
+        if (yielded) finishYield(deps.db, input.turnId);
+      }).immediate();
+    } finally { await startupView?.cleanup(); }
   }
 }
 

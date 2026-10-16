@@ -4,7 +4,7 @@
 been cached. Rates are USD per token. `fetchedAt: 0` and source
 `fetchedAt: null` mean no remote fetch occurred; they are not check dates.
 
-## Claude rates checked 2026-10-13
+## Claude rates checked 2026-10-14
 
 Source: [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing),
 with model lifecycle checked against

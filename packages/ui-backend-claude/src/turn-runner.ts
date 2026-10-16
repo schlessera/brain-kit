@@ -252,7 +252,14 @@ export function createClaudeTurnRunner(options: {
       terminalSent = true;
       // The worker's exit and copy-out must settle before the terminal frame.
       await finishWorker?.().catch(() => {});
-      emit(unsaved(terminal));
+      // Cancellation can arrive after the SDK result, including while exit or
+      // copy-out is pending. Keep its accounting, but discard error-only fields.
+      // A startup refusal's own internal abort must remain a refusal.
+      if (wasCancelled()) {
+        const { failure: _failure, outcomeDetail: _detail, ...retained } = terminal;
+        emit({ type: "status", status: "cancelled" });
+        emit({ ...retained, outcome: "cancelled", isError: false });
+      } else emit(unsaved(terminal));
     };
     const workerRefusal = (): boolean => {
       const failure = refused ? undefined : workerFailure?.();
@@ -292,6 +299,7 @@ export function createClaudeTurnRunner(options: {
      * set, nothing the stream says afterwards can turn the turn into a success.
      */
     let withheld = false;
+    const wasCancelled = (): boolean => req.signal.aborted || (!refused && abortController.signal.aborted);
     const phase = req.sessionId === undefined ? "start before prompt release" : "resume before prompt release";
     const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements, phase, profile.model);
     let probedVersion: string | undefined;
@@ -301,13 +309,18 @@ export function createClaudeTurnRunner(options: {
      * the SDK reported a session) the contract's terminal is a bare `error`,
      * so a client keying on result/error is never left hanging.
      */
-    const emitTerminal = (outcome: "error" | "cancelled"): void => {
+    const emitTerminal = async (outcome: "error" | "cancelled", diagnostic?: { code: string; message: string }): Promise<void> => {
       if (sawResult) return;
       sawResult = true;
+      // Generated terminals obey the same cleanup boundary as SDK results.
+      await finishWorker?.().catch(() => {});
+      if (wasCancelled()) outcome = "cancelled";
+      if (outcome === "cancelled") emit({ type: "status", status: "cancelled" });
+      const reason = refused ?? diagnostic;
       if (sessionId === null) {
         emit(
-          refused
-            ? { type: "error", ...refused }
+          reason && outcome === "error"
+            ? { type: "error", ...reason }
             : {
                 type: "error",
                 code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
@@ -322,7 +335,7 @@ export function createClaudeTurnRunner(options: {
       // The failure rides the terminal frame only, so a client never reports
       // it twice: here that is the result, not the diagnostic error.
       const failure = refused?.failure ?? adapter.pendingFailure() ?? undefined;
-      if (refused) emit({ type: "error", code: refused.code, message: refused.message });
+      if (reason && outcome === "error") emit({ type: "error", code: reason.code, message: reason.message });
       // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
       // "no completed turns" for a turn that never finished.
       emit({
@@ -598,19 +611,16 @@ export function createClaudeTurnRunner(options: {
       if (!sawResult) {
         // A host cancellation keeps outranking a state failure found meanwhile.
         if (refused) {
-          emitTerminal("error");
+          await emitTerminal("error");
         } else if (abortController.signal.aborted) {
-          emit({ type: "status", status: "cancelled" });
-          emitTerminal("cancelled");
+          await emitTerminal("cancelled");
         } else if (workerRefusal()) {
-          emitTerminal("error");
+          await emitTerminal("error");
         } else {
-          emit({
-            type: "error",
+          await emitTerminal("error", {
             code: "CLAUDE_NO_RESULT",
             message: "Backend stream ended without a result",
           });
-          emitTerminal("error");
         }
       }
     } catch (err) {
@@ -627,22 +637,22 @@ export function createClaudeTurnRunner(options: {
         // Terminal frame already decided — swallow the late failure.
         await releaseTerminal();
       } else if (refused) {
-        emitTerminal("error");
+        await emitTerminal("error");
       } else if (abortController.signal.aborted) {
-        emit({ type: "status", status: "cancelled" });
-        emitTerminal("cancelled");
+        await emitTerminal("cancelled");
       } else if (workerRefusal()) {
-        emitTerminal("error");
+        await emitTerminal("error");
       } else {
+        let diagnostic: { code: string; message: string } | undefined;
         const stateClass = workerStateClass(err);
         if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || stateClass) {
           const { message } = err as Error;
           refused = { code: "CLAUDE_ERROR", message,
             failure: { errorClass: stateClass ?? (err as WorkerHostError | SessionTooLargeError).errorClass, message } };
         } else {
-          emit({ type: "error", code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) });
+          diagnostic = { code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) };
         }
-        emitTerminal("error");
+        await emitTerminal("error", diagnostic);
       }
     } finally {
       try { await finishWorker?.(); }

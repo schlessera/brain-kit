@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createBrainClient } from "../src/brain/client";
+import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
 import { createCronScheduler } from "../src/cron/scheduler";
 import { createUiDb } from "../src/db/client";
 

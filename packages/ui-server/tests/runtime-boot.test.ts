@@ -13,7 +13,7 @@ import { MEASURED_RUNTIME } from "@schlessera/brain-backend-claude";
 import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 
 import { probeBackendRuntimes } from "../src/agent/backend";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { createTestApp } from "./helpers/test-app";
@@ -187,6 +187,7 @@ describe("asynchronous startup resource ordering", () => {
   test("invalid subscription configuration refuses before invoking a runtime probe", async () => {
     const dir = mkdtempSync(join(tmpdir(), "async-validation-"));
     scratch.push(dir);
+    mkdirSync(join(dir, "brain"));
     const marker = join(dir, "invoked");
     const path = join(dir, "claude");
     writeFileSync(path, `#!/bin/sh\ntouch '${marker}'\necho '2.0.0 (Claude Code)'\n`);

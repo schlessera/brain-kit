@@ -1,9 +1,10 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
-import { launchAgentWorker, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
+import { probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
 import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
 import { createWorkerPipes } from "../src/server/worker-pipes";
 

@@ -1,3 +1,7 @@
+import { createFixtureTurnHost } from "./turn-host-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../../packages/ui-server/tests/helpers/fixture-native-startup.js";
+const restoreNativeAcquisition = replaceNativeStartupAcquisitionForFixture();
+process.on("exit", restoreNativeAcquisition);
 /**
  * Integrated policy-write boundary proof (#1039), run behind the caller's
  * offline network namespace with loopback fixture inference only.
@@ -229,7 +233,7 @@ async function server(): Promise<void> {
   const { createInboxBudget } = await import("../../packages/ui-server/src/inbox/budget.js");
   const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
   const { runAutonomousTurn } = await import("../../packages/ui-server/src/inbox/autonomous-turn.js");
-  const { createBrainApplication, boundaryPlanner } = await import("../../packages/ui-server/src/brain/application.js");
+  const { createBrainApplication } = await import("../../packages/ui-server/src/brain/application.js");
   const { workerHostBoundary } = await import("../../packages/ui-sdk/src/server/worker-launcher.js");
   const { createClaudeBackend } = await import("../../packages/ui-backend-claude/src/backend.js");
   const { createPiBackend } = await import("../../packages/ui-backend-pi/src/backend.js");
@@ -417,7 +421,7 @@ async function server(): Promise<void> {
       return backend.startTurn({ ...req, bridge: { ...req.bridge, applyBrain: (input: any) => {
         const path = typeof input.path === "string" ? input.path.replace(/^notes\//, "") : "";
         const race = swaps[path];
-        const apply = createBrainApplication({ root: brainPath, principalId: "odysseus", turnId: "race", signal: req.signal, policy,
+        const apply = createBrainApplication({ planner: nativeHost.applicationPlanner, root: brainPath, principalId: "odysseus", turnId: "race", signal: req.signal, policy,
           isAuthorized: () => true, approve: async () => true, beforeCommit: () => race?.swap(),
           record: result => { raceReceipts.push({ path, ...result }); race?.restore?.(); } });
         return apply({ principalId: "odysseus", turnId: "race", input });
@@ -427,18 +431,9 @@ async function server(): Promise<void> {
 
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "policy-boundary-test" }), stream = createActivityStream(store);
-  let governedTurns;
-  let applicationPlanner;
-  if (scenario.startsWith("governed")) {
-    const { createHostExecution } = await import("../../packages/ui-server/src/brain/host-execution.js");
-    const { createGovernedTurns } = await import("../../packages/ui-server/src/brain/governed-turn.js");
-    const execution = createHostExecution({ brainPath, dbPath: ":memory:" });
-    execution.attach(db);
-    applicationPlanner = boundaryPlanner(execution.boundary);
-    governedTurns = createGovernedTurns({ brainPath, execution, profile: "governed", maskPaths: [],
-      index: async () => {}, report: message => { throw new Error(message); } });
-  }
-  const host = new WsHost({ governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
+  const nativeHost = createFixtureTurnHost(brainPath, db, scenario.startsWith("governed") ? "governed" : "strict");
+  const { governedTurns, applicationPlanner } = nativeHost;
+  const host = new WsHost({ ...nativeHost, governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
     catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: 90_000 });
   const frames: Frame[] = [];
   let maskRequests = 0, askRequests = 0;
@@ -480,7 +475,7 @@ async function server(): Promise<void> {
           maximumTokens: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheCreationTokens: 0 } }, Date.now() + 600_000);
       if (!admitted) throw new Error("Fixture budget admission refused");
       try {
-        autonomous = await runAutonomousTurn({ db, store: createActivityStore(db, { writer: "policy-boundary-autonomous", pricing }), backend, brainPath,
+        autonomous = await runAutonomousTurn({ db, store: createActivityStore(db, { writer: "policy-boundary-autonomous", pricing }), backend, brainPath, nativeManager: nativeHost.nativeManager,
           emit: frame => frames.push(frame), checkpoint: intent => { settled.push(intent); } },
           { turnId: "fixture-run", principalId: principal.id, prompt: "Odysseus unattended triage", profileId: "fixture", billingMode: "api",
             allowedTools: autonomousTools, systemPromptAppend: "Use the explicit fixture task.", signal: new AbortController().signal });
@@ -507,7 +502,7 @@ async function server(): Promise<void> {
     governance: queryGovernanceEvents(db, { limit: 100 }), serverPid: process.pid, python, posture, serialization: existsSync(join(brainPath, "notes/git-serialization.md")) ? readFileSync(join(brainPath, "notes/git-serialization.md"), "utf8") : null }));
   Bun.spawn = original.spawn; Bun.spawnSync = original.spawnSync;
   closeSync(preConfinementFd);
-  host.close(); stream.close(); db.close(); inference.stop(true);
+  await host.close(); await nativeHost.close(); stream.close(); db.close(); inference.stop(true);
 }
 
 /** Cases 2–4, run inside the worker: descriptors, mappings and /proc. */

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import * as workers from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
-import { createApp } from "../src/app.js";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";

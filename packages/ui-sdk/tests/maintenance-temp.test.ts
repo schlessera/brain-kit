@@ -5,24 +5,27 @@ import { maintenanceLaunch, launchMaintenanceWorker, runMaintenanceWorker, runMa
 import { workerCommand, probeWorkerHost } from "../src/server/worker-launcher";
 import { reserveMaintenanceTemp } from "../src/server/maintenance-temp-budget";
 import { ledgerLine } from "./maintenance-temp-ledger-protocol";
+import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 import * as startup from "../src/server/worker-startup-view";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const roots: string[] = [];
+const viewCleanups: (() => void)[] = [];
 beforeAll(() => {
   mkdirSync(join(ROOT, "tmp"), { recursive: true });
   const root = mkdtempSync(join(ROOT, "tmp/maintenance-temp-probe-"));
   try { const result = probeWorkerHost(root); if (!result.ok) throw new Error(result.requirement); }
   finally { rmSync(root, { recursive: true, force: true }); }
 });
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { for (const cleanup of viewCleanups.splice(0)) cleanup(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function fixture() {
   const root = mkdtempSync(join(ROOT, "tmp/maintenance-temp-")); roots.push(root);
   const brain = join(root, "brain"); const home = join(root, "home");
-  mkdirSync(brain); mkdirSync(home);
+  mkdirSync(brain); mkdirSync(home); mkdirSync(join(root, "state"));
   writeFileSync(join(home, ".gitconfig"), "[user]\nname = Penelope\n");
   writeFileSync(join(brain, "harbour.md"), "Odysseus surveys Ithaca.\n");
-  return { root, brain, home };
+  const startupView = createFixtureWorkerStartupView(brain); viewCleanups.push(startupView.cleanup);
+  return { root, brain, home, startupView };
 }
 
 test("maintenance temporary writes share one actual filesystem allowance, with no HOME or mask overflow", async () => {
@@ -38,7 +41,7 @@ test("maintenance temporary writes share one actual filesystem allowance, with n
     const refused = [process.env.HOME+"/escape", "/run/escape", "/dev/escape", "/dev/shm/escape"].map(path => { try { fs.writeFileSync(path,"escape"); return null; } catch(e) { return e.code; } });
     console.log(JSON.stringify({topology,results,refused,config:fs.readFileSync(process.env.HOME+"/.gitconfig","utf8")}));
   `;
-  const result = await runMaintenanceWorker({ brainPath: f.brain, command: [realpathSync(process.execPath), "-e", program],
+  const result = await runMaintenanceWorker({ brainPath: f.brain, tempDomain: { statePath: join(f.root, "state/ui.db") }, startupView: f.startupView, command: [realpathSync(process.execPath), "-e", program],
     env: { PATH: "/usr/bin:/bin", HOME: f.home, XDG_CONFIG_HOME:"/tmp/brain-worker-home/config", XDG_CACHE_HOME:"/tmp/brain-worker-home/cache",
       XDG_DATA_HOME:"/tmp/brain-worker-home/data", XDG_STATE_HOME:"/tmp/brain-maintenance-state" }, home: f.home, credentials: true, network: false,
     tempLimits: { allowanceBytes, budgetBytes: 256 * 1024 * 1024 }, timeoutMs: 10_000 });
@@ -57,7 +60,7 @@ test("maintenance temporary writes share one actual filesystem allowance, with n
 test("actual maintenance admission releases after completion, command failure, abort, deadline and startup refusal", async () => {
   const f = fixture();
   const tempLimits = { allowanceBytes: 8 * 1024 * 1024, budgetBytes: 8 * 1024 * 1024 };
-  const base = { brainPath: f.brain, env: { PATH: "/usr/bin:/bin" }, credentials: false, tempLimits, tempDomain: {statePath:join(f.root,"ui.db")} };
+  const base = { brainPath: f.brain, startupView: f.startupView, env: { PATH: "/usr/bin:/bin" }, credentials: false, tempLimits, tempDomain: {statePath:join(f.root,"ui.db")} };
   const command = [realpathSync(process.execPath), "-e", 'console.log("ready"); await Bun.stdin.text();'];
   const held = launchMaintenanceWorker({ ...base, command });
   try {
@@ -87,9 +90,9 @@ test("actual maintenance admission releases after completion, command failure, a
     throw new Error("owned immutable startup refusal");
   });
   try {
-    expect(() => launchMaintenanceWorker({ ...base, command: ["/bin/true"] })).toThrow("owned immutable startup refusal");
+    expect(() => launchMaintenanceWorker({ ...base, startupView: undefined, command: ["/bin/true"] })).toThrow("owned immutable startup refusal");
     assertReleased();
-    expect(() => runMaintenanceWorkerSync({ ...base, command: ["/bin/true"], timeoutMs: 1000 })).toThrow("owned immutable startup refusal");
+    expect(() => runMaintenanceWorkerSync({ ...base, startupView: undefined, command: ["/bin/true"], timeoutMs: 1000 })).toThrow("owned immutable startup refusal");
     assertReleased();
   } finally { refusal.mockRestore(); }
 });
@@ -107,7 +110,7 @@ test("trusted transport temporary writes are bounded while mirror writes retain 
     fs.writeFileSync("transport-output","Penelope receives the objects.");
     console.log(JSON.stringify({overflow,refused}));
   `;
-  const result = await runMaintenanceWorker({brainPath:f.brain,command:[realpathSync(process.execPath),"-e",program],
+  const result = await runMaintenanceWorker({brainPath:f.brain,tempDomain:{statePath:join(f.root,"state/ui.db")},command:[realpathSync(process.execPath),"-e",program],
     env:{PATH:"/usr/bin:/bin",HOME:"/tmp/brain-worker-home"},credentials:true,
     transport:{mirror,readPaths:[realpathSync(process.execPath)]},tempLimits:{allowanceBytes,budgetBytes:268435456},timeoutMs:10_000});
   expect(result.exitCode,result.stderr).toBe(0);

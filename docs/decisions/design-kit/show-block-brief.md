@@ -38,7 +38,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:334`), so
+  `packages/ui-server/src/ws/run-session.ts:349`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -204,7 +204,7 @@ is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
 to have one: `block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:185` passes the
+`packages/ui-backend-pi/src/session-resources.ts:193` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are

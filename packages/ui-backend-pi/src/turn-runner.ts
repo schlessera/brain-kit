@@ -51,6 +51,14 @@ export function createPiTurnRunner(
     let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
     try { acquired = await pool.acquire(req); }
     catch (error) {
+      // Acquisition now observes cancellation while preparing native inputs.
+      // Keep the existing terminal contract when no session was acquired.
+      if (req.signal.aborted && (error === req.signal.reason || error instanceof DOMException && error.name === "AbortError")) {
+        if (req.sessionId) req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "cancelled", isError: false,
+          durationMs: Date.now() - startedAt, numTurns: 0 });
+        else req.bridge.emit({ type: "error", code: "agent_error", message: "The turn was cancelled before a session was acquired." });
+        return;
+      }
       // A busy turn-temp budget (#1703) refuses the same way, with Retry.
       // By class: the process ledger may come from another copy of the SDK.
       const busy = (error as { errorClass?: unknown } | null)?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy;

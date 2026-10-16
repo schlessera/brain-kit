@@ -436,10 +436,12 @@ export interface WorkerNoteFacts {
   readonly hardTimeoutMs?: number;
 }
 
+const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
+
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
-  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. The worker shares the server's uid; protection is mask-only until an identity helper is installed. Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
-  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
+  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${SHARED_UID_NOTE} Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
+  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${SHARED_UID_NOTE}`,
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */

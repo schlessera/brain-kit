@@ -1,5 +1,28 @@
 # @schlessera/brain-ui-react
 
+## 0.43.1
+
+### Patch Changes
+
+- @schlessera/brain-ui-sdk@0.43.1
+- @schlessera/brain-ui-kit@0.43.1
+
+## 0.43.0
+
+### Patch Changes
+
+- Updated dependencies [4af7b2f]
+  - @schlessera/brain-ui-sdk@0.43.0
+  - @schlessera/brain-ui-kit@0.43.0
+
+## 0.42.1
+
+### Patch Changes
+
+- Updated dependencies [b6f9060]
+  - @schlessera/brain-ui-sdk@0.42.1
+  - @schlessera/brain-ui-kit@0.42.1
+
 ## 0.42.0
 
 ### Minor Changes

@@ -1,3 +1,4 @@
+import { launchFixtureAgentWorker as launchAgentWorker } from "../helpers/worker-startup-view-fixture.js";
 /**
  * Runs as the only process of a delegated cgroup (systemd-run --user --scope
  * -p Delegate=yes), as a server under a `Delegate=yes` unit would. Establishes
@@ -7,7 +8,6 @@
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { launchAgentWorker } from "../../src/server/worker-launcher";
 import { workerLimitsPlan } from "../../src/server/worker-limits";
 import { establishWorkerCgroups } from "../../src/server/worker-cgroup";
 

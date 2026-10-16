@@ -14,7 +14,7 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..");
 const TIMEOUT = 180_000;
 const NOTE = "notes/ithaca-loom.md";
-const CONTENT = "Penelope keeps the loom until Odysseus returns.\n";
+const CONTENT = "---\ntitle: Ithaca loom\ntype: note\n---\nPenelope keeps the loom until Odysseus returns.\n";
 
 async function probe(adapter: "claude" | "pi", scenario: string): Promise<any> {
   const root = mkdtempSync(join(tmpdir(), "autonomous-dispatch-"));
@@ -76,6 +76,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} follow-up 
     const r = await probe(adapter, "exact");
     proposed(r, adapter);
     expect(r.files, "APPLIED_EXACTLY").toEqual({ note: CONTENT, suitors: null, existing: "unchanged" });
+    expect(r.indexedNote, `AUTONOMOUS_APPROVED_WRITE_INDEXED: ${JSON.stringify(r.applications)}`).toEqual({ path: NOTE, content: "Penelope keeps the loom until Odysseus returns.\n" });
     expect(r.followUp).toMatchObject({ status: "done" });
     expect(r.decisions.filter((d: any) => d.status === "pending"), "no further decision").toEqual([]);
     expect(r.passes[2], "nothing left to run").toMatchObject({ claimed: 0 });

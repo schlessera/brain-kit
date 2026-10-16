@@ -36,6 +36,7 @@ import { readSessionRecovery } from "../src/ws/recovery";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { removeDbFile } from "./helpers/test-host";
+import { recoveryDeadline } from "./helpers/recovery-deadline";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
 
 const QUESTIONS: AskUserQuestion[] = [{
@@ -77,7 +78,7 @@ interface Turn {
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const c of cleanups.splice(0).reverse()) c(); });
 
-function world(options: { db?: Database; principalValid?: () => boolean } = {}) {
+function world(options: { db?: Database; principalValid?: () => boolean; turnTimeoutMs?: number; historyRead?: () => Promise<void>; governedTurns?: import("../src/brain/governed-turn.js").GovernedTurns } = {}) {
   const db = options.db ?? createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "recovery-test" });
   const stream = createActivityStream(store);
@@ -89,6 +90,7 @@ function world(options: { db?: Database; principalValid?: () => boolean } = {}) 
     id: "fixture",
     capabilities: { permissions: true, askUser: true },
     async getHistory(sessionId) {
+      await options.historyRead?.();
       if (failHistory) throw new Error("Fixture transcript unavailable");
       return structuredClone(transcripts.get(sessionId) ?? []);
     },
@@ -120,6 +122,8 @@ function world(options: { db?: Database; principalValid?: () => boolean } = {}) 
     registry: createStaticBackendRegistry([backend], backend.id),
     catalog: createSessionCatalog(() => db),
     activity: { store, stream },
+    governedTurns: options.governedTurns,
+    turnTimeoutMs: options.turnTimeoutMs,
     isPrincipalValid: options.principalValid ?? (() => true),
   });
   const principal: Principal = testPrincipal();
@@ -455,27 +459,148 @@ describe("authorization and existence", () => {
 });
 
 describe("a stalled backend", () => {
-  test("cannot hold a recovery read open: another backend's history settles it, and silence everywhere is a failure", async () => {
-    const db = createUiDb(":memory:");
-    cleanups.push(() => db.close());
-    let stalledReads = 0;
-    const stalled = makeFakeBackend({ id: "stalled", getHistory: () => { stalledReads++; return new Promise(() => {}); } });
+  const nativeTurn = () => new Promise<void>(resolve => setImmediate(resolve));
+  async function completed(check: () => boolean, oracle: string) {
+    const deadline = performance.now() + 1_000;
+    while (!check() && performance.now() < deadline) await nativeTurn();
+    expect(check(), oracle).toBe(true);
+  }
+
+  function fixture(extraBackend = false) {
+    const reads: { backend: string; session: string; done: boolean; release: () => void }[] = [];
+    const stalledBackend = (id: string) => makeFakeBackend({ id, getHistory: session => {
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const read = { backend: id, session, done: false, release };
+      reads.push(read);
+      return pending.then(() => { read.done = true; return []; });
+    } });
+    const stalled = stalledBackend("stalled");
     const holding = makeFakeBackend({ id: "holding", histories: { "odyssey-imported": [{ role: "user", content: "From the CLI", toolCalls: [] }] } });
-    const host = new WsHost({ registry: createStaticBackendRegistry([stalled, holding], "stalled"), catalog: createSessionCatalog(() => db) });
-    cleanups.push(() => host.close());
-    const started = Date.now();
-    const found = await readSessionRecovery(host, "odyssey-imported", testPrincipal());
-    expect(found.kind).toBe("ok");
-    expect(Date.now() - started).toBeLessThan(1_000);
-    const silent = readSessionRecovery(host, "odyssey-nowhere", testPrincipal()).then(
-      () => "answered",
-      (err: Error) => err.message,
-    );
-    expect(await Promise.race([silent, Bun.sleep(6_000).then(() => "still waiting")])).toBe("Session lookup timed out");
-    // Retries reuse the stalled backend's unfinished read instead of piling up more.
-    for (let i = 0; i < 3; i++) expect((await readSessionRecovery(host, "odyssey-imported", testPrincipal())).kind).toBe("ok");
-    expect(stalledReads).toBe(2);
+    const registry = createStaticBackendRegistry([stalled, ...(extraBackend ? [stalledBackend("other")] : []), holding], "stalled");
+    const hosts: { host: WsHost; db: Database }[] = [];
+    const makeHost = () => {
+      const db = createUiDb(":memory:");
+      const host = new WsHost({ registry, catalog: createSessionCatalog(() => db) });
+      hosts.push({ host, db });
+      return host;
+    };
+    const host = makeHost();
+    const clock = recoveryDeadline();
+    const requests: Promise<unknown>[] = [];
+    function recover(session: string, owner = host) {
+      const result: { state: "pending" | "done"; value?: Awaited<ReturnType<typeof readSessionRecovery>> | string } = { state: "pending" };
+      const promise = readSessionRecovery(owner, session, testPrincipal()).then(
+        value => { result.state = "done"; result.value = value; return value; },
+        (error: Error) => { result.state = "done"; result.value = error.message; return error.message; },
+      );
+      requests.push(promise);
+      return { result, promise };
+    }
+    return {
+      host, hosts, makeHost, clock, reads, recover,
+      async close() {
+        const failures: unknown[] = [];
+        try {
+          // The backend has no cancellation API. Release only during teardown,
+          // after reuse assertions; clearing wrapper timers never releases it.
+          for (const read of reads) read.release();
+          await Promise.all(requests);
+          await completed(() => reads.every(read => read.done) && clock.registrations.every(timer => timer.cleared), "RECOVERY_CLEANUP_SETTLES_READS_AND_WRAPPERS");
+          expect(clock.pending(), "RECOVERY_CLEANUP_HAS_NO_PENDING_TIMER").toEqual([]);
+        } catch (error) { failures.push(error); }
+        finally {
+          // Each owner is disposed even if another teardown action fails.
+          for (const { host, db } of hosts) {
+            try { host.close(); } catch (error) { failures.push(error); }
+            try { db.close(); } catch (error) { failures.push(error); }
+          }
+          try { clock.restore(); } catch (error) { failures.push(error); }
+        }
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) throw new AggregateError(failures, "Recovery fixture disposal failed");
+        expect(["setTimeout", "clearTimeout"].map(name => Object.getOwnPropertyDescriptor(globalThis, name)), "RECOVERY_TIMER_DESCRIPTORS_RESTORED").toEqual(clock.descriptors);
+        for (const { host, db } of hosts) {
+          expect(host.closing, "RECOVERY_HOST_CLOSED").toBe(true);
+          expect(() => db.query("SELECT 1").get(), "RECOVERY_DATABASE_CLOSED").toThrow();
+        }
+      },
+    };
+  }
+
+  test("cannot hold a recovery read open: another backend's history settles it, and silence everywhere is a failure", async () => {
+    const f = fixture();
+    try {
+      const started = Date.now();
+      const found = await f.recover("odyssey-imported").promise;
+      expect(typeof found === "object" && found.kind).toBe("ok");
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(f.clock.registrations.map(timer => timer.cleared), "RECOVERY_FOUND_CLEARS_ONLY_RESPONDING_BACKEND").toEqual([false, true]);
+      const silent = f.recover("odyssey-nowhere");
+      await completed(() => f.clock.registrations.length === 4 && f.clock.registrations[3]!.cleared, "RECOVERY_EMPTY_BACKEND_COMPLETES_BEFORE_ADVANCE");
+      expect(f.reads.map(read => [read.session, read.done]), "RECOVERY_TWO_DISTINCT_UNFINISHED_READS").toEqual([["odyssey-imported", false], ["odyssey-nowhere", false]]);
+      // The empty backend's real promise and bounded wrapper have completed;
+      // only the explicitly held fixture reads and their deadlines remain.
+      f.clock.advanceTo(2_999);
+      await nativeTurn();
+      expect(silent.result.state, "RECOVERY_PENDING_BEFORE_DEADLINE").toBe("pending");
+      expect(f.clock.registrations.filter(timer => timer.fired), "RECOVERY_NO_EARLY_CALLBACK").toHaveLength(0);
+      f.clock.advanceTo(3_000);
+      expect(f.clock.registrations.filter(timer => timer.fired), "RECOVERY_BOTH_LOSING_WRAPPERS_REACH_DEADLINE").toHaveLength(2);
+      await completed(() => silent.result.state === "done", "RECOVERY_CALLBACK_SETTLES_AT_DEADLINE");
+      expect(await silent.promise).toBe("Session lookup timed out");
+      expect(f.clock.registrations.map(timer => timer.delay), "RECOVERY_ACTUAL_REGISTRATION_IS_3000_MS").toEqual([3_000, 3_000, 3_000, 3_000]);
+      expect(f.clock.registrations.every(timer => timer.cleared), "RECOVERY_TIMEOUT_CLEARS_WRAPPERS").toBe(true);
+      expect(f.reads.every(read => !read.done), "RECOVERY_TIMEOUT_DOES_NOT_CANCEL_BACKEND").toBe(true);
+      // Retries reuse the stalled backend's unfinished read instead of piling up more.
+      for (let i = 0; i < 3; i++) {
+        const retry = await f.recover("odyssey-imported").promise;
+        expect(typeof retry === "object" && retry.kind).toBe("ok");
+      }
+      const stalledReads = f.reads.length;
+      expect(stalledReads, "RECOVERY_RETRIES_REUSE_UNFINISHED_PROBES").toBe(2);
+      expect(f.clock.pending(), "RECOVERY_RETRIES_OWN_THREE_LOSING_WRAPPERS").toHaveLength(3);
+      expect(f.clock.pending().every(timer => timer.delay === 3_000 && timer.due === 6_000)).toBe(true);
+    } finally { await f.close(); }
   }, 15_000);
+
+  test("unfinished recovery probes belong to each host and backend independently", async () => {
+    const f = fixture(true);
+    try {
+      const otherHost = f.makeHost();
+      const requests = [f.recover("odyssey-nowhere"), f.recover("odyssey-nowhere"), f.recover("odyssey-nowhere", otherHost), f.recover("odyssey-nowhere", otherHost)];
+      await completed(() => f.clock.registrations.length === 12, "RECOVERY_CONCURRENT_WRAPPERS_REGISTERED");
+      await nativeTurn();
+      expect(f.reads.map(read => read.backend).sort(), "RECOVERY_HOST_AND_BACKEND_IDENTITIES_ARE_INDEPENDENT").toEqual(["other", "other", "stalled", "stalled"]);
+      await completed(() => f.clock.registrations.filter(timer => timer.cleared).length === 4, "RECOVERY_CONCURRENT_EMPTY_BACKENDS_COMPLETE");
+      expect(f.clock.pending(), "RECOVERY_EACH_LOOKUP_OWNS_ITS_WRAPPERS").toHaveLength(8);
+      f.clock.advanceTo(2_999);
+      await nativeTurn();
+      expect(requests.every(request => request.result.state === "pending")).toBe(true);
+      f.clock.advanceTo(3_000);
+      await completed(() => requests.every(request => request.result.state === "done"), "RECOVERY_CONCURRENT_CALLBACKS_SETTLE");
+      expect(await Promise.all(requests.map(request => request.promise))).toEqual(Array(4).fill("Session lookup timed out"));
+      expect(f.reads.every(read => !read.done)).toBe(true);
+    } finally { await f.close(); }
+  });
+
+  test("an assertion failure releases held recovery reads, restores descriptors and closes every owner", async () => {
+    const f = fixture();
+    let failure: unknown;
+    try {
+      try {
+        f.recover("odyssey-nowhere");
+        await completed(() => f.reads.length === 1 && f.clock.registrations.length === 2, "RECOVERY_DIRTY_FAILURE_HAS_ACTIVE_RESOURCES");
+        expect(f.reads[0]!.done, "RECOVERY_INJECTED_ASSERTION_FAILURE").toBe(true);
+      } finally { await f.close(); }
+    } catch (error) { failure = error; }
+    expect(String(failure), "RECOVERY_FAILURE_CONTROL_REACHED_ASSERTION").toContain("RECOVERY_INJECTED_ASSERTION_FAILURE");
+    expect(f.reads.every(read => read.done)).toBe(true);
+    expect(f.clock.registrations).toEqual([]);
+    let delivered = false;
+    await new Promise<void>(resolve => setTimeout(() => { delivered = true; resolve(); }, 0));
+    expect(delivered, "RECOVERY_SUCCESSOR_USES_NATIVE_TIMEOUT").toBe(true);
+  });
 });
 
 describe("approval recovery after a partial history", () => {
@@ -554,4 +679,136 @@ describe("turn linkage", () => {
     ]);
     expect(history.every((m) => m.turnId === undefined)).toBe(true);
   });
+});
+
+
+test("cancelling native admission settles both clients without starting a backend", async () => {
+  let entered = false, cleaned = false;
+  const w = world({ governedTurns: {
+    async begin(_turn, signal) {
+      entered = true;
+      try {
+        await new Promise<never>((_resolve, reject) => {
+          const abort = () => reject(signal.reason);
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
+        });
+      } finally { await Bun.sleep(10); cleaned = true; }
+      throw new Error("unreachable admission");
+    },
+    facts() { throw new Error("No policy facts are needed before admission completes"); },
+    refresh() {}, async close() {},
+  } });
+  const other: ServerMessage[] = [];
+  w.host.clients.add({ send: data => other.push(JSON.parse(data)) }, w.principal.id);
+  await w.chat("Plot the next course", { requestId: "cancel-native-admission" });
+  await until(() => entered);
+  await w.send({ type: "cancel" });
+  await w.idle();
+  expect(cleaned, "NATIVE_ADMISSION_CLEANUP_SETTLED").toBe(true);
+  expect(w.turns, "CANCELLED_NATIVE_ADMISSION_NEVER_STARTS_BACKEND").toHaveLength(0);
+  for (const frames of [w.frames, other]) {
+    expect(frames.filter(frame => frame.type === "status" && frame.status === "cancelled" && frame.requestId === "cancel-native-admission"),
+      "CANCELLED_NATIVE_ADMISSION_SETTLES_CLIENT_ONCE").toHaveLength(1);
+    expect(frames.filter(frame => frame.type === "status" && frame.status === "idle"), "CANCELLED_ADMISSION_IS_NOT_REPLACED_WITH_IDLE").toHaveLength(0);
+    expect(frames.filter(frame => frame.type === "error")).toEqual([]);
+  }
+});
+
+
+test("finalization idle refreshes terminal times only after journal and history cleanup", async () => {
+  const historyEntered = Promise.withResolvers<void>(), historyReleased = Promise.withResolvers<void>();
+  const w = world({ historyRead: async () => { historyEntered.resolve(); await historyReleased.promise; } });
+  const journalEntered = Promise.withResolvers<void>(), journalReleased = Promise.withResolvers<void>();
+  await w.chat("Plot the course home", { requestId: "req-finalized" });
+  const first = await w.turn(0), running = await w.recover(first.sessionId);
+  const originalJournal = w.host.journal;
+  Object.defineProperty(w.host, "journal", { value: { async finish() { journalEntered.resolve(); await journalReleased.promise; } }, configurable: true });
+  const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+  const send = w.ws.send;
+  w.ws.send = data => {
+    send(data);
+    const frame = JSON.parse(data) as ServerMessage;
+    if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+  };
+  try {
+    first.finish();
+    await journalEntered.promise;
+    expect(w.frames.some(frame => frame.type === "result")).toBe(true);
+    expect((await w.recover(first.sessionId)).latest).toMatchObject({ state: "running", endedAt: null });
+    expect(atIdle).toHaveLength(0);
+    Object.defineProperty(w.host, "journal", { value: originalJournal, configurable: true });
+    journalReleased.resolve();
+    await historyEntered.promise;
+    // Activity is committed and the live markers are cleared, but cleanup
+    // still awaits history. The final notification must wait for it too.
+    expect((await w.recover(first.sessionId)).latest).toMatchObject({ state: "terminal", outcome: "success" });
+    expect(atIdle, "NO_FINAL_IDLE_BEFORE_REQUIRED_CLEANUP").toHaveLength(0);
+  } finally {
+    Object.defineProperty(w.host, "journal", { value: originalJournal, configurable: true });
+    journalReleased.resolve(); historyReleased.resolve();
+    await w.idle();
+  }
+  expect(atIdle, "FINALIZED_TURN_NOTIFIES_RECOVERY_CLIENT").toHaveLength(1);
+  const read = await atIdle[0]!;
+  expect(read.kind).toBe("ok");
+  if (read.kind !== "ok") throw Error("Expected finalized recovery");
+  expect(read.recovery.latest).toMatchObject({ turnId: running.latest.turnId, state: "terminal", outcome: "success" });
+  expect(read.recovery.latest.endedAt).toBeNumber();
+  const idle = w.frames.find(frame => frame.type === "status" && frame.status === "idle");
+  expect(idle).toMatchObject({ sessionId: first.sessionId, turnId: running.latest.turnId });
+  expect(w.frames.filter(frame => frame.type === "result")).toHaveLength(1);
+});
+
+
+for (const outcome of ["error", "cancelled", "timeout"] as const) {
+  test(`finalization idle preserves the authoritative ${outcome} outcome`, async () => {
+    const w = world(outcome === "timeout" ? { turnTimeoutMs: 20 } : {});
+    await w.chat("Watch the crossing");
+    const first = await w.turn(0);
+    const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+    const send = w.ws.send;
+    w.ws.send = data => {
+      send(data);
+      const frame = JSON.parse(data) as ServerMessage;
+      if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+    };
+    if (outcome === "error") first.finish({ outcome: "error" });
+    else if (outcome === "cancelled") await w.send({ type: "cancel", sessionId: first.sessionId });
+    await w.idle();
+    expect(atIdle, "FINAL_IDLE_RETAINS_HOST_TERMINAL_PRECEDENCE").toHaveLength(1);
+    const read = await atIdle[0]!;
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") throw Error("Expected terminal recovery");
+    expect(read.recovery.latest).toMatchObject({ state: "terminal", outcome });
+    expect(read.recovery.latest.endedAt).toBeNumber();
+    expect(w.frames.filter(frame => frame.type === "result")).toHaveLength(outcome === "error" ? 1 : 0);
+  });
+}
+
+test("finalization idle keeps its turn identity ahead of the queued successor", async () => {
+  const w = world();
+  await w.chat("First watch", { requestId: "req-first-watch" });
+  const first = await w.turn(0), before = await w.recover(first.sessionId);
+  await w.chat("Next watch", { sessionId: first.sessionId, requestId: "req-next-watch" });
+  const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+  const send = w.ws.send;
+  w.ws.send = data => {
+    send(data);
+    const frame = JSON.parse(data) as ServerMessage;
+    if (frame.type === "status" && frame.status === "idle") atIdle.push(readSessionRecovery(w.host, first.sessionId, w.principal));
+  };
+  first.finish();
+  const second = await w.turn(1);
+  try {
+    const idleIndex = w.frames.findIndex(frame => frame.type === "status" && frame.status === "idle");
+    const nextIndex = w.frames.findIndex(frame => frame.type === "session_info" && (frame as { turnId?: string }).turnId !== before.latest.turnId);
+    expect(idleIndex, "FINAL_IDLE_PRECEDES_QUEUED_SUCCESSOR").toBeGreaterThanOrEqual(0);
+    expect(nextIndex).toBeGreaterThan(idleIndex);
+    expect(w.frames[idleIndex]).toMatchObject({ sessionId: first.sessionId, turnId: before.latest.turnId });
+    const read = await atIdle[0]!;
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") throw Error("Expected queued recovery");
+    expect(read.recovery.latest).toMatchObject({ requestId: "req-next-watch", state: "queued", outcome: null });
+  } finally { second.finish(); await w.idle(); }
 });

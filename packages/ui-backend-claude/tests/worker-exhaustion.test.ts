@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * A real bubblewrap worker whose runtime state fills only after the runtime
  * reported its result (#1625): the terminal result waits for the worker's exit
@@ -34,10 +35,11 @@ async function run(script: string, abortAfterResult = false) {
       account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }) });
   }) as unknown as typeof query;
   try {
+    const workerStartupView = createFixtureWorkerStartupView(brain);
     const backend = createClaudeBackend({ brainPath: brain, queryFn,
       workerState: { allowanceBytes: 4 * MiB, budgetBytes: 4 * MiB } });
-    await backend.startTurn({ prompt: "Return to Ithaca", signal: host.signal,
-      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
+    try { await backend.startTurn({ workerStartupView, prompt: "Return to Ithaca", signal: host.signal,
+      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } }); } finally { workerStartupView.cleanup(); }
     return frames.filter(f => f.type === "result");
   } finally { rmSync(root, { recursive: true, force: true }); }
 }

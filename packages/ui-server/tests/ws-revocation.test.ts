@@ -1,9 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { serializeSigned } from "hono/utils/cookie";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { createActivityStore } from "../src/activity/store";
 import { createActivityStream, type ActivityStream } from "../src/activity/stream";
 import { resolveServerConfig } from "../src/config/env";
@@ -159,6 +162,7 @@ describe("principal revocation boundary", () => {
   });
 
   test("revocation after authentication but before handler creation is rechecked on the real route", async () => {
+    const brainPath = mkdtempSync(join(tmpdir(), "odysseus-ws-revocation-"));
     const secret = "test-cookie-secret-0123456789abcdef";
     let starts = 0;
     const backend = makeFakeBackend({
@@ -174,7 +178,7 @@ describe("principal revocation boundary", () => {
         COOKIE_SECRET: secret,
         HOST: "127.0.0.1",
         DB_PATH: ":memory:",
-        BRAIN_PATH: "/tmp/brain-ws-revocation-route-test",
+        BRAIN_PATH: brainPath,
         BRAIN_UI_MODEL_DISCOVERY: "0",
         BRAIN_UI_PRICING_DISCOVERY: "0",
       }),
@@ -264,6 +268,7 @@ describe("principal revocation boundary", () => {
       expect(app.wsHost.coordinator.authorizationRegistry.size).toBe(0);
     } finally {
       await app.close();
+      rmSync(brainPath, { recursive: true, force: true });
     }
   });
 

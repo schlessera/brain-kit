@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:49-81`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-112`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:543-547`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:552-556`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -271,7 +271,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:25-81`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-112`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -538,6 +538,11 @@ written, in addition to today's checks.
 
 ## Immutable startup configuration and explicit outputs
 
+> **2026-10-14 — Storage mechanism superseded.** The complete immutable view
+> requirement below still binds. [Native checkpoints](native-brain-storage.md)
+> replace per-launch user-space full copies; governed peers still share the live
+> brain and outputs still use authoritative validation.
+
 The maintainer's [complete-view ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6120567225)
 approves complete read-only startup views for strict, restricted, maintenance
 and host configuration consumers. A single frozen `brain.config.ts` is not
@@ -598,8 +603,15 @@ host-configurable and validated. Its aggregate budget defaults to allowance
 multiplied by the concurrent-session cap, with an explicit override. Admission
 extends the runtime-state/turn-temp ledger; refusal is `worker_state_busy` with
 Retry. Writes over capacity fail with named `ENOSPC`, never by overflowing a
-host-backed directory. Read-only startup-copy occupancy and writable copies
-share this capacity. An oversized starting copy refuses before execution.
+host-backed directory. The allowance bounds newly staged writable bytes, not
+the complete immutable input tree. **2026-10-13 correction (#1778):** the shipped
+0.42.0 implementation charged startup inputs and duplicate baselines too; that
+stronger constraint was not in the linked maintainer ruling and refused
+legitimate large brains before launch. Complete immutable inputs retain the
+existing 4 GiB logical copy guard in separately owned private storage; only
+new/copied-up output bytes and writable filesystem overhead occupy the
+kernel-bounded output upper layer. An input-capacity refusal remains named
+and leaves status available without host fallback.
 The agent's limits list and the hosting guide state the enforcing value.
 Secret links are resolved in worker-visible names while brain components are
 inspected through the held startup copy. Relative links, absolute brain links
@@ -608,12 +620,14 @@ destinations are masked in every separately named maintenance output or strict
 area copy too; a writable copy cannot expose the same bytes through an alias.
 
 Zero-filled extents are copied as sparse holes, preserving every logical byte
-without allocating a sparse artifact's logical length in the tmpfs. The
-capacity bound applies to allocated storage; logical file bytes still meet
-the existing copy and inventory bounds.
+without allocating a sparse artifact's logical length in the immutable input
+snapshot. Copied-up outputs remain charged for their allocated bytes. The
+output capacity bound applies to allocated writable storage; logical file bytes
+still meet the existing copy and inventory bounds. Deleting a lower-only input
+does not release upper-layer write capacity.
 
-The implementation retains a trusted tmpfs mount helper until publication and
-starts the worker's bubblewrap inside that namespace using `nsenter`. Its
+The implementation retains a trusted copy-on-write mount helper until
+publication and starts the worker's bubblewrap inside that namespace using `nsenter`. Its
 starting view is still read-only, its output view still separate, and its own
 fresh namespaces/masks still apply. Fixed parser inputs such as `.gitignore`
 are captured through anchored descriptor reads and parsed as data; they need
@@ -674,7 +688,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:824-824`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:840-868`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -745,13 +759,20 @@ to the user.
 
 ## The change journal and reconciliation
 
+> **2026-10-14 — Capture and temporary-storage scope superseded.**
+> [Native checkpoints and delta history](native-brain-storage.md) replace the
+> full baseline capture described below. Changed-only retained objects keep
+> their 10 GiB object/metadata/reservation cap; temporary native checkpoints
+> use the separately configured finite managed-volume bound. Observation,
+> attribution, guarded revert and honest partial-history guarantees still bind.
+
 **Delivered journal behavior (#1652).** The host records raw observations at
 admission, tool completion, 15-second scope observations and turn completion
 before quarantine/gate release. The journal and private content objects are
 operational state beside `DB_PATH`, masked from workers; they do not make
 `brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
-the stat cache are implemented by (`createJournalWalker`,
-`packages/ui-server/src/brain/journal-snapshot.ts:36-40`).
+the stat cache were implemented by
+[the historical `createJournalWalker`](https://github.com/schlessera/brain-kit/blob/79d54278f1b2f35e929f4c6f182089360ab7759f/packages/ui-server/src/brain/journal-snapshot.ts#L36-L40).
 
 The approved aggregate cap is 10 GiB. Reservations include retained raw
 objects, simultaneous temporary copies, journal-owned SQLite pages and bounded
@@ -824,6 +845,12 @@ The journal entry is the difference between the two manifests. Reading
 `.git/HEAD`, the refs and `packed-refs` as raw text without following
 symlinks adds `HEAD` and ref movement.
 
+> **2026-10-14 — Historical measurement scope.** These walker timings do not
+> qualify the released per-turn object-retention and on-disk accounting path.
+> [#1790](https://github.com/schlessera/brain-kit/issues/1790) reproduced first
+> and warm journal-admission health stalls; the following cost conclusion is
+> superseded by the [native storage decision](native-brain-storage.md).
+
 **Measured on 2026-10-11** on a tmpfs-backed workstation with Bun. The times are
 a lower bound for disk-backed brains
 ([script](https://github.com/schlessera/brain-kit/issues/1636#issuecomment-6112823126)).
@@ -893,8 +920,11 @@ A credentialed maintenance worker holds it exclusively.
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
 turn waits for is credential-free; for example, the synchronous index after a
-curated application. Credentialed work, such as Git transport or an interim keyed
-reindex, is queued, and runs once no shared holder remains.
+curated application. The automatic plain `brain index` command is keyword-only
+and uses that same credential-free shared path. Flagged index operations,
+including embedding and on-commit passes, retain the credentialed exclusive
+path. Git transport and other credentialed work remain queued until no shared
+holder remains.
 
 Revert takes the gate exclusively too:
 
@@ -928,7 +958,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:107`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:112`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -942,7 +972,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1220,7 +1250,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:182`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:186`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1232,7 +1262,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1218`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1257`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1332,6 +1362,13 @@ search and gets no vectors.
 
 ### Worker identity (G2)
 
+> **2026-10-15 — Architecture and recovery amendment.** The argv-only helper,
+> direct mount access and maintenance-reader descriptions below are the earlier
+> design, not delivered cross-uid behavior. The [external broker amendment](#external-worker-broker-and-best-effort-recovery--2026-10-15)
+> records the selected October 14 architecture and October 15 E ruling. It
+> supersedes those mechanisms and absolute recovery/reclamation implications,
+> while retaining the identity controls, optional-host behavior and budgets.
+
 The maintainer [ruled on #1638](https://github.com/schlessera/brain-kit/issues/1638)
 on 2026-10-11 that a worker uid separate from the server's uid is the
 `governed` profile's identity model, under G2.
@@ -1352,7 +1389,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:83`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:84`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1450,6 +1487,138 @@ group-shared tree, so a separate uid does not hide them; the mask stays
 (#1666). With a helper configured, a root-run server's worker is never uid 0,
 which removes the root read and socket authority that #1638 describes for
 those hosts.
+
+### External worker broker and best-effort recovery — 2026-10-15
+
+The maintainer selected this architecture in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) on October 14 and
+qualified its guarantees with **option E, practical safeguards with explicit
+limits**, on October 15. [#1894](https://github.com/schlessera/brain-kit/issues/1894)
+records these amendments. These are approved design requirements; recording
+this decision does not implement the broker or establish integrated proof.
+
+**Why an argv-only switch is insufficient.** The cross-uid control in #1677
+used a non-root server uid, a different nonzero worker uid and a shared group.
+An ordinary group-shared directory was accessible, but the worker's private
+mount and namespace links through `/proc/<pid>` were denied. Changing the
+private directory to `0770` did not remove that process-access barrier. The
+current launcher opens mounts directly (`function openPrivateState`,
+`packages/ui-sdk/src/server/worker-launcher.ts:807-835`;
+`function openPrivateTurnTemp`,
+`packages/ui-sdk/src/server/worker-launcher.ts:840-866`) before population and
+start-gate release (`export function launchAgentWorker`,
+`packages/ui-sdk/src/server/worker-launcher.ts:976-1035`). Group modes and a uid
+switch alone therefore cannot implement the selected cross-uid lifecycle.
+
+**Authority and launch.** One trusted external supervisor owns each worker
+launch and stays outside the agent sandbox. It is long-lived and unprivileged;
+short-lived privileged helpers perform only that launch's authorized uid
+switch, private-mount acquisition, identity/ancestry/namespace verification and
+worker-tree signalling. The server remains non-root and neither it nor the
+supervisor retains broad process-inspection authority.
+
+Each helper operation authenticates the original server-owned launch, protects
+against PID reuse and uses trusted bootstrap/status evidence. Caller uid alone
+is insufficient. Reject unrelated or reused pids, arbitrary host paths,
+repository-selected helper executables, shell prefixes and general privileged
+commands. Missing, malformed or spoofed status, wrong uid/namespace and
+substituted mounts fail closed; no same-uid fallback is permitted when the
+helper is configured.
+
+Before the start gate opens, verify each required mount's identity, type and
+exact allowance, retain only its authorized directory handles, and populate
+bounded starting state. Setup failure terminates the unstarted worker and
+cleans up partial handles and reservations. The server retains mount access
+for space observation, post-exit persistence and promotion. Existing private
+kernel-bounded tmpfs mounts, per-worker allowances and aggregate admission
+budgets remain; this ruling approves neither a storage redesign nor new quota
+modes or capacity. Native-stage authority and output validation remain binding
+under [native brain storage](native-brain-storage.md).
+
+Trusted control channels, transferred mount handles, launch authorization and
+helper privileges never reach the agent payload or its descendants. Descriptor
+transfer in the trusted broker must preserve the payload's existing descriptor
+filter (`// Close every non-protocol descriptor explicitly.`,
+`packages/ui-sdk/src/server/worker-entry.ts:38-40`). Shared brain/scratch/workspace
+ownership and the specified group modes remain required, but do not substitute
+for verified mount access or private-file recovery.
+
+**Private files.** A retained mount handle does not bypass a worker-created
+`0600` file or `0700` directory. A fixed trusted raw-byte reader runs under the
+worker uid, without provider credentials, repository imports or evaluation.
+The supervisor supplies only authorized retained handles, including after the
+original worker exits. Reads remain descriptor-anchored, path/alias constrained,
+regular-file checked and byte bounded. An unreadable file remains name/size-only,
+not revertible, with the governance event and roadblock. Privileged helpers do
+not open arbitrary individual private files or stream their bytes as root.
+
+**Termination and recovery.** Supervisor death or loss of authenticated control
+terminates the verified worker tree and reports a named supervision failure.
+The termination mechanism must remain authorized and effective after the
+supervisor has died. Cancellation and server death cover owned descendants,
+including nested PID namespaces. Keep TERM/KILL/INT semantics and the verified
+worker-tree STOP/CONT extension; incomplete signalling cannot yield a false
+stopped, resumed or terminated receipt. No replacement supervisor, automatic
+replay or continued unsupervised execution is selected.
+
+Recovery begins only after verified owned-tree termination and completion of
+the implemented owned-I/O cleanup. It is **best-effort recovery of observed
+bytes**, not an atomic snapshot of mutable runtime state or temporary output.
+Never persist or promote while a known owned-tree writer survives. Lost handles,
+unreadable files, incomplete recovery and uncertain cleanup remain explicit;
+recovery cannot turn supervision failure into a successful turn.
+
+The #1677 counterexample transferred a writable private-tmpfs descriptor through
+an abstract Unix socket to a cooperating process outside the origin tree. That
+recipient could still write after origin exit and an empty origin cgroup. It
+was a narrow disposable-kernel/bubblewrap experiment, not integrated broker
+qualification or proof of a journal exploit. External handles, mappings or
+outstanding operations can outlive the supervised tree, mutate a source or
+delay physical reclamation. A stable completed copy need not represent an
+atomic source capture; empty cgroups and closed server handles do not prove
+global object quiescence or reclaimed memory.
+
+Keep configured bounds and account for known retained/recovery resources until
+owned handles and storage are released, exactly once on every exit. State the
+remaining external-reference accounting limitation explicitly; do not claim
+strict host-wide reclamation. Address the demonstrated handoff path and obvious
+reachable defects with proportionate implementation review and targeted runtime
+controls. Option E does not require universal capability confinement, full tenant
+isolation, a new UID/IPC/LSM policy or exhaustive proof of every OS channel. It
+does not waive a detected failure or an existing guard.
+
+**Ownership and proof.** brain-kit owns protocol framing, launcher/status and
+budget integration, the fixed reader integration and fixture-based qualification.
+[brain-hosting-template #18](https://github.com/schlessera/brain-hosting-template/issues/18)
+owns production helper binaries/build/install, supervisor packaging, fixed
+users/groups, ownership, migration and container proof. No production setuid
+binary is built or shipped in brain-kit. Template packaging is downstream of
+#1677, not a reverse implementation prerequisite.
+
+Integrated qualification must run actual launch/populate/space/persist/promote
+with a genuinely non-root server and a different real nonzero worker uid.
+Retain the unmasked private-server sentinel and original positive controls,
+strict/governed brain behavior, no-helper database mask/disclosure and no-cgroup
+nested-PID freeze/resume proof. Exercise post-exit private-file reads with byte
+limits, malformed authorization/status/descriptor/mount controls, supervisor
+kill/control disconnect, server death, cancellation during setup/copy-out and
+cleanup/accounting. Keep focused failing-first/restored mutations for the uid,
+sentinel, database mask, authorization, descriptor filtering, owned-writer
+recovery and supervision-loss controls. Test each guard at the boundary it
+protects, accounting for redundant defenses. Do not claim universal confinement
+from those receipts or substitute predicate-only tests for the runtime.
+
+**Why not the alternatives.** A host-wide privileged daemon would introduce
+shared authority and lifetime beyond one launch. A privileged long-lived
+supervisor or broad server ptrace/root access would retain authority that the
+short-lived helpers are intended to contain. An in-sandbox keeper shares the
+agent's attack surface and cannot supply independent supervision. Privileged
+private-file recovery conflicts with the selected uncredentialed worker-uid
+reader. Freeze-and-replacement recovery could continue a turn after its trusted
+supervision was lost; the selected policy instead fails and terminates it.
+Unbounded shared storage, Btrfs/qgroup redesign and universal cross-worker
+confinement do not follow from this ruling. The existing optional no-helper,
+same-uid mask-only mode remains available with truthful host-status disclosure.
 
 ### Outward actions (G5)
 
@@ -1571,8 +1740,8 @@ configuration, dependency manifests and retained local import/resource inputs.
 The journal follows retained literal local references as data. It never imports
 or evaluates configuration to classify it. Ignored, oversized or opaque inputs
 are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`journalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:13-63`).
+runtime-consumption coverage (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:81-90`).
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1586,7 +1755,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`observe`, `packages/ui-server/src/brain/turn-journal.ts:115-176`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;
@@ -1663,7 +1832,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-515`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:473-517`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
@@ -1844,3 +2013,28 @@ interim maintenance-worker credential exposure, which host status states until
 the relays and mirror land. `strict` remains opt-in. `governed` also remains
 available without a separate-uid helper, with mask-only protection stated in
 host status; the hosting template always ships the helper.
+
+## Host-owned web-search direction — 2026-10-15
+
+The [maintainer's C ruling on #1863](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6187551558)
+settles provider configuration, credentials and authenticated web-search execution
+on the host. Ordinary Pi workers request the capability through a constrained,
+authenticated bridge. This supersedes the earlier worker configuration-snapshot
+direction; it does not authorize provider credentials in worker files or
+environment, host HOME exposure, repository code in a credentialed executor,
+cross-session result sharing or expanded restricted autonomous authority.
+
+This is policy for the pending integration, **not a statement that the relay is
+shipped**. Existing egress, credential and spend-coverage limitations above
+remain true until their implementation is qualified. The bridge must preserve
+per-turn permission, data-routing, taint, attribution and budget admission,
+including extraction fallbacks and nested model calls. Unknown external spend
+remains unknown; host-owned execution alone does not measure every paid call.
+
+[#1969's comparison](../plans/host-owned-web-search.md) examines pinned upstream
+MCP and a real full-extension executor, their feature/auth losses, trusted
+adapters and bounded offline worker evidence. The
+[maintainer's timing ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6188083290)
+reserves the executor choice until that comparison is reviewed. Neither this
+amendment nor a successful plain-search prototype selects an executor or grants
+additional host model, UI, browser, shell or credential-command authority.

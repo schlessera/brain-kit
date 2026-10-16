@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import type { AppEnv } from "../src/app-env";
-import { createApp, type BrainUiApp } from "../src/app";
+import { type BrainUiApp } from "../src/app";
+import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
@@ -12,10 +16,11 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
 
 let app: BrainUiApp | undefined;
+let brainPath: string;
+beforeEach(() => { brainPath = mkdtempSync(join(tmpdir(), "odysseus-ws-capacity-")); });
 
-afterEach(() => {
-  app?.close();
-  app = undefined;
+afterEach(async () => {
+  try { await app?.close(); } finally { app = undefined; rmSync(brainPath, { recursive: true, force: true }); }
 });
 
 describe("the /ws route at connection capacity", () => {
@@ -26,7 +31,7 @@ describe("the /ws route at connection capacity", () => {
       AUTH_MODE: "none",
       HOST: "127.0.0.1",
       DB_PATH: ":memory:",
-      BRAIN_PATH: "/tmp/brain-ws-capacity-route-test",
+      BRAIN_PATH: brainPath,
       BRAIN_UI_MODEL_DISCOVERY: "0",
       BRAIN_UI_PRICING_DISCOVERY: "0",
       BRAIN_UI_WS_MAX_CONNECTIONS: "1",
@@ -83,7 +88,7 @@ describe("the /ws route at connection capacity", () => {
       AUTH_MODE: "none",
       HOST: "127.0.0.1",
       DB_PATH: ":memory:",
-      BRAIN_PATH: "/tmp/brain-ws-failed-upgrade-test",
+      BRAIN_PATH: brainPath,
       BRAIN_UI_MODEL_DISCOVERY: "0",
       BRAIN_UI_PRICING_DISCOVERY: "0",
     });

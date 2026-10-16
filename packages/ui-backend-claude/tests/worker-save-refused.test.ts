@@ -1,3 +1,4 @@
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Real keyless workers: copy-out refuses after the runtime reported success (#1697). */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -49,10 +50,11 @@ async function run(mode: Mode, cancel = false) {
       account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }) });
   }) as unknown as typeof query;
   try {
+    const workerStartupView = createFixtureWorkerStartupView(brain);
     const backend = createClaudeBackend({ brainPath: brain, queryFn,
       workerState: { allowanceBytes: 4 * MiB, budgetBytes: 4 * MiB } });
-    await backend.startTurn({ prompt: "Return to Ithaca", signal: host.signal,
-      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } }).catch(error => { backendError = error; });
+    try { await backend.startTurn({ workerStartupView, prompt: "Return to Ithaca", signal: host.signal,
+      bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } }).catch(error => { backendError = error; }); } finally { workerStartupView.cleanup(); }
     if (!cancel) expect(await workerExit).toBe(0);
     return { backendError, results: frames.filter(f => f.type === "result"), saved: readFileSync(saved, "utf8"), memory: readFileSync(memory, "utf8") };
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -93,6 +95,7 @@ test("host cancellation outranks refused copy-out", async () => {
   const { results } = await run("concurrent", true);
   expect(results).toHaveLength(1);
   expect(results[0]).not.toHaveProperty("failure.errorClass", "worker_state_save_refused");
+  expect(results[0]).toMatchObject({ outcome: "cancelled", isError: false, costUsd: 0.25 });
 });
 
 

@@ -90,11 +90,11 @@ export function createTurnReverts(db: Database, options: {
     let observed = false, hold: Awaited<ReturnType<WriterGate["acquire"]>> | undefined;
     try {
       hold = await options.gate.acquire("exclusive", `revert:${row.id}`, { queueTurns: true, signal: shutdown.signal });
-      await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(GIT_LOCK_KEY, () => {
+      await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(GIT_LOCK_KEY, async () => {
         if (!options.isAuthorized(row.principal_id)) throw new RevertUnavailable("authorization_changed");
         let observationFailure: Error | undefined;
         const source = journal.summary(row.journal_turn_id);
-        journal.begin(row.journal_turn_id, { sessionId: row.session_id, actor: "user", model: null, profile: source.profile ?? "strict", policyHash: source.policyHash, coveredPaths: selected.map(item => item.path) }, error => { observationFailure = error; });
+        await journal.begin(row.journal_turn_id, { sessionId: row.session_id, actor: "user", model: null, profile: source.profile ?? "strict", policyHash: source.policyHash, coveredPaths: selected.map(item => item.path) }, error => { observationFailure = error; });
         observed = true;
         journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state='applying' WHERE id=?").run(row.id));
         for (const path of selected) {
@@ -107,7 +107,7 @@ export function createTurnReverts(db: Database, options: {
           } catch { state = "failed"; code = "restoration_unavailable"; }
           journal.writeOperation(() => db.query("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?").run(state, code.padEnd(64), row.id, path.path));
           path.state = state; path.reason = code || null;
-          journal.observe();
+          await journal.observe();
           if(state === "restored" && path.other) {
             let sibling:Selected|undefined;
             try {
@@ -120,19 +120,19 @@ export function createTurnReverts(db: Database, options: {
               sibling!.state="restored";
             } catch { if(sibling){sibling.state="failed";sibling.reason="sibling_creation_unavailable";}else{path.state="failed";path.reason="sibling_creation_unavailable";journal.writeOperation(()=>db.query("UPDATE turn_journal_revert_paths SET state='failed',code=? WHERE operation_id=? AND path=?").run("sibling_creation_unavailable".padEnd(64),row.id,path.path));} }
             if(sibling){selected.push(sibling);journal.writeOperation(()=>db.query("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?").run(sibling!.state,(sibling!.reason??"").padEnd(64),row.id,sibling!.path));}
-            journal.observe();
+            await journal.observe();
           }
         }
         const conflicts = selected.filter(path => path.state === "conflict");
         for (let offset = 0; offset < conflicts.length; offset += 1) recordGovernanceEvent(db, {kind:"revert_conflict",sessionId:row.session_id,turnId:row.journal_turn_id,actor:"user",model:null,profile:source.profile,
           payload:{conflicts:conflicts.slice(offset,offset+1).map(path=>({path:path.path,state:"changed"})),restored:selected.filter(path=>path.state==="restored").length}});
       }));
-      journal.finish(row.journal_turn_id);
+      await journal.finish(row.journal_turn_id);
       const partial = selected.some(path => ["conflict", "failed", "excluded"].includes(path.state)) || journal.summary(row.journal_turn_id).state !== "complete";
       journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=trim(error) WHERE id=?").run(partial ? "partial" : "complete", Date.now(), row.id));
     } catch (error) {
       const reason = (error as {reason?:string}).reason === "journal_capacity" ? "journal_capacity" : (error as {reason?:string}).reason === "journal_storage_unavailable" ? "journal_unavailable" : error instanceof RevertUnavailable ? "authorization_changed" : "operation_unavailable";
-      try { if (observed) journal.finish(row.journal_turn_id); else journal.finishReserved(row.journal_turn_id); } catch { /* An interrupted journal remains partial, never undoable by assumption. */ }
+      try { if (observed) await journal.finish(row.journal_turn_id); else journal.finishReserved(row.journal_turn_id); } catch { /* An interrupted journal remains partial, never undoable by assumption. */ }
       try { journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?").run(observed ? "unknown" : "failed", Date.now(), reason, row.id)); } catch { /* Readback will retain the original pending identity. */ }
     } finally { hold?.release(); if (selected.some(path => path.state === "restored" || path.state === "failed")) { try { options.refresh(); } catch { /* The ordinary index refresh may be retried; file effects remain recorded. */ } } }
   }
