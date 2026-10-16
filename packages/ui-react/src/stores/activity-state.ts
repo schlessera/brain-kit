@@ -1,3 +1,4 @@
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { createStore } from "zustand/vanilla";
 import type { StoreEnvironment } from "./store-environment.js";
 import type { ActivityState, MirrorMaps } from "./activity-store-types.js";
@@ -20,6 +21,12 @@ export {
   subagentSpans,
   timingFor,
 } from "./activity-store-helpers.js";
+
+function boundLifecycles(records: Record<string, ActivityTurnLifecycle>): Record<string, ActivityTurnLifecycle> {
+  const terminal = Object.values(records).filter(item => item.endedAt !== null).sort((a,b) => b.acceptedAt-a.acceptedAt);
+  for (const item of terminal.slice(100)) delete records[item.turnId];
+  return records;
+}
 
 /** How many finished runs' details are fetched when a session opens. */
 const HISTORY_RUN_LIMIT = 10;
@@ -50,6 +57,7 @@ export function createActivityStore(env: StoreEnvironment) {
   let generation = 0;
   const store = createStore<ActivityState>((set, get) => ({
     supported: false,
+    lifecycles: {},
     subscribed: {},
     connectionEpoch: 0,
     spans: {},
@@ -144,14 +152,21 @@ export function createActivityStore(env: StoreEnvironment) {
           }
         }
         pruneTerminalRuns(maps);
-        return maps;
+        const lifecycles = { ...s.lifecycles };
+        for (const lifecycle of msg.lifecycles ?? []) {
+          if (!stale.has(lifecycle.lifecycleId)) lifecycles[lifecycle.turnId] = lifecycle;
+        }
+        return { ...maps, lifecycles: boundLifecycles(lifecycles) };
       });
     },
 
     applyDelta: (msg) => {
       const s = get();
       if (msg.seq <= (s.highWater[msg.runId] ?? 0)) return;
-      if (msg.span) {
+      if (msg.lifecycle) {
+        if (msg.seq < (s.deltaSeq[msg.runId] ?? 0)) return;
+        set({lifecycles:boundLifecycles({...s.lifecycles,[msg.lifecycle.turnId]:msg.lifecycle}),deltaSeq:{...s.deltaSeq,[msg.runId]:msg.seq}});
+      } else if (msg.span) {
         const span = msg.span;
         set((prev) => ({
           spans: {
@@ -200,7 +215,7 @@ export function createActivityStore(env: StoreEnvironment) {
     clear: () => {
       generation++;
       loadedHistorySessions.clear(); payloadLoadedRuns.clear();
-      set({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} });
+      set({ lifecycles: {}, spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} });
     },
   }));
 

@@ -142,8 +142,8 @@ describe("activity stream over the ws path", () => {
 
     const deltas = ws.frames().filter((f) => f.type === "activity_delta");
     // Ordered, gapless seq per run.
-    const seqs = deltas.map((d) => d.seq);
-    expect(seqs).toEqual(Array.from({ length: deltas.length }, (_, index) => index + 1));
+    const seqs = deltas.filter(d => !d.lifecycle).map((d) => d.seq);
+    expect(seqs).toEqual(Array.from({ length: seqs.length }, (_, index) => index + 1));
     const kinds = deltas.filter((d) => d.span).map((d) => d.span.kind);
     expect(kinds).toContain("turn");
     expect(kinds).toContain("tool");

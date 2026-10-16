@@ -65,8 +65,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3622-3628`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1785-1787`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3658-3664`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1812-1814`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -428,6 +428,56 @@ Existing activity intents, their payloads, suppression, retry and digest
 coverage are unchanged.
 
 <a id="activity-stream-rev-3-additive"></a>
+
+### Host turn lifecycle (additive)
+
+`ActivityTurnLifecycle` is a persisted host envelope, independent of the existing
+backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `turnId` is the host turn identity; `sessionId`
+is null until observed, and `backendRunId` is null until a backend root is
+actually recorded. It never owns tokens, costs, spans or rollups. Inference
+aggregation continues to read backend rollups exactly once.
+
+`acceptedAt` is the observed host acceptance time, before routing/admission.
+Queued requests retain their observed queue acceptance and `dequeuedAt`;
+`queueWaitMs` is null when no queue interval was observed. Milestones are
+`governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
+`journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
+All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+governed/budget/journal phases not configured for this turn. Other null
+milestones mean not reached or unavailable; they never claim zero-duration
+success. A started phase whose completion is null is pending, or incomplete
+when the enclosing record is terminal.
+
+`totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
+acceptance to the first observed backend frame. Governed, budget and journal
+phase durations measure their paired milestones; an incomplete terminal phase
+measures its observed start to `failureObservedAt` (the caught failure
+boundary), or terminal time after interruption when no failure was observed. `backendStartupMs` measures
+backend invocation to the first frame, or the observed failure boundary
+when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
+values do not redefine backend-run `startedAt` or `durationMs`.
+
+The envelope terminates once with the existing outcome vocabulary: `success`,
+`error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
+in nullable `reason`. Admission refusal, cancellation/revocation and failures
+before any frame persist an envelope without fabricating a backend run or
+first frame. Terminal time follows host cleanup. The existing boot recovery
+owner interrupts unfinished session envelopes, including admission-only
+records; late observations cannot reopen a terminal record. Recording/fanout
+failures never fail the observed turn. Existing historical runs have no
+envelope and their outer timing remains unknown; no timestamps are backfilled.
+
+Activity snapshots add optional `lifecycles`; deltas add optional `lifecycle`,
+using the same global change cursor, with independent per-lifecycle sequence
+numbers under `lifecycleId` (the delta `runId`). Backend-run sequences remain
+unchanged.
+Snapshot high-water entries cover envelope-only identities too. Index/session
+snapshots include recent envelopes; run snapshots may contain an envelope
+without spans. Old clients may ignore these additions. Envelopes survive
+backend detail pruning alongside rollups. Retained evidence consumers must
+include the envelope as separate host evidence when present, report absence
+as unknown, and preserve its backend link without treating it as inference
+usage. The retained export planned in #1767 is not a shipped surface here.
 
 ### Activity stream (rev 3, additive)
 

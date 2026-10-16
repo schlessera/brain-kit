@@ -29,6 +29,7 @@ function span(overrides: Partial<ActivitySpan> & { spanId: string; runId: string
 beforeEach(() => {
   useActivityStore.setState({
     supported: false,
+    lifecycles: {},
     subscribed: {},
     spans: {},
     events: {},
@@ -454,4 +455,18 @@ describe("selectors", () => {
     });
     expect(timingFor(useActivityStore.getState(), "unknown")).toBeNull();
   });
+});
+
+
+test("lifecycle sequencing is independent of backend state and stale snapshots cannot reopen terminal admission",()=>{
+  const s=useActivityStore.getState();
+  const lifecycle={lifecycleId:"lifecycle:ithaca-turn",turnId:"ithaca-turn",acceptedAt:100,endedAt:null,outcome:null} as import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle;
+  s.applySnapshot({type:"activity_snapshot",view:"run",runId:"ithaca-turn",spans:[],events:[],lifecycles:[lifecycle],highWaterSeq:{[lifecycle.lifecycleId]:2}});
+  const terminal={...lifecycle,endedAt:300,outcome:"denied" as const};
+  s.applyDelta({type:"activity_delta",runId:lifecycle.lifecycleId,seq:3,lifecycle:terminal});
+  s.applySnapshot({type:"activity_snapshot",view:"run",spans:[],events:[],lifecycles:[lifecycle],highWaterSeq:{[lifecycle.lifecycleId]:2}});
+  expect(useActivityStore.getState().lifecycles[lifecycle.turnId]).toEqual(terminal);
+  s.applyDelta({type:"activity_delta",runId:"ithaca-turn",seq:1,span:span({spanId:"backend-root",runId:"ithaca-turn",kind:"turn"})});
+  expect(useActivityStore.getState().spans["ithaca-turn"]!["backend-root"]).toBeDefined();
+  s.clear();expect(useActivityStore.getState().lifecycles).toEqual({});
 });

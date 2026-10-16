@@ -240,8 +240,8 @@ with one FYI. Unknown API cost consumes a pessimistic reserve and raises one
 suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
-`packages/ui-server/src/activity/store.ts:177-192`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:597`).
+`packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:602`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
@@ -330,7 +330,7 @@ D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
 for durable decisions, and make Queue a secondary view with links to existing run
 detail. Do not add a second Actions/Activity destination. The current page's
 notification acknowledgement is not resolution (`ActionsLens`,
-`packages/ui-react/src/components/activity/activity-page.tsx:67-68`). Exact effects,
+`packages/ui-react/src/components/activity/activity-page.tsx:68-69`). Exact effects,
 reconnect convergence, accessible focus and visible failure are required; new
 cards need an interaction design that fits the current kit.
 
