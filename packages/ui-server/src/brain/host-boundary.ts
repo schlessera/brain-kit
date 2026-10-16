@@ -478,13 +478,17 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       execution.signal?.throwIfAborted();
       if (!isolated()) return credentialed(execution, async () => {
         const proc = hostSpawn(execution);
+        const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
         try {
-          const [stdout, stderr, exitCode] = await Promise.all([
-            new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+          const [stdout, stderr, exitCode] = await Promise.all(completion);
           execution.signal?.throwIfAborted();
           return { stdout, stderr, exitCode };
         } catch (error) {
-          if (execution.signal) { killWrapped(proc, exec, "SIGKILL"); await proc.exited; }
+          // A read can reject without a caller signal. Kill the command and
+          // settle every native pipe/exit before releasing credential access;
+          // descendants may still own the other inherited output descriptor.
+          try { killWrapped(proc, exec, "SIGKILL"); }
+          finally { await Promise.allSettled(completion); }
           throw error;
         }
       });

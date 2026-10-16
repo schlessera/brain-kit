@@ -1215,7 +1215,9 @@ exclusion and existing output admission. Host OAuth reads take only credential
 exclusion and never reacquire an exclusive writer, avoiding inversion with an
 active turn. Streaming maintenance retains exclusion until both process exit
 and native stdout/stderr EOF, including a descendant retaining inherited
-output. Cancelling an output reader drains the native stream. Synchronous
+output. A non-streaming output failure kills the command and settles its exit
+and other output before releasing exclusion. Cancelling an output reader drains
+the native stream. Synchronous
 credentialed execution refuses; fixed isolated Git mirror transport uses its
 separate credential path. Independently launched native CLI commands do not
 participate: the server's command gateway is the serialization boundary.

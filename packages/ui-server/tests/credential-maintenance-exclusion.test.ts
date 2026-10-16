@@ -131,6 +131,53 @@ test("asynchronous credentialed run excludes refresh until the actual command an
   const hold = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); hold.release();
 });
 
+test("a failed native output read kills the credentialed run and retains exclusion through remaining descendant output", async () => {
+  const f = fixture();
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: false, requirement: "fictional legacy fixture" });
+  cleanup.push(() => probe.mockRestore());
+  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: join(f.root, "state/ui.db"), credentialDomain: f.domain });
+  const entered = join(f.root, "descendant-entered"), release = join(f.root, "release");
+  const descendant = `import {existsSync,writeFileSync} from "node:fs";writeFileSync(${JSON.stringify(entered)},"entered");
+    console.error("Odysseus descendant");while(!existsSync(${JSON.stringify(release)}))await Bun.sleep(10);`;
+  const script = `const child=Bun.spawn([process.execPath,"--config=/dev/null","--no-env-file","-e",${JSON.stringify(descendant)}],
+    {stdin:"ignore",stdout:"ignore",stderr:"inherit",env:{PATH:"/usr/bin:/bin"}});child.unref();while(true)await Bun.sleep(10);`;
+  const nativeSpawn = Bun.spawn;
+  let actual: ReturnType<typeof Bun.spawn> | undefined, killed = false;
+  const injected = new Error("Odysseus native output read failed");
+  // The actual program and descendant remain native. Replace only the
+  // failing pipe at the lowest spawn result, after the descendant entered.
+  const spawn = spyOn(Bun, "spawn").mockImplementation(((argv: string[], options: Parameters<typeof Bun.spawn>[1]) => {
+    const process = nativeSpawn(argv, options);
+    if (!argv.includes(script)) return process;
+    actual = process;
+    const stdout = new ReadableStream<Uint8Array>({ async start(controller) {
+      const deadline = performance.now() + 5000;
+      while (!existsSync(entered) && performance.now() < deadline) await Bun.sleep(5);
+      controller.error(injected);
+    } });
+    return new Proxy(process, { get(target, key) {
+      if (key === "stdout") return stdout;
+      if (key === "kill") return (signal: NodeJS.Signals) => { killed = true; target.kill(signal); };
+      return Reflect.get(target, key, target);
+    } });
+  }) as typeof Bun.spawn);
+  cleanup.push(() => spawn.mockRestore());
+  let settled = false;
+  const running = boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", script],
+    env: { PATH: "/usr/bin:/bin" }, credentials: true, gate: "none", purpose: "Odysseus failed output" });
+  const outcome = running.then(() => { settled = true; return undefined; }, error => { settled = true; return error; });
+  cleanup.push(async () => { writeFileSync(release, "released"); actual?.kill("SIGKILL"); await outcome; });
+  const deadline = performance.now() + 5000;
+  while (!killed && !settled && performance.now() < deadline) await Bun.sleep(5);
+  expect(existsSync(entered), "ACTUAL_DESCENDANT_ENTERED").toBe(true);
+  expect(killed, "FAILED_OUTPUT_KILLS_NATIVE_COMMAND_WITHOUT_SIGNAL_OPTION").toBe(true);
+  expect(settled, "REJECTION_WAITS_FOR_REMAINING_NATIVE_OUTPUT").toBe(false);
+  await expect(acquireHostCredentialExclusion({ domain: f.domain })).rejects.toMatchObject({ reason: "busy" });
+  writeFileSync(release, "released");
+  expect(await outcome).toBe(injected);
+  const hold = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); hold.release();
+});
+
 test("credentialed synchronous execution refuses before a host program can run", () => {
   const f = fixture();
   const boundary = createHostBoundary({ brainPath: f.brain, dbPath: join(f.root, "state/ui.db"), credentialDomain: f.domain });
