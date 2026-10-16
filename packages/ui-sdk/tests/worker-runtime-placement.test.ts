@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { workerCommand, type WorkerLaunch } from "../src/server/worker-launcher.js";
+import { restrictedReadPaths, workerCommand, type WorkerLaunch } from "../src/server/worker-launcher.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const ALLOWANCE = 8 * 1024 * 1024;
@@ -94,5 +94,20 @@ test("owned runtime restoration cannot resurrect explicitly masked files or subd
     const result = Bun.spawnSync(workerCommand(masked), { stdin: Buffer.from("go\n"), stdout: "pipe", stderr: "pipe", timeout: 10_000 });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     expect(result.stdout.toString(), "OWNED_RUNTIME_MASKS_SURVIVE_ALIASES").toBe("Odysseus public runtime");
+  }
+});
+
+
+test("restricted workers preserve executable aliases already supplied by their read-only view", () => {
+  const f = fixture(), runtime = join(f.root, "runtime"); mkdirSync(runtime);
+  writeFileSync(join(runtime, "package.json"), '{"name":"odysseus-runtime-alias"}\n');
+  copyFileSync(realpathSync("/bin/sh"), join(runtime, "native-cli"));
+  const alias = join(runtime, "shell-alias"); symlinkSync("native-cli", alias);
+  for (const executable of ["/bin/sh", alias]) {
+    const launch = input(f, "restricted", runtime, [executable, "-c", "printf Odysseus"]);
+    launch.restricted!.readPaths = [...restrictedReadPaths([executable]), runtime];
+    const result = Bun.spawnSync(workerCommand(launch), { stdin: Buffer.from("go\n"), stdout: "pipe", stderr: "pipe", timeout: 10_000 });
+    expect(result.exitCode, `RESTORED_EXECUTABLE_ALIAS_LAUNCH: ${result.stderr}`).toBe(0);
+    expect(result.stdout.toString()).toBe("Odysseus");
   }
 });
