@@ -17,6 +17,7 @@ import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from ".
 import { isSessionId } from "./worker-state.js";
 import { usageLimitText } from "./usage-limit.js";
 import { statusFromText } from "./stream-adapter.js";
+import { taskNotificationMessages } from "./task-notification-history.js";
 
 /**
  * Session list + transcript reader backed by the Claude Agent SDK's native
@@ -82,7 +83,7 @@ export function createHistory(deps: HistoryDeps): History {
   ): Promise<SessionHistoryMessage[]> {
     if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
     const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
-    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, sessionReplay(root, dir, sessionId).texts());
+    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env, sessionReplay(root, dir, sessionId).texts());
   }
 
   return { listSessions, getHistory };
@@ -99,9 +100,11 @@ export async function buildSessionHistory(
   sessionId: string,
   getSessionMessagesFn: typeof sdkGetSessionMessages,
   dir: string,
+  env?: Record<string, string | undefined>,
   displayText: (id: string, part: number, text: string) => string = (_id, _part, text) => text
 ): Promise<SessionHistoryMessage[]> {
   const history = await getSessionMessagesFn(sessionId, { dir });
+  const taskNotices = taskNotificationMessages(dir, sessionId, env);
 
   // Build a tool result lookup from user messages (tool_result blocks)
   const toolResults = new Map<string, { output: string; isError: boolean }>();
@@ -134,6 +137,9 @@ export async function buildSessionHistory(
     const content = (entry as any).message?.content;
 
     if (entry.type === "user") {
+      // Runtime notifications have their own native entries, even when they
+      // appear prepended to a prompt after consecutive-user folding below.
+      if (taskNotices.get(entry.uuid) === JSON.stringify(entry.message)) continue;
       const wire = Array.isArray(content)
         ? content
             .filter((b: any) => b.type === "text")

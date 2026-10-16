@@ -459,7 +459,12 @@ refuses rather than run git on the host.
   exclusively. A holder whose process died is cleared by the next request.
 - **The brain's CLI must be installed in the brain** (`bun install`, so
   `node_modules/.bin/brain` is a real package inside it). A CLI linked to a
-  path below a masked directory is not visible in the worker.
+  path below a masked directory is not visible in the worker. Governed and
+  strict interactive workers prepend the brain's `node_modules/.bin` to the
+  inherited `PATH`, as maintenance workers do. Other entries keep their order;
+  restricted autonomous workers retain `/usr/bin:/bin`. If the packaged `brain`
+  is absent, the sandbox note asks for `@schlessera/brain` to be installed in
+  the brain repository with `bun install`. This adds no host-directory access.
 - **Cron** lines now start with `cd /`, outside the brain: the runner is a Bun
   process and must not load the brain's `bunfig.toml` or `.env`. The runner
   starts each repository job in the brain itself, in a maintenance worker,

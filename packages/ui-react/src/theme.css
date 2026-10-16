@@ -768,3 +768,9 @@ a.bk-plink:focus-visible {
   flex: 1;
   overflow: hidden;
 }
+
+/* An img SVG receives the host's color scheme, but never its print media.
+ * Match the app theme selector so explicit dark wins only on screen. */
+@media print {
+  :root, :root[data-theme] { color-scheme: light; }
+}
