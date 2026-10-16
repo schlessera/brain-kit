@@ -1,3 +1,4 @@
+import { buildPositionalDiagram } from "./positional-layout.js";
 import { typeWidthBudget } from "./skin.js";
 import { buildAxisDiagram } from "./axis-layout.js";
 import type { DiagramShape } from "./shape.js";
@@ -187,6 +188,7 @@ function pathData(route: DiagramConnector): string {
 /** Pure neutral geometry for a semantically valid free-layout spec. No DOM or paint. */
 export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions = {}): DiagramTree {
   const spec = diagramSpecSchema.parse(input);
+  if (["quadrant", "layer-stack", "pyramid", "funnel", "loop", "flywheel", "venn"].includes(spec.type)) return buildPositionalDiagram(spec);
   if ((AXIS_TYPES as readonly string[]).includes(spec.type)) return buildAxisDiagram(spec);
   if (!(FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) throw new DiagramGeometryError([{ path: "$.type", code: "unroutable", message: `Geometry for '${spec.type}' belongs to its type family; free-layout routing is required here` }]);
   const fontSize = options.labelFontSize ?? 9.5, lineHeight = options.labelLineHeight ?? 12;

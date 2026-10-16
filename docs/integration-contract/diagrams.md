@@ -1,4 +1,4 @@
-# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2096)
+# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2096, #2097)
 
 With `@schlessera/brain-module-diagrams` enabled, `brain diagram check
 <file|-> --json` reads one standalone YAML document or exactly one Markdown
@@ -57,8 +57,7 @@ The discriminator `type` selects one common family grammar:
 
 The common grammar remains accepted. Axis types add an optional strict `axis`
 object with a matching `kind`; its fields are described below. Free-layout
-rendering and the axis family are available. Fixed-layout specialized fields
-remain separate family work.
+rendering and the axis family are available. Fixed families add the optional positional grammar described below.
 
 ## Ordered axis grammar
 
@@ -142,7 +141,7 @@ not prose or filesystem error text.
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
 `focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
-`text_floor`, `contrast`, and `axis`. Warnings use `budget`.
+`text_floor`, `contrast`, `axis`, and `positional`. Warnings use `budget`; positional family guidance may also use `positional`.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
 
@@ -156,7 +155,7 @@ normal machine-output selection applies; `--human` selects readable findings.
 free-layout `DiagramSpec` and returns a `DiagramTree`, without DOM access,
 rendering, I/O or source mutation. It parses the structural schema itself;
 call `checkDiagram` for reference, grid, overlap and editorial validation.
-Axis types dispatch to the ordered family builder. Other type families are refused. Repeated identical inputs and options produce
+Axis and fixed-family types dispatch to their deterministic family builders. Repeated identical inputs and options produce
 byte-identical serialized trees.
 
 The tree contains `schema_version: 1`, `type`, `title`, `desc`, `viewBox`
@@ -268,6 +267,58 @@ without moving content; authored narrow dimensions stay exact. A fixed canvas
 that cannot fit the readable footer is refused with an explanation rather than
 clipping or shrinking the diagram.
 
+## Positional families (additive, #2097)
+
+Fixed families optionally accept a strict `positional` object. Its only supplied
+member must match the type; all referenced common node IDs must occur exactly
+once. Omitting it preserves previously accepted v1 forms and supplies the
+family's deterministic legacy interpretation, with an actionable `positional` warning. A legacy quadrant lists semantic items with POSITIONS AND AXES NOT PROVIDED instead of invented scored coordinates/dimensions. Layers use input order; pyramids/funnels use qualitative widening/narrowing widths, loops take the first node as the hub with remaining input-order stations, and Venn uses equal qualitative set areas. Author the matching typed namespace to make those meanings explicit. `positionalSchema` and `PositionalSpec`
+export this additive input shape. Named canvas dimensions are unchanged; `fit`
+uses the 960×600 positional default. No automatic narrow placement is inferred;
+fixed types retain the caption/summary and readable viewer fallback.
+
+| Type | Optional member and fields |
+| --- | --- |
+| `quadrant` | `quadrant: {xAxis: {negative, positive}, yAxis: {negative, positive}, points: [{node, x, y}]}`; finite normalized coordinates −1…1, neither coordinate zero; one-word axis tips |
+| `layer-stack` | `stack: {order?, direction?: "up" | "down", directionLabel?}`; equal bands and consecutive layer indices |
+| `pyramid`, `funnel` | `pyramid: {layers: [{node, value?, annotation?}]}`; all values supplied or all omitted, positive and monotonic in the type's orientation |
+| `loop`, `flywheel` | `loop: {hub, stations, spokeLabels?: [{station, text}]}`; exactly one disjoint hub, clockwise stations, at most one focal station |
+| `venn` | `venn: {sets: [{node, weight?}], intersections?: [{members, label, focal?}]}`; distinct declared intersection members, at most one focal region |
+
+Every nested object is strict; list parse bounds are 1024, text 2048 and common
+ID limits apply. Intersection membership contains 2–3 IDs. Geometry failures
+and structural ambiguity produce `positional` errors. Editorial budgets warn:
+quadrant up to 12 items, layers/pyramid/funnel 4–6, loop/flywheel 5–8 stations
+plus a hub, Venn 2–3 sets. The loop station budget adapts upstream's hard budget
+to #2097's explicit warning acceptance; valid hub/reference invariants remain
+errors. Existing universal warnings still apply.
+
+Pyramids have a tapered point-up apex; funnels narrow downward. Quantitative
+layer boundary widths are proportional to the supplied values. Labels and
+sublabels fit the width available across their full trapezoid text band.
+Loop paths use the grammar's true circular-arc exception, a common radius,
+clockwise tangential heads and dashed radial returns into the hub. Opaque spoke
+label masks keep 8px clearance from actual paths and other content.
+Venn circle centers/radii stay on the 4px grid. Weighted areas retain relative
+ratios within 5%; comparisons that cannot meet that tolerance on the grid are
+refused rather than drawn misleadingly. Circles share a real overlap; an
+intersection box lies fully inside its selected circles and clear of strokes,
+or uses an exterior leader callout for a small overlap. Common focal set IDs remain valid with an actionable `positional` warning; only an explicit focal intersection paints the Venn focal treatment and its legend key. A non-fitting readable
+callout asks for a taller canvas. No alpha blending conveys intersection data.
+
+The existing `DiagramTree` adds a closed `kind: "shape"` variant exported as
+`DiagramShape`, `DiagramShapeBase` and `DiagramShapePaint`. Generated concrete
+shapes are line, rectangle, circle, polygon, path or text with numeric bounds,
+symbolic paints/type roles, optional generated arrowhead and trusted semantic
+node/edge identity. There is no raw input SVG, arbitrary attributes, CSS or
+registration interface. Client and static painters consume the same tree and
+shared role paints; linked names and bodies share one focusable semantic group.
+All generated coordinates are finite, scene bounds reserve stroke/arrowhead
+and legend space, and fitted/displayed type retains the 9px floor.
+
+The seven shipped examples under
+`packages/module-diagrams/skills/diagram/references/examples/positional/` are
+the sources for the type reference pages and browser visual baselines.
 The [shipped axis examples](../../packages/module-diagrams/skills/diagram/references/examples/)
 are the canonical sequence, swimlane, timeline and Gantt specs used by the
 family references, real CLI tests and browser visual fixtures.

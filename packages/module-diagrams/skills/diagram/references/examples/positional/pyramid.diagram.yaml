@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "type": "pyramid",
+  "title": "Homecoming priorities",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "home",
+      "label": "Home",
+      "role": "focal"
+    },
+    {
+      "id": "crew",
+      "label": "Crew"
+    },
+    {
+      "id": "route",
+      "label": "Route"
+    },
+    {
+      "id": "raft",
+      "label": "Raft"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "pyramid": {
+      "layers": [
+        {
+          "node": "home"
+        },
+        {
+          "node": "crew"
+        },
+        {
+          "node": "route"
+        },
+        {
+          "node": "raft"
+        }
+      ]
+    }
+  }
+}

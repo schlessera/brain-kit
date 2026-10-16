@@ -44,7 +44,13 @@
     "valid": true,
     "type": "quadrant",
     "errors": [],
-    "warnings": []
+    "warnings": [
+      {
+        "path": "$.positional",
+        "code": "positional",
+        "message": "Positions and axes were not provided; items are listed without scored positions. Author positional.quadrant"
+      }
+    ]
   },
   "fixed-invalid": {
     "schema_version": 1,
