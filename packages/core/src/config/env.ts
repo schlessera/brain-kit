@@ -45,6 +45,7 @@ export interface EnvVarSpec {
 }
 
 export const ENV_VARS: readonly EnvVarSpec[] = [
+  { name: "BRAIN_STORAGE_GIT_ROOTS", description: "Trusted storage inventory allowlist: JSON array of up to 16 absolute external Git store roots. Request flags cannot expand it.", default: "no external Git stores", required: false },
   { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal maintenance output root, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input.", required: false },
   { name: "BRAIN_WORKER_CONFIG_ROOT", description: "Internal immutable maintenance configuration execution root. Only applies when the requested root equals BRAIN_WORKER_DATA_ROOT.", required: false },
   {
@@ -143,6 +144,8 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
 export interface CoreEnv {
   /** BRAIN_ROOT, or undefined to fall back to cwd-based discovery. */
   brainRoot: string | undefined;
+  /** Trusted external Git roots for metadata-only storage inventory, JSON encoded. */
+  storageGitRoots: string | undefined;
   /** BRAIN_RERANK_MODE, unvalidated (the reranker validates it). */
   rerankMode: string | undefined;
   /** XDG_BIN_HOME with the ~/.local/bin fallback applied. */
@@ -172,6 +175,7 @@ export function inheritedEnv(
 export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
   return {
     brainRoot: env.BRAIN_ROOT || undefined,
+    storageGitRoots: env.BRAIN_STORAGE_GIT_ROOTS,
     rerankMode: env.BRAIN_RERANK_MODE,
     binDir: env.XDG_BIN_HOME || join(homedir(), ".local", "bin"),
     noColor: envPresent(env.NO_COLOR),
