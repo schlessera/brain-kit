@@ -264,3 +264,10 @@ test("historical zero-duration transcript text is never relabeled as a fresh mic
   await until(() => f.received.some((e) => e.kind === "input_fragment"));
   expect(f.received.filter((e) => e.kind === "input_fragment").map((e) => e.kind === "input_fragment" ? e.text : "")).toEqual(["The new Ithaca note."]);
 });
+
+
+test("a delegation with an unknown explicit audio command identity is not rebound implicitly", async () => {
+  const f = await fixture(); await f.audio(); f.emit(delegation("foreign", "unknown-command"));
+  await until(() => f.received.some((e) => e.kind === "error"));
+  expect(f.received.some((e) => e.kind === "work_requested")).toBe(false);
+});

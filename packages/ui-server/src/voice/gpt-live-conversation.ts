@@ -173,6 +173,7 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         if (handles.has(m.delegation.id)) return;
         if (handles.size >= MAX_IDENTITIES || [...handles.values()].filter((h) => !h.returned).length >= CONVERSATION_LIMITS.maxPendingNativeRequests) throw new Error();
         const utteranceId = m.client_event_id ? audioCommands.get(m.client_event_id) : undefined;
+        if (m.client_event_id && !utteranceId) throw new Error();
         handles.set(m.delegation.id, { ...(utteranceId ? { utteranceId } : {}), returned: false });
         emit({ kind: "work_requested", handle: m.delegation.id, ...(utteranceId ? { utteranceId } : {}) });
       }
