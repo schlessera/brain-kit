@@ -20,14 +20,17 @@ export function buildPositionalDiagram(input:DiagramSpec):DiagramTree {
  const name=(id:string,box:DiagramBox,inverse=false)=>{const node=nodes.get(id);if(!node)throw Error(`Unknown positional node '${id}'`);text(`${id}-name`,node.label,box.x+8,box.y+(node.sub?box.height/2-20:box.height/2-10),box.width-16,"name",inverse?"on-ink":"text");if(node.sub)text(`${id}-sub`,node.sub,box.x+8,box.y+box.height/2,box.width-16,"sub",inverse?"on-ink":focal.has(id)?"text":"muted");};
  if(spec.type==="quadrant") {
   const data=spec.positional?.quadrant, cx=width/2,cy=height/2-20, rx=width/2-168,ry=height/2-112;
+  if(!data){text("missing-positions","POSITIONS AND AXES NOT PROVIDED",48,48,width-96,"label","muted","start");spec.nodes.forEach((node,i)=>text(`${node.id}-label`,node.label,48,88+i*32,width-96,"name","text","start"));}
+  else {
   line("x-axis",cx-rx,cy,cx+rx,cy,"primary",true);line("y-axis",cx,cy+ry,cx,cy-ry,"primary",true);
-  const axes=data??{xAxis:{negative:"EFFORT",positive:"IMPACT"},yAxis:{negative:"LATER",positive:"NOW"}};
+  const axes=data;
   text("x-negative",axes.xAxis.negative,16,cy-10,132,"label");text("x-positive",axes.xAxis.positive,width-148,cy-10,132,"label");
   text("y-positive",axes.yAxis.positive,cx-100,cy-ry-40,200,"label");text("y-negative",axes.yAxis.negative,cx-100,cy+ry+16,200,"label");
   spec.nodes.forEach((node,i)=>{const p=data?.points.find(p=>p.node===node.id),x=p?.x??(i%2?-.55:.55),y=p?.y??(i%4<2?.55:-.55),px=cx+x*(rx-56),py=cy-y*(ry-24);
    if(Math.abs(px-cx)<8||Math.abs(py-cy)<14)throw Error("Quadrant dots and labels must remain clear of both axes; author a less ambiguous position");
    circle(node.id,px,py,4,focal.has(node.id)?"focal":"ink",node.id);text(`${node.id}-label`,node.label,x<0?px-146:px+10,py-10,136,"name","text",x<0?"end":"start");
   });
+  }
  } else if(spec.type==="layer-stack") {
   const data=spec.positional?.stack,order=data?.order??spec.nodes.map(n=>n.id), w=width-240,h=Math.min(64,Math.floor((height-136)/Math.max(1,order.length)/4)*4),x=144,y=48;
   order.forEach((id,i)=>{const rowY=y+i*h;rect(id,x,rowY,w,h,focal.has(id)?"focal":i%2?"cluster":"node",id);text(`${id}-index`,`L${order.length-i}`,x+12,rowY+h/2-10,48,"label","muted");const n=nodes.get(id)!;text(`${id}-label`,n.label,x+80,rowY+h/2-10,n.sub?w/2-104:w-104,"name","text","start");if(n.sub)text(`${id}-sub`,n.sub,x+w/2,rowY+h/2+8,w/2-16,"sub","muted","end");});

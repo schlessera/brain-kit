@@ -7,3 +7,5 @@ Use `positional.venn.sets` to reference semantic sets, optionally with relative 
 Adapted from diagram-design commit `b46c9701f035844a20b13ab0551315977188933b` under the module MIT notice. Brain-kit keeps its fonts, solid token paints, 9px floor and white print ground. The source spec remains authoritative; missing authored narrow placement selects the caption/summary and Open diagram viewer, never automatic reflow.
 
 Use `positional.venn.intersections[].focal` for the one focal intersection. Common focal set IDs remain valid with a warning: they cannot identify an intersection and do not paint an amber set or advertise an unused focal legend.
+
+Legacy sources without the typed block stay valid with a positional interpretation warning. Equal set areas are qualitative; author weights when the areas carry quantitative meaning.

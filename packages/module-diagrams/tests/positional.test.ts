@@ -73,3 +73,5 @@ test("Venn common focal set warning is actionable and the legend follows actual 
 });
 
 test("Quadrant labels cannot cross an axis at a near-zero authored coordinate",()=>{const spec=example("quadrant");spec.positional.quadrant.points[0].y=.01;expect(checkDiagram(JSON.stringify(spec)).errors.some(e=>e.message.includes("clear of both axes"))).toBe(true);});
+
+test("Legacy quadrant does not invent scored coordinates or named dimensions",async()=>{const spec=example("quadrant");delete spec.positional;const result=checkDiagram(JSON.stringify(spec));expect(result.valid).toBe(true);expect(result.warnings.some(w=>w.code==="positional"&&w.message.includes("Positions and axes were not provided"))).toBe(true);const svg=await toStatic(JSON.stringify(spec),{theme:"light"});expect(svg).toContain("POSITIONS AND AXES NOT PROVIDED");expect(svg).not.toContain('data-diagram-shape="x-axis"');expect(svg).not.toContain('data-diagram-shape="sail"');expect(svg).toContain("Repair sail");});

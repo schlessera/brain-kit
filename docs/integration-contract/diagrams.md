@@ -272,7 +272,7 @@ clipping or shrinking the diagram.
 Fixed families optionally accept a strict `positional` object. Its only supplied
 member must match the type; all referenced common node IDs must occur exactly
 once. Omitting it preserves previously accepted v1 forms and supplies the
-family's deterministic default order. `positionalSchema` and `PositionalSpec`
+family's deterministic legacy interpretation, with an actionable `positional` warning. A legacy quadrant lists semantic items with POSITIONS AND AXES NOT PROVIDED instead of invented scored coordinates/dimensions. Layers use input order; pyramids/funnels use qualitative widening/narrowing widths, loops take the first node as the hub with remaining input-order stations, and Venn uses equal qualitative set areas. Author the matching typed namespace to make those meanings explicit. `positionalSchema` and `PositionalSpec`
 export this additive input shape. Named canvas dimensions are unchanged; `fit`
 uses the 960×600 positional default. No automatic narrow placement is inferred;
 fixed types retain the caption/summary and readable viewer fallback.

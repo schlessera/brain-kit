@@ -16,7 +16,7 @@ for (const [family, types, source] of [["free", FREE_LAYOUT_TYPES, "free-valid"]
   for (const type of types) test(`v1 common ${family} grammar validates ${type}`, () => {
     const spec = parse(fixture(source)); spec.type = type;
     const checked=check(spec);expect({...checked,warnings:[]}).toEqual({ schema_version: 1, valid: true, type, errors: [], warnings: [] });
-    expect(checked.warnings.every(item=>item.code==="budget")).toBe(true);
+    expect(checked.warnings.every(item=>item.code==="budget"||item.code==="positional")).toBe(true);
   });
 }
 test("the structural JSON schema is regenerated from the actual strict zod union", () => {
