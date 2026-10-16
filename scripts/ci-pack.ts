@@ -97,13 +97,14 @@ export const PACK_TABLE: Record<string, PackRow> = {
   "ui-sdk": {
     files: ["dist/index.js", "dist/bin/brain-native-store.js"],
     bins: ["brain-native-store-usage"],
-    bun: ["@schlessera/brain-ui-sdk"],
+    bun: ["@schlessera/brain-ui-sdk", "@schlessera/brain-ui-sdk/render"],
     node: [
       "@schlessera/brain-ui-sdk",
       "@schlessera/brain-ui-sdk/protocol",
       "@schlessera/brain-ui-sdk/schemas",
       "@schlessera/brain-ui-sdk/server",
       "@schlessera/brain-ui-sdk/testing",
+      "@schlessera/brain-ui-sdk/render",
       "@schlessera/brain-ui-sdk/client",
     ],
     react18: true,

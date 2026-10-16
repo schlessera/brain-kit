@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:125-126`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:129-130`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:84-268`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:85-270`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -318,12 +318,12 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:50`), so the guard compares the lockfile-installed pair.
+  `.github/workflows/ci.yml:51`), so the guard compares the lockfile-installed pair.
   This fast version guard remains an affected automatic check under
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no
   network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:125-126`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:129-130`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI

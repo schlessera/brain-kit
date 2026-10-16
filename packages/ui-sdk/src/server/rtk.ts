@@ -15,6 +15,16 @@
 
 import { execFile } from "node:child_process";
 
+/**
+ * The host already performs rewriting; a fresh worker HOME must not invite
+ * the model to install global hooks. RTK v0.50.0 reads this missing-hook-only
+ * override (src/core/config.rs::hook_warning_suppressed and
+ * src/hooks/hook_check.rs::warning_text):
+ * https://github.com/rtk-ai/rtk/blob/v0.50.0/src/core/config.rs#L283-L291
+ * Keep the original command output and exit code, rather than filtering it.
+ */
+export const RTK_WORKER_ENV = { RTK_SUPPRESS_HOOK_WARNING: "1" } as const;
+
 /** How long to give the rewrite oracle. rtk answers in <10ms; this is slack. */
 const RTK_TIMEOUT_MS = 2000;
 
