@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
+import { runActivityQuery } from "../src/activity/query.js";
 import { createUiDb } from "../src/db/client.js";
 import {
   createActivityStore,
@@ -191,6 +192,52 @@ describe("activity store: two writers", () => {
 });
 
 describe("activity store: rollups and retention", () => {
+  test("a successful root clears a recovered child failure from summary and rollup", () => {
+    const { store, db } = freshStore();
+    try {
+      startTurn(store);
+      store.startSpan({ spanId: "failed-tool", runId: "run-1", parentSpanId: "run-1-root",
+        name: "execute_tool Bash", kind: "tool", origin: "session" });
+      store.endSpan("failed-tool", { outcome: "error", reason: "loom ledger unavailable" });
+      store.endSpan("run-1-root", { outcome: "success" });
+      store.rollupRun("run-1");
+      expect(store.runRollup!("run-1")!.failureReason).toBeNull();
+      const summary = runActivityQuery(db, store, { scope: "recent" });
+      expect("finished" in summary && summary.finished[0]!.failureReason).toBeNull();
+      // A pre-fix persisted rollup is repaired by the ordinary upsert, without migration.
+      db.query("UPDATE activity_run_rollups SET failure_reason = ? WHERE run_id = ?")
+        .run("loom ledger unavailable", "run-1");
+      store.rollupRun("run-1");
+      expect(store.runRollup!("run-1")!.failureReason).toBeNull();
+      expect(store.getSpan("failed-tool")!.outcomeReason).toBe("loom ledger unavailable");
+    } finally { db.close(); }
+  });
+
+  for (const outcome of ["error", "timeout", "interrupted"] as const) {
+    test(`${outcome} roots retain the first failed child's reason`, () => {
+      const { store, db } = freshStore();
+      try {
+        startTurn(store);
+        store.startSpan({ spanId: "failed-tool", runId: "run-1", parentSpanId: "run-1-root",
+          name: "execute_tool Bash", kind: "tool", origin: "session" });
+        store.endSpan("failed-tool", { outcome: "timeout", reason: "loom ledger unavailable" });
+        store.endSpan("run-1-root", { outcome });
+        store.rollupRun("run-1");
+        expect(store.runRollup!("run-1")!.failureReason).toBe("loom ledger unavailable");
+      } finally { db.close(); }
+    });
+  }
+
+  test("an interrupted root without a failed child retains its fallback reason", () => {
+    const { store, db } = freshStore();
+    try {
+      startTurn(store);
+      store.endSpan("run-1-root", { outcome: "interrupted" });
+      store.rollupRun("run-1");
+      expect(store.runRollup!("run-1")!.failureReason).toBe("interrupted");
+    } finally { db.close(); }
+  });
+
   test("rollup aggregates root-span usage only and survives pruning", () => {
     const { store, db } = freshStore();
     startTurn(store);
