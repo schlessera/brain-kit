@@ -125,7 +125,7 @@ export function createPermissionWiring(options: {
   // separate tool grant. Never borrowed across turns, retries or edited input.
   const shownOutward = new Map<string, string>();
   const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
-    const refusal = denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
+    const refusal = backgroundBashRefusal(toolName, input) ?? denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
     if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
     return refusal;
   };
@@ -575,4 +575,13 @@ export function createPermissionWiring(options: {
       ],
     },
   };
+}
+
+/** A deny composes with parallel RTK rewrites, allowlists and approval edits. */
+function backgroundBashRefusal(toolName: string, input: unknown): string | null {
+  // A query's worker dies at turn end. Rewriting in another parallel hook
+  // could overwrite a command edit or itself be overwritten by RTK.
+  return toolName === "Bash" && (input as { run_in_background?: unknown } | null)?.run_in_background === true
+    ? "Background shell tasks cannot survive this turn's worker teardown. Re-run this Bash call with run_in_background: false and collect its result within the turn."
+    : null;
 }
