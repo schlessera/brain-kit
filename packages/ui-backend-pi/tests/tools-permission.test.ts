@@ -100,6 +100,7 @@ describe("tool_call permission gate", () => {
       const turn = createTurnContext();
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "operator excluded base reads" } });
       turn.bridge = mock.bridge;
+      turn.bridge = { ...mock.bridge, readBrainBase: async () => ({ content: "Odysseus returns.", expectedBaseHash: "a".repeat(64) }) };
       turn.enforceAllowedTools = true;
       turn.noGrantSurface = noGrantSurface;
       const handler = gateHandler({ turn, allowedTools: new Set(["brain_read"]), confirmPatterns: CONFIRM });

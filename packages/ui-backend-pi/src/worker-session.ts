@@ -1,15 +1,16 @@
+import { sessionPromptContext, describeClient } from "@schlessera/brain-ui-sdk/internal";
 import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { getAgentDir, SessionManager, CURRENT_SESSION_VERSION, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
+import { sessionReplay, NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
   outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
   type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
@@ -58,16 +59,20 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
   }
   const sessionId = resumeId ?? randomUUID();
+  const promptContext = env.autonomous ? undefined : sessionPromptContext(sessionDir, backend.brainPath, sessionId);
+  let ownedPrompt: { id: string; text: string; images: boolean } | undefined;
   const nativeVersions = nativeSessions.get(sessionId) ?? new NativeFileVersions();
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
-  /** Entries saved before this turn: their answers were promoted, if at all, by their own turn. */
+  /** Entries saved before this turn: only their own turn owns their display mappings. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
   const turnContext = createTurnContext();
   const allowedTools = new Set(env.autonomous?.allowedTools ?? backend.allowedTools ?? DEFAULT_PI_ALLOWED_TOOLS);
   const confirmPatterns = compileConfirmPatterns(backend.confirmBashPatterns ?? DEFAULT_CONFIRM_BASH_PATTERNS, () => {});
   const bridgeTools = createPiBridgeTools({ brainPath: backend.brainPath, turn: turnContext, capabilities: env.caps });
   const grants = new Map<string, { name: string; input: string }>();
-  const applications = new Map<string, { name: string; input: Record<string, unknown>; result: BrainApplicationResult; output?: Awaited<ReturnType<(typeof bridgeTools)[number]["execute"]>> }>();
+  const replayTurnId = randomUUID();
+  const display = sessionReplay(sessionDir, backend.brainPath, sessionId);
+  const applications = new Map<string, { name: string; input: Record<string, unknown>; result: BrainApplicationResult; anchor?: string | null; output?: Awaited<ReturnType<(typeof bridgeTools)[number]["execute"]>> }>();
   let latestEntries: Record<string, unknown>[] = [];
   const listeners = new Set<(event: AgentSessionEvent) => void>();
   let active = false;
@@ -107,7 +112,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
-    resume: Boolean(resumeId), entries, profileId, agentFiles, ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
+    resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
   // holds the worker's session state too (#1703).
   const turnTempLimits = resolveTurnTempLimits({ ...backend.turnTemp,
@@ -257,57 +262,64 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ready.reject(error); done.reject(error);
     child.kill("SIGKILL");
   }
-  function persist(): void {
-    if (env.autonomous || !applications.size && !latestEntries.some(entry => entry.type === "message")) return;
-    const saved: Record<string, unknown>[] = latestEntries.length ? structuredClone(latestEntries) : [{ type: "session", version: CURRENT_SESSION_VERSION,
-      id: sessionId, cwd: backend.brainPath, timestamp: new Date().toISOString() }];
-    const append = (message: Record<string, unknown>) => saved.push({ type: "message", id: randomUUID(),
-      parentId: saved.slice(1).at(-1)?.id ?? null, timestamp: new Date().toISOString(), message });
+  function persist(recoverMissing = false): void {
+    if (env.autonomous) return;
+    // Receipt ownership survives even when no runtime call or snapshot exists.
+    // Never synthesize a model call or replace a runtime-written result.
     for (const [id, receipt] of applications) {
-      if (!saved.some(entry => entry.type === "message" && (entry.message as any)?.role === "assistant"
-        && (entry.message as any).content.some((part: any) => part.type === "toolCall" && part.id === id))) {
-        // A direct authorized proposal may have no runtime transcript call.
-        // Record the actual server effect instead of depending on worker history.
-        append({ role: "assistant", content: [{ type: "toolCall", id, name: receipt.name, arguments: receipt.input }],
-          api: model?.api ?? "server-application", provider: model?.provider ?? "server", model: model?.id ?? "server-application",
-          stopReason: "toolUse", timestamp: Date.now(),
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+      const called = latestEntries.find(entry => !resumedIds.has(entry.id) && entry.type === "message"
+        && (entry.message as any)?.role === "assistant" && (entry.message as any).content.some((part: any) => part.type === "toolCall" && part.id === id));
+      if (typeof called?.id === "string") receipt.anchor = called.id;
+      else if (receipt.anchor === undefined) {
+        // Direct effects can precede every native message. Null is an owned
+        // session-root position, not an anchor to a later worker snapshot.
+        const prior = latestEntries.findLast(entry => entry.type === "message")
+          ?? entries?.findLast(entry => entry.type === "message");
+        receipt.anchor = typeof prior?.id === "string" ? prior.id : null;
       }
-      const result = { role: "toolResult", toolCallId: id, toolName: receipt.name,
-        content: receipt.output?.content ?? [{ type: "text", text: JSON.stringify(receipt.result) }], isError: !receipt.result.ok, timestamp: Date.now() };
-      const prior = saved.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult" && (entry.message as any).toolCallId === id);
-      if (prior) prior.message = result;
-      else {
-        // A committed server effect survives cancellation before the runtime
-        // can append its own tool result. Later worker snapshots cannot erase it.
-        append(result);
-      }
+      display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId,
+        output: receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result),
+        isError: !receipt.result.ok });
+    }
+    if (!latestEntries.some(entry => entry.type === "message")) return;
+    const saved = [...latestEntries];
+    if (recoverMissing) for (const [id, receipt] of applications) {
+      const called = saved.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "assistant"
+        && (entry.message as any).content.some((part: any) => part.type === "toolCall" && part.id === id));
+      const answered = saved.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "toolResult"
+        && (entry.message as any).toolCallId === id);
+      if (!called || answered) continue;
+      // The installed Pi adapter repairs orphaned calls with "No result provided".
+      // Preserve the committed effect instead, only after the runtime has exited.
+      saved.push({ type: "message", id: randomUUID(), parentId: saved.at(-1)?.id ?? null,
+        timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: id, toolName: receipt.name,
+          content: receipt.output?.content ?? [{ type: "text", text: JSON.stringify(receipt.result) }],
+          isError: !receipt.result.ok, timestamp: Date.now() } });
     }
     savePiSession(sessionDir, sessionId, saved);
   }
+
   /**
    * Once the worker has exited, copies what this turn's answers link in turn
-   * temp into scratch, saves the answers linking the copies, and reports each
+   * temp into scratch, retains display mappings outside the transcript, and reports each
    * linked file to the host (#1655). Turn temp is removed either way.
    */
   function promote(): void {
-    if (!turnTemp || env.autonomous) { closeTurnTemp(); return; }
     try {
+      persist(true);
+      if (!turnTemp || env.autonomous) return;
       const promoter = createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root, turnId: turnContext.turnId, scratch: WORKER_SCRATCH,
         exclude: [PI_WORKER_STATE], scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) });
-      let changed = false;
       for (const entry of latestEntries) {
         if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
         const message = entry.message as { role?: unknown; content?: unknown } | undefined;
         if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-        for (const part of message.content as Array<{ type?: unknown; text?: unknown }>) {
+        for (const [index, part] of (message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
           if (part?.type !== "text" || typeof part.text !== "string") continue;
           const next = promoter.rewrite(part.text);
-          if (next !== part.text) { part.text = next; changed = true; }
+          if (typeof entry.id === "string") display.retainText(entry.id, index, part.text, next);
         }
       }
-      if (changed) persist();
       for (const record of promoter.records) {
         try { turnContext.bridge?.activity?.(record); } catch { /* Observability must not fail the observed turn. */ }
       }
@@ -382,8 +394,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (isCompletedAutonomousToolCall(turnContext.autonomous, msg.toolName, msg.input)) {
         return { behavior: "deny", message: "This call already completed before yielding; inspect its retained result instead of replaying it." };
       }
-      if (bridge.applyBrain && Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)
-        && !(workerSandbox?.profile === "governed" && ["write_file", "edit_file"].includes(msg.toolName))) {
+      const application = Object.values(BRAIN_APPLICATION_TOOLS).includes(msg.toolName as any)
+        && !(workerSandbox?.profile === "governed" && ["write_file", "edit_file"].includes(msg.toolName));
+      if (!turnContext.autonomous && application && !bridge.applyBrain) return { behavior: "deny", message: "No server application route is available in this turn." };
+      if (application && bridge.applyBrain) {
         // Exact application authorization belongs to the server route.
         return { behavior: "allow" };
       }
@@ -469,6 +483,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         backend.log?.("debug", "Pi startup ready", { elapsedMs: performance.now() - startupStarted });
         if (msg.sessionId !== sessionId || initialized || active) throw new Error("Pi worker changed its server session identity");
         initialized = true;
+        if (promptContext && msg.append !== undefined) promptContext.retainAppend(msg.append, env.sessionBudgetLimits ? { limits: env.sessionBudgetLimits } : {});
         model = msg.model as Model<any> | undefined;
         cost = msg.cost; thinkingLevel = msg.thinkingLevel as ThinkingLevel; levels = msg.levels as ThinkingLevel[];
         ready.resolve();
@@ -500,6 +515,23 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
           throw new Error("Pi worker sent an invalid transcript identity");
         }
         latestEntries = msg.entries;
+        if (ownedPrompt) {
+          for (const entry of latestEntries) {
+            if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
+            const message = entry.message as { role?: string; content?: unknown } | undefined;
+            const wire = Array.isArray(message?.content) ? message.content.filter(part => part.type === "text").map(part => part.text).join("") : message?.content;
+            // The installed runtime appends image-normalization hints after the
+            // exact submitted text. Bind the full observed bytes to this owned
+            // turn now; replay never strips a suffix or matches host patterns.
+            const delivered = typeof wire === "string" && (wire === ownedPrompt.text
+              || ownedPrompt.images && wire.startsWith(ownedPrompt.text + "\n\n"));
+            if (message?.role === "user" && delivered && typeof entry.id === "string") {
+              promptContext?.acknowledge(ownedPrompt.id, entry.id, wire as string);
+              ownedPrompt = undefined;
+              break;
+            }
+          }
+        }
         persist();
       } else if (msg.type === "done") {
         if (!active) throw new Error("Pi worker completed an inactive turn");
@@ -549,7 +581,16 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       prompted = true;
       // The send is inside the lifecycle: an oversized prompt still ends the
       // worker and removes its turn temp.
-      try { send({ type: "prompt", text, options }); await done.promise; }
+      const preparedPrompt = promptContext?.prepare(text, {
+        device: env.client ? describeClient(env.client) : "Device unknown; hardware probe results are withheld until known.",
+        sandbox: sandboxNote,
+        capabilities: JSON.stringify({ ...(env.currentCaps ?? env.caps), ...env.currentSurface }),
+        ...(env.turnBudgetMs && env.turnBudgetMs > 0 ? { timeout: `The host hard budget for this turn is ${env.turnBudgetMs} ms (about ${Math.round(env.turnBudgetMs / 60000)} minutes); finish inside this cap.` } : {}),
+        ...(env.sessionBudgetLimits ? { limits: env.sessionBudgetLimits } : {}),
+        ...(env.budgetContext ? { budget: env.budgetContext } : {}),
+      });
+      ownedPrompt = preparedPrompt ? { ...preparedPrompt, images: Boolean(options?.images?.length) } : undefined;
+      try { send({ type: "prompt", text: ownedPrompt?.text ?? text, options }); await done.promise; }
       finally {
         child.stdin.end(); child.kill("SIGKILL");
         try { await child.exited; } finally { await received; promote(); }

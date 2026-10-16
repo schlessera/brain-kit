@@ -31,7 +31,7 @@ import {
   type TracedCall,
   type TurnTrace,
 } from "../src/governance/roadblocks.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -352,6 +352,127 @@ function recorded(turnId: string) {
 }
 
 describe("both backends, through the turn recorder", () => {
+  test("cancelled in-flight shell results are excluded on both adapters, preserving earlier failures", () => {
+    let now = T0;
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      for (const backend of ["pi", "claude"] as const) {
+        const { db, recorder, roadblocks } = recorded(`cancel-${backend}`);
+        const adapter = new StreamAdapter();
+        const emit = (event: unknown) => {
+          const frames = backend === "pi" ? mapPiEvent(event as never) : adapter.adapt(event as never);
+          for (const frame of frames) recorder.observeFrame(frame);
+        };
+        const start = (id: string, command: string) => {
+          if (backend === "pi") emit({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args: { command } });
+          else {
+            emit({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id, name: "Bash" } } });
+            emit({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command } }] } });
+          }
+        };
+        const end = (id: string, output: string) => {
+          if (backend === "pi") emit({ type: "tool_execution_end", toolCallId: id, toolName: "bash", result: { content: [{ type: "text", text: output }] }, isError: false });
+          else emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: output, is_error: true }] } });
+        };
+        try {
+          now += 100; start("prior", "git push origin main");
+          now += 10; end("prior", backend === "pi" ? "[exit 128]" : "Exit code 128");
+          now += 10; start("stopped", "git push origin main");
+          now += 10; recorder.recordCancellation("athena");
+          now += 10; end("stopped", backend === "pi" ? "[exit 143]" : "Exit code 143");
+          now += 10; recorder.finish("cancelled");
+          expect(roadblocks().map(e => e.payload), backend).toMatchObject([{
+            category: "shell_nonzero", signature: "shell:git push|git push|shell_nonzero exit 128",
+            failures: [{ toolCallId: "prior", category: "shell_nonzero" }], resolution: null,
+          }]);
+        } finally { db.close(); }
+      }
+    } finally { clock.mockRestore(); }
+  });
+
+  test("a cancelled call is neither a failure nor a successful resolution; pre-cancel and ordinary exit 143 survive", () => {
+    const prior = call("prior", "bash", { command: "git push" }, 0, { output: "[exit 143]" });
+    const stopped = call("stopped", "bash", { command: "git push" }, 100, { output: "stopped" });
+    const unfinished = { ...stopped, toolCallId: "unfinished", endedAt: null, output: null };
+    for (const output of ["stopped", "[exit 143]", "EROFS: read-only file system", "Error: aborted"]) {
+      const episodes = classifyRoadblocks(trace([prior, { ...stopped, output }, unfinished], { cancelledAt: T0 + 120 }), []);
+      expect(episodes).toHaveLength(1);
+      expect(episodes[0]).toMatchObject({ signature: "shell:git push|git push|shell_nonzero exit 143", failures: [{ toolCallId: "prior" }], resolution: null });
+    }
+    expect(classifyRoadblocks(trace([prior]), [])[0]).toMatchObject({ category: "shell_nonzero", signature: "shell:git push|git push|shell_nonzero exit 143" });
+  });
+
+  test("same-millisecond completion before cancellation survives while the in-flight call is excluded", () => {
+    const clock = spyOn(Date, "now").mockReturnValue(T0);
+    const { db, recorder, roadblocks } = recorded("same-tick-cancel");
+    try {
+      for (const id of ["finished", "running"]) recorder.observeFrame({ type: "tool_use_start", toolUseId: id, toolName: "bash" });
+      recorder.observeFrame({ type: "tool_result", toolUseId: "finished", output: "[exit 143]", isError: false });
+      recorder.recordCancellation("athena");
+      recorder.observeFrame({ type: "tool_result", toolUseId: "running", output: "[exit 143]", isError: false });
+      recorder.finish("cancelled");
+      expect(roadblocks()).toHaveLength(1);
+      expect(roadblocks()[0]?.payload).toMatchObject({ category: "shell_nonzero", failures: [{ toolCallId: "finished" }] });
+    } finally { clock.mockRestore(); db.close(); }
+  });
+
+  test("cancelling only ask-user does not suppress a shell failure", () => {
+    const { db, recorder, roadblocks } = recorded("ask-user-cancel");
+    try {
+      recorder.observeFrame({ type: "tool_use_start", toolUseId: "shell", toolName: "bash" });
+      recorder.recordCancellation("athena", "ask_user");
+      recorder.observeFrame({ type: "tool_result", toolUseId: "shell", output: "[exit 143]", isError: false });
+      recorder.finish("success");
+      expect(roadblocks()[0]?.payload).toMatchObject({ category: "shell_nonzero" });
+    } finally { db.close(); }
+  });
+
+  test("Pi real bash abort retains exit 143 evidence as AbortError and records no roadblock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roadblock-pi-cancel-"));
+    const controller = new AbortController();
+    const { db, store, recorder, roadblocks } = recorded("pi-real-cancel");
+    const tools = Object.fromEntries(createBrainTools({ brain: createBrainAccess(root), turn: createTurnContext(),
+      lock: toolLockFromKeyed(createKeyedLock()) }).map(t => [t.name, t]));
+    const args = { command: "trap 'exit 143' TERM; printf ready > ready; while :; do :; done" };
+    for (const frame of mapPiEvent({ type: "tool_execution_start", toolCallId: "stopped", toolName: "bash", args } as never)) recorder.observeFrame(frame);
+    const completion = tools.bash!.execute("stopped", args, controller.signal, undefined, {} as never)
+      .then(result => ({ result, error: null }), error => ({ result: null, error: error as Error }));
+    try {
+      const deadline = Date.now() + 5000;
+      while (!existsSync(join(root, "ready")) && Date.now() < deadline) await Bun.sleep(5);
+      expect(existsSync(join(root, "ready")), "shell reached its in-flight sentinel").toBe(true);
+      recorder.recordCancellation("athena");
+      controller.abort();
+      const { result, error } = await completion;
+      expect(error?.name, "abort is not an ordinary nonzero result").toBe("AbortError");
+      expect(error?.message).toContain("[exit 143]");
+      for (const frame of mapPiEvent({ type: "tool_execution_end", toolCallId: "stopped", toolName: "bash",
+        result: result ?? { content: [{ type: "text", text: error?.message }] }, isError: error !== null } as never)) recorder.observeFrame(frame);
+      recorder.finish("cancelled");
+      expect(roadblocks()).toEqual([]);
+      expect(store.getSpan("stopped")).toMatchObject({ outcome: "error", outcomeReason: expect.stringContaining("Tool cancelled by abort") });
+      expect(store.getSpan("pi-real-cancel:turn")?.outcome).toBe("cancelled");
+    } finally {
+      controller.abort(); await completion; db.close(); rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Pi real bash externally terminated with SIGTERM remains shell_nonzero exit 143", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roadblock-pi-term-"));
+    const { db, recorder, roadblocks } = recorded("pi-real-sigterm");
+    try {
+      const tools = Object.fromEntries(createBrainTools({ brain: createBrainAccess(root), turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()) }).map(t => [t.name, t]));
+      const args = { command: "trap 'exit 143' TERM; kill -TERM $$" };
+      for (const frame of mapPiEvent({ type: "tool_execution_start", toolCallId: "external", toolName: "bash", args } as never)) recorder.observeFrame(frame);
+      const result = await tools.bash!.execute("external", args, undefined, undefined, {} as never);
+      for (const frame of mapPiEvent({ type: "tool_execution_end", toolCallId: "external", toolName: "bash", result, isError: false } as never)) recorder.observeFrame(frame);
+      recorder.finish("success");
+      expect(roadblocks()).toHaveLength(1);
+      expect(roadblocks()[0]?.payload).toMatchObject({ category: "shell_nonzero", signature: "shell:trap|trap|shell_nonzero exit 143" });
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("Claude: a native Write refused with EROFS, then a write to scratch", () => {
     const { recorder, roadblocks } = recorded("turn-claude");
     const adapter = new StreamAdapter();

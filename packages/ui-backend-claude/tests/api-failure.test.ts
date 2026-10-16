@@ -15,6 +15,7 @@ import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/server"
 
 import { createClaudeBackend } from "../src/backend";
 import { defineProfiles } from "../src/profiles";
+import { USAGE_LIMIT_PREFIXES } from "../src/usage-limit";
 import { StreamAdapter } from "../src/stream-adapter";
 import {
   INVALID_TOKEN_TEXT,
@@ -124,6 +125,63 @@ describe("a failed model call ends the turn as a failure", () => {
       attempts: 2,
     });
     expect(failureFrames(frames)).toHaveLength(1);
+  });
+
+  test("a synthetic usage-limit stop overrides success with or without the error field", async () => {
+    const text = "You've hit your weekly limit · resets July 12";
+    for (const error of [undefined, "rate_limit"]) {
+      const assistant = { type: "assistant", session_id: SESSION, parent_tool_use_id: null, error,
+        message: { model: "<synthetic>", content: [{ type: "text", text }] } } as SDKMessage;
+      const event = { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1_790_848_800 } } as SDKMessage;
+      const frames = await runTurn([event, assistant, answered.at(-1)!]);
+      const result = terminal(frames);
+      expect(result.outcome).toBe("error");
+      expect(result.isError).toBe(true);
+      expect(result.failure).toEqual({ errorClass: "rate_limit", message: text, resetsAt: 1_790_848_800_000 });
+      expect(frames.filter(frame => frame.type === "text_delta")).toEqual([]);
+      expect(failureFrames(frames)).toHaveLength(1);
+    }
+  });
+
+  test("every usage prefix fails live, including truncated streams and is_error results", async () => {
+    for (const text of USAGE_LIMIT_PREFIXES) {
+      const assistant = { type: "assistant", session_id: SESSION, message: { model: "<synthetic>", content: [{ type: "text", text }] } } as SDKMessage;
+      for (const ending of [[], [answered.at(-1)!], [{ ...answered.at(-1)!, is_error: true } as SDKMessage]]) {
+        const result = terminal(await runTurn([assistant, ...ending]));
+        expect(result.outcome).toBe("error");
+        expect(result.failure).toEqual({ errorClass: "rate_limit", message: text });
+      }
+    }
+  });
+
+  test("usage warnings, ordinary answers, child limits and aborted requests keep success", async () => {
+    for (const [model, text, parent] of [
+      ["<synthetic>", "You've used 90% of your limit", null],
+      ["<synthetic>", "You're close to your limit", null],
+      ["<synthetic>", "You're now using extra usage", null],
+      ["<synthetic>", "No response requested.", null],
+      ["<synthetic>", "API Error: Request was aborted.", null],
+      ["claude-opus-5-5", "You've hit your weekly limit", null],
+      ["<synthetic>", "You've hit your weekly limit", "child-tool"],
+    ]) {
+      const assistant = { type: "assistant", session_id: SESSION, parent_tool_use_id: parent,
+        message: { model, content: [{ type: "text", text }] } } as SDKMessage;
+      const result = terminal(await runTurn([assistant, answered.at(-1)!]));
+      expect(result.outcome).toBe("success");
+      expect(result.failure).toBeUndefined();
+    }
+  });
+
+  test("a usage-limit failure invents no reset from warnings or invalid observations", async () => {
+    for (const info of [{ status: "allowed", resetsAt: 1_790_848_800 },
+      { status: "allowed_warning", resetsAt: 1_790_848_800 }, { status: "rejected" },
+      { status: "rejected", resetsAt: -1 }, { status: "rejected", resetsAt: "1790848800" }]) {
+      const text = "You've hit your weekly limit";
+      const assistant = { type: "assistant", session_id: SESSION, message: { model: "<synthetic>", content: [{ type: "text", text }] } } as SDKMessage;
+      const event = { type: "rate_limit_event", rate_limit_info: info } as SDKMessage;
+      const result = terminal(await runTurn([assistant, event, answered.at(-1)!]));
+      expect(result.failure).toEqual({ errorClass: "rate_limit", message: text });
+    }
   });
 
   test("a rejected subscription limit keeps its reported reset as epoch milliseconds", async () => {

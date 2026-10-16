@@ -333,6 +333,19 @@ normalizer threads each result back onto its assistant tool call. `bashExecution
 field is additive). Session cost/turn aggregates are left to the host's `sessions`
 metadata table.
 
+Promoted answer links and authoritative server receipts live in host-owned
+`session-replay/` metadata below `sessionDir`, outside the provider transcript.
+Replay applies each display mapping to its native message and exact original
+text. Receipts overlay the matching call on the active branch; a direct server
+application with no runtime call gets a display-only row at its original turn.
+A direct effect committed before any native message retains a session-root
+position and remains visible even when no runtime transcript file exists.
+Neither path manufactures a model message in the session file. After a worker
+exits, the host may append the missing result for an actual runtime-written
+call whose committed server application has no runtime result; existing results
+are never replaced. The installed Pi adapter otherwise repairs such orphaned
+calls with its own error result.
+
 ## Testing
 
 `bun test` — no live LLM calls. Covers permission gating, path containment,

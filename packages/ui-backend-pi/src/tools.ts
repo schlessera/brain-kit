@@ -571,7 +571,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
           stderr: "pipe",
           ...execWrapperSpawnOptions(exec.wrapper),
         });
-        const onAbort = () => killWrapped(proc, exec);
+        let killedByAbort = false;
+        const onAbort = () => {
+          killedByAbort = true;
+          killWrapped(proc, exec);
+        };
         signal?.addEventListener("abort", onAbort, { once: true });
         const [stdout, stderr, code] = await Promise.all([
           new Response(proc.stdout).text(),
@@ -582,10 +586,12 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         const body = [stdout, stderr].filter(Boolean).join("\n").trim();
         // The exit line goes after the clip, so a long failing output still
         // ends with it: the host classifies a nonzero exit from it (#1671).
-        return textResult(
-          `${clip(body || "(no output)")}${code === 0 ? "" : `\n[exit ${code}]`}`,
-          { exitCode: code }
-        );
+        const output = `${clip(body || "(no output)")}${code === 0 ? "" : `\n[exit ${code}]`}`;
+        // Pi turns thrown tool errors into Activity-visible error results.
+        // Keep the exit evidence, but distinguish a host abort from a command
+        // that independently exited with the same status (including 143).
+        if (killedByAbort) throw new DOMException(`Tool cancelled by abort\n${output}`, "AbortError");
+        return textResult(output, { exitCode: code });
       });
     },
   } satisfies ToolDefinition;

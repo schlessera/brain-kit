@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareWorkerSandbox, WORKER_STATE, workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend.js";
+import { createHistory } from "../src/history.js";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
 import { createClaudeWorkerState } from "../src/worker-state.js";
 import { createStateLedger } from "../src/worker-state-budget.js";
@@ -74,7 +75,7 @@ test("worker transcript export refuses symlinks and concurrent saved-state overw
     expect(existsSync(join(saved, project, "alias.jsonl"))).toBe(false);
   } finally { state.release(); rmSync(root, { recursive: true, force: true }); }
 });
-test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker's linked turn-temp file is promoted and the saved answer links the copy (#1655)", async () => {
+test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker preserves native answer bytes while fresh UI history links the promoted copy (#2049)", async () => {
   const repo = resolve(import.meta.dir, "../../..");
   mkdirSync(join(repo, "tmp"), { recursive: true });
   const root = mkdtempSync(join(repo, "tmp/claude-promotion-")), brain = join(root, "brain"), saved = join(root, "config"), home = join(root, "home");
@@ -82,6 +83,11 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
   const turnId = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", session = "33333333-3333-4333-8333-333333333333";
   const project = `projects/${realpathSync(brain).replace(/[^a-zA-Z0-9]/g, "-")}`;
   const records: unknown[] = [];
+  const answer = "The report: [voyage](/tmp/brain-worker-scratch/report.pdf).";
+  const entry = { type: "assistant", uuid: "44444444-4444-4444-8444-444444444444", sessionId: session,
+    message: { role: "assistant", content: [{ type: "text", text: answer }] } };
+  // Keep noncanonical JSONL whitespace too: host promotion cannot reserialize it.
+  const nativeBytes = `  ${JSON.stringify(entry)}  \n`;
   mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
   const view = createFixtureWorkerStartupView(brain);
   const outputSpy = spyOn(nativeOutput, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
@@ -93,8 +99,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
       fs.writeFileSync(process.env.BRAIN_WORKER_SCRATCH + "/report.pdf", "Odysseus: the voyage report.");
       const dir = process.env.CLAUDE_CONFIG_DIR + "/${project}";
       fs.mkdirSync(dir, { recursive: true });
-      const text = "The report: [voyage](/tmp/brain-worker-scratch/report.pdf).";
-      fs.writeFileSync(dir + "/${session}.jsonl", JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } }) + "\\n");`;
+      fs.writeFileSync(dir + "/${session}.jsonl", ${JSON.stringify(nativeBytes)});`;
     const child = spawner.spawn({ command: process.execPath, args: ["-e", program], env: { CLAUDE_CONFIG_DIR: saved, HOME: home },
       signal: new AbortController().signal } as never);
     child.stdin.end();
@@ -103,8 +108,19 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker'
     expect(code).toBe(0);
     const destination = `.brain/scratch/turns/${turnId}/report.pdf`;
     expect(readFileSync(join(brain, destination), "utf8")).toBe("Odysseus: the voyage report.");
-    const transcript = JSON.parse(readFileSync(join(saved, project, `${session}.jsonl`), "utf8"));
-    expect(transcript.message.content[0].text).toBe(`The report: [voyage](${destination}).`);
+    const transcriptPath = join(saved, project, `${session}.jsonl`);
+    expect(readFileSync(transcriptPath, "utf8"), "REAL_WORKER_NATIVE_TRANSCRIPT_BYTES_UNCHANGED").toBe(nativeBytes);
+    const history = createHistory({ brainPath: brain, env: { CLAUDE_CONFIG_DIR: saved, HOME: home },
+      // Reopen the actual saved file at the SDK-reader boundary. This is fresh
+      // production history normalization, not streamed or worker-owned objects.
+      getSessionMessagesFn: async id => [{ ...JSON.parse(readFileSync(join(saved, project, `${id}.jsonl`), "utf8")),
+        session_id: id, parent_tool_use_id: null, parent_agent_id: null }],
+    });
+    const replay = await history.getHistory(session);
+    expect(replay, "REAL_WORKER_RELOADED_HISTORY_LINKS_PROMOTED_COPY").toEqual([
+      { role: "assistant", content: `The report: [voyage](${destination}).`, thinking: undefined, toolCalls: [],
+        parts: [{ kind: "text", text: `The report: [voyage](${destination}).` }] },
+    ]);
     expect(records).toEqual([{ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
       originalLink: "/tmp/brain-worker-scratch/report.pdf", rewrittenLink: destination }]);
   } finally { await view.cleanup(); outputSpy.mockRestore(); rmSync(root, { recursive: true, force: true }); }
