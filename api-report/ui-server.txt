@@ -203,6 +203,7 @@ signatures (every public export and the types it is made of)
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
+        peekBackends?(): readonly AgentBackend[] | null;
         getBackendById(id: string): Promise<AgentBackend | undefined>;
         getDefaultBackend(): Promise<AgentBackend>;
         getDefaultBackendId(): Promise<string>;
@@ -848,6 +849,10 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        storage?: {
+            backupRoots: readonly string[];
+            gitRoots: readonly string[];
+        };
         nativeBrain?: {
             socketPath: string;
             timeoutMs: number;

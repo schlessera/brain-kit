@@ -3645,3 +3645,5 @@ export interface ServerScopeDecisionReceipt {
   reason?: string;
 }
 export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";
+
+export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";

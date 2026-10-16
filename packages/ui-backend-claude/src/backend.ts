@@ -1,3 +1,4 @@
+import { transcriptPaths } from "./transcript-archive.js";
 import {
   getSessionMessages as sdkGetSessionMessages,
   listSessions as sdkListSessions,
@@ -149,6 +150,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     },
     startTurn,
     followUp,
+    storageRoots() { const paths = transcriptPaths(options.brainPath); return [{ kind: "transcripts", path: paths.live }, { kind: "archive", path: paths.archive }]; },
     listSessions(): Promise<ChatSession[]> {
       return history.listSessions();
     },

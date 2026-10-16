@@ -50,6 +50,23 @@ function registryFor(
 }
 
 describe("backend registry", () => {
+  test("Storage inspects only initialized backend owners without loading discovery", async () => {
+    const registry = registryFor({});
+    expect(registry.peekBackends?.(), "STORAGE_BACKEND_LAZY_OWNER").toBeNull();
+    const initialized = await registry.getBackends();
+    expect(registry.peekBackends?.()).toBe(initialized);
+    const roots = initialized[0]!.storageRoots!();
+    expect(roots.map(root => root.kind)).toEqual(["transcripts", "archive"]);
+    expect(roots.every(root => root.path.endsWith(fixtureBrain.root.replace(/[^a-zA-Z0-9]/g, "-")))).toBe(true);
+    const pi = registryFor({ AGENT_BACKEND: "pi" });
+    expect(pi.peekBackends?.()).toBeNull();
+    const backend = (await pi.getBackends())[0]!;
+    expect(backend.storageRoots!()).toHaveLength(1);
+    expect(backend.storageRoots!()[0]?.kind).toBe("transcripts");
+    expect(backend.storageRoots!()[0]?.path.startsWith(fixtureBrain.root)).toBe(false);
+  });
+
+
   test("Claude-only deployment has one backend and one tagged provider", async () => {
     const registry = registryFor({});
     const backends = await registry.getBackends();

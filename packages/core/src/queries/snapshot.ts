@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, constants } from "bun:sqlite";
 import { statSync } from "fs";
 import { join } from "path";
 import { SCHEMA_VERSION } from "../lib/db.js";
@@ -7,7 +7,7 @@ import type { QueryCode, QueryResult, Root } from "./types.js";
 export class QueryFailure extends Error {
   constructor(readonly code: QueryCode) { super(code); }
 }
-export type Feature = "graph" | "links" | "voice" | "list" | "find";
+export type Feature = "graph" | "links" | "voice" | "list" | "find" | "storage";
 const GRAPH_COLUMNS = {
   graph_metrics: ["document_id", "in_degree", "out_degree", "community", "pagerank"],
   graph_communities: ["community", "size", "label", "top_terms"],
@@ -52,7 +52,7 @@ function compatibility(db: Database, feature: Feature): {
     if (schemaVersion >= 8)
       Object.assign(tables, GRAPH_COLUMNS);
   }
-  if (feature === "links") {
+  if (feature === "links" || feature === "storage") {
     documents.push("id", "summary", "updated");
     tables.links = ["source_id", "target_id", "target"];
   }
@@ -96,7 +96,7 @@ export function withSnapshot<T>(opts: Root, feature: Feature, validate: () => vo
       const dbPath = join(opts.brainPath, "brain.db");
       if (!statSync(dbPath).isFile())
         throw new QueryFailure("unavailable_index");
-      db = new Database(dbPath, { readonly: true });
+      db = new Database(dbPath, feature === "storage" ? constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_NOFOLLOW : { readonly: true });
       db.run("PRAGMA busy_timeout=100");
       const connection = db;
       return db.transaction(() => {

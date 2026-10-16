@@ -15,7 +15,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(leaseHelper = helper, pauseBeforeRemoval = false) {
+function fixture(leaseHelper = helper, pauseBeforeRemoval = false, pauseEntryPublication = false) {
   const root = mkdtempSync(join(tmpdir(), "brain-workspace-lease-")); dirs.push(root);
   mkdirSync(join(root, "dist"));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "odysseus-build-fixture", type: "module", exports: "./dist/index.js" }));
@@ -29,7 +29,12 @@ import {setTimeout as delay} from "node:timers/promises";
 const [root,mode,action,id]=process.argv.slice(2);
 const coordinated=await ensureWorkspaceLease(root,mode);
 if(coordinated!==undefined)process.exit(coordinated);
-writeFileSync(join(root,id+"-entered"),String(process.pid));
+if(${pauseEntryPublication} && action==="hold") {
+  writeFileSync(join(root,id+"-entered"),"");
+  writeFileSync(join(root,id+"-publishing"),"waiting");
+  while(!existsSync(join(root,id+"-publish")))await delay(5);
+}
+writeFileSync(join(root,id+"-entered"),String(process.pid)+"\\n");
 if(action==="writer"||action==="hold") {
   if(action==="writer") {
     if(${pauseBeforeRemoval})while(!existsSync(join(root,id+"-continue")))await delay(5);
@@ -59,16 +64,46 @@ function start(root: string, mode: "read" | "write", action: string, id: string)
   return { child, stdout: new Response(child.stdout).text(), stderr: new Response(child.stderr).text() };
 }
 
-async function waitForMarker(root: string, id: string, phase: "entered" | "removed") {
+async function waitForMarker(root: string, id: string, phase: "entered" | "removed" | "publishing") {
   const deadline = Date.now() + 10_000;
-  while (!existsSync(join(root, id + "-" + phase))) {
+  const marker = join(root, id + "-" + phase);
+  for (;;) {
+    if (existsSync(marker)) {
+      if (phase !== "entered") return;
+      const raw = readFileSync(marker, "utf8"), pid = Number(raw);
+      // The final newline distinguishes a complete publication from a positive PID prefix.
+      if (/^[1-9]\d*\n$/.test(raw) && Number.isSafeInteger(pid)) return pid;
+    }
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${id}: ${phase}`);
     await Bun.sleep(5);
   }
 }
-const entered = (root: string, id: string) => waitForMarker(root, id, "entered");
+const entered = async (root: string, id: string) => (await waitForMarker(root, id, "entered"))!;
 const removed = (root: string, id: string) => waitForMarker(root, id, "removed");
 const release = (root: string, id: string) => writeFileSync(join(root, id + "-release"), "release\n");
+
+test("entry readiness waits for the complete positive PID through empty and partial native publication", async () => {
+  const root = fixture(helper, false, true), other = fixture();
+  const owner = start(root, "write", "hold", "owner");
+  await waitForMarker(root, "owner", "publishing");
+  expect(readFileSync(join(root, "owner-entered"), "utf8")).toBe("");
+  let observed: number | undefined;
+  const readiness = entered(root, "owner").then(() => { observed = Number(readFileSync(join(root, "owner-entered"), "utf8")); });
+  const independent = start(other, "read", "reader", "empty-control");
+  expect(await independent.child.exited, await independent.stderr).toBe(0);
+  expect(observed, "LEASE_EMPTY_PID_PUBLICATION_MUST_WAIT").toBeUndefined();
+  writeFileSync(join(root, "owner-entered"), "1");
+  const partial = start(other, "read", "reader", "partial-control");
+  expect(await partial.child.exited, await partial.stderr).toBe(0);
+  expect(observed, "LEASE_PARTIAL_POSITIVE_PID_MUST_WAIT").toBeUndefined();
+  writeFileSync(join(root, "owner-publish"), "publish");
+  await readiness;
+  expect(Number.isSafeInteger(observed)).toBe(true); expect(observed!).toBeGreaterThan(0);
+  expect(process.kill(observed!, 0)).toBe(true);
+  const waiter = start(root, "write", "reader", "waiter"); owner.child.kill("SIGTERM");
+  expect(await owner.child.exited).not.toBe(0); expect(await waiter.child.exited).toBe(0);
+  expect(() => process.kill(observed!, 0)).toThrow();
+});
 
 test("writer removal readiness waits beyond entry notification through a controlled gap", async () => {
   const root = fixture(helper, true), other = fixture();
@@ -135,8 +170,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
 for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} of the outer command stops its owner and admits the waiting command`, async () => {
   const root = fixture();
   const owner = start(root, "write", "hold", "owner");
-  await entered(root, "owner");
-  const ownedPid = Number(readFileSync(join(root, "owner-entered"), "utf8"));
+  const ownedPid = await entered(root, "owner");
   const waiter = start(root, "write", "reader", "waiter");
   owner.child.kill(signal);
   expect(await owner.child.exited).not.toBe(0);

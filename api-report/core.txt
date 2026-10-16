@@ -191,7 +191,13 @@ export "./queries" (./src/queries/index.ts)
   readGraphMeta
   readGraphNeighborhood
   readLinkWalk
+  readStorageReferences
   readVoiceVocabulary
+
+export "./storage" (./src/storage.ts)
+  type StorageInventory
+  type StorageReadOptions
+  readStorageInventory
 
 export "./testing" (./src/testing/index.ts)
   type AgentRunnerContractHarness
@@ -782,6 +788,8 @@ signatures (every public export and the types it is made of)
     const SCHEMA_VERSION: 15;
   SCRATCH_DIR (packages/core/src/lib/scratch.ts)
     const SCRATCH_DIR: ".brain/scratch";
+  STORAGE_LIMITS (packages/core/src/lib/storage-inventory.ts)
+    const STORAGE_LIMITS: Readonly<StorageLimits>;
   ScratchFailure (packages/core/src/lib/scratch.ts)
     export interface ScratchFailure {
         path: string;
@@ -899,6 +907,96 @@ signatures (every public export and the types it is made of)
     export interface StatsTrends {
         evaluatedAt: string;
         verdicts: StatsTrend[];
+    }
+  StorageCapacity (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageCapacity {
+        id: string;
+        device: string;
+        mountId: string;
+        filesystemType: string;
+        totalBytes: number | null;
+        usedBytes: number | null;
+        freeBytes: number | null;
+        availableBytes: number | null;
+        reason: string | null;
+        provenance: "statfs";
+        quota: null;
+        quotaReason: "unsupported";
+    }
+  StorageEntry (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageEntry {
+        id: string;
+        parentId: string | null;
+        rootId: string;
+        path: string;
+        name: string;
+        kind: StorageKind;
+        objectId: string;
+        capacityId: string;
+        logicalBytes: number | null;
+        allocatedBytes: number | null;
+        measurementReason: string | null;
+        version: string;
+        links: number;
+        pdfOver5MB: boolean;
+        aliasOf: string | null;
+    }
+  StorageInventory (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageInventory {
+        schema_version: 1;
+        scanId: string;
+        revision: string;
+        startedAt: string;
+        finishedAt: string;
+        expiresAt: string;
+        status: "complete" | "partial" | "unsupported";
+        consistency: "live-observation";
+        allocationBasis: "512 * st_blocks; shared extents may be charged more than once";
+        roots: {
+            id: string;
+            kind: "brain" | "git";
+            path: string;
+        }[];
+        entries: StorageEntry[];
+        capacities: StorageCapacity[];
+        pages: {
+            cursor: string;
+            parentId: string | null;
+            entryIds: string[];
+            nextCursor: string | null;
+        }[];
+        totals: {
+            entryLogicalBytes: number | null;
+            objectLogicalBytes: number | null;
+            objectAllocatedBytes: number | null;
+            objects: number;
+            entries: number;
+            lowerBound: boolean;
+        };
+        errors: {
+            path: string;
+            reason: string;
+        }[];
+        omittedErrors: number;
+        limits: typeof STORAGE_LIMITS;
+    }
+  StorageKind (packages/core/src/lib/storage-inventory.ts)
+    export type StorageKind = "file" | "directory" | "symlink" | "special";
+  StorageLimits (packages/core/src/lib/storage-inventory.ts)
+    interface StorageLimits {
+        entries: number;
+        depth: number;
+        milliseconds: number;
+        errors: number;
+        page: number;
+        freshness: number;
+        gitBytes: number;
+    }
+  StorageReadOptions (packages/core/src/storage.ts)
+    export interface StorageReadOptions {
+        brainPath: string;
+        gitRoots?: readonly string[];
+        signal?: AbortSignal;
     }
   Subgraph (packages/core/src/queries/types.ts)
     export interface Subgraph {
@@ -1363,6 +1461,18 @@ signatures (every public export and the types it is made of)
         depth?: number;
         direction?: "outgoing" | "incoming" | "both";
     }): QueryResult<LinkWalk>;
+  readStorageInventory (packages/core/src/storage.ts)
+    export function readStorageInventory(options: StorageReadOptions): Promise<StorageInventory>;
+  readStorageReferences (packages/core/src/queries/index.ts)
+    export function readStorageReferences(opts: Root & {
+        path: string;
+    }): QueryResult<{
+        sources: Array<{
+            path: string;
+            indexedAt: string;
+        }>;
+        truncated: boolean;
+    }>;
   readVoiceVocabulary (packages/core/src/queries/index.ts)
     export function readVoiceVocabulary(opts: Root & {
         limit: number;

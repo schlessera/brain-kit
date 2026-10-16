@@ -87,8 +87,8 @@ export const PACK_TABLE: Record<string, PackRow> = {
   },
   core: {
     // Codex reads a skill's manual-only policy from beside its SKILL.md.
-    files: ["dist/index.js", "dist/cli/brain.js", "dist/hooks/", "skills/sync/agents/openai.yaml"],
-    bun: ["@schlessera/brain"],
+    files: ["dist/index.js", "dist/cli/brain.js", "dist/storage.js", "dist/hooks/", "skills/sync/agents/openai.yaml"],
+    bun: ["@schlessera/brain", "@schlessera/brain/storage"],
     bunProbes: ["core-testing-suites"],
     node: "bun-only",
     nodeProbes: ["core-testing-suites"],
