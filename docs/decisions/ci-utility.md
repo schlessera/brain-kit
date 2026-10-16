@@ -18,7 +18,7 @@ packaging, strict types or full browser/runtime proof. Agents still supply
 focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
-CI supplies authoritative complete repeatable proof on ready PRs. Complete
+CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
 unit/integration discovery includes affected workspaces and every reverse
 dependant, plus root tooling tests. Global/unknown inputs expand to complete
 default discovery. Newly added files are discovered, not admitted through a
@@ -51,14 +51,23 @@ proof. They are not substitutes for automatic event/checkout evidence.
 
 ## Scheduling and selection
 
-Drafts run cheap rejection/metadata gates only. Marking ready selects complete
-proof; subsequent synchronize events reselect actual changed inputs. Batch
-intermediate pushes. Title/label edits run the separate contract gate, not long
+Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap
+rejection/metadata gates only. Opening or reopening a ready PR, or marking a
+PR ready (`ready_for_review`), explicitly requests complete affected candidate
+confirmation. A ready PR's `synchronize` event runs affected strict types and
+curated fast invariants; packaging, complete unit/native/browser/layout/capture
+proof and endurance wait for confirmation. Its `proof` check deliberately fails
+with the action needed: convert to draft, finish pushes, then mark ready again.
+Fast feedback being green is useful, but never sufficient merge evidence.
+The request belongs to one event, not a label that can approve later commits.
+Main pushes still execute complete affected proof. Scheduled and manual runs
+execute exhaustive discovery with a distinct aggregate check name, so they
+cannot impersonate a PR's candidate confirmation. Title/label edits run the separate contract gate, not long
 proof. Main commits keep independent SHA concurrency groups; obsolete heads of
 one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
-browser shards, layout/endurance shards and captures start independently.
+browser shards, layout shards, a separate endurance job and captures start independently.
 There are four measured-cost unit partitions and two browser/layout partitions,
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
@@ -81,14 +90,20 @@ with `bun scripts/refresh-browser-costs.ts <run-id> <attempt>`; reviewed CI
 reports are measurement inputs, never runtime dependencies.
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
-`proof` gate examines every selected job: success is required; missing output,
+`proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
 failure, cancellation and unexpected skips cannot pass. Only explicit planner
 exclusions permit skips. Exhaustive scheduled/manual runs detect selection drift
 and remain supplementary to affected pre-merge proof.
 
 Retain actual tested head/base/checkout identities, commands, attempts and
-artifacts. Inspect new main commits before refreshing. Unrelated advancement
-alone does not demand a rebase or repeat long suites. Reuse is justified only
+artifacts. Inspect new main commits before refreshing. The final candidate gate compares the actual merge checkout and immutable GitHub
+commit/tree/parents to the requested head/base and live PR readiness/head plus
+an independently queried base ref. A changed base requires a new confirmation
+request, even when a reviewer considers that base change unrelated. This is a
+conservative identity rule: no rebase is required solely to request a new
+combined checkout, and admitted equivalent browser/layout domains can still be
+retained. It supersedes the earlier permission to merge after only a manual
+unrelated-base assessment. Endurance and Git-sensitive domains remain fresh. Reuse is justified only
 when the complete suite inputs, dependency closure, fixtures and harness are
 unchanged and recorded evidence establishes that fact; unknown/global changes
 require fresh proof. There is no generic passing-result cache. The earlier run
@@ -146,21 +161,58 @@ Discovery has a 15-second timeout; a missing immutable Git object has an
 eight-second bounded fetch. Runner image context comes from the image's
 [recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
 
+### Execution domains and assertion ownership
+
+The [proof-domain inventory](../process/proof-domains.md) describes default
+ownership and the recording split. `bun run test:inventory` uses actual Vitest
+file discovery and Bun default discovery, emits declaration/assertion source
+locations, refuses missing/duplicate browser ownership and misplaced endurance
+files, and reports unmeasured browser weights. Source locations are navigation,
+not an expansion of dynamic cases or a substitute for executing assertions.
+New ordinary tests conservatively join complete final discovery. There is no
+duration threshold that silently removes expensive cases. Keep paid opt-in
+provider tests and experiment-only discovery distinct.
+
+`bun run test:endurance` selects `ui-react-endurance` and every `.endurance.tsx`
+file, with the same pinned image, offline Docker network, real media APIs,
+deadlines and cleanup. Mixed files retain their short functional/security cases
+in ordinary proof. The separate job has one project and the original sequential
+file bound; it runs on its own VM alongside ordinary proof, never adds browser
+contention within a layout shard, and contributes no ordinary shard weights.
+Full local preflight remains sequential for safe resource ownership; standalone
+endurance can run concurrently in a separate checkout. Hosted confirmation,
+main affected proof and exhaustive scheduled/manual runs require endurance
+whenever UI/global inputs select it. Missing/cancelled/skipped selected endurance
+is a failed gate, not deferred optional coverage.
+
 ## Measuring the critical path
 
-Record queue wait, job elapsed times, ready-to-merge duration, cancelled attempt
+Record queue wait, setup/install/build and suite times, job elapsed times, ready-to-merge duration, cancelled attempt
 time and repeated work after base advancement. Historical Depot samples (198
 terminal workflows, 43% cancellation consumption, median successful 21-minute
 elapsed/93-minute summed time) explain the former policy; they are not hosted
 GitHub benchmarks. Measure the new pinned runner before changing shard counts,
 browser file concurrency or test deadlines. Free runner minutes do not remove
 account concurrency limits. Preserve diagnostic reports and failure images,
-with bounded artifact retention. Fix flaky behavior; never rerun a real failure
+with bounded artifact retention. Each proof job emits per-command elapsed times
+and VM-wide active CPU seconds and sampled used memory (including container
+work) to `proof-resources.json`. These one-second samples are not an exact
+process peak; job-step timestamps supply setup and queue costs. Keep source,
+runner identity and resource scope beside comparisons, and never infer causal
+speedups from unrelated historical SHAs. Fix flaky behavior; never rerun a real failure
 or shorten its assertion merely to obtain green.
 
 The repository is user-owned, so native GitHub merge queues are unavailable.
 Do not invent a queue or require ownership migration as part of this change.
-The existing matching-head merge plus relevance assessment remains in use.
+Matching-head merges still require a live base/head read immediately before
+merge and actual squash parent/tree verification afterward. A passing check
+cannot lock the base against another merge. If it changed since confirmation,
+request confirmation again; if it races the merge, do not attribute old proof
+to the new tree. The workflow is a fail-closed evidence gate, not a repository
+permission: without branch protection a writer can technically bypass it.
+Agents must not do so, and this policy does not change protection settings.
+The read-only [Get a pull request API](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
+accepts the existing `contents: read` permission; no privileged token/event is added.
 
 ## Historical measurement and upstream guidance
 

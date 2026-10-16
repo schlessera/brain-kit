@@ -19,13 +19,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Drafts run cheap gates. Ready PRs run affected complete hosted proof.
+# Drafts run cheap gates; synchronize gives fast feedback. Open/ready/reopen
+# requests final affected confirmation. The proof gate refuses intermediate feedback.
 # Independent jobs start together; each PR owns its cancellation group (#1326).
 jobs:
   changeset:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
+      cadence: ${{ steps.plan.outputs.cadence }}
+      endurance: ${{ steps.plan.outputs.endurance }}
       runtime: ${{ steps.plan.outputs.runtime }}
       captures: ${{ steps.plan.outputs.captures }}
       layout: ${{ steps.plan.outputs.layout }}
@@ -53,6 +56,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: bun scripts/ci-plan.ts
+      - name: Discover product scenario and assertion ownership
+        if: steps.plan.outputs.cadence != 'draft'
+        run: bun scripts/proof-inventory.ts
       - name: Lint, leakage and contribution workflow guards
         run: bun run lint
       - name: Env documentation matches its descriptors
@@ -80,7 +86,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: proof-reuse-ledger
-          path: tmp/proof-reuse.json
+          path: |
+            tmp/proof-reuse.json
+            tmp/proof-inventory.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -173,6 +181,7 @@ jobs:
           name: unit-proof-${{ matrix.shard }}
           path: |
             tmp/proof-checkout.json
+            tmp/proof-resources.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -227,6 +236,7 @@ jobs:
           path: |
             tmp/native-host-proof/
             tmp/proof-checkout.json
+            tmp/proof-resources.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -270,6 +280,8 @@ jobs:
           name: browser-proof-${{ matrix.shard }}
           path: |
             tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -313,6 +325,8 @@ jobs:
           name: layout-proof-${{ matrix.shard }}
           path: |
             tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -352,6 +366,48 @@ jobs:
           name: captures-proof
           path: |
             tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  endurance:
+    needs: changeset
+    if: needs.changeset.outputs.endurance == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Complete endurance proof
+        run: bun scripts/ci-proof.ts endurance
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: endurance-proof
+          path: |
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/proof-cases.json
             tmp/unit-report.xml
             tmp/unit-timings.json
             tmp/measure-claude-*.json
@@ -363,8 +419,9 @@ jobs:
           retention-days: 7
 
   proof:
+    name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
-    needs: [changeset, verify, pack, unit, runtime, browser, layout, captures]
+    needs: [changeset, verify, pack, unit, runtime, browser, layout, captures, endurance]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3

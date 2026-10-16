@@ -38,9 +38,9 @@
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
  *   node scripts/visual.mjs --browser.fileParallelism=true  # diagnostic override
  */
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +69,10 @@ if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.filePa
   process.exit(1);
 }
 const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
+const gitCheckout = () => {
+  const [sha, tree, ...parents] = execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim().split(" ");
+  return JSON.stringify({ sha, tree, parents });
+};
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
@@ -96,6 +100,10 @@ if (inside) {
   // `--shard` still splits the combined file list, keeping both CI shards busy.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
   const args = ["run", ...projects.map((project) => `--project=${project}`), schedulingArg];
+  if (argv.includes("--proof-report")) {
+    rmSync(resolve(REPO, "tmp/proof-cases.json"), { force: true });
+    args.push("--reporter=default", `--reporter=${resolve(REPO, "scripts/proof-case-report.mjs")}`);
+  }
   if (update) args.push("--update");
   if (shardArg) args.push(shardArg);
   args.push(...filters);
@@ -126,12 +134,15 @@ const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resol
 });
 if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
+// Worktree .git indirection points outside the container mount. Capture on the
+// host and check again after exit; the reporter must not guess an identity.
+const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
 const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
   // The consumer layout project needs only the in-container Vite server.
-  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
+  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",
@@ -148,6 +159,8 @@ const status = run("docker", [
   "/repo",
   "-e",
   "HOME=/tmp",
+  ...(proofCheckout ? ["-e", `BRAIN_PROOF_CASE_CHECKOUT=${proofCheckout}`,
+    "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   IMAGE,
   "node",
   "scripts/visual.mjs",
@@ -155,4 +168,5 @@ const status = run("docker", [
   ...argv.filter((a) => a !== "--inside"),
 ]);
 
+if (proofCheckout && gitCheckout() !== proofCheckout) throw new Error("Checkout changed during browser case reporting");
 process.exit(status);
