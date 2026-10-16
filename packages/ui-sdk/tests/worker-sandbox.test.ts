@@ -361,11 +361,19 @@ describe("the sandbox note's wording (#1654)", () => {
     ],
   };
 
+  test.each(["governed", "strict"] as const)("%s capabilities disclose shared uid and mask-only server-state protection", profile => {
+    const note = workerSandboxNote({ ...strict, profile });
+    expect(note, "SHARED_UID_DISCLOSED").toContain("The worker shares the server's uid");
+    expect(note, "MASK_ONLY_PROTECTION_DISCLOSED").toContain("server state is protected by masks only");
+    expect(note, "READ_ONLY_IS_NOT_IDENTITY_ISOLATION").toContain("A read-only brain does not prevent access to other host paths available to that uid");
+  });
+
   test("the strict note states the profile, the three areas and the link rule", () => {
     expect(workerSandboxNote(strict)).toMatchInlineSnapshot(`
       "# Where files go in this turn
 
       **Profile: \`strict\`.** The brain is read-only here: change it through \`write_file\`, \`edit_file\` and the curated brain tools. Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.
+      The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.
 
       1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
       2. **Persistent areas: kept across turns.**

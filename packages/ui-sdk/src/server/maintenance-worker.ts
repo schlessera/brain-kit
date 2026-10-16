@@ -139,6 +139,7 @@ export interface MaintenanceWorker {
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   pid: number;
+  /** Outer monitor exit; runMaintenanceWorker also awaits namespace-owned output EOF. */
   exited: Promise<number>;
   kill(signal?: NodeJS.Signals): void;
 }
@@ -210,9 +211,9 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
  * Stops a worker whole. The pid the server holds is bubblewrap's outer
  * process; its child is the init of the worker's PID namespace. Killing that
  * init first makes the kernel kill and reap every process in the namespace
- * before the init's exit completes, and bubblewrap exits only after it, so
- * `exited` settles once nothing of the worker is left. Killing only the
- * outer process would let it exit while the namespace is still tearing down.
+ * before the init's exit completes. The outer monitor can exit earlier;
+ * runMaintenanceWorker also drains the stdio descriptors held by init.
+ * Outer-process settlement alone does not establish completed teardown.
  */
 function killWorker(child: { pid: number; kill(signal?: NodeJS.Signals): void }, signal: NodeJS.Signals = "SIGKILL"): void {
   let inits: number[] = [];

@@ -1039,7 +1039,10 @@ export "./internal/client" (./src/internal-client.ts)
   type ShareTargetError
   askUserFormPayload
   askUserFormSpec
+  bindStoredShare
+  boundStoredShares
   canonicalModelId
+  clearBoundStoredShares
   createToolRendererRegistry
   defaultAsrClientRegistry
   defaultToolRendererRegistry

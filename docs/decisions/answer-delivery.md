@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:643`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:633`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 
@@ -242,6 +242,45 @@ deadline stays the only limit on an ask.
   receipt recovered in 5.1 seconds and a blackholed idle socket replaced
   18.5 seconds after the cut. While healthy, one probe went out per
   15 seconds of idle time.
+
+### Where the startup race is proved
+
+The late stored-principal race has one native `ask_user` representative.
+All four ChatPage adapters enter `submitAnswer`; the first host frame calls
+`answers.connected()` without selecting an answer kind (`answersReady = true`,
+`packages/ui-react/src/connection.ts:365-366`). The shared restore path must
+preserve that newer principal. Repeating this browser race for list, rank and
+form adds no separate startup path. Their online and offline/reload native
+cases remain: input adapters, `answerFrame` serialization and host dispatch
+have kind-specific branches, and expected backend results are independent,
+nonempty payloads.
+
+For each removed list/rank/form race repetition, the retained proof is:
+
+| Race assertion | Detailed proof | Native integration proof |
+| --- | --- | --- |
+| A held empty read completes after hello | Each kind has held empty **and stale** principal reads in the manager suite | The `ask_user` representative holds a completed real IndexedDB read across the actual host hello |
+| Offline Submit queues | Each kind asserts admission, queued state, record count, current principal, request/session binding and payload | The representative and each kind's offline/reload case use actual UI input |
+| Nothing settles offline | Each kind asserts an empty recording transport | The representative and each kind's offline/reload case assert empty backend settlements |
+| Reconnect settles exactly once with the expected answer | Each kind's manager reload/send/receipt sequence retains its payload oracle | Each kind's online and offline/reload cases assert once-only real host settlement and independent expected results |
+
+All 57 manager cases and 56 DOM cases remain, including eight kind ×
+empty/stale races and logout during the read. Each lower case owns its root,
+storage and clock. The 24 native cases each own a fresh BrowserContext and
+request, close the context in `finally`, and cancel active turns after each
+case; the host/browser lifetime remains suite-owned. The representative runs
+independently and in randomized order. Its queued-state diagnostic also admits
+Not saved as an observed outcome, then explicitly requires Queued, so removing
+the actual connection hookup fails on lost admission authority.
+
+Memory storage and DOM state injection cannot prove persistence or submission
+wiring. All-kind online/reload adapters, actual IndexedDB, Web Locks and
+BroadcastChannel across two tabs, host receipts, reconnect/reload, capability
+and principal changes, corrupt persisted records and Liveness B remain native.
+The one-kind real-socket suite adds transport proof; it does not replace browser
+storage, form callbacks or the other three adapters. Liveness B uses controlled
+browser time at the production thresholds, with real greetings, correlated
+pongs and resync frames; no product deadline is shortened.
 
 None of this reproduces a phone's suspended timers or its background policy.
 The phone PWA check reserved on #910 is still owed.

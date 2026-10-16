@@ -5,6 +5,7 @@ import { isUserCancel, registerPasskey, supportsPasskeys } from "../../lib/passk
 import { Button, ChoiceOption } from "@schlessera/brain-ui-kit";
 import { LocalWorkDialog } from "../voice/local-work-dialog.js";
 import type { SignOutLoss } from "../../lib/local-work-flow.js";
+import { ToolPermissionsSection } from "./tool-permissions.js";
 import { PasskeyList } from "./passkey-list.js";
 
 /**
@@ -127,7 +128,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
     try {
       const summary = await root.localWorkFlow.loss();
       if (signal.aborted) return;
-      if (summary.recordings || summary.accepted || summary.drafts || summary.tracks || summary.review || summary.unassigned || summary.unknown || summary.otherTabs) {
+      if (summary.recordings || summary.accepted || summary.drafts || summary.tracks || summary.shares || summary.review || summary.unassigned || summary.unknown || summary.otherTabs) {
         setAlsoDelete(false); setLossChanged(false); setLoss(summary);
       } else await root.localWorkFlow.signOut(summary, false, root.localWorkFlow.navigationFor(signal));
     } catch (err) { if (!signal.aborted) setError(err instanceof Error ? err.message : "Sign-out failed"); }
@@ -141,7 +142,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
     try {
       const fresh = await root.localWorkFlow.loss();
       if (signal.aborted || consent !== consentVersion.current) return;
-      const expanded = (["recordings", "transcripts", "accepted", "drafts", "tracks"] as const).some(key => fresh[key] > loss[key])
+      const expanded = (["recordings", "transcripts", "accepted", "drafts", "tracks", "shares"] as const).some(key => fresh[key] > loss[key])
         || Number((fresh.bytes / (1024 * 1024)).toFixed(1)) > Number((loss.bytes / (1024 * 1024)).toFixed(1))
         || fresh.review && !loss.review || fresh.unknown && !loss.unknown || fresh.otherUnknown && !loss.otherUnknown
         || alsoDelete && fresh.unassigned > loss.unassigned;
@@ -156,6 +157,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
   return (
     <>
     <PasskeyList
+      sections={<ToolPermissionsSection active={active} />}
       credentials={credentials}
       status={loading ? "loading" : passkeyMode ? "ready" : "unavailable"}
       busy={busy}
@@ -175,6 +177,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
         {loss.accepted > 0 && <li>{loss.accepted} accepted recordings awaiting cleanup</li>}
         {loss.drafts > 0 && <li>{loss.drafts} unsent drafts, including their images</li>}
         {loss.tracks > 0 && <li>{loss.tracks} staged track references</li>}
+        {loss.shares > 0 && <li>{loss.shares} shared {loss.shares === 1 ? "item" : "items"} kept on this device</li>}
         {loss.review && <li>Unaccepted dictation text</li>}
       </ul>
       {loss.otherTabs && <p className="my-3 text-sm text-foreground">{loss.otherUnknown ? "Other tabs for this account may have unsaved drafts, dictation or staged track references. Their local work will also be lost. Keep working to review it in those tabs." : "Local work in other tabs for this account is included above."}</p>}

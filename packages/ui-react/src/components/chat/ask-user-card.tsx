@@ -29,9 +29,9 @@ const MULTI_JOIN = ", ";
 interface PerQuestionState {
   /** Picked option labels (single-select keeps only the latest). */
   selected: string[];
-  /** The kit's free-text field is open in place of the Submit row. */
+  /** The kit's free-text field is open above the Submit row. */
   otherOpen: boolean;
-  /** A free-text answer already taken from the field (held until Submit). */
+  /** The current free-text draft, held until explicit submission. */
   otherText: string;
   /** The option holding focus — the contract's `preview` follows focus, so
    * ↑↓ over the options shows each one's preview before anything is picked. */
@@ -380,6 +380,8 @@ export function AskUserCard({
               question={q.question}
               options={options}
               otherOpen={s.otherOpen}
+              otherText={s.otherText}
+              onOtherChange={(otherText) => setState((prev) => prev.map((value, i) => i === qi ? { ...value, otherText } : value))}
               otherPlaceholder="Type your answer…"
               onOtherSubmit={(text) => takeOther(qi, text)}
               showActions={isLast}

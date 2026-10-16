@@ -7,6 +7,7 @@ import type { CanvasPalette } from "../../lib/graph-helpers.js";
 
 export interface GraphTheme {
   background: string;
+  band: string;
   /** Raised surface used for the hover-label plate (sigma's default is #FFF,
    * unreadable under the dark theme's near-white label text). */
   surfaceOverlay: string;
@@ -58,6 +59,7 @@ export function graphTheme(scheme: ColorScheme): GraphTheme {
   const token = (name: TokenName) => readToken(name, scheme);
   return {
     background: token("color-canvas"),
+    band: token("hover-veil-firm"),
     surfaceOverlay: token("color-raised"),
     node: token("color-ink-mute"),
     nodeSelected: token("canvas-root"),

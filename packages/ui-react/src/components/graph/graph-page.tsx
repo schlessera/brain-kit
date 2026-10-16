@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { TriangleAlert } from "lucide-react";
-import { EmptyState, ScreenHeader } from "@schlessera/brain-ui-kit";
+import { EmptyState, ScreenHeader, TextButton } from "@schlessera/brain-ui-kit";
 
 import { graphServerUnavailable, useGraphStore, type DiscoveryColorBy, type GraphMode } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
@@ -14,6 +14,7 @@ import { GraphEmptyState, Mono } from "./graph-empty-state.js";
 import { MaintenanceBody } from "./graph-maintenance.js";
 import { GraphNodeRail } from "./graph-node-rail.js";
 import { DiscoveryStart, SceneBody } from "./graph-scene.js";
+import { DiscoveryExplanation } from "./discovery-explanation.js";
 import { CenteredSpinner } from "./graph-spinner.js";
 import { cn } from "../../lib/utils.js";
 
@@ -37,6 +38,8 @@ export function GraphPage() {
   const fetchScene = useGraphStore((s) => s.fetchScene);
   const subgraph = useGraphStore((s) => s.subgraph);
   const dataState = useGraphStore((s) => s.dataState);
+  const layoutNotice = useGraphStore(s => s.layoutNotice);
+  const expansion = useGraphStore(s => s.discoveryExpansion);
   const stale = useGraphStore((s) => s.meta?.stale ?? false);
   const unavailable = useGraphStore(graphServerUnavailable);
 
@@ -64,7 +67,7 @@ export function GraphPage() {
   }, [fetchMeta, fetchScene]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div data-graph-page="" className="flex flex-1 flex-col overflow-hidden">
       {/* Panels this view hosts itself (chat page is hidden while we're active) */}
       <FilePanel open={filePanelOpen} onClose={() => setFilePanelOpen(false)} />
       <SettingsPanel
@@ -101,7 +104,7 @@ export function GraphPage() {
           {subgraph?.truncated && (
             <span
               className="hidden shrink-0 items-center gap-1 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[10px] text-muted-foreground md:flex"
-              title="The server capped this scene; the lowest-ranked notes were dropped."
+              title="The server limited nodes or links in this scene. More data may be missing."
             >
               <TriangleAlert className="h-3 w-3" />
               truncated
@@ -110,6 +113,15 @@ export function GraphPage() {
         </header>
       )}
 
+      <span role="status" className="sr-only">{mode === "discovery" && expansion.notice
+        ? <span key={`expansion-${expansion.notice.sequence}`}>{expansion.notice.text}</span>
+        : layoutNotice !== null ? <span key={`layout-${layoutNotice}`}>Layout updated</span> : null}</span>
+      {!laptop && (expansion.notice || layoutNotice !== null) && <p className="px-3 py-1 text-[11px] text-muted-foreground">{expansion.notice?.text ?? "Layout updated"}</p>}
+      {!laptop && <DiscoveryExpansionSummary />}
+      {mode === "discovery" && subgraph && expansion.stale && !unavailable && <div className="flex flex-wrap items-center gap-x-3 border-b border-border bg-surface-raised/50 px-4 py-2 text-xs text-muted-foreground">
+        <span>{dataState === "loading" || metaState === "loading" ? "Refreshing graph; previous graph shown." : dataState === "error" || metaState === "error" ? "Could not refresh the graph. Previous graph retained." : "Graph needs refresh; previous graph shown."}</span>
+        {dataState !== "loading" && metaState !== "loading" ? <TextButton label="Refresh and retry" tone="meta" style={{ minHeight: laptop ? 24 : 44 }} onClick={() => { void (async () => { await fetchMeta(true); await fetchScene(); })(); }} /> : null}
+      </div>}
       {/* Stale strip */}
       {stale && metaState === "done" && !unavailable && (
         <div className="flex items-center gap-2 border-b border-border bg-surface-raised/50 px-4 py-1.5 text-[11px] text-muted-foreground">
@@ -153,6 +165,8 @@ function SceneHeader() {
   const findings = useGraphStore((s) => s.findings);
   const local = useGraphStore((s) => s.local);
   const discoveryRoot = useGraphStore((s) => s.discovery.root);
+  const layoutNotice = useGraphStore(s => s.layoutNotice);
+  const expansion = useGraphStore(s => s.discoveryExpansion);
   const staleDays = useGraphStore((s) => s.maintenance.staleDays);
 
   const focus =
@@ -180,18 +194,40 @@ function SceneHeader() {
     parts.push(`${subgraph.edges.length.toLocaleString()} edges`);
     if (mode === "local") parts.push(`${local.depth} hop${local.depth === 1 ? "" : "s"}`);
     if (subgraph.truncated) parts.push("truncated");
+    if (mode === "discovery" && expansion.notice) parts.push(expansion.notice.text);
+    else if (mode === "discovery" && layoutNotice !== null) parts.push("Layout updated");
     subtitle = parts.join(" · ");
   }
 
   return (
-    <ScreenHeader
+    <><ScreenHeader
       variant="nav"
       title={title}
       subtitle={subtitle}
       subTone={subgraph?.truncated ? "red" : "neutral"}
       back={false}
-    />
+    /><DiscoveryExpansionSummary /></>
   );
+}
+
+function DiscoveryExpansionSummary() {
+  const mode = useGraphStore(s => s.mode);
+  const expansion = useGraphStore(s => s.discoveryExpansion);
+  const depth = useGraphStore(s => s.discovery.maxDepth);
+  const reset = useGraphStore(s => s.resetDiscoveryExpanded);
+  const laptop = useMediaQuery(LAPTOP_QUERY);
+  const host = useRef<HTMLDivElement>(null);
+  if (mode !== "discovery" || !expansion.intents.length) return null;
+  const count = expansion.intents.length;
+  return <div ref={host} data-discovery-expansion-summary="" className="flex flex-wrap items-center gap-x-3 border-b border-border px-4 py-1 text-xs text-muted-foreground">
+    <span>depth {depth} · {count} expanded{expansion.unresolved.length ? ` · ${expansion.unresolved.length} pending evidence` : ""}</span>
+    <TextButton label="Reset expanded" tone="meta" ariaLabel={`Reset expanded, ${count} note${count === 1 ? "" : "s"} expanded`}
+      style={{ minHeight: laptop ? 24 : 44 }} onClick={() => {
+        const list = host.current?.closest("[data-graph-page]")?.querySelector<HTMLButtonElement>('[title="Node list"]');
+        void reset();
+        list?.focus();
+      }} />
+  </div>;
 }
 
 const RULE_LABEL: Record<DiscoveryColorBy, string> = {
@@ -217,9 +253,10 @@ function CanvasCaption() {
   const rule =
     mode === "discovery" || mode === "local" ? RULE_LABEL[colorBy] : hasTopics ? "topic" : "uniform";
   return (
-    <p className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
+    <div className="border-t border-border px-4 py-2 font-mono text-[10px] text-muted-foreground">
+      {mode === "discovery" && <DiscoveryExplanation />}
       canvas is app-drawn · colour = {rule} · click a node to load its card
-    </p>
+    </div>
   );
 }
 
@@ -261,6 +298,8 @@ function GraphBody({
   const subgraph = useGraphStore((s) => s.subgraph);
   const local = useGraphStore((s) => s.local);
   const discovery = useGraphStore((s) => s.discovery);
+  const expansion = useGraphStore(s => s.discoveryExpansion);
+  const retainDiscovery = mode === "discovery" && subgraph !== null && expansion.stale;
 
   // 404 on meta: the whole server predates the graph API.
   if (metaState === "error" && error?.kind === "unsupported") {
@@ -287,7 +326,10 @@ function GraphBody({
     );
   }
 
-  if (metaState === "loading" || metaState === "idle") {
+  // Keep a known Discovery scene mounted through metadata refresh, so a
+  // surviving selected row retains focus and the camera stays put.
+  if (metaState === "idle" || (metaState === "loading" &&
+      !(mode === "discovery" && subgraph && (meta?.available === true || retainDiscovery)))) {
     return <CenteredSpinner />;
   }
 
@@ -297,7 +339,7 @@ function GraphBody({
     mode !== "local" &&
     (meta?.available === false ||
       (dataState === "error" && error?.kind === "unavailable"));
-  if (gated) {
+  if (gated && !retainDiscovery) {
     const reason = meta?.reason ?? error?.reason;
     return reason === "schema" ? (
       <GraphEmptyState icon="sync" title="Brain CLI too old">
@@ -335,7 +377,7 @@ function GraphBody({
     return <DiscoveryStart />;
   }
 
-  if (dataState === "error") {
+  if (dataState === "error" && !retainDiscovery) {
     return (
       <GraphEmptyState icon="warn" title="Could not load the graph">
         {error?.message ?? "Request failed"}
@@ -343,7 +385,7 @@ function GraphBody({
     );
   }
 
-  if (dataState === "loading" || !subgraph) {
+  if (!subgraph || (dataState === "loading" && mode !== "discovery")) {
     return <CenteredSpinner />;
   }
 
