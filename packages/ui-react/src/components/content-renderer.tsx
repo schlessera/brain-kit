@@ -14,7 +14,8 @@ export function rendererForPath(path: string): ContentRenderer | null {
   registerBuiltinContentRenderers();
   const name = path.split("/").pop() ?? path;
   for (let index = name.indexOf("."); index >= 0; index = name.indexOf(".", index + 1)) {
-    const renderer = defaultContentRendererRegistry.forExtension(name.slice(index));
+    const suffix = name.slice(index);
+    const renderer = defaultContentRendererRegistry.forExtension(suffix) ?? defaultContentRendererRegistry.forExtension(suffix.toLowerCase());
     if (renderer) return renderer;
   }
   return null;

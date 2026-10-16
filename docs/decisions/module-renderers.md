@@ -86,7 +86,7 @@ string. The first-party Mermaid support uses the same seam. Its former markdown,
 file-preview and sharing special cases now dispatch through the built-in pack
 (`mermaidContentPack`, `packages/ui-react/src/content-renderers/mermaid.tsx:10-22`).
 The browser preflight runs each bundled browser-only static entry before
-sharing (`export async function preRenderBrowserFences`, `packages/ui-react/src/lib/content-renderer-share.ts:11-39`).
+sharing (`export async function preRenderBrowserFences`, `packages/ui-react/src/lib/content-renderer-share.ts:10-39`).
 
 A seam needs a second implementation plausible within a year. This one has
 four: Mermaid, diagrams, the geo and travel map views

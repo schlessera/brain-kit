@@ -45,6 +45,12 @@ test("standalone Mermaid is drawn by the built-in content pack in the actual fil
   flushSync(() => renderer.render(<BrainUiProvider root={root}><FileViewer /></BrainUiProvider>));
   await expect.poll(() => host.querySelector("svg[id^='brain-mermaid-']"), { timeout: 15000 }).not.toBeNull();
   expect(host.querySelector('[data-content-renderer="mermaid"] svg[id^="brain-mermaid-"]'), "MERMAID_FILE_USES_REGISTERED_CONTENT_PACK").not.toBeNull();
+  for (const path of ["notes/voyage.mermaid", "notes/Voyage.MMD", "notes/Voyage.MERMAID"]) {
+    flushSync(() => root.stores.file.setState({ currentPath: path, currentContent: {
+      path, kind: "text", content: source, size: source.length, mtime: Date.parse("2026-07-12T00:00:00Z"),
+    } }));
+    await expect.poll(() => host.querySelector(`[data-content-renderer="mermaid"][data-renderer-path="${path}"] svg`), {timeout: 15000}).not.toBeNull();
+  }
 });
 
 test("the real Mermaid client and static entries meet the renderer theme contract", async () => {

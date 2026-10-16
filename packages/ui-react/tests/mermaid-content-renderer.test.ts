@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { defaultContentRendererRegistry } from "@schlessera/brain-ui-sdk/client";
+import { rendererForPath } from "../src/components/content-renderer.js";
 import { createBrainUiRoot } from "../src/root.js";
 import { mermaidThemeVariables, type MermaidTheme } from "../src/lib/mermaid-theme.js";
 
@@ -14,6 +15,8 @@ test("built-in Mermaid owns both fence and file aliases through the content regi
   expect(defaultContentRendererRegistry.forExtension(".mmd")).toBe(renderer);
   expect(defaultContentRendererRegistry.forExtension(".mermaid")).toBe(renderer);
   expect(renderer!.needsBrowser).toBe(true);
+  expect(rendererForPath("notes/Voyage.MMD"), "EXISTING_MERMAID_PATH_CASE_INSENSITIVITY").toBe(renderer);
+  expect(rendererForPath("notes/Voyage.MERMAID")).toBe(renderer);
 });
 
 test("Mermaid print palette uses the document's white paper", () => {
