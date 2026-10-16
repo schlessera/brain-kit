@@ -148,10 +148,13 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
       }
       if (m.type === "session.input_transcript.delta") {
         if (m.end_ms < m.start_ms) throw new Error();
+        // Appended historical text can occupy a zero-duration timeline range.
+        // It is never a fresh microphone utterance.
+        if (m.end_ms === m.start_ms) return;
         const correlated = m.client_event_id ? audioCommands.get(m.client_event_id) : undefined;
         // A single captured input is unambiguous. Once several exist, never
         // infer the transcript's identity from which microphone chunk was last.
-        const utteranceId = correlated ?? (inputs.size === 1 ? inputs.keys().next().value : undefined);
+        const utteranceId = correlated ?? (options.resync.work.length === 0 && inputs.size === 1 ? inputs.keys().next().value : undefined);
         if (!utteranceId || (m.client_event_id && !correlated)) throw new Error();
         const input = inputs.get(utteranceId)!;
         emit({ kind: "input_fragment", utteranceId, sequence: input.sequence++, text: m.delta,

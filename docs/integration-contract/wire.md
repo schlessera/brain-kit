@@ -1314,9 +1314,9 @@ backend bridge own execution, progress, tools and interactive questions. Input
 and output remain independent of pending backend work. Audio commands carry
 opaque client event IDs. A transcript echoed with `client_event_id` keeps that
 original utterance identity even after another utterance starts. With one input
-only, attribution is unambiguous; after multiple inputs, a fragment without a
+only and no historical resync context, attribution is unambiguous; after multiple inputs, a fragment without a
 recognized client correlation closes the epoch rather than using the newest
-capture identity. Transcript fragments have no finalization event and remain
+capture identity. Zero-duration appended text is not microphone input. Transcript fragments have no finalization event and remain
 unknown certainty/origin, so automatic semantic submission is unavailable.
 `markEndpoint` records the host's review boundary only; it sends no invented
 provider commit or done command.

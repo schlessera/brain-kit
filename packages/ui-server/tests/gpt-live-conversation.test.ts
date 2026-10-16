@@ -255,3 +255,12 @@ test("replacement epoch seeds host outcomes as history without replaying audio o
   await next.close();
   expect(f.sent.some((m) => m.type === "session.commentary.append")).toBe(false);
 });
+
+
+test("historical zero-duration transcript text is never relabeled as a fresh microphone utterance", async () => {
+  const f = await fixture(); await f.audio();
+  f.emit({ ...input("Historical context.", "context-1"), end_ms: 0 });
+  f.emit(input("The new Ithaca note.", "actual-1"));
+  await until(() => f.received.some((e) => e.kind === "input_fragment"));
+  expect(f.received.filter((e) => e.kind === "input_fragment").map((e) => e.kind === "input_fragment" ? e.text : "")).toEqual(["The new Ithaca note."]);
+});
