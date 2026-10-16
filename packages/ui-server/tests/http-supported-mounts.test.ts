@@ -16,6 +16,10 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // More detailed existing behavior checks are linked by the coverage matrix;
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
+  "GET /api/storage/maintenance": { verify: async r => { const value = await r.json(); expect(value.operations.map((operation: {id: string}) => operation.id)).toEqual(["pack-git", "prune-scratch", "cleanup-staging"]); } },
+  "POST /api/storage/maintenance": { init: json("POST", { id: "odysseus-mounted-001", operation: "pack-git" }), status: 202, body: { id: "odysseus-mounted-001", operation: "pack-git" } },
+  "GET /api/storage/maintenance/:id": { path: "/api/storage/maintenance/missing", status: 404, body: { error: "Maintenance receipt unavailable." } },
+  "DELETE /api/storage/maintenance/:id": { path: "/api/storage/maintenance/missing", init: { method: "DELETE" }, status: 404, body: { error: "Maintenance receipt unavailable." } },
   "GET /api/storage": { body: { version: 1, state: "idle", snapshot: null } },
   "POST /api/storage/scans": { init: json("POST", {}), status: 202, body: { version: 1, state: "scanning" } },
   "DELETE /api/storage/scans/:id": { path: "/api/storage/scans/missing", init: { method: "DELETE" }, status: 409, body: { error: "That scan is no longer active." } },

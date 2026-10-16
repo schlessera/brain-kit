@@ -3646,4 +3646,4 @@ export interface ServerScopeDecisionReceipt {
 }
 export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";
 
-export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";
+export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageMaintenanceKind, StorageMaintenanceRequest, StorageMaintenanceItem, StorageMaintenanceObservation, StorageMaintenanceReceipt, StorageMaintenanceRow, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";

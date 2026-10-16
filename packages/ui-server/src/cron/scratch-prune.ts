@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { recordGovernanceEvent } from "../governance/events.js";
 import type { Logger } from "@opentelemetry/api-logs";
-import type { BrainClient } from "../brain/client.js";
+import type { BrainClient, MaintenanceRequest } from "../brain/client.js";
 
 /**
  * The periodic pass over the brain's scratch area (#310): `brain scratch
@@ -21,12 +21,16 @@ import type { BrainClient } from "../brain/client.js";
  * `inFlight` and switch pruning off for good. `close()` kills a pass still
  * running and resolves once its child has exited.
  */
+export class ScratchPruneSuspended extends Error {}
+
 export const SCRATCH_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 export const SCRATCH_PRUNE_DEADLINE_MS = 5 * 60 * 1000;
 
 export interface ScratchPruner {
   /** Run one pass now. Resolves once it finished; never rejects. */
   tick(): Promise<void>;
+  /** Explicit owner pass after existing work settles; preserves the raw owner report. */
+  run(request: MaintenanceRequest): Promise<string>;
   /** Stop the timer, kill a pass in flight, and resolve once it has exited. */
   close(): Promise<void>;
 }
@@ -45,26 +49,35 @@ export function startScratchPrune(options: {
 }): ScratchPruner {
   const { brain, log } = options;
   const deadlineMs = options.deadlineMs ?? SCRATCH_PRUNE_DEADLINE_MS;
-  let inFlight: Promise<void> | null = null;
+  let inFlight: Promise<string> | null = null;
   let active: AbortController | null = null;
   let closed = false;
+  let tickFlight: Promise<void> | null = null;
 
-  const tick = (): Promise<void> => {
+  const run = (request?: MaintenanceRequest): Promise<string> => {
     // A pass still running when the next is due is left to finish; the
     // timer does not stack a second CLI process on top of it.
-    if (inFlight) return inFlight;
-    if (closed) return Promise.resolve();
+    if (inFlight) return request ? inFlight.catch(() => "").then(() => run(request)) : inFlight;
+    if (closed) return Promise.reject(new Error("scratch prune is closed"));
+    request?.signal?.throwIfAborted(); request?.assertAuthorized?.();
     const controller = new AbortController();
     const deadline = setTimeout(
       () => controller.abort(new Error(`scratch prune exceeded ${deadlineMs}ms and was killed`)),
       deadlineMs
     );
     if (typeof deadline === "object" && "unref" in deadline) deadline.unref();
+    const abort = () => controller.abort(request?.signal?.reason);
+    request?.signal?.addEventListener("abort", abort, { once: true });
+    if (request?.signal?.aborted) abort();
     active = controller;
     inFlight = (async () => {
-      if (options.pins) await options.pins.refresh(controller.signal);
+      if (options.pins) {
+        try { await options.pins.refresh(controller.signal); }
+        catch (error) { controller.signal.throwIfAborted(); throw new ScratchPruneSuspended(error instanceof Error ? error.message : String(error)); }
+      }
       controller.signal.throwIfAborted();
-      return brain.scratchPrune({ signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });
+      request?.assertAuthorized?.();
+      return brain.scratchPrune({ ...(request ?? {}), signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });
     })()
       .then((output) => {
         try {
@@ -76,28 +89,33 @@ export function startScratchPrune(options: {
                 recordGovernanceEvent(options.db, { kind: "scratch_overage", actor: "server", sessionId: null,
                   turnId: null, model: null, profile: null, payload: { bytes: report.bytes,
                     pinnedFiles: report.pinned.files, pinnedBytes: report.pinned.bytes, overageBytes: report.overageBytes } });
-                return;
+                return output;
               } catch (error) { eventError = error; }
             }
             log?.emit({ severityText: "WARN", body: "scratch remains over its size cap; retained conversation pins were preserved",
               attributes: { "scratch.overage_bytes": report.overageBytes, "scratch.pinned_bytes": report.pinned?.bytes ?? 0,
                 ...(eventError ? { "governance.error": eventError instanceof Error ? eventError.message : String(eventError) } : {}) } });
           }
-        } catch { /* Legacy human-output CLI; failures are handled below. */ }
-      })
-      .catch((error: unknown) => {
-        log?.emit({
-          severityText: "WARN",
-          body: "scratch prune failed; the next pass is in an hour",
-          attributes: { error: error instanceof Error ? error.message : String(error) },
-        });
+        } catch { /* Legacy human-output CLI remains an unknown structured report. */ }
+        return output;
       })
       .finally(() => {
         clearTimeout(deadline);
+        request?.signal?.removeEventListener("abort", abort);
         active = null;
         inFlight = null;
       });
     return inFlight;
+  };
+
+  const tick = (): Promise<void> => {
+    if (closed) return Promise.resolve();
+    if (tickFlight) return tickFlight;
+    tickFlight = run().then(() => undefined).catch((error: unknown) => {
+      log?.emit({ severityText: "WARN", body: "scratch prune failed; the next pass is in an hour",
+        attributes: { error: error instanceof Error ? error.message : String(error) } });
+    }).finally(() => { tickFlight = null; });
+    return tickFlight;
   };
 
   const every: Every =
@@ -113,11 +131,12 @@ export function startScratchPrune(options: {
 
   return {
     tick,
+    run,
     close: () => {
       closed = true;
       cancel();
       active?.abort(new Error("the server is shutting down"));
-      return inFlight ?? Promise.resolve();
+      return inFlight?.then(() => undefined, () => undefined) ?? Promise.resolve();
     },
   };
 }

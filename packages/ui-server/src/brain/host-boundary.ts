@@ -63,6 +63,12 @@ export interface BrainExecution {
   /** Host-side Bun options for the old unwrapped path, such as SIGKILL on abort. */
   killSignal?: NodeJS.Signals;
   timeoutMs?: number;
+  /** @internal Storage owner operations recheck authority after admission/preparation. */
+  assertAuthorized?: () => void;
+  /** @internal Distinguish pre-launch owner refusal from an interrupted effect. */
+  onExecute?: () => void;
+  /** @internal Combined output bound for an explicitly bounded operation. */
+  outputBytes?: number;
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
@@ -110,6 +116,7 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
     // Automatic plain index is keyword-only. Provider/flagged operations keep
     // the conservative credentialed exclusive envelope.
     case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
+    case "storage": return args.length === 3 && args[1] === "pack" && args[2] === "--json" ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
     case "search": return { credentials: true, gate: "shared" };
     // A module action runs the module's own code, which may call out.
     case "module": return args.includes("--action") ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
@@ -331,6 +338,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
       tempLimits: maintenanceTemp,
+      ...("outputBytes" in execution && execution.outputBytes ? { outputBytes: execution.outputBytes } : {}),
       ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.
       command: wrapCommand(argv, exec.wrapper),
@@ -419,7 +427,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     withGate,
     async run(execution) {
       execution.signal?.throwIfAborted();
+      execution.assertAuthorized?.();
       if (!isolated()) {
+        if (execution.outputBytes !== undefined) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
+        execution.onExecute?.();
         const proc = hostSpawn(execution);
         try {
           const [stdout, stderr, exitCode] = await Promise.all([
@@ -435,6 +446,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
         const run = async () => {
+          execution.assertAuthorized?.();
           const view = await prepareInput(execution.signal);
           let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
           try {
@@ -442,9 +454,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
             const launch = command(execution);
             const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+            execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
+            execution.onExecute?.();
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
-              ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
+              ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) });
             if (!result.killed) {
+              execution.assertAuthorized?.();
               if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
               else await outputs.publish();
             }

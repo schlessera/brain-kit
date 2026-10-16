@@ -75,3 +75,8 @@ Host-shell authors can call `readStorageInventory` from
 Git, repository configuration or the brain CLI. Enforce owner authorization and
 choose explicit roots at the host boundary. The [host reader contract](../../docs/integration-contract/package-api.md#host-storage-reader-additive-2010)
 defines resource bounds, Git marker support, unknown evidence and cancellation.
+
+`brain storage pack --json` runs the existing non-destructive Git packing tasks
+without expiring history or refs. Its [qualified result](../../docs/integration-contract/cli.md#storage-packing-additive-0440-2011)
+reports refusal/partial outcomes and workload-dependent temporary headroom.
+Governed hosts invoke it through their credential-free maintenance worker.

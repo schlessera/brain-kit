@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
 
 // Release evidence: baseline argv is present in the 0.33.0 core tag (including
 // the -- separator). Newer capabilities are recorded in core/CHANGELOG.md:
@@ -12,6 +12,7 @@ import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const available: Record<string, string> = {
   search: "0.33.0", briefing: "0.33.0", stats: "0.33.0", list: "0.33.0",
   read: "0.33.0", sync: "0.33.0", add: "0.33.0", index: "0.33.0", validate: "0.33.0",
+  "storage pack": "0.44.0", // #2011: separately probed optional maintenance capability.
   "skills sync": "0.33.0", "scratch prune": "0.38.0", "module list": "0.33.0",
   "module enable": "0.40.0", "module disable": "0.40.0", "module settings": "0.40.0",
   "hygiene list": "0.39.0", "hygiene next": "0.41.0", "hygiene resolve": "0.41.0",
@@ -87,7 +88,7 @@ function inventory() {
       const first = elements[0];
       if (!first || !ts.isExpression(first)) throw new Error("Missing CLI command");
       const commands = strings(first).flatMap(command => {
-        if (["module", "skills", "scratch"].includes(command)) {
+        if (["module", "skills", "scratch", "storage"].includes(command)) {
           const sub = elements[1];
           if (!sub || !ts.isExpression(sub)) throw new Error(`Missing ${command} subcommand`);
           return strings(sub).map(value => `${command} ${value}`);
@@ -140,6 +141,12 @@ function inventory() {
           expect(arg.getText()).toBe('["hygiene", "--json", ...args]');
           return;
         }
+        if (call === "execBrain" && arg.getText() === '["storage", "pack", "--json"]') {
+          const options = node.arguments[4];
+          if (!options || !ts.isObjectLiteralExpression(options)) throw Error("Storage packing needs its explicit capability floor");
+          const floor = options.properties.find(property => ts.isPropertyAssignment(property) && property.name.getText() === "minimumVersion");
+          expect(floor && ts.isPropertyAssignment(floor) && floor.initializer.getText()).toBe("STORAGE_PACK_CLI_VERSION");
+        }
         inspect(arg, call === "cli" ? "hygiene " : "");
       }
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "hygiene") {
@@ -180,18 +187,19 @@ function inventory() {
   return found;
 }
 
-test("every server CLI command and flag is available at MIN_BRAIN_CLI_VERSION", () => {
+test("every server CLI command and flag is available at its enforced baseline or feature floor", () => {
   const found = inventory();
   expect([...found.keys()].filter(command => command !== "--version").sort()).toEqual(Object.keys(available).sort());
   const tooNew: string[] = [];
   for (const [command, flags] of found) {
+    const floor = command === "storage pack" ? STORAGE_PACK_CLI_VERSION : MIN_BRAIN_CLI_VERSION;
     const commandVersion = command === "--version" ? globalFlags[command]! : available[command];
     expect(commandVersion, `Record release evidence for brain ${command}`).toBeDefined();
-    if (Bun.semver.order(commandVersion!, MIN_BRAIN_CLI_VERSION) > 0) tooNew.push(`${command} requires ${commandVersion}`);
+    if (Bun.semver.order(commandVersion!, floor) > 0) tooNew.push(`${command} requires ${commandVersion}`);
     for (const flag of flags) {
       const version = globalFlags[flag] ?? commandFlags[command.split(" ")[0]!]?.[flag];
       expect(version, `Record release evidence for brain ${command} ${flag}`).toBeDefined();
-      if (Bun.semver.order(version!, MIN_BRAIN_CLI_VERSION) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
+      if (Bun.semver.order(version!, floor) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
     }
   }
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);

@@ -277,10 +277,10 @@ signatures (every public export and the types it is made of)
         }): Promise<void>;
         validate(): Promise<string>;
         skillsSync(): Promise<string>;
-        scratchPrune(opts?: {
-            signal?: AbortSignal;
+        scratchPrune(opts?: MaintenanceRequest & {
             pinsFile?: string;
         }): Promise<string>;
+        storagePack?(opts?: MaintenanceRequest): Promise<unknown>;
     }
   BrainClientOptions (packages/ui-server/src/brain/client.ts)
     export interface BrainClientOptions {
@@ -691,6 +691,12 @@ signatures (every public export and the types it is made of)
         tempLimits?: WorkerStateLimits;
         tempDomain?: MaintenanceTempDomain;
         maskPaths?: readonly string[];
+    }
+  MaintenanceRequest (packages/ui-server/src/brain/client.ts)
+    export interface MaintenanceRequest {
+        signal?: AbortSignal;
+        assertAuthorized?: () => void;
+        bounded?: boolean;
     }
   MaintenanceTempDomain (packages/ui-sdk/src/server/maintenance-temp-budget.ts)
     export interface MaintenanceTempDomain {

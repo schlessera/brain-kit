@@ -310,6 +310,12 @@ export "." (./src/index.ts)
   type StorageCoverage
   type StorageFileEntry
   type StorageFilter
+  type StorageMaintenanceItem
+  type StorageMaintenanceKind
+  type StorageMaintenanceObservation
+  type StorageMaintenanceReceipt
+  type StorageMaintenanceRequest
+  type StorageMaintenanceRow
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
@@ -771,6 +777,12 @@ export "./client" (./src/client/index.ts)
   type StorageCoverage
   type StorageFileEntry
   type StorageFilter
+  type StorageMaintenanceItem
+  type StorageMaintenanceKind
+  type StorageMaintenanceObservation
+  type StorageMaintenanceReceipt
+  type StorageMaintenanceRequest
+  type StorageMaintenanceRow
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
@@ -1387,6 +1399,12 @@ export "./protocol" (./src/protocol.ts)
   type StorageCoverage
   type StorageFileEntry
   type StorageFilter
+  type StorageMaintenanceItem
+  type StorageMaintenanceKind
+  type StorageMaintenanceObservation
+  type StorageMaintenanceReceipt
+  type StorageMaintenanceRequest
+  type StorageMaintenanceRow
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
@@ -2074,6 +2092,12 @@ export "./server" (./src/server/index.ts)
   type StorageCoverage
   type StorageFileEntry
   type StorageFilter
+  type StorageMaintenanceItem
+  type StorageMaintenanceKind
+  type StorageMaintenanceObservation
+  type StorageMaintenanceReceipt
+  type StorageMaintenanceRequest
+  type StorageMaintenanceRow
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
@@ -9289,6 +9313,71 @@ signatures (every public export and the types it is made of)
         type?: "pdf";
         largerThan?: number;
         cursor?: string;
+    }
+  StorageMaintenanceItem (packages/ui-sdk/src/storage.ts)
+    export interface StorageMaintenanceItem {
+        id: string;
+        state: "running" | "cleaned" | "failed";
+        reason: string | null;
+    }
+  StorageMaintenanceKind (packages/ui-sdk/src/storage.ts)
+    export type StorageMaintenanceKind = "pack-git" | "prune-scratch" | "cleanup-staging";
+  StorageMaintenanceObservation (packages/ui-sdk/src/storage.ts)
+    export interface StorageMaintenanceObservation {
+        observedAt: number;
+        coverage: StorageCoverage;
+        basis: StorageSnapshot["basis"];
+        stores: StorageRoot[];
+        capacities: StorageCapacityView[];
+        attribution: "concurrent-writers-possible";
+    }
+  StorageMaintenanceReceipt (packages/ui-sdk/src/storage.ts)
+    export interface StorageMaintenanceReceipt {
+        id: string;
+        operation: StorageMaintenanceKind;
+        owner: "core" | "inbox";
+        scope: StorageRoot["category"][];
+        requestedAt: number;
+        startedAt: number | null;
+        completedAt: number | null;
+        state: "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
+        reason: string | null;
+        headroom: {
+            requiredBytes: null;
+            reservation: false;
+            note: string;
+        };
+        before: StorageMaintenanceObservation | null;
+        after: StorageMaintenanceObservation | null;
+        outcome: {
+            items: StorageMaintenanceItem[];
+            truncated: boolean;
+            removed: number | null;
+            failed: number | null;
+            deferred: number | null;
+            packed: number | null;
+            pinnedFiles: number | null;
+            pinnedBytes: number | null;
+            overageBytes: number | null;
+            suspended: boolean;
+        } | null;
+    }
+  StorageMaintenanceRequest (packages/ui-sdk/src/storage.ts)
+    export interface StorageMaintenanceRequest {
+        id: string;
+        operation: StorageMaintenanceKind;
+    }
+  StorageMaintenanceRow (packages/ui-sdk/src/storage.ts)
+    export interface StorageMaintenanceRow {
+        id: StorageMaintenanceKind;
+        label: string;
+        owner: "core" | "inbox";
+        scope: StorageRoot["category"][];
+        effect: string;
+        available: boolean;
+        reason: string | null;
+        headroom: StorageMaintenanceReceipt["headroom"];
+        latest: StorageMaintenanceReceipt | null;
     }
   StorageOwner (packages/ui-sdk/src/storage.ts)
     export type StorageOwner = "brain" | "app" | "operator";

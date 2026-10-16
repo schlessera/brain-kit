@@ -26,6 +26,8 @@ export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_EN
   "BRAIN_RERANK_MODE", "XDG_BIN_HOME", "GIT_DISCOVERY_ACROSS_FILESYSTEM"] as const;
 
 export interface MaintenanceCommand {
+  /** Combined stdout/stderr ceiling for a bounded host operation. */
+  outputBytes?: number;
   /** Trusted, resolved host limits; separate from agent turn temp and output staging. */
   tempLimits?: WorkerStateLimits;
   /** Existing host operational-state identity; absent standalone callers use their private domain. */
@@ -227,10 +229,6 @@ function killWorker(child: { pid: number; kill(signal?: NodeJS.Signals): void },
   if (!reached) child.kill(signal);
 }
 
-async function collect(stream: ReadableStream<Uint8Array>): Promise<string> {
-  return new Response(stream).text();
-}
-
 /** Runs one maintenance command to completion. An abort or the deadline kills the whole worker. */
 export async function runMaintenanceWorker(input: MaintenanceCommand & {
   stdin?: string;
@@ -238,16 +236,32 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   timeoutMs?: number;
 }): Promise<MaintenanceResult> {
   input.signal?.throwIfAborted();
+  if (input.outputBytes !== undefined && (!Number.isSafeInteger(input.outputBytes) || input.outputBytes < 1 || input.outputBytes > 64 * 1024 * 1024)) throw Error("Invalid maintenance output limit");
   const worker = launchMaintenanceWorker(input);
   let killed = false;
   const kill = () => { killed = true; worker.kill("SIGKILL"); };
   input.signal?.addEventListener("abort", kill, { once: true });
   const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs) : undefined;
+  let bytes = 0;
+  const collect = async (stream: ReadableStream<Uint8Array>) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of stream) {
+      bytes += chunk.byteLength;
+      if (bytes > (input.outputBytes ?? Infinity)) { kill(); continue; }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  };
+  const stdoutRead = collect(worker.stdout), stderrRead = collect(worker.stderr);
+  const inputWrite = worker.input(input.stdin ?? "");
   try {
-    void worker.input(input.stdin ?? "");
-    const [stdout, stderr, exitCode] = await Promise.all([collect(worker.stdout), collect(worker.stderr), worker.exited]);
+    const [stdout, stderr, exitCode] = await Promise.all([stdoutRead, stderrRead, worker.exited, inputWrite]);
     input.signal?.throwIfAborted();
     return { stdout, stderr, exitCode, killed };
+  } catch (error) {
+    kill();
+    await Promise.allSettled([stdoutRead, stderrRead, worker.exited, inputWrite]);
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
     input.signal?.removeEventListener("abort", kill);
