@@ -1,4 +1,6 @@
 import { checkPositional } from "./positional-check.js";
+import { checkContainment } from "./containment.js";
+import { checkNodeLink } from "./node-link-check.js";
 import { checkDiagramSkin } from "./skin.js";
 import { checkDiagramLayouts } from "./layout.js";
 import { checkAxis } from "./axis-check.js";
@@ -75,7 +77,11 @@ export function checkDiagram(source: string): DiagramCheckResult {
     const members = new Set<string>();
     group.members.forEach((id, member) => { refer(id, `$.groups[${index}].members[${member}]`, nodeIds); if (members.has(id)) error(`$.groups[${index}].members[${member}]`, "duplicate_reference", "Group member is repeated"); members.add(id); });
   });
-  const endpoints = new Set([...nodeIds, ...(spec.groups?.map(group => group.id) ?? [])]);
+  const scopes = spec.type === "architecture" ? spec.containment?.scopes ?? [] : [];
+  scopes.forEach((scope,index)=>declare(scope.id,`$.containment.scopes[${index}].id`));
+  const containment = spec.type === "architecture" ? checkContainment(spec) : { errors: [], warnings: [] };
+  output.errors.push(...containment.errors); output.warnings.push(...containment.warnings);
+  const endpoints = new Set([...nodeIds, ...scopes.map(scope=>scope.id), ...(spec.groups?.map(group => group.id) ?? [])]);
   spec.edges.forEach((edge, index) => {
     refer(edge.from, `$.edges[${index}].from`, endpoints); refer(edge.to, `$.edges[${index}].to`, endpoints);
     if (edge.label) warn(`$.edges[${index}].label`, 14, Array.from(edge.label).length, "arrow-label characters");
@@ -103,7 +109,10 @@ export function checkDiagram(source: string): DiagramCheckResult {
     }
     if (visited !== nodeIds.size) error("$.edges", "tree_cycle", "A tree cannot contain a directed cycle");
     warn("$.nodes", 4, maximum, "tree levels");
+    const breadth=new Map<number,number>();for(const level of depth.values())breadth.set(level,(breadth.get(level)??0)+1);
+    for(const [level,count] of breadth)warn("$.nodes",5,count,`tree items at level ${level}`);
   }
+  const family=checkNodeLink(spec); output.errors.push(...family.errors); output.warnings.push(...family.warnings);
   if ((FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) {
     const nodes = spec.nodes as Extract<DiagramSpec, { type: typeof FREE_LAYOUT_TYPES[number] }>["nodes"];
     nodes.forEach((node, index) => {

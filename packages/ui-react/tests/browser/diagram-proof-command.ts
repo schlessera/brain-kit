@@ -20,5 +20,8 @@ export const diagramCapture: BrowserCommand<[string, string]> = async (ctx,selec
   replay.assert("diagram capture");
  }finally{await page.close();}
 };
-export const diagramFixture: BrowserCommand<[]> = async () => readFile(resolve("../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml"),"utf8");
-declare module "vitest/browser" { interface BrowserCommands { diagramFixture():Promise<string>; diagramCapture(selector:string,name:string):Promise<void>; } }
+export const diagramFixture: BrowserCommand<[string?]> = async (_ctx,name) => {
+ if(name && !["architecture","flowchart","state-machine","tree","er","dependency","architecture-containment"].includes(name))throw Error("Unknown node-link example");
+ return readFile(resolve(name?`../../packages/module-diagrams/skills/diagram/references/examples/${name}.diagram.yaml`:"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml"),"utf8");
+};
+declare module "vitest/browser" { interface BrowserCommands { diagramFixture(name?:string):Promise<string>; diagramCapture(selector:string,name:string):Promise<void>; } }
