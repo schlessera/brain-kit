@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      unit_measurement:
+        description: "Temporary issue 2121 same-SHA unit comparison"
+        type: boolean
+        default: false
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -95,7 +100,7 @@ jobs:
   verify:
     # Packaging and verification are independent after cheap rejection gates.
     needs: changeset
-    if: needs.changeset.outputs.verify == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.verify == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
@@ -118,7 +123,7 @@ jobs:
 
   pack:
     needs: changeset
-    if: needs.changeset.outputs.pack == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.pack == 'true'
     timeout-minutes: 5
     runs-on: ubuntu-24.04
     env:
@@ -146,7 +151,7 @@ jobs:
 
   unit:
     needs: changeset
-    if: needs.changeset.outputs.unit == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.unit == 'true'
     runs-on: ubuntu-24.04
     # Retain all native controls; measured full partitions need bounded outer capacity (#1485).
     timeout-minutes: 30
@@ -195,7 +200,7 @@ jobs:
 
   runtime:
     needs: changeset
-    if: needs.changeset.outputs.runtime == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.runtime == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -251,7 +256,7 @@ jobs:
 
   browser:
     needs: changeset
-    if: needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -297,7 +302,7 @@ jobs:
 
   layout:
     needs: changeset
-    if: needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -343,7 +348,7 @@ jobs:
 
   captures:
     needs: changeset
-    if: needs.changeset.outputs.captures == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.captures == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -384,7 +389,7 @@ jobs:
 
   endurance:
     needs: changeset
-    if: needs.changeset.outputs.endurance == 'true'
+    if: inputs.unit_measurement != true && needs.changeset.outputs.endurance == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -428,7 +433,7 @@ jobs:
     name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
     needs: [changeset, verify, pack, unit, runtime, browser, layout, captures, endurance]
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && inputs.unit_measurement != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
@@ -445,3 +450,78 @@ jobs:
           PROOF_NEEDS: ${{ toJSON(needs) }}
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/ci-proof.ts aggregate
+
+  unit-measurement:
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_measurement == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        workers: [1, 2]
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile --backend=copyfile
+      - name: Exhaustive same-SHA selection
+        run: bun scripts/ci-plan.ts
+      - name: Real Chrome and offline Linux namespace prerequisites
+        run: bash scripts/ci-runtime-setup.sh
+      - name: Complete measured unit proof
+        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/4 --workers=${{ matrix.workers }}
+      - name: Immutable measured receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-measurement-${{ matrix.workers }}-${{ matrix.shard }}
+          path: |
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/unit-report.xml
+            tmp/unit-report-summary.json
+            tmp/unit-timings.json
+          retention-days: 7
+  unit-worker-guard-measurement:
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_measurement == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: External-fetch mutation fails inside parallel worker and is restored
+        run: |
+          probe=tmp/2121-offline-worker.test.ts
+          trap 'rm -f "$probe"' EXIT
+          mkdir -p tmp
+          cat > "$probe" <<'EOF'
+          import {test,expect} from "bun:test";
+          test("2121 external-fetch worker mutation",async()=>{console.log("WORKER_PID",process.pid);await fetch("http://192.0.2.1:9/");expect.unreachable("OFFLINE_GUARD_DID_NOT_REFUSE")});
+          EOF
+          set +e
+          bun run test "./$probe" --parallel=2 > tmp/2121-offline-worker.log 2>&1
+          code=$?
+          set -e
+          cat tmp/2121-offline-worker.log
+          test "$code" -ne 0
+          grep -q 'Offline test guard: attempted real network access' tmp/2121-offline-worker.log
+          grep -q '2121 external-fetch worker mutation' tmp/2121-offline-worker.log
+          rm "$probe"
+          test ! -e "$probe"
+          git diff --exit-code
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unit-worker-guard-mutation
+          path: tmp/2121-offline-worker.log
+          retention-days: 7
