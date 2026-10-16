@@ -77,6 +77,8 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
 
 interface ClaudeSdkTurnOptions {
   backend: ClaudeBackendOptions;
+  /** One resolved environment selects both host observation storage and native runtime state. */
+  turnEnvironment?: Record<string, string | undefined>;
   fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -203,7 +205,7 @@ function assembleClaudeSdkTurn(
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
 
-  const childEnv = envelope?.env ?? turnEnv(profile);
+  const childEnv = envelope?.env ?? options.turnEnvironment ?? turnEnv(profile);
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
