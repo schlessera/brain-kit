@@ -3278,7 +3278,7 @@ unchecked scopes prevent interpreting an empty reference list as proof of no
 consumers. Core semantics have no dependency on the UI database. Server contracts
 and bounds are defined by the [removal HTTP contract](../http-api.md#recoverable-attachment-removal-additive-2012).
 
-`@schlessera/brain-ui-sdk/protocol` exports `StorageRemovalReviewRequest`,
+`@schlessera/brain-ui-sdk/protocol` exports `StorageRemovalInspection`, `StorageRemovalReviewRequest`,
 `StorageRemovalStartRequest`, `StorageRemovalUndoRequest`, `StorageRemovalFile`,
 `StorageRemovalReview`, `StorageRemovalItem`, `StorageRemovalReceipt` and
 `StorageRemovalCapability`. They contain relative paths and opaque identities,

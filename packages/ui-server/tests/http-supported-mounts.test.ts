@@ -17,6 +17,7 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
   "GET /api/storage/removals": { verify: async r => { const value = await r.json(); expect(value).toHaveProperty("available"); expect(value.limits.items).toBe(32); } },
+  "POST /api/storage/removals/inspection": { init: json("POST", {paths: []}), status: 400, body: {error:"Select bounded attachment paths for inspection."} },
   "POST /api/storage/removals/reviews": { init: json("POST", { id: "odysseus-mounted-review", paths: [] }), status: 400, body: {error:"Select bounded attachment paths and a new review identity."} },
   "POST /api/storage/removals/undo-reviews": { init: json("POST", {}), status: 400, body: {error:"Select retained originals from one removal and a new Undo identity."} },
   "POST /api/storage/removals": { init: json("POST", {id:"odysseus-mounted-missing",fingerprint:"a".repeat(64)}), status:404, body:{error:"Attachment review unavailable."} },

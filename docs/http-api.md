@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 151 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 152 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -27,6 +27,7 @@ client code has a gap. Source owners are listed after the table.
 | Method | Path | Class | Purpose | Consumers, existing promise and reason |
 | --- | --- | --- | --- | --- |
 | GET | `/api/storage/removals` | S | Read removal capability and latest receipt | Current human-owner authority; exact canonical attachments only. |
+| POST | `/api/storage/removals/inspection` | S | Inspect current attachment facts | Read bounded eligibility and consequences without allocating a durable operation. |
 | POST | `/api/storage/removals/reviews` | S | Review exact attachment paths | Bound versions, consequences and recovery coverage before confirmation. |
 | POST | `/api/storage/removals/undo-reviews` | S | Review retained originals for Undo | New identity and current absent-target checks. |
 | POST | `/api/storage/removals` | S | Confirm one reviewed selection | Durable intent and verified originals precede unlink. |
@@ -184,7 +185,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 151 declared endpoints are mounted regardless of backend, renderer or
+All 152 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1376,7 +1377,7 @@ hosts do not fall back to executing repository code on the host.
 
 ## Recoverable attachment removal (additive, #2012)
 
-The six `/api/storage/removals` operations require current owner/ambient human
+The seven `/api/storage/removals` operations require current owner/ambient human
 access and return private, no-store responses. Missing authentication is 401;
 delegated callers are 403. Receipts belong to their initiating principal and an
 unknown or another principal's identity returns 404. Origin protections apply
@@ -1391,6 +1392,13 @@ path, 32 components, 64 MiB per file and 128 MiB of eligible file bytes are
 admitted. Review bodies are bounded to 140,000 bytes. Paths do not choose roots,
 executables, commands, sidecars or a wider scope. One review per coordinator
 runs at a time, with a 60-second deadline and a ten-minute confirmation window.
+
+POST `/inspection` accepts exactly `{paths}` under the same owner, path, worker,
+writer-gate, deadline and response bounds. It returns `StorageRemovalInspection`:
+current `observedAt`, `files`, `complete`, `unchecked` and `selectedFileBytes`.
+It neither allocates a durable receipt nor exposes an identity or fingerprint
+that can be confirmed. Inspecting files therefore cannot consume the operation
+receipt budget. Selection still requires a fresh durable review before removal.
 
 Review returns a durable `StorageRemovalReceipt` in `review` state. Its review
 contains the identity, action, optional source identity, opaque fingerprint,

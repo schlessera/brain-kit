@@ -9,6 +9,8 @@ export interface StorageRemovalFile {
   references: { source: string; certainty: "resolved" | "possible" }[];
   recovery: "requires-retention" | "retained" | "unavailable";
 }
+/** Read-only current facts; no durable operation identity or authority to confirm. */
+export interface StorageRemovalInspection { observedAt: number; files: StorageRemovalFile[]; complete: boolean; unchecked: string[]; selectedFileBytes: number }
 export interface StorageRemovalReview {
   id: string; action: "remove" | "undo"; sourceId: string | null; fingerprint: string;
   observedAt: number; expiresAt: number; files: StorageRemovalFile[];

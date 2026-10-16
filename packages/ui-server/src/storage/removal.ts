@@ -4,7 +4,7 @@ import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { inspectStorageAttachment, removeStorageAttachment, restoreStorageAttachment, storageAttachmentPath, storageAttachmentVacant, StorageAttachmentRefusal, type StorageAttachmentVersion, type StorageAttachmentFacts } from "@schlessera/brain/storage";
-import type { JournalVersion, StorageRemovalCapability, StorageRemovalReview, StorageRemovalReceipt, StorageRemovalFile } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalVersion, StorageRemovalInspection, StorageRemovalCapability, StorageRemovalReview, StorageRemovalReceipt, StorageRemovalFile } from "@schlessera/brain-ui-sdk/protocol";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 import { MAINTENANCE_ENTRY, type HostBoundary } from "../brain/host-boundary.js";
@@ -84,7 +84,7 @@ export function createStorageRemoval(db: Database, options: {
     if (!Array.isArray(paths) || paths.length < 1 || paths.length > STORAGE_REMOVAL_LIMITS.items || paths.some(path => typeof path !== "string" || Buffer.byteLength(path) > 4096 || /[\\\u0000-\u001f\u007f]/u.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) || new Set(paths).size !== paths.length) throw new StorageUnavailable(400, "Select one bounded exact set of attachment paths.");
     return [...paths].sort();
   }
-  async function review(principal: string, id: string, paths: string[], sourceId: string | null = null): Promise<StorageRemovalReceipt> {
+  async function prepareReview(principal: string, id: string, paths: string[], sourceId: string | null, persist: boolean): Promise<StorageRemovalReceipt> {
     authorize(principal); paths = pathsFor(paths);
     if (!validId(id) || sourceId !== null && !validId(sourceId)) throw new StorageUnavailable(400, "Invalid attachment operation identity.");
     const selection = JSON.stringify(paths), action = sourceId ? "undo" : "remove";
@@ -127,7 +127,7 @@ export function createStorageRemoval(db: Database, options: {
       const result: StorageRemovalReceipt = { review: reviewed, state: "review", requestedAt: now, startedAt: null, completedAt: null, reason: null,
         items: files.map(file => ({ path: file.path, state: file.eligible ? "not-started" : "protected", reason: file.reason, undoAvailable: false, undoReason: "no_confirmed_removal" })),
         before: null, after: null, index: "not-requested", commit: "not-requested", sync: "not-requested", retained: { journal: "subject-to-retention", git: "unchanged-by-operation", backups: "not-measured" } };
-      journal.writeOperation(() => {
+      if (persist) journal.writeOperation(() => {
         if ((db.query("SELECT count(*) AS total FROM turn_journal_storage_operations WHERE brain=?").get(brain) as {total: number}).total >= STORAGE_REMOVAL_LIMITS.receipts) throw new StorageUnavailable(503, "Attachment receipt capacity reached; existing receipts remain readable.");
         db.query("INSERT INTO turn_journal_storage_operations (id,brain,principal_id,action,source_id,selection,fingerprint,journal_turn_id,state,pid,pid_start,requested_at,receipt,private_versions) VALUES (?,?,?,?,?,?,?,?,'review',?,?,?,?,?)")
           .run(id, brain, principal, action, sourceId, selection, reviewed.fingerprint, `storage_${id}`, SELF.pid, SELF.start, now, encode(result), encode(versions));
@@ -210,7 +210,15 @@ export function createStorageRemoval(db: Database, options: {
     }
   }
   return {
-    capability, review, receipt,
+    capability, receipt,
+    review: (principal: string, id: string, paths: string[], sourceId: string | null = null) => prepareReview(principal, id, paths, sourceId, true),
+    async inspect(principal: string, paths: string[]): Promise<StorageRemovalInspection> {
+      const { review } = await prepareReview(principal, crypto.randomUUID(), paths, null, false);
+      const { observedAt, files, complete, unchecked, selectedFileBytes } = review;
+      const result = { observedAt, files, complete, unchecked, selectedFileBytes };
+      encode(result); // Same response ceiling; never persist or expose a confirmable identity.
+      return result;
+    },
     start(principal: string, id: string, fingerprint: string) {
       authorize(principal); const row = select(id);
       if (!row || row.principal_id !== principal) throw new StorageUnavailable(404, "Attachment review unavailable.");

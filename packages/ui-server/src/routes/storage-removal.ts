@@ -18,6 +18,12 @@ export function createStorageRemovalRoutes(removal: StorageRemoval): Hono<AppEnv
   });
   routes.get("/storage/removals", c => c.json(removal.capability(c.get("principal")!.id)));
   routes.get("/storage/removals/:id", c => c.json(removal.receipt(c.get("principal")!.id, c.req.param("id"))));
+  routes.post("/storage/removals/inspection", requireJson(), async c => {
+    let body: unknown; try { body = await readJsonBody(c, 140_000); } catch { return c.json({ error: "Invalid attachment JSON." }, 400); }
+    if (body instanceof Response) return body; const parsed = z.object({ paths }).strict().safeParse(body);
+    if (!parsed.success) return c.json({ error: "Select bounded attachment paths for inspection." }, 400);
+    return c.json(await removal.inspect(c.get("principal")!.id, parsed.data.paths));
+  });
   routes.post("/storage/removals/reviews", requireJson(), async c => {
     let body: unknown; try { body = await readJsonBody(c, 140_000); } catch { return c.json({ error: "Invalid attachment JSON." }, 400); }
     if (body instanceof Response) return body; const parsed = review.safeParse(body);

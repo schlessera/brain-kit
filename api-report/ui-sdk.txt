@@ -321,6 +321,7 @@ export "." (./src/index.ts)
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
+  type StorageRemovalInspection
   type StorageRemovalItem
   type StorageRemovalReceipt
   type StorageRemovalReview
@@ -796,6 +797,7 @@ export "./client" (./src/client/index.ts)
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
+  type StorageRemovalInspection
   type StorageRemovalItem
   type StorageRemovalReceipt
   type StorageRemovalReview
@@ -1426,6 +1428,7 @@ export "./protocol" (./src/protocol.ts)
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
+  type StorageRemovalInspection
   type StorageRemovalItem
   type StorageRemovalReceipt
   type StorageRemovalReview
@@ -2127,6 +2130,7 @@ export "./server" (./src/server/index.ts)
   type StorageReferenceEvidence
   type StorageRemovalCapability
   type StorageRemovalFile
+  type StorageRemovalInspection
   type StorageRemovalItem
   type StorageRemovalReceipt
   type StorageRemovalReview
@@ -9465,6 +9469,14 @@ signatures (every public export and the types it is made of)
             certainty: "resolved" | "possible";
         }[];
         recovery: "requires-retention" | "retained" | "unavailable";
+    }
+  StorageRemovalInspection (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalInspection {
+        observedAt: number;
+        files: StorageRemovalFile[];
+        complete: boolean;
+        unchecked: string[];
+        selectedFileBytes: number;
     }
   StorageRemovalItem (packages/ui-sdk/src/storage-removal.ts)
     export interface StorageRemovalItem {

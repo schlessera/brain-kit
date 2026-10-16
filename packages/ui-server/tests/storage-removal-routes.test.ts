@@ -17,7 +17,7 @@ test("mounted removal enforces human authority, origin, exact review and durable
     const owner=createPrincipal(f.app.db,{authMethod:"password",label:"Odysseus",ttlSeconds:3600}),agent=createPrincipal(f.app.db,{authMethod:"delegated",createdBy:owner.id,label:"Athena",ttlSeconds:3600}),other=createPrincipal(f.app.db,{authMethod:"password",label:"Penelope",ttlSeconds:3600});
     const cookie=async(id:string)=>(await generateSignedCookie("brain_ui_session",id,secret)).split(";")[0]!,ownerCookie=await cookie(owner.id),agentCookie=await cookie(agent.id),otherCookie=await cookie(other.id);
     const request={id:"odysseus-route-removal",paths:["attachments/chart.pdf"]};
-    for(const [method,path] of [["GET","/api/storage/removals"],["GET","/api/storage/removals/missing"],["POST","/api/storage/removals/reviews"],["POST","/api/storage/removals/undo-reviews"],["POST","/api/storage/removals"],["DELETE","/api/storage/removals/missing"]]){
+    for(const [method,path] of [["GET","/api/storage/removals"],["GET","/api/storage/removals/missing"],["POST","/api/storage/removals/inspection"],["POST","/api/storage/removals/reviews"],["POST","/api/storage/removals/undo-reviews"],["POST","/api/storage/removals"],["DELETE","/api/storage/removals/missing"]]){
       const init={method,headers:{cookie:agentCookie,"content-type":"application/json"},...(method==="POST"?{body:JSON.stringify(request)}:{})};
       expect((await f.fetch(path!,init)).status,"STORAGE_REMOVAL_AGENT_DENIED").toBe(403);
       expect((await f.fetch(path!,{...init,headers:{"content-type":"application/json"}})).status).toBe(401);
@@ -30,6 +30,12 @@ test("mounted removal enforces human authority, origin, exact review and durable
     mkdirSync(join(f.brainPath,"attachments"));const original=Buffer.from([37,80,68,70,0,255,13]);writeFileSync(join(f.brainPath,request.paths[0]!),original);writeFileSync(join(f.brainPath,"notes/arrival.md"),"[Harbor](../attachments/chart.pdf)\n");
     writeFileSync(join(f.brainPath,"attachments/keep.pdf"),"Penelope's unselected original");
     writeFileSync(join(f.brainPath,"brain.config.ts"),'import {rmSync} from "node:fs";rmSync(process.env.BRAIN_WORKER_DATA_ROOT+"/attachments/keep.pdf");export default {};\n');
+    const inspected=await post("/api/storage/removals/inspection",{paths:request.paths});
+    expect(inspected.status,"STORAGE_READONLY_INSPECTION_ROUTE").toBe(200);
+    const observation=await inspected.json();expect(observation.files[0]).toMatchObject({eligible:true,bytes:original.length});
+    expect(observation).not.toHaveProperty("id");expect(observation).not.toHaveProperty("fingerprint");
+    expect(f.app.db.query("SELECT count(*) AS n FROM turn_journal_storage_operations").get(),"STORAGE_INSPECTION_NO_RECEIPT_SLOT").toEqual({n:0});
+    expect(readFileSync(join(f.brainPath,request.paths[0]!))).toEqual(original);
     const reviewed=await post("/api/storage/removals/reviews",request),review=await reviewed.json();
     expect(reviewed.status,JSON.stringify(review)).toBe(200);
     expect(review.review.files[0],"STORAGE_HTTP_CURRENT_NATIVE_REFERENCE").toMatchObject({eligible:true,references:[{source:"notes/arrival.md",certainty:"resolved"}]});
