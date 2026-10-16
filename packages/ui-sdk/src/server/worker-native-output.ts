@@ -31,9 +31,13 @@ export interface PreparedWorkerOutput {
 const executionDrain = new WeakMap<PreparedWorkerOutput, { exited?: Promise<void> }>();
 /** Launcher-only ownership transfer: even a post-spawn failure must drain the child before deletion. */
 export function bindPreparedWorkerOutputExit(output: PreparedWorkerOutput, exited: Promise<unknown>): void {
-  const state = executionDrain.get(output); if (state) state.exited = exited.then(() => {}, error => {
-    if (workerCleanupUnconfirmed(error)) throw error;
-  });
+  const state = executionDrain.get(output);
+  if (state) {
+    state.exited = exited.then(() => {}, error => { if (workerCleanupUnconfirmed(error)) throw error; });
+    // Preserve the failure for publication/cleanup without an unhandled
+    // rejection while the backend drains its other owned streams first.
+    void state.exited.catch(() => {});
+  }
 }
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
