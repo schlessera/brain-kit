@@ -91,3 +91,22 @@ example; the [contract](../../docs/integration-contract/diagrams.md#positional-f
 lists all fields and geometry rules. Editorial excess warns; ambiguous
 references, misleading geometry and text below 9px refuse. Missing authored
 narrow placement uses the semantic summary and readable viewer.
+
+Export a chosen palette without live CSS variables, or build light/dark pairs
+from identified Markdown fences:
+
+```sh
+brain diagram export release.diagram.yaml --theme print --format svg --json
+brain diagram export release.diagram.yaml --format png --json
+brain diagram build dispatch.md --json
+```
+
+PNG/PDF use the optional `@schlessera/brain-render-puppeteer` package and Chrome;
+SVG is browser-free. Artifacts embed the licensed locked kit fonts as data,
+including standalone SVG pairs. Build writes `id.light.svg` / `id.dark.svg` beside the source
+and prints a `<picture>` snippet. It preserves Markdown and refuses another
+source's or manually authored SVG. Add `id: release` at the spec's top level;
+unnamed fences warn and skip. `brain audit` detects invalid fences, stale built
+pairs and fences whose module is absent/dormant. Unrelated prose edits preserve
+pair freshness. See the [export/build contract](../../docs/integration-contract/diagrams.md#export-derived-pairs-and-hygiene-additive-2099)
+for exact envelopes, naming, ownership and partial-write behavior.
