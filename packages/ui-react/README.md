@@ -700,8 +700,8 @@ offers **Refresh and retry**. Sync and reset use immediate layout updates.
 
 ## Settings organization
 
-Settings exposes the same seven panes on phone, tablet and desktop: Appearance
-& input, Models, Accounts, Skills, Modules, Security, and Devices & agents.
+Settings exposes the same eight panes on phone, tablet and desktop: Appearance
+& input, Models, Accounts, Skills, Modules, Storage, Security, and Devices & agents.
 Theme and the single-key shortcut switch apply only on this device and live in
 Appearance & input. Accounts holds provider sign-in and web-search settings;
 Security holds passkeys, always-allowed tool revocation and sign-out.
@@ -713,3 +713,8 @@ selection survives resize. Module drafts and pending credentials keep their
 existing navigation and dismissal protections.
 Close and Escape return focus to the opener, including after a resize;
 choosing another destination preserves that destination's focus.
+
+Storage presents bounded inventory, per-capacity availability, a proportional map
+and equivalent list, current file inspection, owner maintenance, and recoverable
+attachment removal. See the [Storage guide](../../docs/storage.md) for the
+measurement basis, limits, review flow and Undo conditions.

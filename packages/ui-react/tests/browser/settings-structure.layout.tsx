@@ -6,7 +6,7 @@ import { BrainUiProvider, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 
-const panes = ["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Security", "Devices & agents"];
+const panes = ["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"];
 for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as const) {
   test(`Settings pane identity and manual traversal at ${width} ${theme}`, async ctx => {
     const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
@@ -18,6 +18,7 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     const requests: string[] = [];
     const ui = createBrainUiRoot({ storage: null, request: async url => {
       requests.push(String(url));
+      if(String(url).includes("/storage"))return Response.json({error:"Not configured"},{status:503});
       if (String(url).endsWith("/agent-policy")) return Response.json({ error: "Not configured" }, { status: 404 });
       return Response.json({ models: Array.from({ length: 24 }, (_, i) => ({ id: `ithaca-${i}`, label: `Ithaca model ${i + 1}`, hidden: false })), customModels: [], discovery: { enabled: false }, providers: [], configured: false, tools: [], principals: [], credentials: [], skills: [], enabled: [], available: [] });
     } });
@@ -32,7 +33,7 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     flushSync(() => react.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={() => {}} /></BrainUiProvider>));
     await import("../../src/components/settings/models-tab.js");
     await expect.poll(() => requests.length).toBeGreaterThan(0);
-    expect(page.getByRole("tab").elements().map(el => el.getAttribute("aria-label") ?? el.textContent), "SETTINGS_SEVEN_PANES").toEqual(panes);
+    expect(page.getByRole("tab").elements().map(el => el.getAttribute("aria-label") ?? el.textContent), "SETTINGS_EIGHT_PANES").toEqual(panes);
     const models = page.getByRole("tab", { name: "Models", exact: true });
     expect(models.element().getAttribute("aria-selected")).toBe("true");
     expect(page.getByRole("radiogroup", { name: "Theme" }).elements()).toHaveLength(0);
@@ -60,16 +61,17 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     expect(document.activeElement).toBe(page.getByRole("tab", { name: "Devices & agents", exact: true }).element());
     expect(ui.stores.ui.getState().settingsTab).toBe("appearance");
     flushSync(() => ui.stores.principal.setState({ mintPending: true }));
-    expect(page.getByRole("tab").elements().filter(el => (el as HTMLButtonElement).disabled)).toHaveLength(6);
+    expect(page.getByRole("tab").elements().filter(el => (el as HTMLButtonElement).disabled)).toHaveLength(7);
     flushSync(() => ui.stores.principal.setState({ mintPending: false }));
     await page.getByRole("tab", { name: "Accounts", exact: true }).click();
     await import("../../src/components/settings/accounts-tab.js");
     await expect.poll(() => page.getByRole("tabpanel").element().textContent).toContain("No other provider accounts or web-search providers are configured on this server.");
     await commands.buttonCapture(`settings-${width}-${theme}-accounts`);
-    for (const [name, module] of [["Skills", "skills-tab"], ["Modules", "modules-tab"], ["Security", "passkey-tab"], ["Devices & agents", "devices-agents-tab"]]) {
+    for (const [name, module] of [["Skills", "skills-tab"], ["Modules", "modules-tab"], ["Storage", "storage-tab"], ["Security", "passkey-tab"], ["Devices & agents", "devices-agents-tab"]]) {
       await page.getByRole("tab", { name, exact: true }).click();
       // Explicit imports isolate cold transforms from the bounded DOM polls.
       if (module === "skills-tab") await import("../../src/components/settings/skills-tab.js");
+      if (module === "storage-tab") await import("../../src/components/settings/storage-tab.js");
       if (module === "modules-tab") await import("../../src/components/settings/modules-tab.js");
       if (module === "passkey-tab") await import("../../src/components/settings/passkey-tab.js");
       if (module === "devices-agents-tab") await import("../../src/components/settings/devices-agents-tab.js");
