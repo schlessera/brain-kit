@@ -1,7 +1,7 @@
 import { projectStorageTree, sortStorageRows } from "./tree.js";
 import { storageReferences } from "./process.js";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import type { StorageFilter, StoragePage, StorageStatus, StorageReferenceEvidence, StorageTreeFilter, StorageTreePage } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageFilter, StoragePage, StorageStatus, StorageReferenceEvidence, StorageTreeFilter, StorageTreePage, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { collectStorage, storageTotals, STORAGE_SERVER_LIMITS, type StorageCollection, type StorageCollectOptions } from "./collect.js";
 export class StorageUnavailable extends Error {
   constructor(readonly status: 400 | 403 | 404 | 409 | 429 | 503, message: string) { super(message); }
@@ -30,13 +30,13 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
     if (!result) throw new StorageUnavailable(404, "Storage observation expired or unavailable; refresh.");
     return result;
   }
-  return {
+  const api = {
     status,
-    start(principal: string): StorageStatus {
+    start(principal: string, fresh = false): StorageStatus {
       authorized(principal);
       if (closed) throw new StorageUnavailable(503, "Storage is shutting down.");
       if (active) return status(principal);
-      if (Date.now() - lastAttempt < 5_000) throw new StorageUnavailable(429, "Wait before refreshing Storage again.");
+      if (!fresh && Date.now() - lastAttempt < 5_000) throw new StorageUnavailable(429, "Wait before refreshing Storage again.");
       lastAttempt = Date.now();
       const id = randomUUID(), controller = new AbortController();
       const job = { id, principal, controller, promise: Promise.resolve() };
@@ -137,8 +137,19 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
       })();
       return job.promise;
     },
+    /** Internal operation evidence: joins existing collection, then takes a fresh bounded observation. */
+    async measure(principal: string, signal: AbortSignal): Promise<StorageSnapshot | null> {
+      signal.throwIfAborted(); authorized(principal);
+      while (active) { await active.promise; signal.throwIfAborted(); }
+      const id = api.start(principal, true).activeScanId;
+      const abort = () => { if (active?.id === id) active.controller.abort(); };
+      signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort();
+      try { await api.idle(); signal.throwIfAborted(); authorized(principal); return [current, previous].find(value => value?.summary.id === id)?.summary ?? null; }
+      finally { signal.removeEventListener("abort", abort); }
+    },
     async idle() { await active?.promise; },
     async close() { closed = true; active?.controller.abort(); referenceJob?.controller.abort(); await Promise.allSettled([active?.promise, referenceJob?.promise]); current = null; previous = null; },
   };
+  return api;
 }
 export type StorageCoordinator = ReturnType<typeof createStorageCoordinator>;

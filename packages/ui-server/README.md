@@ -145,8 +145,9 @@ requirements and is refused; injection remains supported without them, and
 can still use a verified `brainCli` minimum.
 
 The server refuses to boot against a content CLI older than 0.42.0, the first
-release with every command and flag it invokes, including scratch pin input and
-hygiene review.
+release with its ordinary commands and flags, including scratch pin input and
+hygiene review. Optional Storage packing separately probes core 0.44.0 before
+dispatch and refuses older/unknown versions without raising the ordinary floor.
 The CLI always retains this package floor. An explicit `brainCli`
 minimum makes a failed or unknown version an error and rechecks the selected
 executable before each client invocation, including streaming sync. Direct
@@ -489,3 +490,13 @@ its configured application `SOURCE_COMMIT` (or `dev` when unset). The existing
 `version` field retains its source-commit meaning. This metadata is diagnostic,
 not proof of protocol compatibility or a check against the latest npm release.
 Public `/api/health` deliberately exposes neither release nor commit.
+
+### Explicit Storage maintenance
+
+The [owner-only maintenance API](../../docs/http-api.md#storage-maintenance-additive-2011)
+exposes existing Git packing, pin-protected scratch pruning and settled inbox
+staging cleanup. Stable caller IDs retain restart-readable receipts; retries
+read the same operation. Cancellation and crashes preserve uncertainty about
+committed effects. Before/after store measurements and capacity observations are
+independent and never promise reclaimed bytes. No retention default or automatic
+cleanup schedule changes. The initial Storage pane is delivered separately.

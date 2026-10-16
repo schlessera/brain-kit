@@ -62,22 +62,22 @@ Source anchors, checked against the reviewed commit:
 - A: root and index resolution (`initContext`, `packages/core/src/lib/context.ts:36-50`);
   existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:158-209`),
   available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:213-224`).
-- B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:55-64`)
-  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:76-84`).
+- B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:57-66`)
+  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:78-86`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:255-290`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:257-292`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:107-113`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
-  and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-38`).
+  and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-42`).
   [#807](https://github.com/schlessera/brain-kit/issues/807) supplies live-work
   and settlement protection for staging cleanup.
 - H: scratch defaults (`SCRATCH_DIR`, `packages/core/src/lib/scratch.ts:52-61`),
-  scheduled prune (`startScratchPrune`, `packages/ui-server/src/cron/scratch-prune.ts:37-45`),
+  scheduled prune (`startScratchPrune`, `packages/ui-server/src/cron/scratch-prune.ts:41-49`),
   and the [writable-area decision](../decisions/worker-writable-areas.md).
   [#1656](https://github.com/schlessera/brain-kit/issues/1656) supplies retained
   scratch conversation pins.

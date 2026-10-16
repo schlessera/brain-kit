@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 141 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 145 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -26,6 +26,10 @@ client code has a gap. Source owners are listed after the table.
 
 | Method | Path | Class | Purpose | Consumers, existing promise and reason |
 | --- | --- | --- | --- | --- |
+| GET | `/api/storage/maintenance` | S | Read approved maintenance rows and latest receipts | Current human-owner authority; three fixed owners only. |
+| POST | `/api/storage/maintenance` | S | Admit one identified maintenance operation | Durable owner-bound identity and credential-free worker execution. |
+| GET | `/api/storage/maintenance/:id` | S | Read the original operation receipt | Readback never replays an effect. |
+| DELETE | `/api/storage/maintenance/:id` | S | Request cancellation of remaining work | Existing committed effects remain in the receipt. |
 | GET | `/api/storage` | S | Read current bounded inventory state | Human-owner Storage inspection; no delegated or worker access. |
 | POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
 | DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
@@ -174,7 +178,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 141 declared endpoints are mounted regardless of backend, renderer or
+All 145 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1301,5 +1305,65 @@ Index timestamps do not prove current source freshness. Unavailable index suppor
 returns unavailable evidence; an empty observed list never proves no references.
 No file body is read for inventory, type filtering or this index inspection.
 
-No endpoint authorizes deletion, expiry, maintenance or recovery. The complete
+Inventory endpoints do not authorize deletion, expiry, maintenance or recovery. The complete
 Storage pane is delivered separately with its approved removal journey.
+
+## Storage maintenance (additive, #2011)
+
+These four operations require the same current human-owner authority as Storage
+inventory. GETs and cancellation additionally bind receipts to their initiating
+principal. Authorization is checked at admission, after waiting for owner locks,
+before worker launch and before output publication. Responses are private,
+no-store; origin and JSON protections remain in force.
+
+`GET /api/storage/maintenance` returns `{operations, limits}`. Each row has a fixed
+`id`, label, owner, scope, effect, availability/reason, headroom disclosure and
+nullable latest receipt. The only operation IDs are `pack-git`, `prune-scratch`
+and `cleanup-staging`. These delegate respectively to core's existing
+non-destructive packing, pin-refreshed scratch pruning, and the inbox's settled
+staging cleanup. They do not run the general inbox drain or retention tick.
+
+`POST /api/storage/maintenance` accepts only `{id, operation}` in at most 4096
+bytes. IDs contain 16–96 ASCII letters, digits, `_` or `-`. It returns 202 with
+the durable receipt. Repeating the same identity/principal/operation reads that
+receipt; mismatched reuse is 409. Only one admitted Storage operation per brain
+runs across database connections. Another identity while one is active returns
+409. Requests cannot choose roots, executables, commands or retention policy.
+
+`GET /api/storage/maintenance/:id` returns the original receipt; missing or
+other-principal receipts return 404. `DELETE` on the same path returns 202 with
+that receipt and requests cancellation. Cancellation stops further admission and
+interrupts the bounded worker; it does not promise rollback of committed effects.
+Current inbox item acknowledgement can finish before later items stop.
+
+SDK `StorageMaintenanceReceipt` contains identity, operation/owner/scope,
+request/start/completion timestamps, state, reason, headroom, nullable before/after
+observations and owner outcome. States are `waiting`, `running`, `complete`,
+`partial`, `refused`, `cancelled` and `unknown`. Interrupted started work remains
+unknown unless the owner supplies a durable item outcome; readback never blindly
+re-dispatches it. Failed refresh suspends scratch deletion; retained pins and
+pinned overage survive. Live, unacknowledged or recovery-gated staging remains
+with its existing owner. There is no new cleanup/expiry schedule.
+
+Before/after observations separately retain affected stores and capacities,
+coverage and basis. They explicitly permit concurrent writers. File counts and
+packed-object counts are never converted into reclaimed bytes. Unknown headroom
+is null; old/new Git packs may coexist and required temporary bytes are workload
+dependent. Existing worker admission controls its temporary space. A known zero
+capacity refuses packing, and receipt admission failure starts no owner action.
+No other recovery store is purged to make room.
+
+The worker has a five-minute deadline and a combined 1 MiB output ceiling;
+termination awaits its existing cleanup. Kernel uninterruptible I/O cannot carry
+a hard completion guarantee. Each staging pass considers at most 200 eligible
+rows. Receipts reserve at most 64 KiB each, with bounded item detail and explicit
+truncation; the per-brain admission ceiling is 1024 receipts. Reaching it refuses
+new IDs with 503 and retains all existing receipts. This is a resource admission
+bound, not a new retention expiry. Lost completion persistence retains intent and
+readback describes uncertainty. Invalid input is 400, oversized bodies 413,
+non-JSON input 415, and unavailable owners/admission 503 or a refused receipt.
+
+Packing alone requires content core 0.44.0 or newer. Older installations produce
+an explicit refusal; the ordinary server CLI minimum remains 0.42.0. Hosted CLI
+operations use only the qualified credential-free maintenance worker; unsupported
+hosts do not fall back to executing repository code on the host.

@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:215-260`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:225-277`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit
@@ -70,11 +70,11 @@ by this spike.
 Source foundations for the matrix:
 
 - Packing runs two passes and deletes only loose duplicates already held in
-  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:76-84`).
+  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:78-86`).
   The upstream [maintenance manual](https://git-scm.com/docs/git-maintenance)
   explains these tasks; broad `gc` has different expiry behavior.
 - Staging eligibility, removal and acknowledgment are separate
-  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-94`).
+  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-102`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
   (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626-707`);
   explicit clean is different

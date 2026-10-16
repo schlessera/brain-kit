@@ -69,3 +69,31 @@ export interface StorageTreePage {
   breadcrumbs: { id: string | null; name: string }[];
   nodes: StorageTreeNode[]; totals: StorageBytes; matched: number; nextCursor: string | null; stale: boolean;
 }
+
+export type StorageMaintenanceKind = "pack-git" | "prune-scratch" | "cleanup-staging";
+export interface StorageMaintenanceRequest { id: string; operation: StorageMaintenanceKind }
+export interface StorageMaintenanceItem { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
+export interface StorageMaintenanceObservation {
+  observedAt: number; coverage: StorageCoverage; basis: StorageSnapshot["basis"];
+  stores: StorageRoot[];
+  capacities: StorageCapacityView[];
+  /** Availability deltas include other writers and are not attributed savings. */
+  attribution: "concurrent-writers-possible";
+}
+export interface StorageMaintenanceReceipt {
+  id: string; operation: StorageMaintenanceKind; owner: "core" | "inbox";
+  scope: StorageRoot["category"][];
+  requestedAt: number; startedAt: number | null; completedAt: number | null;
+  state: "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
+  reason: string | null;
+  headroom: { requiredBytes: null; reservation: false; note: string };
+  before: StorageMaintenanceObservation | null; after: StorageMaintenanceObservation | null;
+  outcome: { items: StorageMaintenanceItem[]; truncated: boolean; removed: number | null; failed: number | null; deferred: number | null; packed: number | null; pinnedFiles: number | null; pinnedBytes: number | null; overageBytes: number | null; suspended: boolean } | null;
+}
+export interface StorageMaintenanceRow {
+  id: StorageMaintenanceKind; label: string; owner: "core" | "inbox";
+  scope: StorageRoot["category"][]; effect: string;
+  available: boolean; reason: string | null;
+  headroom: StorageMaintenanceReceipt["headroom"];
+  latest: StorageMaintenanceReceipt | null;
+}

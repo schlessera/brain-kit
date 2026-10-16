@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:118-151`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:122-155`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -28,6 +28,10 @@ row's real mounting check. They do not establish mounting by themselves.
 
 | Supported operation | Mounted receipt | Detailed checks |
 | --- | --- | --- |
+| `GET /api/storage/maintenance` | `mounted supported handler: GET /api/storage/maintenance` | SM |
+| `POST /api/storage/maintenance` | `mounted supported handler: POST /api/storage/maintenance` | SM |
+| `GET /api/storage/maintenance/:id` | `mounted supported handler: GET /api/storage/maintenance/:id` | SM |
+| `DELETE /api/storage/maintenance/:id` | `mounted supported handler: DELETE /api/storage/maintenance/:id` | SM |
 | `GET /api/storage` | `mounted supported handler: GET /api/storage` | ST |
 | `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
 | `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
@@ -467,3 +471,11 @@ ST: [Cached hierarchy, union areas and query paging](../packages/ui-server/tests
 [real public-reader/store union and paging](../packages/ui-server/tests/storage-collection.test.ts),
 [exact metadata roots](../packages/ui-server/tests/storage-metadata.test.ts), and
 [bounded index evidence](../packages/core/tests/storage-references.test.ts).
+
+SM: [mounted maintenance authority and body limits](../packages/ui-server/tests/storage-maintenance-routes.test.ts),
+[durable identity, real process death, cancellation and owner reports](../packages/ui-server/tests/storage-maintenance.test.ts),
+[real credential-free workers, retained pins and output termination](../packages/ui-server/tests/storage-maintenance-owners.test.ts),
+and [real Git history preservation and a full private tmpfs](../packages/core/tests/storage-pack.test.ts).
+Existing [inbox unwind](../packages/ui-server/tests/inbox-unwind.test.ts) and
+[resolution](../packages/ui-server/tests/inbox-resolve.test.ts) tests retain live
+settlement and unacknowledged staging protections.

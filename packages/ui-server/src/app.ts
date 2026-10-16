@@ -1,3 +1,5 @@
+import { createStorageMaintenance } from "./storage/maintenance.js";
+import { createStorageMaintenanceRoutes } from "./routes/storage-maintenance.js";
 import { createStorageCoordinator } from "./storage/coordinator.js";
 import { createStorageRoutes } from "./routes/storage.js";
 import type { StorageStore } from "./storage/collect.js";
@@ -831,6 +833,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   bootCleanup.push(() => storage.close());
   app.route("/api", createStorageRoutes(storage));
+  const storageMaintenance = createStorageMaintenance(db, { brainPath: config.brainPath, storage, brain, scratch: scratchPrune, inbox, boundary,
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+  });
+  bootCleanup.push(() => storageMaintenance.close());
+  app.route("/api", createStorageMaintenanceRoutes(storageMaintenance));
 
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
@@ -960,6 +967,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       host.closing = true;
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      await attempt(() => storageMaintenance.close());
       await attempt(() => inbox.close());
       await attempt(() => host.close());
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });

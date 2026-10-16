@@ -3240,3 +3240,15 @@ a qualified charge and never a reclaimability guarantee. Bun/types/default
 exports resolve source/declarations/build from the same release. Older core
 installations without this entry produce unavailable inventory, with no CLI or
 internal-import fallback.
+
+### Storage maintenance protocol (additive, 0.44.0, #2011)
+
+`@schlessera/brain-ui-sdk/protocol` exports `StorageMaintenanceKind`,
+`StorageMaintenanceRequest`, `StorageMaintenanceItem`,
+`StorageMaintenanceObservation`, `StorageMaintenanceReceipt` and
+`StorageMaintenanceRow`. These describe the three fixed host-owner operations,
+caller-owned durable identity, qualified state/outcome, headroom disclosure and
+independent store/capacity measurements in the
+[maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
+They do not add an agent tool or generic executor. Existing automatic retention
+and owner APIs retain their previous defaults.
