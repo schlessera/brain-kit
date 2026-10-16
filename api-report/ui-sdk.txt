@@ -885,6 +885,7 @@ export "./internal" (./src/internal.ts)
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type QuestionObservation
+  RTK_WORKER_ENV
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
