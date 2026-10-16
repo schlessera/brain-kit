@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:85-271`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:88-399`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-113`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -448,13 +448,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1098`):
+`packages/ui-sdk/src/server/worker-launcher.ts:983-1105`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:807-831`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:814-838`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's

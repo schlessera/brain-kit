@@ -200,7 +200,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     passed.push(`${adapter}:race`);
   }, TIMEOUT);
 
-  test("voice: the narrower membership cannot grant or write policy; an authorized capture still lands", async () => {
+  test("voice: the narrower authority cannot grant or write policy; an authorized capture still lands", async () => {
     const r = await probe(adapter, "voice");
     if (adapter === "pi") {
       // pi declares no voice posture: refused before any writer initializes.
@@ -218,10 +218,11 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     expect(r.added[0]).toMatch(/^notes\/.+\.md$/);
     expect(r.receipt.frames.filter((f: any) => f.type === "tool_approval_request"), "voice never surfaces a grant").toEqual([]);
     expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
-    expect(r.receipt.unavailable, "the mask editor is outside voice registration").toEqual(["mcp__brain-ui__request_image_mask"]);
-    const native = calls(r, "Write")[0]!;
-    expect(native.result.isError).toBe(true);
-    expect(native.result.output).toContain("Native file writes are unavailable");
+    expect(r.receipt.unavailable, "voice retains registered definitions").toEqual([]);
+    for (const name of ["Write", "mcp__brain-ui__request_image_mask"]) {
+      for (const c of calls(r, name)) expect(c.result.isError, `${name} is refused on voice`).toBe(true);
+    }
+    expect(calls(r, "Write")[0]!.result.output).toContain("Native file writes are unavailable");
     expect(code(calls(r, route("write_file"))[0]!.result.output), "raw write is outside the voice membership").toBe("membership_denied");
     expect(code(calls(r, route("brain_update"))[0]!.result.output)).toBe("policy_denied");
     const adds = calls(r, route("brain_add"));

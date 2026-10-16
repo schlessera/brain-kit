@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:840-868`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:847-875`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -970,7 +970,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:115`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:117`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -981,8 +981,8 @@ classification:
   indexing. `write_file` and `edit_file` remain the way to write under
   `strict`.
 - **Native tools return under `governed`.** In Claude the
-  `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:234`). In
+  `Write`/`Edit`/`NotebookEdit` stay registered under #2048 A; strict/voice
+  refusal moves to call time (`toolAvailabilityRefusal`, `packages/ui-backend-claude/src/tool-availability.ts:16-27`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1003,7 +1003,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:95`).
+`packages/ui-backend-claude/src/permission-hooks.ts:96`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
@@ -1274,7 +1274,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1257`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1264`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1515,11 +1515,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:807-835`;
+`packages/ui-sdk/src/server/worker-launcher.ts:814-842`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:840-866`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:847-873`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1035`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:983-1042`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker

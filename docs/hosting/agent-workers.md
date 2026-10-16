@@ -387,7 +387,11 @@ while the host execution boundary holds, the server evaluates none of them
 itself. It runs that work in a **maintenance worker**: the same bubblewrap
 launcher, with the brain bound read-write, the host root read-only, and
 `/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
-and the UI database's directory masked by empty private tmpfs mounts. No host
+and the UI database's directory masked by empty private tmpfs mounts. Required
+private regular files, including the native loop backing file, are covered by
+read-only `/dev/null` binds after permitted runtime and HOME binds. Their
+original bytes remain inaccessible even when the backing file is outside a
+masked directory. No host
 Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.

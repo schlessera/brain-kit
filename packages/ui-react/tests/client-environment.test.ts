@@ -123,11 +123,26 @@ describe("detectClientEnvironment", () => {
     expect(detectClientEnvironment()?.viewportWidth).toBe(750);
   });
 
+  test("unfinished device probes stay unknown until they settle", async () => {
+    install({ width: 1200 });
+    let settle!: (devices: unknown[]) => void;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      enumerateDevices: () => new Promise(resolve => { settle = resolve; }),
+    } });
+    const first = detectClientEnvironment();
+    expect(first?.camera).toBeUndefined();
+    expect(first?.microphone).toBeUndefined();
+    settle([{ kind: "videoinput" }]);
+    await Promise.resolve();
+    expect(detectClientEnvironment()?.camera).toBe(true);
+    expect(detectClientEnvironment()?.microphone).toBe(false);
+  });
+
   test("a camera-less desktop does not claim a camera", async () => {
     install({ width: 1440, devices: ["audioinput"] });
     await primeClientEnvironment();
     const env = detectClientEnvironment();
-    expect(env?.camera).toBeUndefined();
+    expect(env?.camera).toBe(false);
     expect(env?.microphone).toBe(true);
   });
 

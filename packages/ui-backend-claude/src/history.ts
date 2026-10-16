@@ -1,3 +1,4 @@
+import { claudePromptContext } from "./prompt-context.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import {
   listSessions as sdkListSessions,
@@ -121,13 +122,14 @@ export async function buildSessionHistory(
     }
   }
 
+  const context = claudePromptContext(dir, sessionId);
   const messages: SessionHistoryMessage[] = [];
 
   for (const entry of history) {
     const content = (entry as any).message?.content;
 
     if (entry.type === "user") {
-      const text = Array.isArray(content)
+      const wire = Array.isArray(content)
         ? content
             .filter((b: any) => b.type === "text")
             .map((b: any) => b.text)
@@ -135,6 +137,7 @@ export async function buildSessionHistory(
         : typeof content === "string"
           ? content
           : "";
+      const text = context.userText(String((entry as any).uuid ?? ""), wire);
       const attachmentCount = Array.isArray(content)
         ? content.filter((b: any) => b.type === "image").length
         : 0;

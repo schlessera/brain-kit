@@ -1,3 +1,4 @@
+import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 /**
  * Session listing + history normalization for the pi backend.
  *
@@ -68,9 +69,19 @@ export async function getPiHistory(
   // getBranch() returns the active path root → leaf (chronological order).
   const branch = sm.getBranch();
   const omitted = retriedAttempts(branch);
+  const context = sessionDir ? sessionPromptContext(sessionDir, cwd, sessionId) : undefined;
   const messages: AgentMessage[] = [];
   for (const entry of branch) {
-    if (entry.type === "message" && !omitted.has(entry.id)) messages.push(entry.message);
+    if (entry.type === "message" && !omitted.has(entry.id)) {
+      if (context && entry.message.role === "user") {
+        const content = entry.message.content;
+        const wire = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => (part as { text: string }).text).join("");
+        const text = context.userText(entry.id, wire);
+        messages.push({ ...entry.message, content: typeof content === "string" ? text : [
+          { type: "text", text }, ...content.filter(part => part.type !== "text"),
+        ] });
+      } else messages.push(entry.message);
+    }
   }
   return normalizeMessages(messages);
 }

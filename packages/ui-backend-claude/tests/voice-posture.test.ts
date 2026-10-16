@@ -303,7 +303,7 @@ describe("a turn under the voice posture", () => {
     ]);
   });
 
-  test("allows brain_add and brain_update in that same turn: read-mostly, not read-only", async () => {
+  test("missing application handlers refuse brain_add and brain_update without cards", async () => {
     const turn = await duringTurn([
       call("mcp__brain-ui__brain_add", { type: "note", title: "Garden" }, "add-1"),
       call(
@@ -315,8 +315,10 @@ describe("a turn under the voice posture", () => {
     ]);
     const [add, update, bash] = turn.value;
 
-    expect(add!.executed).toBe(true);
-    expect(update!.executed).toBe(true);
+    expect(add!.executed).toBe(false);
+    expect(update!.executed).toBe(false);
+    expect(add!.message).toContain("host handler");
+    expect(update!.message).toContain("host handler");
     expect(bash!.executed).toBe(false);
     expect(turn.requests).toHaveLength(0);
     expect(approvalFrames(turn.frames)).toHaveLength(0);
