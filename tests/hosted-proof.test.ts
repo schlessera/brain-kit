@@ -44,7 +44,15 @@ test("emitted aggregate executable fails a cancelled selected job and accepts it
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, err).toBe(result === "success" ? 0 : 1);
     if (result === "cancelled") expect(err).toContain("layout: selected proof did not pass (cancelled)");
-    else expect(out).toContain("All selected hosted proof passed");
+    else {
+      expect(out).toContain("All selected hosted proof passed");
+      const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));
+      expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
+      expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
+        selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+      });
+    }
   }
 });
 
@@ -183,6 +191,14 @@ test("emitted aggregate refuses skipped or missing selected native host job", as
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, "EMITTED_NATIVE_HOST_REQUIRED").toBe(state === "success" ? 0 : 1);
     if (state !== "success") expect(err).toContain(`runtime_host: selected proof did not pass (${state})`);
-    else expect(out).toContain("All selected hosted proof passed");
+    else {
+      expect(out).toContain("All selected hosted proof passed");
+      const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));
+      expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
+      expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
+        selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+      });
+    }
   }
 });

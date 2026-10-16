@@ -357,6 +357,69 @@ Agents must not do so, and this policy does not change protection settings.
 The read-only [Get a pull request API](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
 accepts the existing `contents: read` permission; no privileged token/event is added.
 
+## Exact-candidate integration reservation
+
+The maintainer rulings on #2111 select cooperative coordination for expensive
+confirmation and main merges. One reservation covers exactly one repository,
+PR, head SHA and base SHA, with an authenticated numeric GitHub actor ID. It
+lasts five minutes, renews every minute and expires absolutely sixty minutes
+after acquisition, including runner queue, proof and merge time. Renewal never
+resets that cap. A changed head/base, terminal failure/cancellation, abandonment
+or delivery releases ownership; a stopped process loses it after its last
+five-minute term. An expired or superseded identity cannot renew itself or
+release a successor.
+
+The shared command is `bun scripts/integrate.ts`. Its authoritative state is
+`reservation.json` in `refs/heads/brain-integration-reservation` on origin.
+Each update is a commit parented by the inspected remote state and pushed with
+an exact `--force-with-lease` comparison, including absent-ref acquisition.
+Competing snapshots cannot both acquire. Git history retains acquisition,
+renewal, release and explicit revocation records. Expiry uses a fresh GitHub
+HTTP Date response, requested without caches, with no local-clock fallback.
+Malformed state, unavailable time or transport errors fail closed. Public state
+is leakage-screened before publication. The active record shows owner,
+candidate, expiry and absolute cap; busy callers get that record and at most
+three attempts with bounded backoff. There is no persistent or FIFO queue.
+
+Use `confirm <pr> --issues owner/repo#N,...` before requesting costly ordinary
+candidate proof. The command acquires, requests draft-to-ready confirmation,
+renews while waiting, and calls its shared merge path after success. Nonowners
+may code and run fast feedback but must hold competing confirmation and merges.
+For a separately managed proof window, `acquire <pr>` returns the explicit
+lease ID; its owner must run `renew <id>` every minute and later
+`merge <pr> --lease <id> --issues owner/repo#N,...`. `release <id>` abandons
+it. `inspect` is read-only. A maintainer may `revoke '<reason>'`, recording
+actor, server time, reason and former candidate; a replacement needs its own
+reservation and passing confirmation. Revocation is never a proof waiver.
+
+The merge path independently reads canonical head-specific CI and contract
+runs, complete attempt/job inventories, structured validated selections,
+intentional skips, matrix partitions and actual checkout logs. Missing or
+failed selected jobs, mismatched receipts/checkouts, stale live identities,
+missing issue milestones or wrong lease ownership reject before merging.
+Immediately before the matching-head squash it rechecks the live exact
+candidate and reservation. It then verifies the actual squash parent/tree,
+main ancestry and PR/issue milestones and releases ownership. Exit 2 after a
+successful squash explicitly leaves automatic main proof to the existing
+actual-job/checkout reconciliation procedure; even a green run summary is not
+claimed as completion. Failures exit 1, with best-effort owned cleanup.
+
+This is mandatory cooperative procedure, not an atomic GitHub branch lock.
+Direct API/UI merges under existing permissions can bypass it or race the
+final read; actual squash checks still own reconciliation. No protection,
+permission, provider or native merge-queue change is introduced. Native stack
+candidates remain unsupported by this command pending separately qualified
+prefix integration; do not flatten them into an ordinary receipt or bypass
+reservation policy. A reservation never qualifies several layers at once.
+
+Offline controls use real concurrent remote Git pushes, actual executable
+merge sentinels, and isolated authoritative-clock fixtures for expiry,
+automatic renewal, cancellation, revocation and the hard cap. They establish
+local behavior only. Hosted integration qualification and measured savings
+remain outstanding on #2111: historical invalidations and cancellation costs
+are preserved there, not relabeled as a controlled speedup. A runner queue
+longer than the hard cap cannot be solved by renewal or an implicit extension.
+
 ## Historical measurement and upstream guidance
 
 The following guidance records the paid-provider investigation which motivated

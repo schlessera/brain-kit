@@ -299,6 +299,21 @@ its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
 
+## Coordinating confirmation and ordinary merges
+
+Before expensive candidate confirmation and every ordinary main merge, use the
+shared exact-candidate reservation command, `bun scripts/integrate.ts`.
+`confirm <pr> --issues owner/repo#N,...` acquires, renews and verifies the
+ordinary candidate before a matching-head squash. `inspect` shows the current
+owner, PR/head/base, expiry and hard cap. Separate acquisition requires explicit
+minute renewal and an explicit lease ID for `merge`; release on abandonment.
+A busy result is bounded, not a queue. Maintainer revocation requires a reason
+and records actor, time and former candidate. No override waives proof or
+milestones. Read [the decision and command lifecycle](../decisions/ci-utility.md#exact-candidate-integration-reservation)
+for the five-minute lease, sixty-minute cap, supported candidates, actual
+squash/main verification and direct-merge race limits. This cooperative policy
+changes no GitHub protection or merge permissions.
+
 ## Stacked pull requests
 
 Use a stack when independently reviewable slices depend on each other. A single

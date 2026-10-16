@@ -84,6 +84,7 @@ if (import.meta.main) {
       const problems = proofProblems(needs, retained);
       if (problems.length) throw new Error(problems.join("\n"));
       for (const category of retained) console.log(`Validated equivalent ${category} proof; original run/job/checkout identity remains in the ledger.`);
+      console.log(`BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify({ selections: Object.fromEntries(PROOF_JOBS.map(name => [name, needs.changeset.outputs[name]])), results: Object.fromEntries(PROOF_JOBS.map(name => [name, needs[name]?.result])), retained: [...retained], unitShards: needs.changeset.outputs.unit_shards ?? null })}`);
       console.log("All selected hosted proof passed; remaining skips are planner-intended.");
     } else {
       const root = resolve(import.meta.dir, "..");
