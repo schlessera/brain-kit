@@ -70,7 +70,7 @@ describe("affected CI checks", () => {
     const f = fixture();
     const plan = planChecks(["README.md", "docs/cli.md", ".changeset/odysseus.md"], workspaces(f.dir));
     expect(plan.tests).toEqual([]); expect(plan.typecheck).toBe(false); expect(plan.pack).toBe(false);
-    expect(Object.values(plan.local)).toEqual([false, false, false, false, false]);
+    expect(Object.values(plan.local)).toEqual([false, false, false, false, false, false]);
   });
 
   test("package tests and stories require local runtime proof but no packed consumer install", () => {
@@ -115,13 +115,15 @@ describe("affected CI checks", () => {
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
     for (const draft of ["true", "false"]) {
       const output = join(f.dir, `outputs-${draft}`); const plan = join(f.dir, `plan-${draft}.json`);
+      const eventPath = join(f.dir, "event.json");
+      writeFileSync(eventPath, JSON.stringify({ action: "ready_for_review", pull_request: { draft: draft === "true" } }));
       const child = Bun.spawn([process.execPath, join(f.dir, "scripts/ci-plan.ts")], { cwd: f.dir,
         stdout: "pipe", stderr: "pipe", env: { ...process.env, GITHUB_EVENT_NAME: "pull_request",
-          BASE_SHA: f.base, HEAD_SHA: "HEAD", PR_DRAFT: draft, GITHUB_OUTPUT: output, CI_PLAN_PATH: plan } });
+          BASE_SHA: f.base, HEAD_SHA: "HEAD", GITHUB_EVENT_PATH: eventPath, PR_DRAFT: draft, GITHUB_OUTPUT: output, CI_PLAN_PATH: plan } });
       const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
       const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
-      expect(readFileSync(output, "utf8")).toBe(Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
+      expect(readFileSync(output, "utf8")).toBe(`cadence=${draft === "true" ? "draft" : "confirmation"}\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
       expect(expected.unit).toBe(draft === "false");
       expect(expected.runtime).toBe(draft === "false");
       expect(JSON.parse(readFileSync(plan, "utf8")).tests.length).toBeGreaterThan(0);

@@ -71,6 +71,15 @@ test("inside default serializes browser files in every configured project", asyn
   expect(result.calls[0]!.cwd).toBe(resolve(result.root, "packages/ui-kit"));
 });
 
+test("hosted proof adds project-aware case receipts while retaining human output and the runner failure", async () => {
+  const result = await invoke(["--inside", "--project=ui-react-endurance", "--proof-report"], 7);
+  expect(result.code).toBe(7);
+  expect(result.calls[0]!.args).toEqual([
+    "run", "--project=ui-react-endurance", "--browser.fileParallelism=false",
+    "--reporter=default", `--reporter=${resolve(result.root, "scripts/proof-case-report.mjs")}`,
+  ]);
+});
+
 test("local container path reaches the same default and preserves project, shard and update", async () => {
   const result = await invoke(["--project=visual", "--shard=1/2", "--update"]);
   expect(result.code).toBe(0);

@@ -22,8 +22,14 @@ jobs under #1326, including full affected discovery, pinned browser/layout/
 endurance/editorial and native runtime categories. Optional `--full` and `--all`
 retain complete local commands. Every selected hosted job must pass; missing
 runtimes, failures/cancellations and unexpected skips leave proof unfinished.
-Keep drafts cheap and batch pushes. Assess relevant base changes before redoing
-heavy work; an unrelated merge alone does not justify restarting every suite.
+Keep drafts cheap and batch pushes. Ready synchronize runs fast feedback and
+leaves `proof` nonpassing; convert to draft and mark ready after the final push
+to request candidate confirmation. Open/reopen ready events also request it.
+The candidate gate checks actual merge parents/tree against the live head/base.
+A changed base requires a fresh confirmation event even without a rebase;
+valid immutable browser/layout retention remains available. Endurance is fresh
+and separately mandatory whenever selected. Assess relevant base changes before redoing
+heavy work; a new base requires confirmation, with valid browser/layout retention avoiding unnecessary execution.
 Under #1333, a selected browser/layout domain may intentionally skip fresh
 execution after complete input equivalence and original successful run/attempt/
 job/check/checkout receipts are validated. Inspect the current retention ledger
@@ -132,8 +138,7 @@ The local object must agree with the immutable API receipt. Reconcile all
 required jobs' checkouts with this proof; investigate different trees rather
 than applying one job's receipt to the others. A changed head requires fresh
 inspection. If main advanced, inspect the missing commits before refreshing:
-only commits relevant to this work or its checks require a rebase and affected
-revalidation. Record unrelated advancement without rebasing or restarting suites.
+rebase only when needed, but request new candidate confirmation for the new base. Record the new base and request confirmation; do not call the earlier receipt current.
 The earlier run still describes its recorded tree, not the newer combined tree;
 retain its actual head/base, the relevance assessment and existing branch rules.
 Do not overwrite the recorded base to make a comparison pass. Missing
@@ -200,8 +205,7 @@ rtk proxy git diff --name-only "$verified_base" "$current_base"
 ```
 
 A head mismatch requires new inspection. A base mismatch requires assessment of
-the missing commits: refresh/revalidate only if they affect this work or its
-checks. Record unrelated advancement and retain the original tested base/tree;
+the missing commits and new confirmation: request candidate confirmation for the new base; a rebase is needed only when the change requires it. Record unrelated advancement and retain the original tested base/tree;
 never report the earlier run as testing a different combined tree. Merge only the inspected,
 passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
