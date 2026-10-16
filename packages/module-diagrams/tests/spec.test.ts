@@ -30,7 +30,7 @@ test("unknown nested keys name the exact field and newer formats require an upgr
   expect(check(spec).errors).toEqual([{ path: "$.schema_version", code: "upgrade_required", message: "Diagram schema_version 2 is newer than supported version 1; upgrade the diagrams module" }]);
 });
 test("free boxes require a 4px grid and may touch but cannot overlap", () => {
-  const spec = base(); spec.nodes[1].at = [188, 120];
+  const spec = base(); spec.edges = []; spec.nodes[1].at = [188, 120];
   expect(check(spec).valid).toBe(true);
   spec.nodes[1].at = [184, 120];
   expect(check(spec).errors).toContainEqual({ path: "$.nodes[1].at", code: "overlap", message: "Node 'ithaca' overlaps 'raft'" });
@@ -40,7 +40,7 @@ test("free boxes require a 4px grid and may touch but cannot overlap", () => {
   expect(check(spec).errors.some(item => item.path === "$.nodes[1].size[0]" && item.code === "grid")).toBe(true);
 });
 test("universal budgets warn without refusing and focal roles cannot bypass the two-element limit", () => {
-  const spec = base(); spec.nodes = Array.from({ length: 10 }, (_, i) => ({ id: `raft-${i}`, label: "Odysseus's raft", at: [i * 200, 0], size: [148, 64] }));
+  const spec = base(); spec.type = "timeline"; spec.nodes = Array.from({ length: 10 }, (_, i) => ({ id: `raft-${i}`, label: "Odysseus's raft" }));
   spec.groups = []; spec.focal = [];
   spec.edges = Array.from({ length: 13 }, () => ({ from: "raft-0", to: "raft-1", label: "WORD FOR PENELOPE" }));
   spec.callouts = Array.from({ length: 3 }, () => ({ target: "raft-0", text: "Prepare provisions." }));

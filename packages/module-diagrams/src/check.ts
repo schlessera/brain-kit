@@ -1,3 +1,4 @@
+import { buildDiagram, DiagramGeometryError } from "./geometry.js";
 import { isMap, parseDocument } from "yaml";
 import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
 
@@ -110,6 +111,13 @@ export function checkDiagram(source: string): DiagramCheckResult {
         }
       }
     });
+  }
+  if (!output.errors.length && (FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) {
+    try { buildDiagram(spec); }
+    catch (failure) {
+      if (failure instanceof DiagramGeometryError) output.errors.push(...failure.findings);
+      else throw failure;
+    }
   }
   output.valid = output.errors.length === 0;
   return output;
