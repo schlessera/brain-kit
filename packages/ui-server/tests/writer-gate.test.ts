@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 import { createUiDb } from "../src/db/client";
-import { createWriterGate, processAlive, processStart } from "../src/brain/writer-gate";
+import { createWriterGate, markUnpinnedHostWriter, processAlive, processStart } from "../src/brain/writer-gate";
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });
@@ -139,4 +139,73 @@ test("a peer inherits retired provider folders from the active cross-process gat
     expect(after.folderPaths, "RETIRED_FOLDER_PLAN_EXPIRES_WITH_ITS_LAST_HOLDER").toEqual([]);
     after.release();
   } finally { w.close(); }
+});
+
+
+describe("unpinned host writer provenance", () => {
+  function protectedWorld() {
+    const w = world();
+    mkdirSync(join(w.brain, "context/policies"), { recursive: true });
+    writeFileSync(join(w.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+    return w;
+  }
+
+  test("known host writers remain concurrent while governed folder admission refuses their advisory roots", async () => {
+    const w = protectedWorld();
+    try {
+      const first = await w.server.acquire("shared", "host:odysseus");
+      markUnpinnedHostWriter(first);
+      const second = await w.cron.acquire("shared", "host:athena");
+      markUnpinnedHostWriter(second);
+      expect(w.server.holders()).toHaveLength(2);
+      const candidate = await w.server.acquire("shared", "turn:circe");
+      expect(candidate.folderPaths).toEqual(["group/private"]);
+      expect(() => candidate.assertPeerFolderPlans!(["group/private"]), "UNPINNED_HOST_ROOTS_NEVER_AUTHORIZE_GOVERNED_ADMISSION").toThrow("unpinned host writer");
+      first.release(); second.release();
+      expect(() => candidate.assertPeerFolderPlans!(["group/private"])).not.toThrow();
+      candidate.release();
+    } finally { w.close(); }
+  });
+
+  test("the inverse admission ordering refuses a late host before it can invalidate a native peer", async () => {
+    const w = protectedWorld();
+    try {
+      const native = await w.server.acquire("shared", "turn:odysseus");
+      native.assertPeerFolderPlans!(["group/private"]);
+      const host = await w.cron.acquire("shared", "host:athena");
+      expect(() => markUnpinnedHostWriter(host), "LATE_HOST_CANNOT_INVALIDATE_EXISTING_NATIVE_PINS").toThrow("active peer");
+      host.release();
+      const nativePeer = await w.cron.acquire("shared", "turn:circe");
+      expect(() => nativePeer.assertPeerFolderPlans!(["group/private"])).not.toThrow();
+      expect(w.server.holders()).toHaveLength(2);
+      nativePeer.release(); native.release();
+    } finally { w.close(); }
+  });
+
+  test("negative provenance cannot be forged, upgraded, or retained after release", async () => {
+    const w = protectedWorld();
+    try {
+      const host = await w.server.acquire("shared", "host:odysseus");
+      expect(() => markUnpinnedHostWriter({ ...host })).toThrow("cannot be recorded");
+      markUnpinnedHostWriter(host);
+      expect(() => host.retainFolders!(["group/private"])).toThrow("cannot upgrade");
+      expect(() => host.assertPeerFolderPlans!(["group/private"])).toThrow("cannot qualify");
+      expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id)).toEqual({ folder_topology: JSON.stringify({ kind: "unpinned_host", roots: ["group/private"] }) });
+      host.release(); host.release();
+      expect(() => markUnpinnedHostWriter(host)).toThrow("cannot be recorded");
+      expect(w.server.holders()).toEqual([]);
+    } finally { w.close(); }
+  });
+
+  test("unknown legacy peers refuse both host classification and protected admission", async () => {
+    const w = protectedWorld();
+    try {
+      const legacy = await w.server.acquire("shared", "legacy:odysseus");
+      w.db.query("UPDATE writer_gate SET folder_topology = NULL WHERE id = ?").run(legacy.id);
+      const candidate = await w.cron.acquire("shared", "candidate:athena");
+      expect(() => markUnpinnedHostWriter(candidate)).toThrow("unknown folder provenance");
+      expect(() => candidate.assertPeerFolderPlans!(["group/private"])).toThrow("unaccounted");
+      candidate.release(); legacy.release();
+    } finally { w.close(); }
+  });
 });

@@ -61,6 +61,20 @@ for (const method of ["run", "launch"] as const) {
     } finally { await f.close(); }
   });
 
+  test(`${method}: a late host refuses before spawn beside an admitted protected native peer`, async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const native = await f.gate.acquire("shared", "native protected peer"); f.holds.push(native);
+      native.assertPeerFolderPlans!(["group/private"]);
+      const running = f.start(method, "shared", f.boundary(), `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`);
+      await expect(running, "LATE_HOST_REFUSES_BEFORE_ACTUAL_PROCESS_CREATION").rejects.toThrow("active peer");
+      expect(existsSync(f.ready)).toBe(false);
+      expect(f.gate.holders()).toMatchObject([{ purpose: "native protected peer" }]);
+    } finally { await f.close(); }
+  });
+
   test(`${method}: required missing admission refuses before any actual host child starts`, async () => {
     const f = fixture();
     try {
