@@ -1,3 +1,4 @@
+import { typeWidthBudget } from "./skin.js";
 import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
 
 export interface DiagramPoint { x: number; y: number }
@@ -235,7 +236,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
   for (const connector of connectors) {
     connector.path = pathData(connector);
     const text = spec.edges[connector.edge]!.label; if (!text) continue;
-    const width = Math.ceil((Array.from(text).length * fontSize * 0.62 + 8) / 4) * 4, height = Math.ceil((lineHeight + 4) / 4) * 4;
+    const width = Math.ceil((typeWidthBudget(text, "label", fontSize) + 8) / 4) * 4, height = Math.ceil((lineHeight + 4) / 4) * 4;
     const candidates: DiagramLabelMask[] = [];
     for (let segment = 0; segment < connector.points.length - 1; segment++) {
       const a = connector.points[segment]!, b = connector.points[segment + 1]!, horizontal = Math.abs(a.y - b.y) < EPS;
