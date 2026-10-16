@@ -9742,6 +9742,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
+        configurationCoverage?: "incomplete" | "complete" | "unknown";
         scope?: TurnScopeSummary;
         state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
         changedFiles: number | null;
@@ -14544,6 +14545,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -15309,6 +15315,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -17593,6 +17604,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -17982,6 +17998,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -18259,6 +18280,11 @@ signatures (every public export and the types it is made of)
             tokens: z.ZodNullable<z.ZodNumber>;
         }, z.core.$loose>>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
+        configurationCoverage: z.ZodOptional<z.ZodEnum<{
+            complete: "complete";
+            incomplete: "incomplete";
+            unknown: "unknown";
+        }>>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
         kind: z.ZodOptional<z.ZodEnum<{

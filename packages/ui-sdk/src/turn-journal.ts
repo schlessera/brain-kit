@@ -1,5 +1,7 @@
 /** Host-recorded facts for one turn; absent counts and prices are never zero. */
 export interface TurnJournalSummary {
+  /** Retained configuration-identification coverage; absent legacy data is not complete. */
+  configurationCoverage?: "incomplete" | "complete" | "unknown";
   scope?: TurnScopeSummary;
   state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
   changedFiles: number | null;
