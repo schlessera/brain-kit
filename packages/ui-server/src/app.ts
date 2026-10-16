@@ -959,7 +959,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
           if (!ended) { ended = true; return Promise.race([cancelSource(reason), interrupted]); }
         },
       }, { highWaterMark: 0 });
-      request = new Request(original, { body: readable });
+      request = new Request(original, { method: original.method, body: readable });
       const disconnected = () => cancelBody(original.signal.reason);
       original.signal.addEventListener("abort", disconnected, { once: true });
       removeAbort = () => original.signal.removeEventListener("abort", disconnected);
