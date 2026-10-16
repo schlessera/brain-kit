@@ -22,7 +22,6 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [otherSequence, setOtherSequence] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const announced = useRef<string | undefined>(undefined);
   const wrapper = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), trigger = useRef<HTMLElement | null>(null);
   const state = summary?.state ?? "unrecorded";
   const readable = !!sessionId && !!turnId && state !== "unknown" && state !== "unrecorded" && state !== "expired";
@@ -57,9 +56,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
   const label = `${changes} · ${steering} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
-    if (!live || !turnId || announced.current === turnId || !["complete", "partial"].includes(state)) return;
-    announced.current = turnId; setAnnouncement(`Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}`);
-  }, [live, turnId, state, changes, cost]);
+    // Equal text does not update the live region; authoritative cost/state
+    // changes do. Never retain another session's or expired turn's status.
+    setAnnouncement(live && turnId && cardSession === sessionId && ["complete", "partial"].includes(state)
+      ? `Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}` : "");
+  }, [live, turnId, cardSession, sessionId, state, changes, cost]);
   const groups = details ? [
     ["Steering", details.changes.filter(change => change.class === "steering")],
     ["Policy", details.changes.filter(change => change.class === "policy")],

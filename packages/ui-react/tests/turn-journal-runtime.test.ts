@@ -132,6 +132,40 @@ for (const [width, theme] of journalRuntimeCells) for (const replay of [false, t
     expect(outside).toEqual([]);
   } finally { await context.close(); }
 });
+for (const state of ["complete", "partial"] as const) test(`late authoritative cost reconciles the polite ${state} journal announcement`, async () => {
+  const { context, page, outside } = await scene();
+  try {
+    const status = page.locator(`[data-turn-journal="${turnId}"] > span[role=status]`).first();
+    const disclosure = page.getByRole("button", { name: /changed file/ });
+    await page.getByRole("textbox", { name: "Message" }).focus();
+    for (const [costUsd, costIsEstimate, expected] of [[null, false, "Cost unknown"], [0, false, "$0.0000"], [0.125, false, "$0.1250"], [0.25, true, "Estimated $0.2500"], [null, false, "Cost unknown"]] as const) {
+      await page.evaluate(({ id, state, costUsd, costIsEstimate }) => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, state, costUsd, costIsEstimate } }), { id: turnId, state, costUsd, costIsEstimate });
+      await disclosure.filter({ hasText: expected }).waitFor();
+      expect(await status.innerText(), "LATE_AUTHORITATIVE_COST_RECONCILES_STATUS").toContain(expected);
+      expect(await status.getAttribute("aria-live")).toBe("polite");
+      expect((await status.innerText()).includes("Incomplete.")).toBe(state === "partial");
+      expect(await page.getByRole("textbox", { name: "Message" }).evaluate(element => document.activeElement === element)).toBe(true);
+    }
+    await status.evaluate(element => { (window as any).__statusMutations = 0; new MutationObserver(records => { (window as any).__statusMutations += records.length; }).observe(element, { childList: true, characterData: true, subtree: true }); });
+    await page.evaluate(id => {
+      const f = (window as any).__journalFixture, summary = f.state().summary;
+      f.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...summary, observedAt: summary.observedAt + 1 } });
+      f.frame({ type: "turn_journal", sessionId: "ithaca", turnId: "another-turn", journal: { ...summary, costUsd: 9 } });
+    }, turnId);
+    await page.waitForTimeout(50);
+    expect(await page.evaluate(() => (window as any).__statusMutations), "UNRELATED_JOURNAL_UPDATES_DO_NOT_REANNOUNCE").toBe(0);
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalFixture.state().summary, state: "expired" } }), turnId);
+    await disclosure.filter({ hasText: "Details expired" }).waitFor();
+    expect(await status.innerText(), "EXPIRED_JOURNAL_CLEARS_LIVE_ANNOUNCEMENT").toBe("");
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, costUsd: 0 } }), turnId);
+    await status.filter({ hasText: "$0.0000" }).waitFor({ state: "attached" });
+    await page.evaluate(() => (window as any).__journalFixture.switchSession());
+    await page.waitForTimeout(50);
+    expect(await status.innerText(), "SESSION_SWITCH_CLEARS_PREVIOUS_JOURNAL_ANNOUNCEMENT").toBe("");
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});
+
 test("journal stale-session responses and expired receipts expose no retained reader actions", async () => {
   const { context, page } = await scene();
   try {

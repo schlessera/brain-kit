@@ -798,6 +798,10 @@ automatic revert or claim of recovering writes between observations is made.
 
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The live receipt's polite accessibility status follows authoritative cost and
+completion-state updates for its own session and turn. Repeated equal text and
+unrelated updates do not mutate the live region; expired or inactive-session
+receipts clear it. Known subscription zero remains distinct from unknown cost.
 The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
