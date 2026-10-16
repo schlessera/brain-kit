@@ -132,6 +132,28 @@ test("a hosted scratch mount keeps render --scratch and scratch prune working; b
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exit };
   };
+  const outside = await run(true, "render", "/outside/odyssey.md", "--out", "notes/odyssey.pdf", "--json");
+  expect(outside.exit, "RENDER_INPUT_OUTSIDE_PRECEDES_READONLY").toBe(1);
+  expect(outside.stderr).toContain("Path is not inside the brain: /outside/odyssey.md");
+  expect(outside.stdout).not.toContain("read_only_brain");
+  const absent = await run(true, "render", "notes/odyssey-missing.md", "--out", "notes/odyssey.pdf", "--json");
+  expect(absent.exit, "RENDER_MISSING_INPUT_PRECEDES_READONLY").toBe(1);
+  expect(absent.stderr).toContain("No such file: notes/odyssey-missing.md");
+  const valid = await run(true, "render", "notes/loose-idea.md", "--out", "notes/odyssey.pdf", "--json");
+  expect(valid.exit, "RENDER_VALID_INPUT_STILL_READONLY").toBe(2);
+  expect(JSON.parse(valid.stdout)).toMatchObject({ schema_version: 1, ok: false,
+    error: { code: "read_only_brain", tool: "apply_staged_changes" } });
+  expect(JSON.parse(valid.stdout).error.message).toContain("Write the output with --scratch");
+  const stdin = await run(true, "render", "-", "--out", "notes/odyssey.pdf", "--json");
+  expect(stdin.exit, "RENDER_STDIN_STILL_READONLY").toBe(2);
+  expect(JSON.parse(stdin.stdout).error.code).toBe("read_only_brain");
+  const terminated = await run(true, "render", "--out", "notes/odyssey.pdf", "--json", "--", "/outside/odyssey.md");
+  expect(terminated.exit, "RENDER_POSITIONAL_AFTER_TERMINATOR").toBe(1);
+  expect(terminated.stderr).toContain("Path is not inside the brain: /outside/odyssey.md");
+  const help = await run(true, "render", "--help");
+  expect(help.exit, help.stderr).toBe(0);
+  expect(help.stdout).toContain("input path must be inside the brain");
+  expect(help.stdout).toContain("- for stdin");
   const prune = await run(true, "scratch", "prune", "--json");
   expect(prune.exit, prune.stderr + prune.stdout).toBe(0);
   const rendered = await run(true, "render", "notes/loose-idea.md", "--format", "html", "--scratch", "--json");
@@ -149,6 +171,9 @@ test("a hosted scratch mount keeps render --scratch and scratch prune working; b
   const noScratch = await run(false, "render", "notes/loose-idea.md", "--format", "html", "--scratch", "--json");
   expect(noScratch.exit).toBe(2);
   expect(JSON.parse(noScratch.stdout).error.message).toContain("read-only in this turn as well");
+  expect(JSON.parse(noScratch.stdout).error.message).toContain("sandbox note for the reason");
+  expect(JSON.parse(noScratch.stdout).error.message).toContain("nothing written now is kept");
+  expect(JSON.parse(noScratch.stdout).error.message).not.toMatch(/restricted autonomous|missing, not gitignored|redirected|could not be verified/);
   // A scratch directory missing from the read-only brain is no route either; the refusal must not suggest it.
   rmSync(scratch, { recursive: true, force: true });
   const missing = await run(false, "render", "notes/loose-idea.md", "--format", "html", "--scratch", "--json");

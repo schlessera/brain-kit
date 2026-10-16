@@ -57,6 +57,10 @@ export interface UsageSample {
 }
 
 export interface TurnTrace {
+  /** Host cancellation request time; absent when no turn cancellation was observed. */
+  cancelledAt?: number | null;
+  /** Calls actually in flight at that request, disambiguating equal millisecond timestamps. */
+  cancelledCallIds?: readonly string[];
   startedAt: number;
   endedAt: number;
   /** Calls in the order they started. */
@@ -459,7 +463,15 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
   const failures: Failure[] = [];
   const failureByCall = new Map<string, Failure>();
   // Calls are the timeline's backbone; a success is a step that can resolve.
-  const steps = trace.calls.map((call, index) => ({ call, index, family: familyOf(call.tool, call.input) }));
+  const cancelledCalls = trace.cancelledCallIds ? new Set(trace.cancelledCallIds) : null;
+  const endedByCancellation = (call: TracedCall): boolean => trace.cancelledAt != null
+    && call.startedAt <= trace.cancelledAt
+    && (call.endedAt === null || call.endedAt >= trace.cancelledAt)
+    && (cancelledCalls === null || cancelledCalls.has(call.toolCallId));
+  // A stopped call is neither a failure nor a path that successfully resolved
+  // an earlier failure. Completed failures remain on the timeline.
+  const steps = trace.calls.map((call, index) => ({ call, index, family: familyOf(call.tool, call.input) }))
+    .filter(({ call }) => !endedByCancellation(call));
   for (const { call, index, family } of steps) {
     const cause = failureCause(call);
     if (!cause) continue;

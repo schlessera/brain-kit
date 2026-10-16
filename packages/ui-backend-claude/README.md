@@ -318,3 +318,13 @@ Per-item server context lives in the user message so the selected runtime cannot
 coalesce it into the static system block. See the [assembly facts and optional
 cache measurement procedure](../../docs/hosting/autonomous-prompt-cache.md).
 Cache savings remain unclaimed without an authorized provider measurement.
+
+## Promoted links in history
+
+Turn-temp promotion leaves the native Claude JSONL bytes unchanged. The backend
+retains display mappings outside the runtime state under the host Claude config
+root's `session-replay/` directory. History applies them by native message UUID,
+text-part index and exact original text before folding the transcript into UI
+messages. Cold archival and resume continue to copy the runtime transcript as
+written; display metadata never becomes provider input. Older transcripts keep
+their existing bytes.
