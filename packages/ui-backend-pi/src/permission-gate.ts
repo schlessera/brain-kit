@@ -55,6 +55,24 @@ export interface PermissionGateOptions {
   confirmPatterns: readonly RegExp[];
 }
 
+/** Registered bridge tools refuse before remembered grants or permission cards. */
+export function piToolAvailabilityRefusal(turn: TurnContext, name: string): string | undefined {
+  if (turn.autonomous) return undefined;
+  const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask"];
+  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
+  if ([...visual, ...interactive].includes(name) && (turn.noGrantSurface || turn.posture === "voice"))
+    return `Tool "${name}" requires an interactive typed grant surface.`;
+  const handlers: Record<string, string> = {
+    ask_user: "askUser", ask_user_list: "askUserList", ask_user_rank: "askUserRank", ask_user_form: "askUserForm",
+    request_image_mask: "requestMask", get_current_location: "getLocation", query_activity: "queryActivity",
+    propose_policy_change: "proposePolicyChange", inbox_list: "inboxList", inbox_get: "inboxGet",
+    inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare", brain_read_base: "readBrainBase",
+  };
+  const handler = handlers[name];
+  if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")
+    return `Tool "${name}" has no available host handler in this turn.`;
+}
+
 /** Why a tool call needs approval, or null when it can run immediately. */
 export function approvalReason(
   toolName: string,
@@ -83,6 +101,8 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
           return { block: true, reason: "This call already completed before yielding; inspect its retained result instead of replaying it." };
+        const unavailable = piToolAvailabilityRefusal(turn, event.toolName);
+        if (unavailable) return { block: true, reason: unavailable };
         // The server route rechecks the exact operation, live principal,
         // membership and approval. Avoid a second runtime approval card.
         if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) return undefined;
@@ -110,6 +130,8 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
 export async function decidePiToolPermission(options: PermissionGateOptions, toolName: string,
   input: Record<string, unknown>, toolUseId: string): Promise<PermissionDecision> {
   const { turn, allowedTools } = options;
+  const unavailable = piToolAvailabilityRefusal(turn, toolName);
+  if (unavailable) return { behavior: "deny", message: unavailable };
   const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
   const outward = (value: unknown) => prepareOutwardPlan({ toolName, shellToolName: "bash", input: value,
     allow: turn.commandPolicy?.outwardAllow, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });

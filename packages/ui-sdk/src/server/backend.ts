@@ -225,6 +225,8 @@ export interface BackendBridge {
 
 /** A read over the activity record, shaped for model consumption. */
 export interface ActivityQuery {
+  /** Roadblocks only; default actionable excludes abandoned before aggregation. */
+  remedy?: "actionable" | "all" | "guidance" | "capability" | "abandoned";
   scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
   /** Required for scope "run". */
   runId?: string;
@@ -249,6 +251,30 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { kind: "prompt_prefix"; prefix: import("../protocol.js").PromptPrefixFingerprint; resumed: boolean }
+  | { kind: "first_request_cache"; usage: import("../protocol.js").FirstRequestCacheUsage }
+
+  | {
+      /** Executing main model, never inferred from helper usage. Scoped to this startTurn bridge. */
+      kind: "main_model";
+      model: string;
+      sessionId: string;
+    }
+    | {
+      /** Supported per-request title provenance, separate from root/child receipts.
+       * Reported after worker/exporter shutdown, before the terminal result. */
+      kind: "claude_title_usage";
+      coverage: "observed" | "partial" | "unknown";
+      receipts: Array<{ receiptId: string; source: "generate_session_title";
+        usage: import("../protocol.js").TurnUsage; costUsd?: number }>;
+    }
+  | {
+      /** Claude session-cumulative evidence, never a turn receipt or helper classifier. */
+      kind: "claude_session_usage";
+      completed?: import("../protocol.js").TurnUsage;
+      cumulative?: import("../protocol.js").TurnUsage;
+      reportedCostUsd?: number;
+    }
   | { kind: "budget_backstop" }
   | {
       /** Cumulative completed-response inference usage for interactive and voice turns. */
@@ -468,6 +494,10 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Static configured limits, snapshotted once into the session append. */
+  sessionBudgetLimits?: string;
+  /** @internal Actionable threshold notices, delivered only as owned new tail context. */
+  budgetContext?: string;
   /** @internal Host-prepared native immutable input owner; non-governed workers retain one reference per child. */
   workerStartupView?: import("./worker-startup-view.js").WorkerStartupView;
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
@@ -503,10 +533,16 @@ export interface StartTurnRequest {
   maxBudgetUsd?: number;
   bridge: BackendBridge;
   /**
+   * Trusted deployment fact, stable across a hosted session even when a turn
+   * temporarily lacks applyBrain. Never supplied by a client/model, and never
+   * a grant. Omitted direct consumers retain their project MCP writer roster.
+   */
+  applicationAuthority?: "server";
+  /**
    * What the reader is on, as the browser measured it at send time. Absent
-   * when the client is older or headless. Backends that can vary their system
-   * prompt per turn should feed it to `buildSystemPromptAppend()`; it is
-   * advisory and never required.
+   * when the client is older or headless. Backends with a session-stable system
+   * append should keep its bytes stable and deliver changed device facts in
+   * new tail context. It is advisory and never required.
    */
   client?: ClientEnvironment;
   /**

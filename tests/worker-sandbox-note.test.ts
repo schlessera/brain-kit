@@ -3,7 +3,8 @@ import { installFixtureNativeStartupViews } from "../packages/ui-server/tests/he
 installFixtureNativeStartupViews();
 /**
  * The sandbox note is one text, generated once per worker from its resolved
- * sandbox, and both backends hand the agent exactly that text (#1654). The
+ * sandbox, and both backends hand the agent exactly that text in owned new-tail
+ * context (#1654, #2047). The
  * brain CLI's read-only refusal repeats the note's rule rather than its own
  * wording, because both render it from brain-common's worker-areas rules.
  */
@@ -59,9 +60,9 @@ function expectedNote(extra: worker.WorkerNoteLimit[] = [], sandbox?: worker.Wor
     worker.workerCommandPolicyNote(resolved.commandPolicy, []), worker.workerOutwardNote()].filter(Boolean).join("\n\n");
 }
 
-function claudeAppend(sandbox?: worker.WorkerSandbox): string {
+async function claudeContext(sandbox?: worker.WorkerSandbox): Promise<{ append: string; text: string }> {
   sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
-  const { options } = createClaudeSdkTurn({
+  const turn = createClaudeSdkTurn({
     backend: { brainPath: brain } as never,
     req: { ...(sandbox ? { workerSandbox: sandbox } : {}), prompt: "Return to Ithaca", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
     profile: { requiredEnvKeys: [], buildEnv: () => ({ HOME: home }) } as never,
@@ -69,15 +70,22 @@ function claudeAppend(sandbox?: worker.WorkerSandbox): string {
     turnLock: { acquire: () => undefined, release: () => undefined } as never,
     log: () => undefined,
   });
-  const prompt = options.systemPrompt as { type: string; append: string };
-  expect(prompt.type).toBe("preset");
-  return prompt.append;
+  try {
+    const fixed = turn.options.systemPrompt as { type: string; append: string };
+    expect(fixed.type).toBe("preset");
+    const messages = typeof turn.prompt === "string" ? turn.prompt : JSON.stringify(await Array.fromAsync(turn.prompt));
+    // Decode the SDK content instead of comparing a JSON-escaped wire string.
+    const text = typeof turn.prompt === "string" ? messages : JSON.parse(messages)[0].message.content;
+    expect(text).toStartWith("Return to Ithaca\n\n[Host context");
+    return { append: fixed.append, text };
+  } finally { await turn.finishWorker(); }
 }
 
 /** The note pi's server side sends its worker, captured at the launch it would have made. */
-async function piInitNote(sandbox?: worker.WorkerSandbox): Promise<string> {
+async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: string; text: string }> {
   sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
   let received: { sandboxNote?: string } | undefined;
+  let text: string | undefined;
   const stops: Array<() => void> = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
   const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
@@ -91,20 +99,26 @@ async function piInitNote(sandbox?: worker.WorkerSandbox): Promise<string> {
         received = message;
         sendPipe(stdout, { type: "ready", sessionId: message.sessionId, levels: [], cost: 0 });
       }
+      if (message.type === "prompt") {
+        text = message.text;
+        sendPipe(stdout, { type: "done", cost: 0 });
+      }
       callback();
     } });
     return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });
-    await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps, workerStartupView: maintenance.startupView, ...(sandbox ? { workerSandbox: sandbox } : {}) });
+    const opened = await openPiWorkerSession({ brainPath: brain }, join(root, "sessions"), { caps, workerStartupView: maintenance.startupView, ...(sandbox ? { workerSandbox: sandbox } : {}) });
+    await opened.session.prompt("Return to Ithaca");
     expect(launch).toHaveBeenCalledTimes(1);
   } finally {
     for (const stop of stops) stop();
     launch.mockRestore(); probe.mockRestore();
   }
   expect(received?.sandboxNote).toBeString();
-  return received!.sandboxNote!;
+  expect(text).toStartWith("Return to Ithaca\n\n[Host context");
+  return { note: received!.sandboxNote!, text: text! };
 }
 
 /** What pi's worker builds its session from that init: the resource loader's system-prompt append. */
@@ -118,7 +132,7 @@ async function piSessionAppend(sandboxNote: string): Promise<string[]> {
   return loader.getAppendSystemPrompt();
 }
 
-test("Claude's system-prompt append and pi's session resources carry the same generated note", async () => {
+test("both backends deliver the exact generated note only in owned new-tail context", async () => {
   const allowance = worker.resolveTurnTempLimits({}).allowanceBytes;
   const note = expectedNote([worker.turnTempLimit(allowance, "turn_temp")]);
   expect(note).toContain("**Profile: `strict`.**");
@@ -128,12 +142,14 @@ test("Claude's system-prompt append and pi's session resources carry the same ge
     worker.turnTempLimit(allowance, TURN_TEMP_TOOL_NAME)]);
   expect(claudeNote).toContain("- **Runtime state: 64 MiB.**");
   for (const generated of [note, claudeNote]) expect(generated).toContain("- **Turn temp: 256 MiB.**");
-  const claude = claudeAppend();
-  expect(claude.endsWith(`\n\n${claudeNote}`), "CLAUDE_NOTE").toBe(true);
-  const sent = await piInitNote();
-  expect(sent, "PI_INIT_NOTE").toBe(note);
-  const appended = await piSessionAppend(sent);
-  expect(appended.some(part => part.endsWith(`\n\n${note}`) || part === note), "PI_SESSION_NOTE").toBe(true);
+  const claude = await claudeContext();
+  expect(claude.text, "CLAUDE_EXACT_NEW_TAIL_NOTE").toContain(`sandbox: ${claudeNote}\ncapabilities:`);
+  expect(claude.append, "CLAUDE_LIVE_NOTE_OUTSIDE_APPEND").not.toContain("# Where files go in this turn");
+  const sent = await piTurnContext();
+  expect(sent.note, "PI_INIT_NOTE").toBe(note);
+  expect(sent.text, "PI_EXACT_NEW_TAIL_NOTE").toContain(`sandbox: ${note}\ncapabilities:`);
+  const appended = await piSessionAppend(sent.note);
+  expect(appended.join("\n"), "PI_LIVE_NOTE_OUTSIDE_APPEND").not.toContain("# Where files go in this turn");
 });
 
 test("a read-only refusal from the brain CLI repeats the note's rules", () => {
@@ -165,9 +181,12 @@ test("governed notes reflect admitted host history and exactly the resolved prot
   const allowance = worker.resolveTurnTempLimits({}).allowanceBytes;
   const piNote = expectedNote([worker.turnTempLimit(allowance,"turn_temp")], sandbox);
   const claudeNote = expectedNote([workerStateLimit(worker.resolveWorkerStateLimits({})),worker.turnTempLimit(allowance,TURN_TEMP_TOOL_NAME)], sandbox);
-  expect(claudeAppend(sandbox).endsWith(`\n\n${claudeNote}`),"GOVERNED_CLAUDE_INJECTS_RESOLVED_NOTE").toBe(true);
-  const sent = await piInitNote(sandbox); expect(sent,"GOVERNED_PI_INIT_RESOLVED_NOTE").toBe(piNote);
-  expect((await piSessionAppend(sent)).some(part=>part.endsWith(`\n\n${piNote}`)||part===piNote),"GOVERNED_PI_RESOURCES_RESOLVED_NOTE").toBe(true);
+  const claude = await claudeContext(sandbox);
+  expect(claude.text,"GOVERNED_CLAUDE_INJECTS_RESOLVED_NOTE").toContain(`sandbox: ${claudeNote}\ncapabilities:`);
+  expect(claude.append).not.toContain("Host change journaling is active for this turn.");
+  const sent = await piTurnContext(sandbox); expect(sent.note,"GOVERNED_PI_INIT_RESOLVED_NOTE").toBe(piNote);
+  expect(sent.text,"GOVERNED_PI_INJECTS_RESOLVED_NOTE").toContain(`sandbox: ${piNote}\ncapabilities:`);
+  expect((await piSessionAppend(sent.note)).join("\n"),"GOVERNED_PI_LIVE_NOTE_OUTSIDE_APPEND").not.toContain("Host change journaling is active for this turn.");
   const absent = worker.workerSandboxNote({ ...sandbox, noteFacts: undefined });
   expect(absent,"GOVERNED_STANDALONE_NO_HISTORY_PROMISE").not.toContain("Host change journaling is active");
   expect(absent).toContain("availability was not supplied");

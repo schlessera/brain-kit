@@ -20,11 +20,12 @@
  * inside the brain, or a host without the worker boundary. There the brain is
  * only ever written through the server's own routes, as before 0.42.
  */
+import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, type WorkerStartupView,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -313,9 +314,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   };
 
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
-  const workerPath = (env: BrainExecution["env"]) => [join(brain, "node_modules", ".bin"), env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":");
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView): MaintenanceCommand => {
-    const path = workerPath(execution.env);
+    const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
     env.PATH = path;
@@ -409,12 +409,18 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     status: () => {
       const availability = governed();
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      let configuredIdentity = false;
+      try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }
+      const identity = ordinary.ok && ordinary.identity === "separate_uid"
+        ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
+        : configuredIdentity ? {} : { identity: "shared_uid" as const };
       const protection = resolveWorkerProtection(brain);
       const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
-        identity: "shared_uid", configurationView: profile === "governed" ? "live" : "startup" };
+        ...identity, configurationView: profile === "governed" ? "live" : "startup" };
     },
     withGate,
     async run(execution) {

@@ -7,6 +7,9 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
+import { constants } from "node:fs";
+import { open, unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
@@ -41,7 +44,27 @@ export function createTurnJournal(db: Database, options: {
       for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
     }));
     return hash;
-  });
+  }, {}, { brainPath: options.brainPath, async createTemporary(maximum) {
+    const reservation = await retainAsync(async () => accounting.reserveTemporary(maximum));
+    const path = join(options.objectsRoot, `pending-${reservation.id}`);
+    let file: Awaited<ReturnType<typeof open>> | undefined;
+    const discard = async () => {
+      try { await unlink(path); } catch (cleanup) { if ((cleanup as NodeJS.ErrnoException).code !== "ENOENT") throw cleanup; }
+      const directory = await open(options.objectsRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try { await directory.sync(); } finally { await directory.close(); }
+    };
+    try {
+      file = await open(path, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      await discard(); // Persist anonymity before bytes or the ledger release.
+      return { file, release: reservation.release };
+    } catch (error) {
+      if (file) {
+        await file.close();
+        await discard();
+      }
+      reservation.release(); throw error;
+    }
+  } });
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const work = tail.then(operation);
@@ -209,13 +232,32 @@ export function createTurnJournal(db: Database, options: {
               .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
+          if (observation.unreadable.length) {
+            const missing = new Map<string, object>((JSON.parse(metadata.missing) as { path: string; reason: string }[]).map(item => [item.path, item]));
+            for (const item of observation.unreadable) {
+              const { ms, ...known } = item;
+              missing.set(item.path, known);
+              const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
+              recordGovernanceEvent(db, { kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
+                model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `journal-reader:${turnId}:${item.path}`,
+                payload: { category: "permission_denied", family: "journal_reader", signature,
+                  failures: [{ toolCallId: null, signature, category: "permission_denied" }], resolution: null,
+                  remedy: "capability", waste: { tokens: null, costUsd: null, ms }, eventIds: [] } });
+            }
+            db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify([...missing.values()]), turnId);
+          }
         }));
         publish(turnId);
-        const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
-        coalesce(sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND
-          (json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash') OR json_extract(after_json,'$.ignored')=1)
-          THEN json_extract(after_json,'$.bytes') ELSE 0 END),0) AS observedBytes
-        FROM turn_journal_changes WHERE turn_id=?`).get(turnId) as { changedPaths: number; observedBytes: number };
+        // Ignored versions have metadata but no content hash: count their largest
+        // observed size once per path, independently of hashed changed versions.
+        const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes FROM (
+          SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1
+            AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
+            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
+          max(CASE WHEN json_extract(after_json,'$.kind')='file' AND json_extract(after_json,'$.ignored')=1
+            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS ignoredBytes
+          FROM turn_journal_changes WHERE turn_id=? GROUP BY path
+        )`).get(turnId) as { changedPaths: number; observedBytes: number };
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
       }
       await observation.commit();
@@ -268,6 +310,13 @@ export function createTurnJournal(db: Database, options: {
       }
     }, true); },
     bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
+    bindModel(turnId: string, sessionId: string | null, model: string): boolean {
+      if (!model || !active.has(turnId)) return false;
+      const row = db.query("SELECT session_id,ended_at FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null; ended_at: number | null } | null;
+      if (!row || row.ended_at !== null || row.session_id !== sessionId) return false;
+      accounting.write(() => db.query("UPDATE turn_journal_turns SET model=? WHERE turn_id=? AND ended_at IS NULL").run(model, turnId));
+      publish(turnId); return true;
+    },
     observe(): Promise<void> { return held(() => observe()); },
     isHeld(): boolean { return holds > 0; },
     async idle(): Promise<void> { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); },

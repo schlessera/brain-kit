@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { recoveredWorkerFile, recoveredWorkerFiles, sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -52,7 +52,17 @@ export function validateSessionId(id: string): void {
 
 /** Reads one regular, unaliased file of at most `limit` bytes, never following a link. */
 export function regular(path: string, limit: number): Buffer {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const recovered = recoveredWorkerFile(path, limit);
+  if (recovered !== undefined) return recovered;
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) {
+    if (["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      const recovered = recoveredWorkerFile(path, limit);
+      if (recovered !== undefined) return recovered;
+    }
+    throw error;
+  }
   try {
     const info = fstatSync(fd);
     if (!info.isFile() || info.nlink !== 1 || info.size > limit) throw new WorkerHostError("runtime state contains an alias, special file or oversized file");
@@ -75,6 +85,10 @@ export function directory(path: string): void {
  * worker is gone by then, so nothing can swap an entry between checks.
  */
 export function files(root: string, prefix = "", options: { resolved?: boolean } = {}): string[] {
+  if (options.resolved === false) {
+    const recovered = recoveredWorkerFiles(root);
+    if (recovered !== undefined) return recovered.map(name => prefix ? `${prefix}/${name}` : name);
+  }
   if (!existsSync(root)) return [];
   if (!lstatSync(root).isDirectory() || (options.resolved !== false && realpathSync(root) !== root)) {
     throw new WorkerHostError("runtime state directory is redirected");
@@ -104,9 +118,11 @@ export interface ClaudeWorkerState {
   populate(root: string): void;
   /**
    * Copies validated results out of the private tmpfs, after the worker's
-   * namespace is gone; `rewrite` maps the answer text this run appended (#1655).
+   * namespace is gone; `rewrite` promotes newly appended answer links for display.
    */
   persist(root: string, rewrite?: (text: string) => string): void;
+  /** Prepare only newly appended answer links before synchronous publication. */
+  prepareCopyOut?(root: string, prepare: (text: string) => Promise<void>, signal?: AbortSignal): Promise<void>;
   /** Releases the admission reservation; idempotent, called on every exit path. */
   release(): void;
 }
@@ -220,9 +236,22 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       if (options.resume && transcripts.length > 0) observation = { usedBytes: total, allowanceBytes: allowance, observedAt: Date.now() };
     },
     /**
-     * `rewrite` maps the answer text of the transcript lines this run
-     * appended to a session (#1655); earlier lines are saved as they were.
+     * `rewrite` observes this turn’s answer links for promotion. All transcript
+     * bytes stay exactly as the runtime wrote them (#2049).
      */
+    async prepareCopyOut(root, prepare, signal) {
+      for (const file of files(join(root, project), "", { resolved: false })) {
+        signal?.throwIfAborted();
+        if (file.includes("/") || !file.endsWith(".jsonl")) continue;
+        const id = file.replace(/\.jsonl$/, "");
+        if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
+        const name = `${project}/${file}`, bytes = regular(join(root, name), allowance);
+        const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
+        const texts: string[] = [];
+        rewriteAppendedAnswers(bytes, prefix, text => { texts.push(text); return text; });
+        for (const text of texts) { signal?.throwIfAborted(); await prepare(text); }
+      }
+    },
     persist(root, rewrite) {
       // Only this brain's native transcript files and its memory notes, never
       // worker-supplied commands, settings, destinations or deletion requests.
@@ -247,7 +276,17 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if (total > allowance) throw new WorkerHostError("runtime transcripts and memory exceed their byte bound");
         const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
         // Only a session's own transcript holds the answer; subagent files stay as written.
-        const bytes = rewrite && !file.includes("/") ? rewriteAppendedAnswers(read, prefix, rewrite) : read;
+        // Promotion observes only newly appended answer parts. Its display output
+        // belongs to host metadata; copy out the exact runtime bytes.
+        if (rewrite && !file.includes("/")) {
+          const display = sessionReplay(saved, brain, id);
+          rewriteAppendedAnswers(read, prefix, (text, messageId, part) => {
+            const next = rewrite(text);
+            if (messageId !== undefined) display.retainText(messageId, part!, text, next);
+            return text;
+          });
+        }
+        const bytes = read;
         if (initial.get(name) === hash(bytes)) continue;
         write(name, bytes, "transcript");
       }
@@ -282,19 +321,19 @@ export function workerStateLimit(limits: WorkerStateLimits): WorkerNoteLimit {
  * returned as it is: nothing but this run's own lines may be rewritten.
  */
 export function rewriteAppendedAnswers(bytes: Buffer, prefix: { length: number; hash: string } | undefined,
-  rewrite: (text: string) => string): Buffer {
+  rewrite: (text: string, messageId?: string, part?: number) => string): Buffer {
   const start = prefix?.length ?? 0;
   if (prefix && (bytes.length < start || hash(bytes.subarray(0, start)) !== prefix.hash)) return bytes;
   let changed = false;
   const lines = bytes.subarray(start).toString("utf8").split("\n").map(line => {
     if (!line.includes("\"assistant\"")) return line;
-    let record: { type?: unknown; message?: { content?: unknown } };
+    let record: { type?: unknown; uuid?: string; message?: { content?: unknown } };
     try { record = JSON.parse(line); } catch { return line; }
     if (record?.type !== "assistant" || !Array.isArray(record.message?.content)) return line;
     let touched = false;
-    for (const part of record.message.content as Array<{ type?: unknown; text?: unknown }>) {
+    for (const [index, part] of (record.message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
       if (part?.type !== "text" || typeof part.text !== "string") continue;
-      const next = rewrite(part.text);
+      const next = rewrite(part.text, record.uuid, index);
       if (next !== part.text) { part.text = next; touched = true; }
     }
     if (!touched) return line;

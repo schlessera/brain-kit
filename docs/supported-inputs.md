@@ -146,6 +146,13 @@ all subject to the persistent activation gate.
 
 ## Environment inputs
 
+`BRAIN_UI_WORKER_IDENTITY_HELPER` is an optional trusted host input owned by
+the UI SDK. It names one absolute, root-owned executable implementing the
+[separate worker identity protocol](hosting/agent-workers.md#separate-worker-identity).
+It is not a repository setting, command prefix or per-turn environment grant.
+Omission retains shared UID with masks and an explicit exposure disclosure;
+configured helpers must pass the real identity/sentinel/positive-control probe.
+
 The package-owned references below contain the literal-variable inventory,
 meaning, omission behavior and conditional requirements. The inventory includes
 platform inputs and test controls so they can be classified rather than silently
@@ -159,7 +166,7 @@ promote ambient SDK variables to supported inputs.
 
 | Owner reference | Declared literal names |
 | --- | --- |
-| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
+| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
 | [module-images](../packages/module-images/README.md#environment) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | [module-jobs](../packages/module-jobs/README.md#environment) | `CHROME_CDP_URL` |
 | [scrape](../packages/scrape/README.md#configuration) | `SCRAPE_USER_AGENT`, `SCRAPE_CHROME_URL`, `SCRAPE_CHROME_PATH`, `SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_RESPECT_ROBOTS` |
@@ -296,3 +303,9 @@ reconstruct that state. UI operational storage likewise has its own backup and
 recovery requirements. Those schemas can remain internal while their state must
 be preserved. Canonical module Markdown, JSON settings and user-kept assets are
 never disposable merely because they are outside the core content index.
+
+## Diagram specs
+
+The enabled diagrams module accepts a versioned YAML `diagram` fence or
+standalone `.diagram.yaml` document. The [v1 spec and check contract](integration-contract/diagrams.md)
+owns its strict fields, family grammar, budgets, geometry validation and parse bounds.

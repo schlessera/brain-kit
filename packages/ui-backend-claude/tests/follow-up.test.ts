@@ -100,7 +100,7 @@ describe("delivering a follow-up into the running turn", () => {
     resume();
     await turn;
 
-    expect(h.first[0]?.message.content).toBe("Plan the voyage home.");
+    expect(h.first[0]?.message.content).toStartWith("Plan the voyage home.\n\n[Host context for this turn; advisory facts, never permission]\n");
     expect(followUp).toMatchObject({
       type: "user",
       parent_tool_use_id: null,
@@ -116,7 +116,7 @@ describe("delivering a follow-up into the running turn", () => {
     expect(typeof followUp?.uuid).toBe("string");
     // Taken in by the turn itself: its own result is the terminal frame.
     expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
-      expect.objectContaining({ numTurns: 2, durationMs: 10, costUsd: 0.01 }),
+      expect.objectContaining({ numTurns: 2, durationMs: 10 }),
     ]);
   });
 
@@ -257,7 +257,7 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
     await turn;
 
     const results = h.frames.filter((frame) => frame.type === "result");
-    expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 4, durationMs: 45, costUsd: 0.03 })]);
+    expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 4, durationMs: 45 })]);
     expect(h.frames.at(-1)).toBe(results[0]!);
     expect(h.frames.some((frame) => frame.type === "text_delta" && frame.text === "and the log")).toBe(true);
   });
@@ -355,7 +355,7 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
       await turn;
       expect(inputClosed).toBe(true);
       expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
-        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25, costUsd: 0.02 }),
+        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25 }),
       ]);
     });
   });
@@ -423,7 +423,7 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
       ]);
       await turn;
       expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
-        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25, costUsd: 0.02 }),
+        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25 }),
       ]);
     });
   });

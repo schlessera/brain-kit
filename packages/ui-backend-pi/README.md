@@ -225,6 +225,8 @@ the tool arguments in place before execution. `bash` commands are additionally r
 [rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
 token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
 the gate, so confirm patterns always see the command as the model wrote it.
+Bash results contain combined command output without echoing the command. Empty
+output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marker.
 
 | Tool | Risk | Gate | Containment |
 |---|---|---|---|
@@ -331,6 +333,19 @@ normalizer threads each result back onto its assistant tool call. `bashExecution
 field is additive). Session cost/turn aggregates are left to the host's `sessions`
 metadata table.
 
+Promoted answer links and authoritative server receipts live in host-owned
+`session-replay/` metadata below `sessionDir`, outside the provider transcript.
+Replay applies each display mapping to its native message and exact original
+text. Receipts overlay the matching call on the active branch; a direct server
+application with no runtime call gets a display-only row at its original turn.
+A direct effect committed before any native message retains a session-root
+position and remains visible even when no runtime transcript file exists.
+Neither path manufactures a model message in the session file. After a worker
+exits, the host may append the missing result for an actual runtime-written
+call whose committed server application has no runtime result; existing results
+are never replaced. The installed Pi adapter otherwise repairs such orphaned
+calls with its own error result.
+
 ## Testing
 
 `bun test` — no live LLM calls. Covers permission gating, path containment,
@@ -417,6 +432,46 @@ SDK's supported permission toolkit and their runtime's own policy. The
 these names separately from the supported input formats and turn posture.
 Runtime defaults and permission behavior are unchanged.
 
+
+## Measuring isolated startup
+
+From a development checkout, run `bun packages/ui-backend-pi/scripts/measure-startup.ts` (three runs
+by default; `--runs=1` runs one). It uses the installed Pi SDK, a real extension
+and fresh isolated workers, with deterministic Anthropic SSE on loopback inside
+a network namespace. Missing namespace prerequisites fail the command. It uses
+explicit copied fixture inputs to measure the backend; it does not qualify
+native Btrfs admission, journal work or remote provider latency.
+
+Each receipt contains a new turn and a resumed turn with about 300 KiB of
+selected transcript plus 128 unrelated conversations. Timings are milliseconds:
+`preparation` includes transcript loading and sandbox preparation; `spawn` is
+the synchronous launcher; `worker_started.elapsedMs` includes bootstrap and
+static imports; `resources` covers resource/extension loading; `session` covers
+the complete in-worker session open **including resources**; `initialize` also
+includes private settings preparation. `firstFrameMs` is the first backend
+frame, and `providerRequestMs` records arrival of the first request at the
+loopback provider. Elapsed values are measured in the parent; worker durations
+use the worker's monotonic clock. Do not add overlapping durations together.
+
+The 2026-10-16 three-run baseline and direct-transcript optimisation measured:
+
+| Median | Before | After |
+| --- | ---: | ---: |
+| New first frame | 644.6 ms | 640.3 ms |
+| Resumed first frame | 736.0 ms | 649.3 ms |
+| Resumed preparation | 154.0 ms | 43.1 ms |
+| Resumed first provider request | 772.5 ms | 689.4 ms |
+
+Worker bootstrap/imports dominate this fixture (roughly half a second after
+spawn). Direct UUID transcript lookup removes archive parsing from resumed
+turns; legacy SDK filenames retain discovery on their first resume. The
+measurement does not reproduce the reported multi-second hosted delay or
+attribute that whole delay to the archive scan. Absolute times vary by host;
+the regression guard asserts that canonical resume never lists the archive.
+The runtime proof checks fresh worker PIDs, a fresh private scratch marker and
+the read-only host HOME on consecutive turns. It retains no worker or session
+across turns. The existing backend logger receives `Pi startup phase` and
+`Pi startup ready` debug observations without transcript or credential content.
 
 ## SDK requirements
 

@@ -41,6 +41,7 @@ export "./internal/worker-areas" (./src/worker-areas.ts)
   READ_ONLY_BRAIN_RULE
   TURN_TEMP_PLACES
   TURN_TEMP_RULE
+  brainWorkerPath
   linkRule
   turnTempRule
 

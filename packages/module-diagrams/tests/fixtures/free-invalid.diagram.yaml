@@ -1,0 +1,26 @@
+schema_version: 1
+type: architecture
+title: The homecoming relay
+desc: Odysseus sends word from the raft to Ithaca.
+size: doc-inline
+nodes:
+  - id: raft
+    label: The raft
+    role: input
+    at: [40, 120]
+    link: '[[raft-build]]'
+  - id: ithaca
+    label: Ithaca
+    role: focal
+    at: [240, 120]
+    size: [148, 64]
+groups:
+  - id: homecoming
+    label: HOMECOMING
+    members: [raft, ithaca]
+edges:
+  - from: raft
+    to: ithaca
+    label: WORD
+    kind: primary
+focal: [ithaca]

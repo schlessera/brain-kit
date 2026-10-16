@@ -7,6 +7,8 @@ A change to the machine surface is prefixed CONTRACT: instead.
      required verification. If a human action remains, use Refs # instead,
      name the action below, and hand the issue over with needs: human after
      independent agent work is complete. -->
+<!-- For a stack slice, use Refs until this layer completes the issue. Name
+     the parent PR and this layer's scope under What changed. -->
 Closes #
 
 ## What changed
@@ -31,6 +33,10 @@ Closes #
 ```sh
 bun run check:pr --base origin/main
 ```
+
+<!-- Upper stack layers use --base <parent-ref>. Record this PR's actual
+     tested parent/head/checkout and selected proof; see
+     docs/process/github.md#stacked-pull-requests. -->
 
 ## Checklist
 

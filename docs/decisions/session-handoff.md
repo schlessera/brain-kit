@@ -137,7 +137,7 @@ server observation. No second warning band or capacity change was selected.
 The common threshold and copy are (`stateRoomWarning`,
 `packages/ui-sdk/src/state-room.ts:4-6`) and (`stateRoomCopy`,
 `packages/ui-sdk/src/state-room.ts:9-13`). Claude observes the completed actual
-copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:199-220`);
+copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:215-237`);
 Pi retains its existing payload/reserve admission (`checkSessionSize`,
 `packages/ui-backend-pi/src/worker-protocol.ts:21-26`).
 
@@ -160,7 +160,7 @@ its distinct retry treatment. Nothing archives, purges or automatically sends.
 The notice's presentation and actions are (`StateRoomNotice`,
 `packages/ui-react/src/components/chat/state-room-notice.tsx:22-100`); the host
 keeps the measurement and first quiet event (`if (msg.type === "result") {`,
-`packages/ui-server/src/ws/bridge.ts:200-210`).
+`packages/ui-server/src/ws/bridge.ts:203-213`).
 
 ### Historical state directories remain untouched
 

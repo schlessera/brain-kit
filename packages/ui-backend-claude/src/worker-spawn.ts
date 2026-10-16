@@ -1,10 +1,12 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
+import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
+import { workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
+import { prepareRecoveredWorkerFiles, createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -125,6 +127,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let worker: LaunchedWorker;
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+        if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
@@ -144,7 +147,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { record(error); state.release(); throw error; }
+      } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
@@ -195,7 +198,12 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const promoter = turnTemp && promotion && sandbox && !restricted ? createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root,
           turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
-        try { state.persist(handle.root, promoter?.rewrite); } catch (error) {
+        try {
+          const recovered = await prepareRecoveredWorkerFiles(handle.root, signal);
+          if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
+          if (recovered) signal.throwIfAborted();
+          state.persist(handle.root, promoter?.rewrite);
+        } catch (error) {
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);
@@ -211,7 +219,11 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         .finally(() => {
           checks.delete(check);
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
-          try { handle.close(); turnTemp?.close(); } finally { state.release(); }
+          const failures: unknown[] = [];
+          try { handle.close(); } catch (error) { failures.push(error); }
+          try { turnTemp?.close(); } catch (error) { failures.push(error); }
+          if (failures.length) throw failures[0];
+          state.release();
         });
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});

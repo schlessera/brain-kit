@@ -103,6 +103,25 @@
         "@types/bun",
       ],
     },
+    "packages/module-diagrams": {
+      "name": "@schlessera/brain-module-diagrams",
+      "version": "0.43.1",
+      "dependencies": {
+        "@schlessera/brain": "workspace:*",
+        "yaml": "^2.9.0",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@types/bun",
+      ],
+    },
     "packages/module-finance": {
       "name": "@schlessera/brain-module-finance",
       "version": "0.43.1",
@@ -1070,6 +1089,8 @@
     "@schlessera/brain-common": ["@schlessera/brain-common@workspace:packages/common"],
 
     "@schlessera/brain-geo": ["@schlessera/brain-geo@workspace:packages/geo"],
+
+    "@schlessera/brain-module-diagrams": ["@schlessera/brain-module-diagrams@workspace:packages/module-diagrams"],
 
     "@schlessera/brain-module-finance": ["@schlessera/brain-module-finance@workspace:packages/module-finance"],
 

@@ -403,9 +403,19 @@ async function settle(page: Page) {
   waitMetrics.retainedFrameMs += performance.now() - framesStarted;
 }
 
-async function scene(cell: Cell): Promise<Scene> {
+async function scene(cell: Cell, prepare = prepareScene): Promise<Scene> {
+  const context = await browser!.newContext({ viewport: { width: cell.width, height: cell.height }, reducedMotion: "reduce", offline: true });
+  try {
+    return await prepare(context, cell);
+  } catch (error) {
+    // Callers cannot enter their finally until scene preparation returns.
+    await context.close();
+    throw error;
+  }
+}
+
+async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene> {
   const tag = `(${cell.name})`;
-  const context = await browser!.newContext({ viewport: { width: cell.width, height: cell.height }, reducedMotion: "reduce" });
   const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
   // Keep the real browser offline apart from this one local host.
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -431,7 +441,7 @@ async function scene(cell: Cell): Promise<Scene> {
   });
   await context.addInitScript((theme) => localStorage.setItem("odysseus-continuity:brain-theme", theme), cell.theme);
   await context.addInitScript(recorder);
-  const page = await context.newPage();
+  const page = await nativeOnlinePage(context);
   page.on("websocket", (ws) => ws.on("framesent", ({ payload }) => {
     try { net.sent.push(String(JSON.parse(String(payload)).type)); } catch { net.sent.push("unreadable"); }
   }));
@@ -489,6 +499,34 @@ async function scene(cell: Cell): Promise<Scene> {
   await composer(page).focus();
   return { context, page, net, A, B, draft };
 }
+
+/**
+ * Playwright skips the initial offline:false protocol update. Start this
+ * context offline, then change its native state after a page exists, before
+ * the app loads. A loopback-only namespace otherwise starts navigator offline.
+ * Egress still belongs to the namespace and origin route; this changes no
+ * navigator property and leaves subsequent native offline/online events live.
+ */
+async function nativeOnlinePage(context: BrowserContext): Promise<Page> {
+  await context.addInitScript(() => {
+    const events: Array<{ type: string; online: boolean; trusted: boolean }> = [];
+    Object.assign(window, { __nativeConnectivity: events });
+    for (const type of ["offline", "online"]) window.addEventListener(type, event => {
+      events.push({ type: event.type, online: navigator.onLine, trusted: event.isTrusted });
+      if (events.length > 32) events.shift();
+    });
+  });
+  const page = await context.newPage();
+  expect(await page.evaluate(() => navigator.onLine), "native context starts offline").toBe(false);
+  await context.setOffline(false);
+  expect(await page.evaluate(() => navigator.onLine), "native initial upload state is online").toBe(true);
+  return page;
+}
+
+const connectivity = (page: Page) => page.evaluate(() => ({
+  online: navigator.onLine,
+  events: (window as unknown as { __nativeConnectivity: Array<{ type: string; online: boolean; trusted: boolean }> }).__nativeConnectivity,
+}));
 
 /** What the reader and the writer would notice, measured against the marks taken at the baseline. */
 type Measure = {
@@ -564,9 +602,15 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
   for (const route of uploading) await route.abort("connectionreset").catch(() => {});
   if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
   server!.stop(true);
+  const beforeOffline = await connectivity(s.page);
   await s.context.setOffline(true);
   await until(s.page, "p.wsStatus() !== 'connected' && p.vpnStatus() === 'unreachable'");
   await s.page.locator('[role="status"]', { hasText: "Connection lost" }).waitFor();
+  const offline = await connectivity(s.page);
+  expect(offline.online, "native drop reports offline").toBe(false);
+  expect(offline.events, "native drop dispatches one trusted offline event").toEqual([
+    ...beforeOffline.events, { type: "offline", online: false, trusted: true },
+  ].slice(-32));
   // Scenes measure the offline state itself. Snapshots have no held uploads
   // or offline geometry oracle; their draft save is acknowledged on recovery.
   if (preparation === "scene") await settle(s.page);
@@ -577,9 +621,15 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
 async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, "A">>, preparation: "scene" | "held-snapshot" = "scene") {
   const statusBefore = s.A ? await probe(s.page, p => p.received("status", p.activeSessionId()!)) : 0;
   listen();
+  const beforeOnline = await connectivity(s.page);
   await s.context.setOffline(false);
   await until(s.page, "p.connected() && p.vpnStatus() === 'connected'");
   await s.page.locator('[role="status"]', { hasText: "Connection lost" }).waitFor({ state: "detached" });
+  const online = await connectivity(s.page);
+  expect(online.online, "native recovery reports online").toBe(true);
+  expect(online.events, "native recovery dispatches one trusted online event").toEqual([
+    ...beforeOnline.events, { type: "online", online: true, trusted: true },
+  ].slice(-32));
   // Connected/hello precedes asynchronous history. Scenes wait for the actual
   // replay; snapshot-race cases deliberately hold history and await their own
   // release/status barrier instead.
@@ -727,6 +777,31 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       }
     }, 300_000);
   }
+  test("failed native scene preparation closes its browser context", async () => {
+    const existing = browser!.contexts();
+    const failure = new Error("fixture native connectivity failure");
+    let created: BrowserContext | undefined;
+    let page: Page | undefined;
+    try {
+      // Await native work before asserting; Bun's promise matcher can stall
+      // the browser protocol while synchronously waiting (#1993, #1999).
+      let observed: unknown;
+      try {
+        await scene(cells[0]!, async context => {
+          created = context;
+          page = await nativeOnlinePage(context);
+          throw failure;
+        });
+      } catch (error) { observed = error; }
+      expect(observed, "scene rethrows its original preparation failure").toBe(failure);
+      expect(page, "the failure happened after real native page preparation").toBeDefined();
+      expect(page!.isClosed(), "failed scene closes its page and observers").toBe(true);
+      expect(browser!.contexts(), "failed scene owns no surviving browser context").toEqual(existing);
+    } finally {
+      await created?.close();
+    }
+  });
+
   test("render readiness waits for a finite entrance even when its initial geometry is quiet", async () => {
     const context = await browser!.newContext();
     try {
@@ -752,26 +827,30 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
   });
 
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
-    const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
-    await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-    await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true }); });
-    const page = await context.newPage();
-    const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
-    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
-    let socketUrl = "";
-    page.on("websocket", (ws) => {
-      socketUrl = ws.url();
-      ws.on("framereceived", ({ payload }) => frames.push(JSON.parse(String(payload))));
-      ws.on("framesent", ({ payload }) => net.sent.push(String(JSON.parse(String(payload)).type)));
-    });
-    page.on("dialog", (dialog) => void dialog.dismiss());
+    const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce", offline: true });
     let release!: () => void;
     let peer: WebSocket | undefined;
     let sessionId = "";
+    let page: Page | undefined;
+    let appLoaded = false;
     const first = `Hold: Sail past the Sirens (snapshot ${mode})`;
     const second = `Hold: Then bind me to the mast (snapshot ${mode})`;
     try {
-      await page.goto(origin); await until(page, "p?.connected() && p.draftsSupported() === true"); await finishRender(page);
+      await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+      await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true }); });
+      page = await nativeOnlinePage(context);
+      const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
+      const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
+      let socketUrl = "";
+      page.on("websocket", (ws) => {
+        socketUrl = ws.url();
+        ws.on("framereceived", ({ payload }) => frames.push(JSON.parse(String(payload))));
+        ws.on("framesent", ({ payload }) => net.sent.push(String(JSON.parse(String(payload)).type)));
+      });
+      page.on("dialog", (dialog) => void dialog.dismiss());
+      await page.goto(origin);
+      appLoaded = true;
+      await until(page, "p?.connected() && p.draftsSupported() === true"); await finishRender(page);
       await send(page, first); await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
       sessionId = (await probe(page, (p) => p.activeSessionId()))!;
       await page.getByText("Setting out: Sail past the Sirens").first().waitFor(); await finishRender(page);
@@ -852,7 +931,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
     } finally {
       try {
         release?.(); peer?.close(); historyWaiters.delete(sessionId);
-        expect(await page.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
+        if (appLoaded) expect(await page!.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
           .toEqual({ sendRestored: true, recording: false });
       } finally { await context.close(); }
     }

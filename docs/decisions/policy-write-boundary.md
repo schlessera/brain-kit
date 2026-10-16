@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:85-262`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:93-453`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-113`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -448,13 +448,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1098`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1023-1145`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:807-831`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:831-855`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -464,17 +464,17 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:44`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:47`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
    through the held descriptor (`populate(root) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:199-221`), then opens the
+   `packages/ui-backend-claude/src/worker-state.ts:215-237`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:226-265`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:255-305`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,
@@ -591,7 +591,7 @@ result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
 `worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:239-246`). A result, success or
+`packages/ui-backend-claude/src/turn-runner.ts:247-254`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the
@@ -602,9 +602,9 @@ the worker prints after it, and a refusal is recognized by its class from any
 copy of the module. A host cancellation outranks it. Cancellation is checked
 again after worker settlement, so a buffered SDK success or error cannot
 replace an accepted cancellation while exit or copy-out is pending
-(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:250-268`).
+(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:258-276`).
 Generated terminals also await worker settlement before emission
-(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:312-352`).
+(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:320-360`).
 **Residual:** a turn that fills the tmpfs and frees space again between those
 two checks is named only if the runtime printed the write error.
 

@@ -146,6 +146,31 @@ export default mergeConfig(
             },
           },
         },
+        {
+          extends: true,
+          test: {
+            name: "ui-react-endurance",
+            // Real-time native media proof has its own scheduling and discovery;
+            // keep the same offline launch, commands and lifecycle as layout.
+            include: ["../ui-react/tests/browser/**/*.endurance.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
         storyProject("storybook", "dark"),
         storyProject("storybook-light", "light"),
         railProject("fine"),

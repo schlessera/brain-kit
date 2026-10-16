@@ -126,7 +126,7 @@ What a turn can do is the intersection of the two.
 | Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
-| Claude native `Write`/`Edit`/`NotebookEdit` | Available | Disallowed. The server tools are used instead. | Not in the roster |
+| Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |
 | Server application tools | Available | Available | Proposal route only |
 | Journal | Yes | Yes. It only ever sees named-area and server-route changes. | No authoritative changes are possible |
 
@@ -163,10 +163,22 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:554-558`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:577-581`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
+
+**2026-10-16 native-tool registration amendment (#2022, #2048 A).**
+Hosted interactive Claude keeps native file-tool definitions registered across
+`governed`, `strict` and voice turns to preserve provider prompt caching.
+Governed typed `Write`/`Edit` (and configured `NotebookEdit`) retain their
+SDK auto-allow, alongside existing server writers. Strict and voice natives
+refuse in the mandatory PreToolUse hook and permission callback before any
+handler, approval card or lock acquisition; settings and remembered grants
+cannot override that refusal. Native stale-read checks, write locks, journals
+and protected mounts still apply to governed typed execution. The autonomous
+roster and authority do not change. This amends native availability language
+above; #2048 owns the broader bridge-roster amendment.
 
 ## The policy file
 
@@ -688,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:840-868`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:864-892`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -696,14 +708,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -958,7 +970,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:112`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:118`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -970,7 +982,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:297`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -991,18 +1003,40 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+`packages/ui-backend-claude/src/permission-hooks.ts:105`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:85`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
-or authority. Both preserve ordinary next turns on the running host. Neither
-restores the observations after a backend restart; resuming a saved transcript
-after restart does not establish restart-safe stale-write protection.
+or authority. Both also retain observations in host-private records and restore them before
+resumed native tools run. Claude keeps these records beside its transcript
+archive; Pi keeps them under its host-owned session directory. Neither worker
+receives them as writable state or serialized authority. The record is bound to
+the canonical brain root and native session identity; filenames contain only a
+SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
+regular-file validation and a 16 MiB per-session metadata bound protect the
+record (`saveNativeObservations`,
+`packages/ui-sdk/src/server/native-observation-storage.ts:56-69`).
+
+Read and write admission first retain an unavailable observation. A crash after the
+worker was shown or wrote bytes but before the completion callback therefore requires
+a genuine reread; it cannot turn an observed path into a never-read path.
+Successful stable reads and completed writes retain their versions at each
+observation, rather than waiting for turn end. Corrupt, aliased or unreadable
+records refuse resume before tools run; failed retention refuses subsequent
+writes until storage recovers.
+
+A retained session from before observation persistence, or one whose record
+is missing, has incomplete read history. It requires a genuine read before a
+native write to an unrecorded path. Rereading establishes that path's current
+version. This conservative recovery cannot infer that an unrecorded path was
+never read. Sessions with complete retained observations preserve the approved
+never-read behavior across restarts. There is no reconstruction of authority
+from worker transcripts, and no extension of the observed-shell guarantee.
 
 ## Monitoring
 
@@ -1029,7 +1063,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:284`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:364`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1042,7 +1076,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:464`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,
@@ -1097,9 +1131,16 @@ second time. The concrete ledger is (`createTurnBudgets`,
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
-The same receipt drives (`inferenceBudgetNote`,
-`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
-single disclosure. Crossing keys retain once-only warning events by scope,
+The same receipt drives next-turn warning and single disclosure.
+
+> **2026-10-16 — Implementation context.** The former routine
+> [`inferenceBudgetNote`](https://github.com/schlessera/brain-kit/blob/53258a203d37ab32ae211c5f645cb32e2b3898d1/packages/ui-server/src/brain/turn-budgets.ts#L196-L198)
+> appended running totals to every governed prompt. #2051 removes that suffix
+> and strips its exact legacy shape only during UI replay, before local-command
+> and message-metadata joins; saved provider transcripts remain unchanged.
+> #2047 owns session-stable limits and actionable notices in new tail context.
+
+Crossing keys retain once-only warning events by scope,
 identity, unit and threshold. Conversation blocks offer the existing reviewed
 handoff; a new conversation does not reset the day. Day stops display the
 server's next UTC midnight. Neither stopped inference nor unavailable
@@ -1190,7 +1231,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:286`).
 
 **What changes:**
 
@@ -1210,7 +1251,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:33`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:34`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1250,7 +1291,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:186`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:189`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1262,7 +1303,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1257`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1468`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1389,7 +1430,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:84`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:86`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1434,9 +1475,9 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:120`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:61`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -1503,11 +1544,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:807-835`;
+`packages/ui-sdk/src/server/worker-launcher.ts:831-859`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:840-866`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:864-890`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1035`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1023-1082`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1735,13 +1776,82 @@ the turn may send out and how its writes are labelled.
 
 Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
 files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
-`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
-configuration, dependency manifests and retained local import/resource inputs.
-The journal follows retained literal local references as data. It never imports
-or evaluates configuration to classify it. Ignored, oversized or opaque inputs
-are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:81-90`).
+`context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
+
+- The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
+  Host commands bind that cwd to the selected brain (`function hostSpawn`,
+  `packages/ui-server/src/brain/host-boundary.ts:359-370`).
+- Bun startup uses root `bunfig.toml` and `package.json`; retained literal
+  preload/module inputs can identify a nested module's nearest package scope.
+  The inventory walks parent directories only within the originating journal
+  scope and includes that `package.json` as module-resolution metadata, without
+  activating its scripts. This follows Bun's
+  [module resolution](https://bun.sh/docs/runtime/module-resolution) and
+  [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
+- Claude's project MCP location is root `.mcp.json`; its cwd is the selected
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:264-281`).
+  Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
+  surfaces remain unchanged. Their retained module references can likewise
+  identify package metadata within that same scope.
+
+A manifest or lockfile in a dependency tree or cloned workspace does not itself
+identify a consumer. Declared projects/scripts do not establish execution.
+Root-only discovery was rejected because genuine nested module consumers need
+package metadata; any-depth basename discovery was rejected because incidental
+clones and dependencies became false seeds. No repository configuration is
+executed during discovery. Conditional package maps, computed configuration,
+unsupported commands and unobserved working directories remain coverage
+limitations; this finite mapping never claims arbitrary shell/runtime coverage.
+Ignored, oversized, unreadable and opaque genuine inputs remain named as
+classification limitations (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`).
+
+The journal follows only data-only references with a supported input role;
+quoted strings and file extensions do not establish consumption. Seed selection
+is now consumer-qualified independently of reference classification (#2028). The finite mapping is in
+(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
+
+| Consumer | Followed input role | Resolution and limits |
+| --- | --- | --- |
+| Claude instruction imports | Standalone unquoted `@path` lines outside code, recursively to four hops | File-relative literal input, including extensionless text. Inline/escaped/ambiguous forms remain unknown. See the [consumer documentation](https://code.claude.com/docs/en/memory#import-additional-files). |
+| Bun [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig#preload) | Root and `[test]` `preload` arrays | Local module references relative to the config file; other properties such as install caches are not inputs. |
+| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv relative to the manifest directory. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
+| Claude settings | `hooks.<event>[].hooks[]` with `type: command`, `command` and optional `args` | Executable roles relative to the scope root; the installed SDK settings schema supplies these fields. Prompt-hook text and arbitrary properties are not file references. Plugins remain unknown. |
+| `.mcp.json` | `mcpServers.<name>.command` and `args` | Same literal executable/interpreter roles; network server URLs and ordinary arguments are not local steering dependencies. |
+| Pi settings | `extensions`, `skills`, `prompts`, `themes` arrays | Relative to the settings directory, matching the installed `DefaultPackageManager.resolve` consumer. Computed/glob/package/directory discovery stays unknown. |
+| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, relative to the config, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
+| Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
+
+This mapping was checked against core's (`loadModules`,
+`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
+`packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
+Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
+schema. Nothing imports or evaluates repository configuration on the host.
+Followed JSON resources do not acquire configuration-consumer semantics merely
+from a basename; configuration roles belong to known seeds. Both retained-object
+and sealed-root readers share classification and the
+1 MiB input bound (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`). Ignored, unreadable,
+oversized, unsupported or ambiguous inputs are named as coverage limitations;
+unknown never fabricates a consumed path or a claim of complete runtime coverage.
+
+The resolved disposable index and its `-wal`, `-shm`, `-journal` sidecars are
+excluded by exact journal-relative identity before reference lookup. Core's
+current identity is `<root>/brain.db`, established by (`initContext`,
+`packages/core/src/lib/context.ts:36-52`); core has no configurable index-location
+field. Internal callers may supply an already resolved identity without
+executing configuration. This excludes no unrelated same-basename resource.
+The inventory preserves scope boundaries, policy exclusions and bounded
+readers (`steeringInventory`,
+`packages/ui-server/src/brain/journal-steering.ts:20-107`).
+
+The maintainer selected role classification over an index-only exception,
+script-extension whitelist or their combination (#2026): none of those
+alternatives distinguishes a genuine extensionless instruction input from an
+ordinary output or data argument. This changes classification only; operational
+file presentation and observed-path accounting remain separate.
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1755,7 +1865,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:184-252`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;
@@ -1832,7 +1942,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:473-517`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:475-522`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
@@ -1876,6 +1986,24 @@ model and the profile. An event whose turn never named a session, such as a
 new conversation refused at admission, has no catalog row to live with and is
 kept for 90 days.
 
+### Main-model attribution timing
+
+The maintainer's 2026-10-16 ruling (#2037) chooses additive runtime main-model
+identity propagation and guarded active-turn journal binding. Admission remains
+before worker execution: explicitly configured identity is usable immediately;
+runtime defaults remain unknown until the backend reports its executing main
+model. Helper/subagent usage and mixed-model totals cannot choose that identity.
+Runtime reports are scoped to the current turn and session; cancellation,
+completion and a reused bridge cannot revive or change a finished turn.
+
+Governance records are snapshots of identity known at emission. Earlier nulls
+remain null in stored, live, replayed and exported evidence. Only the correlated
+active journal summary gains the reported identity; there is no backfill,
+amendment stream or read-time enrichment. This deliberately accepts incomplete
+early attribution rather than rewriting emitted evidence or introducing an
+unselected provenance representation. An admission refusal cannot acquire an
+invented runtime identity. See the [interface contract](../integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
+
 ### Roadblocks
 
 A roadblock is a failed step inside a turn. The kinds are:
@@ -1892,28 +2020,50 @@ A roadblock is a failed step inside a turn. The kinds are:
 frames it already relays, and from the governance events, with deterministic
 rules and no model call:
 
-- An **episode** opens at a failed step and closes at the next successful
-  step of the same tool family, or at turn end.
+- An **episode** opens at a failed step and resolves at the next successful
+  step of the same tool family. Without that path it remains unresolved.
 - The episode records the failing calls, the **resolving path** if there was
   one, and the **waste**: the tokens, cost and time spent between failure and
   resolution.
-- **The remedy class.** An episode that was resolved with a capability the
-  turn already had is classed as **guidance**. An episode that was never
-  resolved, or was resolved only through a workaround such as writing to turn
-  temp, is classed as **capability**.
+- **The remedy class.** A resolving capability the turn already had means
+  **guidance**; a turn-temp workaround means **capability**. An unresolved
+  episode with exactly one failure, no retry and a later eligible success is
+  **abandoned**. Repeated unresolved failures remain **capability**.
+- **Unresolved waste has an accounting boundary.** After the last failure is
+  known, the first successful call of any family that starts strictly later
+  bounds waste at its start. A success already in flight does not qualify.
+  Without one, waste runs through turn end. Usage is sampled at the boundary;
+  final turn usage is used only for a turn-end bound. Unknown evidence stays
+  unknown. Actual same-family resolution retains its original bound/remedy.
+
+**Superseding the original rule (#2034, maintainer decision 2026-10-16).**
+Originally every unresolved episode meant capability and waste through turn
+end. This exaggerated isolated missing-path probes even after successful work
+on another path. The selected boundary and abandoned inference are deterministic
+accounting/diagnostics: an unrelated success can underestimate causal waste,
+and neither proves the missing capability became available or intent was
+satisfied. Semantic `resolution` remains null without a same-family resolving
+path. Keeping the old upper bound preserves noisy rankings; bounding alone
+still labels isolated probes capability; direct-only attribution misses recovery
+effort; cross-family intent inference would require unselected heuristics or a
+model. Historical stored events are retained without reclassification.
 
 **How #1671 built it.** The turn recorder already sees every relayed frame for
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:462`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
 
 - **Families are narrow enough to mean "the same intent".** A shell call's
   family is its program, plus the subcommand for multi-command programs such
-  as `git push`. Otherwise any later `ls` would resolve a failed `git push`.
+  as `git push`. Compound-command headers and reserved words are structure:
+  `for …; do git push …; done` shares the plain `git push` family. Conditions,
+  iteration lists and case patterns do not become the body program. This
+  remains a segment-based heuristic rather than a full shell parser.
+  Otherwise any later `ls` would resolve a failed `git push`.
   File tools from both backends share `file_write` and `file_read`, so Claude's
   `Write` and pi's `write_file` group together.
 - **Failure causes are read from what each backend reports.** Claude Code
@@ -1939,9 +2089,10 @@ The choices that shape the report:
   when its result arrived, so a parallel call that started earlier never
   counts as the way around it.
 - **Waste is measured, never estimated.** Tokens and cost come from cumulative
-  usage reported during the turn. Today only autonomous turns report it, so
-  interactive and voice episodes record `null` until the general usage frame
-  of #1669 feeds the same samples. Time is always recorded.
+  usage reported during the turn, including source-qualified completed inference
+  from interactive, voice and autonomous turns. Missing token or cost samples
+  remain `null`; a final result total cannot fill an earlier boundary. Time is
+  always recorded.
 
 **The report.** Session history and Activity live only in the host's
 `brain-ui.db`. The `brain` CLI never opens that database, and workers cannot
@@ -1953,8 +2104,12 @@ The endpoint ranks roadblock signatures across sessions by frequency and by
 waste, each with its suggested remedy class and example turns. #1672 implements
 four separate rankings (count, measured tokens, measured cost, time) through
 one retained-event aggregation (`export function queryRoadblockReport`,
-`packages/ui-server/src/governance/roadblock-report.ts:23-76`). Mixed remedies are
-reported as guidance/capability counts; no remedy is discarded. Unknown-cost
+`packages/ui-server/src/governance/roadblock-report.ts:24-79`). Mixed remedies are
+reported as guidance/capability/abandoned counts. The default actionable view
+excludes abandoned episodes before grouping, ranking, totals and example turns;
+`remedy=all` includes them and a named remedy selects only that class. This
+filter is identical over HTTP and `query_activity`; retained event reads still
+expose the original evidence. Unknown-cost
 and unknown-token counts accompany sums of known values, which remain null
 when no measurement exists. [The tool contract](../integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__)
 specifies limits and deterministic ties. Everything stays

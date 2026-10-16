@@ -97,6 +97,16 @@ ownership rather than being duplicated here.
 
 ## Continuity settling boundaries
 
+Networked continuity contexts start with native offline state, create their
+page, then explicitly transition online before loading the app. Playwright's
+initial online default can inherit an offline host namespace; a connected
+loopback WebSocket alone does not establish the upload queue's native online
+precondition. The fixture asserts both starting states, and every subsequent
+drop/recovery checks native connectivity and one trusted offline/online event.
+No navigator property is replaced. Namespace and local-origin guards still
+restrict egress. Failed scene preparation closes its owned browser context,
+including its page listeners, before rethrowing the original failure.
+
 The rendering helper (`finishRender`,
 `packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
@@ -1605,3 +1615,104 @@ post-content check still leaves later checks, and removing close memoization
 alone does not duplicate the selected closer invocation. They are retained as
 limits of those controls, not claimed as detected faults. All mutations were
 restored before the passing paired candidate run.
+
+## Expanded replay-card preparation
+
+The [replay-card evidence](evidence/test-wait-replay-card-readiness.json) records
+#1948 at source `11655e165`. All sixteen finished/live, split-run/text, width and
+theme cells remain. The separate two-cell suffix body, transient-removal
+observer, native painted frames, geometry, scroll, focus and no-send proof are
+byte-identical. All nineteen original matcher expressions remain unchanged.
+
+The three expanded-card preparations observe the actual committed summary,
+visible tool header or expanded input. Message shells reach opacity one and an
+identity transform; the detail's Motion owner reaches inline `height:auto` and
+opacity one. The helper checks fonts and re-enumerates current finite native
+effects on every painted poll, including pending and paused effects. It does
+not swallow rejected animation promises or assume cancellation is completion.
+The native cancel/replacement control uses a transform independent of those
+opacity/height endpoints; removing the animation guard fails its finished-state
+assertion. The layout project's original reduced-motion setting remains, and
+these measurements do not claim a full-motion duration was exercised.
+
+Source review limits the completion claim: these ephemeral roots have no
+local-work restore, never invoke tracked-session opening, and expand tools
+through direct committed handlers. The helper is not a general quiet-period
+oracle. Reconnect/replay remains driven by the original fault-network double
+inside the native rendered browser. No native host/socket proof is invented.
+The expanded fixture registers cleanup before partial setup and attempts every
+owned cleanup even after a failure, preserving errors. Native failed-assertion,
+throwing-dispose and pre-host setup controls verify disposal, exact global
+WebSocket descriptor, theme and viewport restoration, and DOM/style removal.
+The unchanged suffix theme-restoration defect is separately tracked in #2021.
+
+The final instrumented pair runs 18/19 cases with 636/702 Vitest assertion calls;
+those counters include polling and locator internals. The candidate adds one
+helper control. GNU host command time changes from 34.84 to 17.51 seconds;
+Vitest time changes from 29.83 to 12.54 seconds and reported test bodies from
+27.65 to 10.58 seconds. Setup is 9/8 ms and import is 1.26/1.12 seconds. The forty
+preparation waits consume 20004.3 ms; forty readiness calls consume 3187.0 ms.
+Old frame pairs follow their wait counters, while readiness includes its frames:
+these are not identical span units or additive whole-command savings. Both
+500 ms suffix windows remain (1000.3/1000.4 ms observed). This is one shared-host
+pair with an additional control, not a guaranteed twenty-second or whole-CI gain.
+GNU CPU/RSS cover only host Node/Docker-client processes; browser container
+CPU/RSS are unmeasured. Private dependency installation and build are separate.
+
+Delaying the real expansion handler by 150 ms passes with readiness and fails
+the original expanded-before-fault assertion when readiness is bypassed. Native
+next-frame remount and focus-steal controls after recovered status fail the
+original header-identity and composer-focus assertions. They establish those
+oracles' sensitivity, not the absence of arbitrary future callbacks. All faults
+are restored. The initial shared-cache Vitest instrumentation from #1980 and a
+font-cache permission setup failure are retained as diagnostics; qualification
+uses fresh private-cache copies whose Vitest chunk matches the independently
+integrity-verified npm archive, plus an owned font-cache directory. Shared
+caches and the lockfile are unchanged.
+
+## Cold-capture Record readiness
+
+The [cold-capture receipt](evidence/test-wait-cold-capture-readiness.json)
+attributes the original command to `abe5086df48883bc270a36edb127b05519398332`
+and records the candidate command hash, exact control diffs and native logs.
+Storage recovery enables the Record control; the earlier locked-inventory
+assertion already requires its subsequent refresh. The gate directly renders
+the local screen. Neither that screen nor its Button has an entrance animation.
+A native trial click checks the actual enabled, visible, stable pointer target
+before the original fine-pointer focus/Enter or coarse-pointer real click.
+The heading and Stop-and-save focus assertions remain separate observations.
+This readiness check does not drain arbitrary future callbacks.
+
+Both full files pass all 31 original cases: sixteen width/theme/pointer cells
+and fifteen boundary cases. All 68 authored assert expressions are unchanged.
+The changed preparation executes twenty times: the sixteen cold cells plus
+reauthentication, Continue while recording, disposal and failed live discard.
+The three separate reauthentication 350 ms waits, twenty native 1,300 ms audio
+waits, three 150 ms negative windows and 200 ms disposal observation remain.
+No native media clock, production behavior, discovery or matrix changes.
+
+One serialized shared-host pair in the pinned Playwright 1.63.0 image measures
+74.62 → 66.83 host command seconds, 69.37 → 61.52 Vitest seconds and
+68.65 → 60.71 test-body seconds. The removed preparation spans total
+7,009.820 ms. Candidate trial spans total 602.225 ms across twenty calls,
+including twelve relocated fine-pointer trials and eight new coarse trials;
+the original fine trials were not separately timed, so this is not net added
+work. Native audio spans remain 26,014.908 / 26,015.803 ms. Vitest setup/import
+is 8/5 versus 9/6 ms; worker, server, cache, storage and media setup also occurs
+inside the per-case spans. GNU CPU/RSS describes only the host wrapper/client,
+not daemon-owned browser processes. Browser CPU/RSS and cgroup quotas are
+unmeasured. An initial passing invocation waited for build ownership and is
+preserved separately, outside the matched comparison. These observations are
+not a performance guarantee or inferred whole-CI saving.
+
+A temporarily disabled native target, released after 700 ms, passes both input
+paths. Skipping the trial makes the original keyboard interaction fail to
+reach recording; this is an interaction timeout, not an audio assertion.
+A held-disabled target reaches the trial's enabled-state diagnostic. Delaying
+the production recording-focus effect fails the original Stop-and-save focus
+assertion. Dropping actual media deliveries fails the committed-audio assertion;
+mounting protected content on reachability fails the explicit-Continue assertion.
+Every fault closes its browser context and loopback server; restored fine and
+coarse controls pass. Temporary sources and DOM state are confined to those
+controls and restored. Narrow dark/light screenshots were inspected with the
+original accessibility, fitting, privacy and recording assertions retained.
