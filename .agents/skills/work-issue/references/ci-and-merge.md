@@ -38,6 +38,16 @@ and independently validating aggregate. Preserve original identities; do not
 describe retained jobs as executions on the new SHA. Native/Git-dependent and
 unknown domains, main pushes and scheduled/manual coverage remain fresh.
 
+A draft-to-ready transition can retain GitHub's previous PR base and synthetic
+merge ref even after live main advances. Before requesting expensive confirmation,
+read the REST pull request's `base.sha` and fetch `refs/pull/<pr>/merge`; verify
+its immutable parents against the independently queried live base and current
+head. If those still describe the old base, keep the PR draft and refresh the
+branch onto the verified live base, preserving source receipts where their
+inputs are unchanged. Rerun focused preflight, push, and verify the refreshed
+merge parents before marking ready. A new event alone does not establish a
+fresh candidate; selected job checkout and aggregate checks remain required.
+
 ## Read the actual head
 
 For stacked PRs, apply [Stacked PR evidence](#stacked-pr-evidence) below;
