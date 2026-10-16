@@ -267,13 +267,29 @@ test("historical zero-duration transcript text is never relabeled as a fresh mic
   const f = await fixture(); await f.audio();
   f.emit({ ...input("Historical context.", "context-1"), end_ms: 0 });
   f.emit(input("The new Ithaca note.", "actual-1"));
-  await until(() => f.received.some((e) => e.kind === "input_fragment"));
+  await until(() => f.received.some((e) => e.kind === "input_fragment" && e.text === "The new Ithaca note."));
   expect(f.received.filter((e) => e.kind === "input_fragment").map((e) => e.kind === "input_fragment" ? e.text : "")).toEqual(["The new Ithaca note."]);
 });
 
 
 test("a delegation with an unknown explicit audio command identity is not rebound implicitly", async () => {
   const f = await fixture(); await f.audio(); f.emit(delegation("foreign", "unknown-command"));
-  await until(() => f.received.some((e) => e.kind === "error"));
+  await until(() => f.received.some((e) => e.kind === "error" || e.kind === "work_requested"));
   expect(f.received.some((e) => e.kind === "work_requested")).toBe(false);
+  expect(f.received.some((e) => e.kind === "error")).toBe(true);
+});
+
+
+test("the native primary socket refuses redirects instead of forwarding Bearer credentials", async () => {
+  let redirectedRequests = 0;
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { redirectedRequests++; return new Response(null, { status: 400 }); } });
+  const source = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${target.port}` } }); } });
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: class extends NativeWebSocket {
+    static OPEN = 1;
+    constructor(_url: string, options?: Bun.WebSocketOptions) { super(`ws://127.0.0.1:${source.port}`, options); }
+  } });
+  const abort = new AbortController();
+  cleanup = () => { abort.abort(); source.stop(true); target.stop(true); };
+  await expect(createGptLiveConversationProvider("keyless-odyssey-placeholder").open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, resync: { work: [] } })).rejects.toThrow("GPT-Live connection failed.");
+  expect(redirectedRequests).toBe(0);
 });
