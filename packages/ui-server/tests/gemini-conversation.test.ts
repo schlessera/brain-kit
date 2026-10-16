@@ -235,3 +235,27 @@ test("unconsumed event overflow closes capture and replaces stale audio with a v
   expect((await events.next()).done).toBe(true);
   expect(() => f.session.appendAudio({ utteranceId: "u1", sequence: 0, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("ended");
 });
+
+
+test("a transcription finish marker cannot cover later audio appended to the same utterance", async () => {
+  const f = await fixture(); await f.audio();
+  f.emit({ serverContent: { inputTranscription: { text: "Capture the Ithaca note.", finished: true } } });
+  await until(() => f.received.some((e) => e.kind === "input_fragment"));
+  f.session.appendAudio({ utteranceId: "u1", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) });
+  f.session.markEndpoint("u1");
+  expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 2, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("correlation");
+});
+
+
+test("a fresh finish after continued audio permits the next utterance", async () => {
+  const f = await fixture(); await f.audio();
+  f.emit({ serverContent: { inputTranscription: { text: "Capture the Ithaca note.", finished: true } } });
+  await until(() => f.received.some((e) => e.kind === "input_fragment"));
+  f.session.appendAudio({ utteranceId: "u1", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) });
+  f.session.markEndpoint("u1");
+  await until(() => f.sent.filter((m) => m.realtimeInput?.audio).length === 2);
+  f.emit({ serverContent: { inputTranscription: { text: "Before the departure.", finished: true } } });
+  await until(() => f.received.filter((e) => e.kind === "input_fragment").length === 2);
+  expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 2, rate: 16000, pcm: new Uint8Array([0, 0]) })).not.toThrow();
+  await until(() => f.sent.filter((m) => m.realtimeInput?.audio).length === 3);
+});

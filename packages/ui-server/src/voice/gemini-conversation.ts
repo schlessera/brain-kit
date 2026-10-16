@@ -213,6 +213,9 @@ async function openGemini(
         inputId = chunk.utteranceId; activeInput = chunk.utteranceId; inputSequence = 0; inputFinished = false;
         send({ realtimeInput: { activityStart: {} } });
       }
+      // A finish marker covers only audio already appended when it arrived.
+      // Continued capture needs a fresh marker before another input id.
+      inputFinished = false;
       lastAudio = chunk.sequence;
       send({ realtimeInput: { audio: { data: Buffer.from(chunk.pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } } });
     },
