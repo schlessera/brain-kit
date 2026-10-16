@@ -250,16 +250,22 @@ connected browser. `query_activity`
 The `roadblocks` scope reads retained governance episodes rather than prunable
 Activity details. Optional `hoursBack` is an integer from 1 to 2160 (default
 24), and `limit` is an integer from 1 to 100 (default 20), applied separately
-to each ranking after all episodes in the window have been aggregated. The
+to each ranking after selected episodes in the window have been aggregated.
+Optional `remedy` is `actionable` (default), `all`, `guidance`, `capability`, or
+`abandoned` (#2034). Actionable excludes abandoned episodes before aggregation,
+rankings, totals and examples; all includes them, and a named remedy selects
+only that class. Abandoned indicates one unresolved failure with no retry and
+an eligible later successful step; it does not prove intent was satisfied. The
 result has `windowHours`, `episodes` (valid episodes), `totalGroups`,
 `unavailableEpisodes` (unsupported versions or invalid stored payloads), and
 four arrays of groups: `byCount`, `byTokens`, `byCostUsd`, `byTime`.
 
 Each group has the classifier's normalized `signature`, episode `count`,
-`remedies: { guidance, capability }` counts, `resolved` count,
+`remedies: { guidance, capability, abandoned }` counts, `resolved` count,
 `resolutionRate` (resolved/count), `waste: { tokens, costUsd, ms,
 unknownTokens, unknownCostUsd }`, and up to five distinct `exampleTurnIds`
-in event-id order. Mixed remedy counts retain both classes. Waste totals sum
+in event-id order. Mixed remedy counts retain all selected classes. Historical version-1 evidence
+is read as recorded, without synthesizing abandoned classifications. Waste totals sum
 measured values only; tokens/cost remain `null` when none were measured, and
 the unknown counts disclose incomplete coverage. A genuine measured zero is
 zero. Rankings descend by their named metric; unknown totals follow measured

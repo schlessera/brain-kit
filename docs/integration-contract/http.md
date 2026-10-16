@@ -152,7 +152,15 @@ payload fields. A kind no release emits yet may still change its version 1
 payload before its emitter ships.
 
 The server emits `roadblock` from #1671 on, so its version 1 payload is now
-fixed. Its `signature` is a grouping key whose format the HTTP specification
+extended additively by #2034 with remedy `abandoned`; existing values and stored
+version-1 evidence retain their meaning and are never rewritten. Unresolved
+waste now stops at the first success starting strictly after the last failure
+was known, without inventing semantic resolution. A single such failure with
+no retry is abandoned; repeated unresolved failures remain capability.
+The report's optional `remedy` filter matches `query_activity`: `actionable`
+(default, excludes abandoned before aggregation), `all`, or one of `guidance`,
+`capability`, `abandoned`. Counts add `abandoned`. This is an approved breaking meaning/default change before 1.0, shipped in a
+minor under the recorded #2034 maintainer ruling. Its `signature` is a grouping key whose format the HTTP specification
 defines, so readers such as a roadblock report can group episodes across
 sessions by comparing signatures for equality.
 

@@ -1109,9 +1109,16 @@ second time. The concrete ledger is (`createTurnBudgets`,
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
-The same receipt drives (`inferenceBudgetNote`,
-`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
-single disclosure. Crossing keys retain once-only warning events by scope,
+The same receipt drives next-turn warning and single disclosure.
+
+> **2026-10-16 — Implementation context.** The former routine
+> [`inferenceBudgetNote`](https://github.com/schlessera/brain-kit/blob/53258a203d37ab32ae211c5f645cb32e2b3898d1/packages/ui-server/src/brain/turn-budgets.ts#L196-L198)
+> appended running totals to every governed prompt. #2051 removes that suffix
+> and strips its exact legacy shape only during UI replay, before local-command
+> and message-metadata joins; saved provider transcripts remain unchanged.
+> #2047 owns session-stable limits and actionable notices in new tail context.
+
+Crossing keys retain once-only warning events by scope,
 identity, unit and threshold. Conversation blocks offer the existing reviewed
 handoff; a new conversation does not reset the day. Day stops display the
 server's next UTC midnight. Neither stopped inference nor unavailable
@@ -1202,7 +1209,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:281`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:283`).
 
 **What changes:**
 
@@ -1991,21 +1998,39 @@ A roadblock is a failed step inside a turn. The kinds are:
 frames it already relays, and from the governance events, with deterministic
 rules and no model call:
 
-- An **episode** opens at a failed step and closes at the next successful
-  step of the same tool family, or at turn end.
+- An **episode** opens at a failed step and resolves at the next successful
+  step of the same tool family. Without that path it remains unresolved.
 - The episode records the failing calls, the **resolving path** if there was
   one, and the **waste**: the tokens, cost and time spent between failure and
   resolution.
-- **The remedy class.** An episode that was resolved with a capability the
-  turn already had is classed as **guidance**. An episode that was never
-  resolved, or was resolved only through a workaround such as writing to turn
-  temp, is classed as **capability**.
+- **The remedy class.** A resolving capability the turn already had means
+  **guidance**; a turn-temp workaround means **capability**. An unresolved
+  episode with exactly one failure, no retry and a later eligible success is
+  **abandoned**. Repeated unresolved failures remain **capability**.
+- **Unresolved waste has an accounting boundary.** After the last failure is
+  known, the first successful call of any family that starts strictly later
+  bounds waste at its start. A success already in flight does not qualify.
+  Without one, waste runs through turn end. Usage is sampled at the boundary;
+  final turn usage is used only for a turn-end bound. Unknown evidence stays
+  unknown. Actual same-family resolution retains its original bound/remedy.
+
+**Superseding the original rule (#2034, maintainer decision 2026-10-16).**
+Originally every unresolved episode meant capability and waste through turn
+end. This exaggerated isolated missing-path probes even after successful work
+on another path. The selected boundary and abandoned inference are deterministic
+accounting/diagnostics: an unrelated success can underestimate causal waste,
+and neither proves the missing capability became available or intent was
+satisfied. Semantic `resolution` remains null without a same-family resolving
+path. Keeping the old upper bound preserves noisy rankings; bounding alone
+still labels isolated probes capability; direct-only attribution misses recovery
+effort; cross-family intent inference would require unselected heuristics or a
+model. Historical stored events are retained without reclassification.
 
 **How #1671 built it.** The turn recorder already sees every relayed frame for
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:461`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:462`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
@@ -2042,9 +2067,10 @@ The choices that shape the report:
   when its result arrived, so a parallel call that started earlier never
   counts as the way around it.
 - **Waste is measured, never estimated.** Tokens and cost come from cumulative
-  usage reported during the turn. Today only autonomous turns report it, so
-  interactive and voice episodes record `null` until the general usage frame
-  of #1669 feeds the same samples. Time is always recorded.
+  usage reported during the turn, including source-qualified completed inference
+  from interactive, voice and autonomous turns. Missing token or cost samples
+  remain `null`; a final result total cannot fill an earlier boundary. Time is
+  always recorded.
 
 **The report.** Session history and Activity live only in the host's
 `brain-ui.db`. The `brain` CLI never opens that database, and workers cannot
@@ -2056,8 +2082,12 @@ The endpoint ranks roadblock signatures across sessions by frequency and by
 waste, each with its suggested remedy class and example turns. #1672 implements
 four separate rankings (count, measured tokens, measured cost, time) through
 one retained-event aggregation (`export function queryRoadblockReport`,
-`packages/ui-server/src/governance/roadblock-report.ts:23-76`). Mixed remedies are
-reported as guidance/capability counts; no remedy is discarded. Unknown-cost
+`packages/ui-server/src/governance/roadblock-report.ts:24-79`). Mixed remedies are
+reported as guidance/capability/abandoned counts. The default actionable view
+excludes abandoned episodes before grouping, ranking, totals and example turns;
+`remedy=all` includes them and a named remedy selects only that class. This
+filter is identical over HTTP and `query_activity`; retained event reads still
+expose the original evidence. Unknown-cost
 and unknown-token counts accompany sums of known values, which remain null
 when no measurement exists. [The tool contract](../integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__)
 specifies limits and deterministic ties. Everything stays

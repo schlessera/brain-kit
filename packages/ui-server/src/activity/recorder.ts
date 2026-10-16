@@ -95,7 +95,8 @@ export interface TurnRecorder {
    */
   /** Host budget stop outranks the runtime cancellation it caused. */
   recordBudgetStop(reason: string, errorClass?: "budget_exceeded" | "budget_unavailable"): void;
-  finish(disposition: "success" | "error" | "cancelled" | "timeout"): void;
+  /** An explicit host failure reason wins over a backend result's message. */
+  finish(disposition: "success" | "error" | "cancelled" | "timeout", reason?: string): void;
 }
 
 export function createTurnRecorder(
@@ -134,6 +135,7 @@ export function createTurnRecorder(
   let finished = false;
   /** Buffered terminal enrichment from the result frame. */
   let resultOutcome: SpanOutcome | null = null;
+  let resultFailureReason: string | undefined;
   let resultUsage: SpanUsage | undefined;
   let mainModel: string | null = null;
   let resultAttrs: Record<string, unknown> | undefined;
@@ -320,6 +322,7 @@ export function createTurnRecorder(
                   : msg.outcomeDetail === "max_turns" || msg.outcomeDetail === "max_budget"
                     ? "timeout"
                     : "error";
+            resultFailureReason = msg.failure?.message;
             outcomeDetail = msg.outcomeDetail ?? null;
             if (msg.usage) resultUsage = usageFromTurnUsage(msg.usage);
             if (typeof msg.costUsd === "number") {
@@ -577,7 +580,7 @@ export function createTurnRecorder(
     recordAutonomousStop() { autonomousStop = true; },
     recordBudgetStop(reason,errorClass="budget_exceeded") { budgetStop = {reason,errorClass}; },
 
-    finish(disposition) {
+    finish(disposition, reason) {
       guard(() => {
         if (finished) return;
         finished = true;
@@ -585,13 +588,14 @@ export function createTurnRecorder(
         ensureRoot();
         // Merged precedence: the buffered result enrichment refines the
         // host's own disposition; the host wins only where the backend said
-        // nothing. Cancellation/timeout are host-owned facts and always win.
+        // nothing, or explicitly supplies its own failure. Cancellation/timeout
+        // are host-owned facts and always win.
         // An auth failure is a failed run even where the runtime's own result
         // frame reports success (the SDK does, with is_error set; #191).
         const outcome: SpanOutcome =
           disposition === "cancelled" || disposition === "timeout"
             ? disposition
-            : budgetStop || authFailed
+            : budgetStop || authFailed || (disposition === "error" && reason !== undefined)
               ? "error"
               : (resultOutcome ?? disposition);
         // A successful autonomous checkpoint can use completed responses;
@@ -608,7 +612,9 @@ export function createTurnRecorder(
           outcome,
           usage: resultUsage,
           attrs: { ...resultAttrs, ...(budgetStop ? {"brain.failure.class":budgetStop.errorClass} : {}) },
-          ...(budgetStop ? {reason:budgetStop.reason} : {}),
+          ...((outcome === "error" || outcome === "timeout") && (reason ?? budgetStop?.reason ?? resultFailureReason) !== undefined
+            ? { reason: clip((reason ?? budgetStop?.reason ?? resultFailureReason)!, 500) }
+            : {}),
         });
         // Anything still open died with the turn.
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);

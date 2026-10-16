@@ -18,6 +18,7 @@ import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
 import type { DraftStore } from "../drafts/store.js";
+import { stripLegacyBudgetNotes } from "./legacy-budget-notes.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
 import type { AgentBackend, LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
@@ -570,7 +571,7 @@ export class WsHost {
     messages = this.policyProposals?.attachHistory(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
-    const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
+    const { messages: stripped, carriers } = stripLocalContext(stripLegacyBudgetNotes(messages), exchanges);
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
     const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
     return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;

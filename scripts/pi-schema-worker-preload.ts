@@ -28,7 +28,9 @@ plugin({ name: "measure-pi-native-worker", setup(build) {
       source = `import { createMeasurementModelRuntime } from ${helper};\n` + source;
       source = replaceExactly(source, "await ModelRuntime.create(options.modelRuntimeOptions)", "await createMeasurementModelRuntime()", 2);
     } else if (path.endsWith("worker-entry.ts")) {
-      source = `import { waitPiSchemaCaptures } from ${capture};\nimport { flushMeasurementFiles } from ${receipts};\n` + source;
+      source = `import { adoptMeasurementPreparedPrompt } from ${helper};\nimport { waitPiSchemaCaptures } from ${capture};\nimport { flushMeasurementFiles } from ${receipts};\n` + source;
+      source = replaceExactly(source, 'void session!.prompt(msg.text, msg.options)',
+        'adoptMeasurementPreparedPrompt(msg.__measurementPrompt);\n      void session!.prompt(msg.text, msg.options)');
       source = replaceExactly(source, "await syncAuth();", "await waitPiSchemaCaptures(); flushMeasurementFiles(); await syncAuth();", 2);
     } else {
       source = `import { measurementFixtureGuard } from ${helper};\n` + source;

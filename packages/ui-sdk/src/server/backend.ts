@@ -225,6 +225,8 @@ export interface BackendBridge {
 
 /** A read over the activity record, shaped for model consumption. */
 export interface ActivityQuery {
+  /** Roadblocks only; default actionable excludes abandoned before aggregation. */
+  remedy?: "actionable" | "all" | "guidance" | "capability" | "abandoned";
   scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
   /** Required for scope "run". */
   runId?: string;

@@ -597,3 +597,70 @@ test("ordinary completed inference measures roadblock waste without resumed term
   expect(roadblocks()[0]?.payload,"BUDGET_GENERAL_ROADBLOCK_WASTE_IS_PER_TURN").toMatchObject({waste:{tokens:10,costUsd:0.5}});
  }finally{clock.mockRestore();db.close()}
 });
+
+
+describe("abandoned accounting boundary", () => {
+  const missing = (id = "probe", at = 100) => call(id, "Read", { file_path: "notes/missing.md" }, at, { output: "ENOENT", isError: true });
+  const success = (at = 500) => call("search", "Grep", { pattern: "Ithaca" }, at, { output: "notes/odyssey.md" });
+  const usage = { usage: [{ at: T0 + 50, tokens: 10, costUsd: 0.01 }, { at: T0 + 400, tokens: 30, costUsd: 0.03 }],
+    finalUsage: { tokens: 1000, costUsd: 1 } };
+  test("single missing-path probe is abandoned and bounded at eligible other-family success start", () => {
+    const [episode] = classifyRoadblocks(trace([missing(), success()], usage), []);
+    expect(episode).toMatchObject({ remedy: "abandoned", resolution: null, waste: { tokens: 20, ms: 400 } });
+    expect(episode!.waste.costUsd).toBeCloseTo(0.02);
+  });
+  test("parallel success and success at failure-known time are not recovery evidence", () => {
+    for (const at of [110, 150]) {
+      const [episode] = classifyRoadblocks(trace([missing(), success(at)], usage), []);
+      expect(episode).toMatchObject({ remedy: "capability", resolution: null, waste: { tokens: 990, ms: 9900 } });
+    }
+  });
+  test("a later failure resets the boundary and repeated unresolved failures remain capability", () => {
+    const [episode] = classifyRoadblocks(trace([missing(), success(200), missing("retry", 300), success(700)], usage), []);
+    expect(episode).toMatchObject({ remedy: "capability", resolution: null, waste: { ms: 600, tokens: 20 } });
+    const [withoutSuccess] = classifyRoadblocks(trace([missing(), missing("retry", 300)], usage), []);
+    expect(withoutSuccess).toMatchObject({ remedy: "capability", waste: { ms: 9900, tokens: 990 } });
+  });
+  test("bounded unknown usage never borrows the final turn total", () => {
+    const [episode] = classifyRoadblocks(trace([missing(), success()], { finalUsage: usage.finalUsage }), []);
+    expect(episode).toMatchObject({ remedy: "abandoned", waste: { tokens: null, costUsd: null, ms: 400 } });
+    const [partial] = classifyRoadblocks(trace([missing(), success()], { ...usage,
+      usage: [{ at: T0 + 400, tokens: null, costUsd: 0.03 }] }), []);
+    expect(partial).toMatchObject({ waste: { tokens: null, costUsd: 0.03 } });
+  });
+  test("later actual same-family resolution preserves guidance and its original bound", () => {
+    const fixed = call("read-found", "Read", { file_path: "notes/odyssey.md" }, 900, { output: "Ithaca" });
+    const [episode] = classifyRoadblocks(trace([missing(), success(), fixed], usage), []);
+    expect(episode).toMatchObject({ remedy: "guidance", resolution: { toolCallId: "read-found" }, waste: { ms: 800 } });
+  });
+});
+
+
+test("source-qualified recorder retains abandoned probe evidence after a successful answer", () => {
+  let now = T0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const { db, recorder, roadblocks } = recorded("turn-abandoned-recorder");
+  try {
+    now += 100;
+    recorder.observeFrame({ type: "tool_use_start", toolUseId: "probe", toolName: "Read" });
+    recorder.observeFrame({ type: "tool_use_complete", toolUseId: "probe", toolName: "Read", input: { file_path: "notes/missing.md" } });
+    now += 50;
+    recorder.observeFrame({ type: "tool_result", toolUseId: "probe", output: "ENOENT", isError: true });
+    now += 50;
+    recorder.observeActivity({ kind: "usage", atToolBoundary: true, usage: { inputTokens: 20, costUsd: 0.02 } });
+    now += 100;
+    recorder.observeFrame({ type: "tool_use_start", toolUseId: "search", toolName: "Grep" });
+    recorder.observeFrame({ type: "tool_use_complete", toolUseId: "search", toolName: "Grep", input: { pattern: "Ithaca" } });
+    now += 50;
+    recorder.observeFrame({ type: "tool_result", toolUseId: "search", output: "notes/odyssey.md", isError: false });
+    now += 100;
+    recorder.observeActivity({ kind: "usage", atToolBoundary: true, usage: { inputTokens: 200, costUsd: 0.2 } });
+    recorder.observeFrame({ type: "text_delta", text: "The voyage is recorded in the Odyssey." });
+    recorder.observeFrame({ type: "result", sessionId: "ithaca", outcome: "success", isError: false, durationMs: 450,
+      numTurns: 1, costUsd: 900, usage: { inputTokens: 9000, costUsd: 900 } });
+    recorder.finish("success");
+    expect(roadblocks()).toHaveLength(1);
+    expect(roadblocks()[0]!.payload).toMatchObject({ remedy: "abandoned", resolution: null,
+      waste: { tokens: 20, costUsd: 0.02, ms: 200 } });
+  } finally { clock.mockRestore(); db.close(); }
+});

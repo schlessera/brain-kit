@@ -407,6 +407,7 @@ export type CitationException = string | { reason: string; occurrences: number }
 
 export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // Exact historical links verified against their pinned source commits.
+  "docs/decisions/governed-writable-workers.md|https://github.com/schlessera/brain-kit/blob/53258a203d37ab32ae211c5f645cb32e2b3898d1/packages/ui-server/src/brain/turn-budgets.ts#L196": "verified inferenceBudgetNote at pinned lines 196-198; #2051 removes the runtime suffix and preserves its historical context",
   "docs/decisions/governed-writable-workers.md|https://github.com/schlessera/brain-kit/blob/79d54278f1b2f35e929f4c6f182089360ab7759f/packages/ui-server/src/brain/journal-snapshot.ts#L36": "verified baseline walker at 79d54278 lines 36-40, retained as historical evidence after the native-storage supersession and removal of the unused runtime",
   "docs/investigations/audit-capability-investigation.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26": "verified commit-pinned audit suggestion behavior before #1408 replaced the measured completion-based implementation",
   "docs/investigations/audit-capability-investigation.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L70": "verified commit-pinned audit suggestion behavior before #1408 replaced the measured completion-based implementation",
