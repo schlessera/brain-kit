@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { boundBrowserRuntimeInputs } from "../scripts/bound-browser-runtime-inputs";
+import { boundBrowserRuntimeInputs, browserImporters } from "../scripts/bound-browser-runtime-inputs";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[];
 const files=["scripts/browser-shards.ts","scripts/browser-sequencer.ts","scripts/captures/fonts.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts"];
 const data=["scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html"];
@@ -40,4 +40,9 @@ test("diagram font, reader, caller, symlink and new importer drift refuse the bi
  for(const file of [diagramOwner,diagramCaller,...diagramFonts]){const {root}=diagramFixture();writeFileSync(join(root,file),Buffer.concat([readFileSync(join(root,file)),Buffer.from("drift")]));expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller]).has(diagramOwner)).toBe(false);}
  const {root}=diagramFixture();rmSync(join(root,diagramFonts[0]!));symlinkSync(join(repo,diagramFonts[0]!),join(root,diagramFonts[0]!));expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller]).has(diagramOwner)).toBe(false);
  for(const source of [`import {diagramFontCss as css} from "./${diagramOwner}";`,`export * from "./${diagramOwner}";`,`await import("./${diagramOwner}");`]){const {root,write}=diagramFixture();write("extra.ts",source);expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller,"extra.ts"]).has(diagramOwner)).toBe(false);}
+});
+
+test("runtime importer seals address JavaScript implementations rather than declaration neighbors",()=>{
+ const{root,write}=fixture();write("entry.ts",'import{readFixture}from"./reader.mjs";readFixture("Odysseus");');write("reader.mjs","export const readFixture=value=>value;");write("reader.d.mts","export declare const readFixture:(value:string)=>string;");
+ const imports=browserImporters(root,["entry.ts","reader.mjs","reader.d.mts"]);expect([...imports.get("reader.mjs")??[]]).toEqual(["entry.ts"]);expect(imports.has("reader.d.mts")).toBe(false);
 });

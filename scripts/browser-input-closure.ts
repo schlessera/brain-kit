@@ -1,4 +1,5 @@
 /** Source-owned browser proof inputs. Unknown edges retain complete broad proof. */
+import {resolveRuntimeModule} from "./runtime-module-resolution";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -142,7 +143,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
         for (const producer of generated.producer) visit(producer, true);
         return;
       }
-      const result = ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule;
+      const result = typeOnly ? ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule : resolveRuntimeModule(specifier, absolute, options);
       if (!result) {
         // Bundler-owned assets are still repository inputs, even when TypeScript has no declaration.
         const asset = specifier.startsWith(".") ? resolve(dirname(absolute), specifier.split("?")[0]!) : "";
@@ -242,7 +243,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
             node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0]!)) {
           // Imported modules execute only when the inactive callback executes.
           const specifier = node.arguments[0]!.text;
-          const result = ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule;
+          const result = resolveRuntimeModule(specifier, absolute, options);
           if (builtins.has(specifier) || specifier.startsWith("bun:")) { /* Runtime-provided builtin; already in runner identity. */ }
           else if (result && !result.isExternalLibraryImport) visit(relative(root, result.resolvedFileName), false, true);
           else if (!result) unresolved.add(`Unresolved dormant import ${normalized}: ${specifier}`);

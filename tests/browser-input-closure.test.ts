@@ -265,3 +265,39 @@ test("Git environment reads stay unknown while literal UI copy and local GitHub 
   writeFileSync(join(root,"entry.ts"),`console.log(process.env.GITHUB_SHA,process.env["GITHUB_RUN_ID"]);`);
   expect(discoverInputClosure(root,["entry.ts"]).unresolved).toContain("Git-dependent execution input: entry.ts");
 });
+
+test("EXPLICIT_JAVASCRIPT_RUNTIME_IS_NOT_ITS_DECLARATION: actual Bun reader remains an unresolved runtime input",()=>{
+ for(const [extension,declaration]of [["mjs","d.mts"],["js","d.ts"],["cjs","d.cts"]]){
+  const common=extension==="cjs";
+  const root=fixture({"entry.ts":`import{readFixture}from"./reader.${extension}";console.log(readFixture("fixture.txt"));`,[`reader.${extension}`]:common?'const{readFileSync}=require("node:fs");exports.readFixture=path=>readFileSync(path,"utf8");':'import{readFileSync}from"node:fs";export function readFixture(path){return readFileSync(path,"utf8");}',[`reader.${declaration}`]:'export function readFixture(path:string):string;',"fixture.txt":"Odysseus"});
+  const child=Bun.spawnSync([process.execPath,join(root,"entry.ts")],{cwd:root,stdout:"pipe",stderr:"pipe"});
+  expect(child.exitCode,new TextDecoder().decode(child.stderr)).toBe(0);expect(new TextDecoder().decode(child.stdout).trim()).toBe("Odysseus");
+  const closure=discoverInputClosure(root,["entry.ts"]);
+  expect(closure.files,"EXECUTED_JAVASCRIPT_MUST_BE_DISCOVERED").toContain(`reader.${extension}`);
+  expect(closure.unresolved.some(input=>input.includes(`reader.${extension}`))).toBe(true);
+ }
+});
+test("type-only JavaScript declarations do not activate their neighboring runtime readers",()=>{
+ const root=fixture({"entry.ts":'import type{readFixture}from"./reader.mjs";export type Shape=typeof readFixture;',"reader.mjs":'import{readFileSync}from"node:fs";export function readFixture(path){return readFileSync(path,"utf8");}',"reader.d.mts":'export function readFixture(path:string):string;'});
+ const closure=discoverInputClosure(root,["entry.ts"]);expect(closure.files).toContain("reader.d.mts");expect(closure.files).not.toContain("reader.mjs");expect(closure.unresolved).toEqual([]);
+});
+
+test("missing explicit JavaScript cannot turn a declaration into runtime proof",()=>{
+ for(const [extension,declaration]of [["mjs","d.mts"],["js","d.ts"],["cjs","d.cts"]]){
+  const root=fixture({"entry.ts":`import{readFixture}from"./reader.${extension}";readFixture("Odysseus");`,[`reader.${declaration}`]:'export function readFixture(path:string):string;'});
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved.some(input=>input.includes(`reader.${extension}`))).toBe(true);
+ }
+});
+test("explicit JavaScript aliases and outside roots remain unsupported despite declaration neighbors",()=>{
+ const outside=fixture({"reader.mjs":"export const value='Odysseus';"});
+ const root=fixture({"entry.ts":'import "./reader.mjs";',"reader.d.mts":"export {};"});symlinkSync(join(outside,"reader.mjs"),join(root,"reader.mjs"));expect(discoverInputClosure(root,["entry.ts"]).unresolved.length).toBeGreaterThan(0);
+ writeFileSync(join(root,"entry.ts"),`import ${JSON.stringify(join(outside,"reader.mjs"))};`);expect(discoverInputClosure(root,["entry.ts"]).unresolved.length).toBeGreaterThan(0);
+});
+
+test("missing JavaScript still preserves real Bun TypeScript source-extension substitution",()=>{
+ for(const [extension,source]of [["js","ts"],["mjs","mts"],["cjs","cts"]]){
+  const root=fixture({"entry.ts":`import{world}from"./reader.${extension}";console.log(world);`,[`reader.${source}`]:'export const world="Odysseus";'});
+  const child=Bun.spawnSync([process.execPath,join(root,"entry.ts")],{cwd:root,stdout:"pipe",stderr:"pipe"});expect(child.exitCode,new TextDecoder().decode(child.stderr)).toBe(0);expect(new TextDecoder().decode(child.stdout).trim()).toBe("Odysseus");
+  const closure=discoverInputClosure(root,["entry.ts"]);expect(closure.files).toContain(`reader.${source}`);expect(closure.unresolved).toEqual([]);
+ }
+});
