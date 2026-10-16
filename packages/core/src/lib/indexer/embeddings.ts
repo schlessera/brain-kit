@@ -19,7 +19,7 @@ import { currentGeminiEmbeddingRecipient } from "../../providers/embeddings/gemi
 
 import { chunkTextForEmbedding } from "../chunker.js";
 import { hasVecSupport } from "../db.js";
-import { embeddingEligibilitySql, embedsType } from "../embedding-policy.js";
+import { embeddingEligibilitySql, embedsType, unaliasedEmbeddingSource } from "../embedding-policy.js";
 import type { EmbeddingProvider } from "../seams.js";
 import { queueAssetsMissingVectors } from "./assets.js";
 import { loadContextCache } from "./caches.js";
@@ -37,7 +37,7 @@ const ASSET_CONCURRENCY = 10;
 function routeStillAllows(run: IndexRun, chunkId: number): boolean {
   if (!run.embeddingRouting) return true;
   const doc = run.db.query("SELECT d.path,d.type FROM documents d JOIN chunks c ON c.document_id=d.id WHERE c.id=?").get(chunkId) as {path:string;type:string} | null;
-  return Boolean(doc && providerAllows(run.embeddingRouting.rules, doc.path, doc.type, currentGeminiEmbeddingRecipient(run.provider)));
+  return Boolean(doc && unaliasedEmbeddingSource(run.root, doc.path) && providerAllows(run.embeddingRouting.rules, doc.path, doc.type, currentGeminiEmbeddingRecipient(run.provider)));
 }
 
 /** One page of missing chunks; the parent body is fetched once per document later. */

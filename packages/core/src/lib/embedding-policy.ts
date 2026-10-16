@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { lstatSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { providerAllows, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import type { Taxonomy } from "./taxonomy.js";
 
@@ -20,7 +22,17 @@ export function embeddingEligibilitySql(taxonomy: Taxonomy, excludedDocuments: r
 }
 
 /** Derived row identities are scoped to this connection's current document inventory. */
-export function providerExcludedDocuments(db: Database, rules: EffectiveGovernancePolicy["providers"], recipient: string | undefined): number[] {
+export function providerExcludedDocuments(db: Database, root: string, rules: EffectiveGovernancePolicy["providers"], recipient: string | undefined): number[] {
   return (db.query("SELECT id,path,type FROM documents").all() as Array<{id:number;path:string;type:string}>)
-    .filter(doc => !providerAllows(rules, doc.path, doc.type, recipient)).map(doc => doc.id);
+    .filter(doc => !unaliasedEmbeddingSource(root, doc.path) || !providerAllows(rules, doc.path, doc.type, recipient)).map(doc => doc.id);
+}
+
+/** Linked/unreadable inputs cannot borrow an unrestricted spelling under routing policy. */
+export function unaliasedEmbeddingSource(root: string, path: string): boolean {
+  try {
+    const brain = realpathSync(root), source = resolve(brain, path);
+    if (!source.startsWith(brain + "/") || realpathSync(source) !== source) return false;
+    const info = lstatSync(source);
+    return info.isFile() && info.nlink === 1;
+  } catch { return false; }
 }

@@ -20,7 +20,7 @@ import {
   vecTableExists,
 } from "../db.js";
 import { chunkTextForEmbedding } from "../chunker.js";
-import { embeddingEligibilitySql, embedsType, providerExcludedDocuments } from "../embedding-policy.js";
+import { embeddingEligibilitySql, embedsType, providerExcludedDocuments, unaliasedEmbeddingSource } from "../embedding-policy.js";
 import type { EmbeddingProvider } from "../seams.js";
 import type { IndexRun } from "./types.js";
 
@@ -118,7 +118,7 @@ export function dropOrphanedVectors(db: Database): void {
 
 /** Reconcile config-only opt-outs even on unchanged, non-embedding runs. */
 export async function dropIneligibleVectors(run: IndexRun): Promise<void> {
-  if (run.embeddingRouting) run.embeddingRouting.excludedDocuments = providerExcludedDocuments(run.db, run.embeddingRouting.rules, currentGeminiEmbeddingRecipient(run.provider));
+  if (run.embeddingRouting) run.embeddingRouting.excludedDocuments = providerExcludedDocuments(run.db, run.root, run.embeddingRouting.rules, currentGeminiEmbeddingRecipient(run.provider));
   const eligible = embeddingEligibilitySql(run.taxonomy, run.embeddingRouting?.excludedDocuments);
   if (eligible.sql === "1" || !vecTableExists(run.db)) return;
   // Load existing vectors without changing their width or migrating them.
@@ -254,7 +254,7 @@ export function createVectorWriter(run: IndexRun, provider: EmbeddingProvider) {
       const chunk = current.get(row.chunkId) as { content: string; status: string; type: string; path: string } | null;
       if (!chunk || chunk.content !== row.content || hasVector.get(row.chunkId)) continue;
       if (!embedsType(run.taxonomy, chunk.type)) continue;
-      if (run.embeddingRouting && !providerAllows(run.embeddingRouting.rules, chunk.path, chunk.type, currentGeminiEmbeddingRecipient(run.provider))) continue;
+      if (run.embeddingRouting && (!unaliasedEmbeddingSource(run.root, chunk.path) || !providerAllows(run.embeddingRouting.rules, chunk.path, chunk.type, currentGeminiEmbeddingRecipient(run.provider)))) continue;
       if (row.embedding.length !== provider.dimensions) throw new Error("Embedding provider returned incorrect vector dimensions");
       const bytes = new Uint8Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength);
       insert.run(row.chunkId, bytes, chunk.status === "archived" ? 1 : 0, chunk.type);

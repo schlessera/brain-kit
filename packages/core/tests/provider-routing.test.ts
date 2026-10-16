@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrateVecSchema, openDatabase } from "../src/lib/db";
@@ -17,6 +17,7 @@ test("provider policy removes forbidden vectors without losing keyword content o
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "me")); mkdirSync(join(root, "notes"));
   writeFileSync(join(root, "me/identity.md"), "---\ntype: note\ntitle: Ithaca identity\n---\nOdysseus keeps a confidential harbourmarker.\n");
+  linkSync(join(root,"me/identity.md"),join(root,"notes/identity-alias.md"));
   writeFileSync(join(root, "me/image.png"), Buffer.from([0x89,0x50,0x4e,0x47]));
   writeFileSync(join(root, "notes/voyage.md"), "---\ntype: note\ntitle: Voyage\n---\nAthena charts a public crossingmarker.\n");
   const taxonomy = buildTaxonomy({ user: { taxonomy: { types: { note: { dir: "notes" } } } } });
@@ -34,12 +35,14 @@ test("provider policy removes forbidden vectors without losing keyword content o
   await indexAll(db, { ...options, embeddings: true });
   const vectors = (path: string) => (db.query("SELECT count(*) AS n FROM vec_chunks v JOIN chunks c ON c.id=v.chunk_id JOIN documents d ON d.id=c.document_id WHERE d.path=?").get(path) as {n:number}).n;
   expect(vectors("me/identity.md")).toBeGreaterThan(0);
+  expect(vectors("notes/identity-alias.md")).toBeGreaterThan(0);
   mkdirSync(join(root, "context/policies"), { recursive: true });
   writeFileSync(join(root, "context/policies/governance.md"), "---\nschema_version: 1\nproviders:\n  - paths: [me/**]\n    allow: [anthropic]\n---\n");
   recorded.length = 0;
   // Unchanged-file reconciliation must work even without an embedding pass.
   await indexAll(db, options);
   expect(vectors("me/identity.md"), "PROVIDER_RESTRICTION_DROPS_EXISTING_VECTORS").toBe(0);
+  expect(vectors("notes/identity-alias.md"), "PROVIDER_RESTRICTION_COVERS_KNOWN_HARDLINK_COPY").toBe(0);
   expect(vectors("notes/voyage.md"), "PERMITTED_SIBLING_RETAINS_VECTORS").toBeGreaterThan(0);
   writeFileSync(join(root, "notes/new.md"), "---\ntype: note\ntitle: New crossing\n---\nAthena records a crossingmarker with a new route.\n");
   await indexAll(db, { ...options, enrichment, embeddings: true, force: true });
@@ -48,7 +51,7 @@ test("provider policy removes forbidden vectors without losing keyword content o
   expect(stats.health.embeddingCoverage, "COVERAGE_EXCLUDES_FORBIDDEN_CHUNKS").toBe(1);
   expect(recorded.some(text => text.includes("harbourmarker")), "UNKNOWN_RECIPIENT_CANNOT_AUTHORIZE_PROTECTED_DATA").toBe(false);
   expect(recorded.some(text => text.includes("crossingmarker"))).toBe(true);
-  expect((db.query("SELECT count(*) AS n FROM documents_fts WHERE documents_fts MATCH 'harbourmarker'").get() as {n:number}).n, "KEYWORD_CONTENT_REMAINS").toBe(1);
+  expect((db.query("SELECT count(*) AS n FROM documents_fts WHERE documents_fts MATCH 'harbourmarker'").get() as {n:number}).n, "KEYWORD_CONTENT_REMAINS").toBe(2);
   writeFileSync(join(root, "context/policies/governance.md"), "---\nschema_version: 1\nproviders:\n  - types: [note]\n    allow: [anthropic]\n---\n");
   await indexAll(db, options);
   expect(vectors("notes/voyage.md"), "TYPE_SELECTOR_RECONCILES_UNCHANGED_DOCUMENTS").toBe(0);
@@ -57,7 +60,7 @@ test("provider policy removes forbidden vectors without losing keyword content o
   await indexAll(db, { ...options, enrichment, embeddings: true, force: true });
   expect(recorded, "INVALID_POLICY_WITHHOLDS_EMBEDDING_REQUESTS").toEqual([]);
   expect(descriptions, "INVALID_POLICY_WITHHOLDS_ENRICHMENT_REQUESTS").toEqual([]);
-  expect((db.query("SELECT count(*) AS n FROM documents_fts WHERE documents_fts MATCH 'harbourmarker'").get() as {n:number}).n).toBe(1);
+  expect((db.query("SELECT count(*) AS n FROM documents_fts WHERE documents_fts MATCH 'harbourmarker'").get() as {n:number}).n).toBe(2);
 
 
 });

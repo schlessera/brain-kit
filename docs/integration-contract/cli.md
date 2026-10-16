@@ -165,7 +165,9 @@ provider, Vertex endpoint or proxy does not prove this recipient. No custom
 identity extension is introduced. Matching documents without a proven allowed
 recipient retain FTS, links and metadata, lose their vectors on an ordinary
 index, and are excluded before context/vector work, carried vectors, cache reuse
-and vector writes. Asset vector work uses the same eligibility. Matching content
+and vector writes. When provider rules exist, hardlinked, symlinked, escaped or
+unreadable source paths are ineligible, including an alias whose own spelling
+does not match a rule. Asset vector work uses the same eligibility. Matching content
 uses local context fallback instead of an unproven completion/vision route.
 
 `health.embeddingCoverage` keeps its existing eligible-vector/eligible-chunk

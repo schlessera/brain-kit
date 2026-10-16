@@ -12,6 +12,7 @@
  * makes the next `--embeddings` run retry both. Persisting a fallback here
  * would look identical to a real context and never be revisited.
  */
+import { unaliasedEmbeddingSource } from "../embedding-policy.js";
 import { providerAllows } from "@schlessera/brain-common/internal/governance-policy";
 import { chunkContextKey, loadContextCache } from "./caches.js";
 import type { IndexRun } from "./types.js";
@@ -77,7 +78,7 @@ export async function generateChunkContexts(
         const current = currentDocument.get(c.document_id) as {path:string;type:string} | null;
         // A vector recipient does not authorize a separate completion route.
         // Until that concrete route is proven, matching data uses local context.
-        if (!enrichment || (run.embeddingRouting && (!current || !providerAllows(run.embeddingRouting.rules, current.path, current.type, undefined)))) {
+        if (!enrichment || (run.embeddingRouting && (!current || !unaliasedEmbeddingSource(run.root, current.path) || !providerAllows(run.embeddingRouting.rules, current.path, current.type, undefined)))) {
           return Promise.resolve(c.summary ?? "");
         }
         let doc = documents.get(c.document_id);

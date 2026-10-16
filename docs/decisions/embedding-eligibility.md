@@ -12,7 +12,7 @@ under the [contract versioning policy](contract-versioning.md).
 `true` and an absent effective value opt in. Leaving the field optional lets
 an omitted value in a later configuration layer preserve an earlier type
 policy. The default applies when no layer sets it
-(`embedsType`, `packages/core/src/lib/embedding-policy.ts:6-8`).
+(`embedsType`, `packages/core/src/lib/embedding-policy.ts:8-10`).
 
 This is a vector policy, not a content exclusion. Documents, chunks, FTS,
 links, audit findings and ordinary inventory counts remain. Markdown and
@@ -50,7 +50,7 @@ Coverage is eligible chunks with a vector divided by eligible chunks. Both
 counts use the current taxonomy. Stale vectors for an opted-out type count
 toward the total vector inventory but cannot inflate coverage. The total
 `chunks` and `embeddings` fields retain their inventory meanings
-(`embeddingEligibilitySql`, `packages/core/src/lib/embedding-policy.ts:11-20`).
+(`embeddingEligibilitySql`, `packages/core/src/lib/embedding-policy.ts:13-22`).
 
 Zero eligible chunks means `null`, not zero, one, or a division result. An
 unreadable vector store remains unknown. A keyless brain without embeddings

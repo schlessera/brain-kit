@@ -96,7 +96,10 @@ turns or use the separately approved proposal route, never a worker write.
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing
 vectors even without `--embeddings`; force rebuilds, cache reuse and asynchronous
-vector writes retain the same check. Coverage uses the eligible denominator.
+vector writes retain the same check. With provider rules present, hardlinked,
+symlinked, escaped or unreadable source paths cannot borrow an unrestricted
+spelling to authorize provider work. Keyword indexing remains available for
+these sources; coverage uses the eligible denominator.
 The concrete built-in Gemini embedding factory recognizes recipient `google`
 only when its actual installed SDK client resolves to the HTTPS Google
 Generative Language endpoint. Provider/model labels, custom implementations,

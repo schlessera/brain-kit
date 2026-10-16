@@ -249,7 +249,7 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   else if (rules.length) {
     let recipient: string | undefined;
     try { recipient = await geminiEmbeddingRecipient(resolveEmbeddingProvider(opts.config?.embeddings)); } catch { /* Unknown configured transport cannot authorize data. */ }
-    excluded = providerExcludedDocuments(db, rules, recipient);
+    excluded = providerExcludedDocuments(db, root, rules, recipient);
   }
   const eligible = embeddingEligibilitySql(taxonomy, excluded);
   const eligibleChunkCount = (db.prepare(`SELECT COUNT(*) AS count FROM chunks c

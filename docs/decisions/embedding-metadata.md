@@ -49,7 +49,7 @@ with type and archived status
 The decision does not strip metadata words from prose or context. Uncached
 context falls back to the frontmatter summary for a single-chunk document
 or a run without enrichment, and generated context can also use the summary
-(`generateChunkContexts`, `packages/core/src/lib/indexer/contexts.ts:37-92`).
+(`generateChunkContexts`, `packages/core/src/lib/indexer/contexts.ts:38-93`).
 It does not promise that every metadata edit leaves context or vector
 eligibility unchanged; [type eligibility](embedding-eligibility.md) remains
 a separate policy.
