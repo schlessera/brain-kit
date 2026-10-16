@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -111,6 +111,7 @@ describe("affected CI checks", () => {
 
   test("the executable writes affected job outputs and keeps drafts on cheap gates", async () => {
     const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8"));
+    f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
     f.write("packages/core/src/note.ts", "export const note = 2;\n");
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
     for (const draft of ["true", "false"]) {
@@ -140,4 +141,28 @@ describe("affected CI checks", () => {
       expect(file, file).not.toMatch(/-runtime\.test|\/browser\/|\.visual\.|\.offline\./);
     }
   });
+});
+
+test("category closure selection preserves full commands and independent exhaustive cadence", () => {
+  const packages = [{ dir: "ui-server", name: "fixture", dependencies: [], files: ["src"] }];
+  const changed = ["packages/ui-server/src/unrelated.ts"];
+  const broad = planChecks(changed, packages);
+  const closed = { files: ["packages/ui-server/src/reached.ts"], unresolved: [] };
+  const closures = { browser: closed, layout: closed, endurance: closed, captures: { files: changed, unresolved: [] } };
+  const selected = selectBrowserClosures(broad, closures);
+  expect(selected.local.browser).toBe(false); expect(selected.local.layout).toBe(false); expect(selected.local.endurance).toBe(false);
+  expect(selected.local.captures).toBe(true);
+  expect(selected.tests).toEqual(broad.tests); expect(selected.local.fullTests).toBe(broad.local.fullTests);
+  expect(selected.local.runtime).toBe(broad.local.runtime);
+  expect(proofSelections(selected).captures).toBe(true);
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    const exhaustive = selectBrowserClosures(planChecks(["package.json"], packages), closures);
+    exhaustive.cadence = proofCadence({ GITHUB_EVENT_NAME: event }, {});
+    expect(exhaustive.cadence).toBe("exhaustive");
+    for (const category of ["browser", "layout", "endurance", "captures"] as const) expect(proofSelections(exhaustive)[category]).toBe(true);
+  }
+  const integrated = { ...selected, cadence: proofCadence({ GITHUB_EVENT_NAME: "push" }, {}) };
+  expect(integrated.cadence).toBe("integrated");
+  expect(proofSelections(integrated).browser).toBe(false);
+  expect(proofSelections(integrated).captures).toBe(true);
 });

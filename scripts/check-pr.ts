@@ -78,7 +78,7 @@ if (import.meta.main) {
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
-    const plan = planChecks(changed, workspaces(root));
+    const plan = planChecks(changed, workspaces(root), root);
     const commands = localChecks(plan, full);
     console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);

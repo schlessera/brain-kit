@@ -1,6 +1,7 @@
 /** Repository-only check selection. Product CLI/MCP contracts are unaffected. */
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 
 export interface Workspace {
   dir: string;
@@ -15,7 +16,7 @@ export interface Workspace {
 // without real browsers, installed model runtimes or real-time deadline waits.
 export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
-    "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
+    "tests/ci-plan.test.ts", "tests/ci-runner.test.ts", "tests/browser-input-closure.test.ts",
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
@@ -106,7 +107,7 @@ export function affectedWorkspaces(changed: readonly string[], packages: readonl
   return [...selected].sort();
 }
 
-export function planChecks(changed: readonly string[], packages: readonly Workspace[]): CheckPlan {
+export function planChecks(changed: readonly string[], packages: readonly Workspace[], root?: string): CheckPlan {
   const dirs = new Set(packages.map(p => p.dir));
   const packagePaths = changed.filter(path => path.startsWith("packages/"));
   const direct = packagePaths.map(path => path.split("/")[1]!);
@@ -139,13 +140,22 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   });
   const ui = affected.some(dir => ["ui-sdk", "ui-kit", "ui-react", "ui-server", "render-template", "geo"].includes(dir));
   const captureInputs = changed.some(path => path === "docs/process/feature-captures.md" || path.startsWith("scripts/capture") || path.startsWith("scripts/captures/"));
-  return { changed: [...changed].sort(), affected, global,
+  const plan: CheckPlan = { changed: [...changed].sort(), affected, global,
     typecheck: global || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
     tests, pack: global || ships,
     local: { fullTests: global || packageCode || changed.some(path => path.startsWith("template/") && !prose(path)), browser: (global || packageCode) && ui,
       layout: (global || packageCode) && ui, captures: captureInputs || ((global || packageCode) && ui),
       endurance: (global || packageCode) && ui,
       runtime: global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+  return root && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+}
+
+/** Global dependency/tooling changes remain exhaustive; selected categories remain complete. */
+export function selectBrowserClosures(plan: CheckPlan, closures: BrowserClosures): CheckPlan {
+  if (plan.global) return plan;
+  const local = { ...plan.local };
+  for (const category of ["browser", "layout", "endurance", "captures"] as const) local[category] = closureSelects(plan.changed, closures[category], local[category]);
+  return { ...plan, local };
 }
 
 export type ProofCadence = "draft" | "feedback" | "confirmation" | "integrated" | "exhaustive";
@@ -198,7 +208,7 @@ export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): Check
   const pr = env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
-  return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root));
+  return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root);
 }
 
 if (import.meta.main) {
