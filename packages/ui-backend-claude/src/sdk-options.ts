@@ -14,7 +14,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -66,7 +66,7 @@ export interface ClaudeSdkTurn {
  * filtered set rather than the server's own. The boot probe uses it too.
  */
 export function turnEnv(profile: InferenceProfile): Record<string, string | undefined> {
-  const env = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
+  const env = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv(), ...RTK_WORKER_ENV };
   // After the profile's own env, so nothing a profile builds can put an API
   // credential back under a turn that is not declared as API-billed.
   if (profile.billing !== "api") Object.assign(env, CLEARED_API_CREDENTIALS);
