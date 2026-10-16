@@ -62,7 +62,7 @@ function openRoot(path: string): number {
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); };
 
 /** Bounded output and lifetime; every cancellation kills and awaits the child. No shell, hooks, filters or maintenance. */
-async function gitPaths(root: string, signal: AbortSignal, deadline: number): Promise<string[]> {
+async function gitPaths(root: string, signal: AbortSignal, deadline: number): Promise<{ path: string; objects: boolean }[]> {
   const env = Object.fromEntries(Object.entries(inheritedEnv({})).filter(([key]) => !key.startsWith("GIT_")));
   Object.assign(env, { GIT_OPTIONAL_LOCKS: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" });
   const run = async (args: string[]) => {
@@ -96,7 +96,8 @@ async function gitPaths(root: string, signal: AbortSignal, deadline: number): Pr
   if (dirs === null) return [];
   const paths = dirs.split("\n");
   if (paths.length !== 3 || paths.some(path => !isAbsolute(path) || /[\r\n\0]/.test(path))) throw new Error("git-path-encoding-unsupported");
-  return [...new Set(paths.map(path => resolve(path)))].sort(compare);
+  const objects = resolve(paths[2]);
+  return [...new Set(paths.map(path => resolve(path)))].sort(compare).map(path => ({ path, objects: path === objects }));
 }
 
 export async function collectStorageInventory(rootPath: string, options: Options = {}): Promise<StorageInventory> {
@@ -211,16 +212,18 @@ export async function collectStorageInventory(rootPath: string, options: Options
         for (let index = 0; index < paths.length; index++) {
           if (stop()) break;
           if (index >= 64) { fail("git", "git-root-budget"); break; }
-          const path = canonical(paths[index]);
-          if (inspected.has(path)) continue;
-          inspected.add(path);
+          const candidate = paths[index];
+          const path = canonical(candidate.path);
+          const resolutionId = `${candidate.objects ? "objects" : "store"}:${path}`;
+          if (inspected.has(resolutionId)) continue;
+          inspected.add(resolutionId);
           if (!inside(root, path) && !allowedGitRoots.some(allowed => inside(allowed, path))) { fail("git", "external-git-root-not-approved"); continue; }
           if (!roots.some(other => inside(other.path, path))) roots.push({ path, kind: "git" });
+          if (!candidate.objects) continue;
           let directory: number | undefined, info: number | undefined, metadata: number | undefined, file: number | undefined;
           try {
             directory = openRoot(path);
-            // Only object directories have info/alternates. Other Git stores
-            // simply have no such file; absent stores are measured by the walk.
+            // Only resolved object directories give info/alternates meaning.
             info = openSync(at(directory, "info"), PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW);
             if (mountId(info) !== mountId(directory)) throw new Error("mount-boundary");
             metadata = openSync(at(info, "alternates"), PATH | constants.O_NOFOLLOW);
@@ -234,7 +237,7 @@ export async function collectStorageInventory(rootPath: string, options: Options
               // C-quoted paths need byte decoding, not JSON decoding. Refuse
               // unsupported encoding visibly rather than scan a wrong root.
               if (line.startsWith('"') || /[\r\0\ufffd]/.test(line)) { fail("git", "alternate-path-encoding-unsupported"); continue; }
-              paths.push(resolve(path, line));
+              paths.push({ path: resolve(path, line), objects: true });
             }
             if (version(fstatSync(file, { bigint: true })) !== version(stat)) fail("git", "changed-during-scan");
           } catch (error) {

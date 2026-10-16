@@ -52,6 +52,8 @@ test("resolves real linked worktrees and approved alternates without counting sh
   git(repo, "add", "."); git(repo, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-m", "Raft");
   git(repo, "worktree", "add", "-b", "voyage", worktree);
   writeFileSync(join(repo, ".git", "objects", "info", "alternates"), join(alternate, "objects") + "\n");
+  // Only objects/info/alternates has Git alternate semantics.
+  writeFileSync(join(repo, ".git", "info", "alternates"), "/not-an-approved-store\n");
   const denied = await collectStorageInventory(worktree);
   expect(denied.status, "UNAPPROVED_GIT_STORE_PARTIAL").toBe("partial");
   expect(denied.errors.some((e: any) => e.reason === "external-git-root-not-approved")).toBe(true);
