@@ -201,12 +201,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const promoter = turnTemp && promotion && sandbox && !restricted ? createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root,
           turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
+        let persistenceAttempted = false;
         try {
           const recovered = await prepareRecoveredWorkerFiles(handle.root, signal);
           if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
           if (recovered) signal.throwIfAborted();
+          persistenceAttempted = true;
           state.persist(handle.root, promoter?.rewrite, persistMemory);
         } catch (error) {
+          if (!persistenceAttempted) persistMemory?.(null, () => {});
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);

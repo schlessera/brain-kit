@@ -15,7 +15,7 @@ export class RevertUnavailable extends Error {}
 type Selected = TurnRevertPath & { before: JournalVersion | null; after: JournalVersion | null; beforeSequence: number; afterSequence: number; other?: JournalVersion; otherSequence?: number };
 type Operation = { id: string; principal_id: string; session_id: string; source_turn_id: string; journal_turn_id: string; fingerprint: string; action: TurnHistoryAction; selection: string; state: TurnRevertReceipt["state"]; pid: number; pid_start: string; error: string };
 const same = (left: JournalVersion | null, right: JournalVersion | null) => JSON.stringify(left) === JSON.stringify(right);
-const prefix = (path: string, parent: string) => parent === "." || path === parent || path.startsWith(`${parent}/`);
+const prefix = (path: string, parent: string) => parent === "." || path === parent || parent === "claude-memory://" && path.startsWith(parent) || path.startsWith(`${parent}/`);
 
 export function createTurnReverts(db: Database, options: {
   brainPath: string; journal: TurnJournal; gate: WriterGate; lock: KeyedLock;

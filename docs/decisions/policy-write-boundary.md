@@ -474,7 +474,7 @@ host (`export function launchAgentWorker`,
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite, memory) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:261-311`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:261-313`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,

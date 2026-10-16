@@ -265,6 +265,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       // race this copy.
       let total = 0;
       const notes: [string, Buffer][] = [];
+      try {
       for (const file of files(join(root, project), "", { resolved: false })) {
         if (file.startsWith(`${MEMORY}/`)) {
           // Agent memory (#1626): only a `.md` note directly in the folder.
@@ -296,6 +297,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if (initial.get(name) === hash(bytes)) continue;
         write(name, bytes, "transcript");
       }
+      } catch (error) { memory?.(null, () => {}); throw error; }
       // Every session of the brain shares its memory. A note another turn
       // changed meanwhile is refused alone and named; the other notes still
       // persist, and nothing is ever deleted.

@@ -1469,7 +1469,7 @@ signatures (every public export and the types it is made of)
             after(completed: boolean): void;
             before(): void;
         }): () => boolean;
-        persistClaudeMemory(turnId: string, change: {
+        persistClaudeMemory(turnId: string, change: null | {
             after: Uint8Array;
             before: Uint8Array | null;
             beforeMode: number;

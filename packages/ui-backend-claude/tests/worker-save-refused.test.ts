@@ -25,6 +25,7 @@ async function run(mode: Mode, cancel = false) {
   mkdirSync(join(config, project, "memory"), { recursive: true });
   writeFileSync(saved, "Odysseus\n"); writeFileSync(memory, "Athena\n");
   const frames: ServerMessage[] = [], host = new AbortController();
+  const memoryObservations: (string | null)[] = [];
   let workerExit: Promise<number | null> | undefined, backendError: unknown;
   const queryFn = ((params: { options?: Options }) => {
     const stream = (async function* () {
@@ -55,16 +56,17 @@ async function run(mode: Mode, cancel = false) {
     const workerStartupView = createFixtureWorkerStartupView(brain);
     const backend = createClaudeBackend({ brainPath: brain, queryFn,
       workerState: { allowanceBytes: 4 * MiB, budgetBytes: 4 * MiB } });
-    try { await backend.startTurn({ workerStartupView, prompt: "Return to Ithaca", signal: host.signal,
+    try { await backend.startTurn({ workerStartupView, persistClaudeMemory: (change, save) => { memoryObservations.push(change?.note ?? null); if (change) save(); }, prompt: "Return to Ithaca", signal: host.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } }).catch(error => { backendError = error; }); } finally { workerStartupView.cleanup(); }
     if (!cancel) expect(await workerExit).toBe(0);
-    return { backendError, results: frames.filter(f => f.type === "result"), saved: readFileSync(saved, "utf8"), memory: readFileSync(memory, "utf8") };
+    return { memoryObservations, backendError, results: frames.filter(f => f.type === "result"), saved: readFileSync(saved, "utf8"), memory: readFileSync(memory, "utf8") };
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
 for (const mode of ["concurrent", "hardlink", "memory"] as const) {
   test(`refused ${mode} copy-out replaces success with one named failure and keeps usage`, async () => {
-    const { results, saved, memory, backendError } = await run(mode);
+    const { results, saved, memory, backendError, memoryObservations } = await run(mode);
+    expect(memoryObservations,"MEMORY_ACTUAL_WORKER_UNAVAILABLE_NOTIFICATION").toContain(mode === "memory" ? "MEMORY.md" : null);
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ outcome: "error", isError: true, usage: { inputTokens: 17, outputTokens: 9 },
       durationMs: 123, numTurns: 1, failure: { errorClass: "worker_state_save_refused" } });

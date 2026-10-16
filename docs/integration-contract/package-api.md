@@ -3379,7 +3379,8 @@ idempotent, with first-claim dispatch. It never imports server-named code.
 `StartTurnRequest.persistClaudeMemory` is an optional host-only callback for
 validated native Claude memory copy-out. The backend supplies a direct note,
 its host-owned external directory, exact before/after bytes and before mode,
-and a synchronous save closure. It is never serialized into a worker or
+and a synchronous save closure. A null observation explicitly reports copy-out
+that could not be inspected before a note callback. It is never serialized into a worker or
 accepted from a client. The first-party server retains/pins versions and a
 private pending receipt before invoking the closure, then publishes a steering
 change only after the save succeeds. Failed or interrupted finalization remains

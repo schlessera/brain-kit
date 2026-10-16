@@ -349,10 +349,11 @@ export function createTurnJournal(db: Database, options: {
       }
     }); },
     /** Validated copy-out is the only native source of an external destination. */
-    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array }, save: () => void): void {
+    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): void {
       if (!active.has(turnId)) throw new JournalStorageUnavailable("memory persistence requires an active turn");
-      const path = `claude-memory://${change.note}`;
+      const path = change ? `claude-memory://${change.note}` : "claude-memory://";
       try {
+        if (!change) throw new JournalStorageUnavailable("native memory persistence could not be inspected");
         if (!change.note.endsWith(".md") || /[\\/\u0000-\u001f\u007f]/u.test(change.note) || [".", ".."].includes(change.note)) throw new Error("invalid memory note");
         const directory = realpathSync(change.directory), info = lstatSync(directory);
         if (directory !== change.directory || !info.isDirectory() || directory === options.brainPath || directory.startsWith(`${options.brainPath}/`)) throw new Error("invalid external memory store");
@@ -381,7 +382,7 @@ export function createTurnJournal(db: Database, options: {
             db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify(missing),turnId);
           })); publish(turnId);
         } catch { fail(turnId, error); }
-        throw error;
+        if (change) throw error;
       }
     },
     /** @internal Reads only a durable host-created destination, never a requested path. */

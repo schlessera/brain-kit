@@ -101,9 +101,14 @@ test("interruption after memory commit retains staged versions and reports uncon
   const f = fixture(); try {
     await f.begin("return"); const w = f.worker("return"); writeFileSync(join(w.notes, "voyage.md"), "Saved before interruption\n");
     expect(() => w.state.persist(w.temporary, undefined, (change, save) => f.journal.persistClaudeMemory("return", change, () => { save(); throw Error("interrupted finalization"); }))).toThrow("interrupted finalization");
-    await f.journal.finish("return"); await f.reopen();
+    // Model abrupt owner loss before the exception handler could finalize the
+    // turn. The staged receipt and raw file are the already-durable facts;
+    // successor initialization must not infer whether the save committed.
+    f.db.query("UPDATE turn_journal_turns SET state='recording',missing='[]',failure='',pid=2147483647,pid_start='',ended_at=NULL WHERE turn_id='return'").run();
+    await f.reopen();
     const details = f.journal.details("ithaca", "return")!;
     expect(details.summary.state).toBe("partial");
+    expect(details.summary.changedFiles,"MEMORY_RESTART_UNCONFIRMED_COUNT_IS_UNKNOWN").toBeNull();
     expect(details.changes).toEqual([]);
     expect(details.missing, "MEMORY_UNCONFIRMED_SAVE_NEVER_CLAIMS_COMPLETE_HISTORY").toContainEqual({ path: "claude-memory://voyage.md", reason: "memory_persistence_unconfirmed" });
     expect(readFileSync(join(f.memory, "voyage.md"), "utf8")).toBe("Saved before interruption\n");
@@ -132,4 +137,20 @@ test("changed saved-store identity refuses user memory recovery while keeping it
     expect(r.receipt(receipt.id,"odysseus","ithaca","return")?.paths[0]?.state,"MEMORY_STORE_IDENTITY_FENCES_REPLACEMENT").toBe("conflict");
     expect(readFileSync(join(f.memory,"voyage.md"),"utf8")).toBe("Replacement store\n");await r.close();
   } finally { await f.close(); }
+});
+
+
+test("uninspectable native copy-out marks external memory unavailable before any per-note save callback", async () => {
+  const { symlinkSync } = await import("node:fs");
+  const f=fixture();try {
+    await f.begin("return");const w=f.worker("return");
+    symlinkSync(join(f.memory,"voyage.md"),join(w.notes,"untrusted.md"));
+    expect(()=>w.persist()).toThrow();await f.journal.finish("return");
+    const details=f.journal.details("ithaca","return")!;
+    expect(details.summary.state,"MEMORY_PRECALLBACK_FAILURE_IS_PARTIAL").toBe("partial");
+    expect(details.summary.changedFiles).toBeNull();
+    expect(details.missing).toContainEqual({path:"claude-memory://",reason:"memory_persistence_unconfirmed"});
+    expect(details.changes).toEqual([]);
+    expect(readFileSync(join(f.memory,"voyage.md"))).toEqual(Buffer.from([65,13,10,255]));
+  }finally{await f.close();}
 });
