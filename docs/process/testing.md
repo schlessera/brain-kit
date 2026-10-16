@@ -361,6 +361,8 @@ support does not itself establish a complete retainable browser domain.
 Retention's bounded browser-command audit must preserve imported top-level
 execution. Its tests import a real config in a Bun child and observe a transitive
 module input even while the registered callback remains dormant. Activating a
-command through a selected project, spec or inherited setup must force fresh
-execution; a mutation of that registration guard must fail the named assertion.
+command through a selected spec, inherited setup or configuration must force
+fresh execution; registration alone is not invocation. Registered dormant
+callbacks require the same complete call/escape audit, and a mutation of that
+activation guard must fail the named assertion.
 The exact audited configuration/source guard makes unsupported edits fresh.

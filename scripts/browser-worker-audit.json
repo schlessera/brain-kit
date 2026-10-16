@@ -1,14 +1,14 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "95d1ec054755c9fd5acdb1f6b61df5fc149fd04db05bc4959b57f3f804579c20",
+  "identity": "d6ee6a30cc7a91261c4213f3c76e04c8d7d7de64d61e627cf3abdb05198def89",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "05399315e147bfb9d4259e5e67dd4367c1b8ee4f",
+    "base": "9a3af9be9a6eeb05dbea1b8d03bccd0d42a91f47",
     "selected": 299,
-    "files": 1356,
-    "scope": "Complete imported/configured selected inventory plus new Chromium/WebKit diagrams, SVG/fixture/generated CSS/inline-font producers and exact command call/escape inventory audited. Historical 297 diagnostic remains historical with its cleanup gap. Actual complete 299 guarded fresh hosted shards remain required; this capability metadata is not a passing receipt."
+    "files": 1357,
+    "scope": "Complete imported/configured selected inventory plus new Chromium/WebKit diagrams, SVG/fixture/generated CSS/inline-font producers and exact command call/escape inventory audited. Historical 297 diagnostic remains historical with its cleanup gap. Actual complete 299 guarded fresh hosted shards remain required; this capability metadata is not a passing receipt. Host credential exclusion/relay and retained-folder ownership source changes remain in the audited closure; no new selected Worker activation or uncontrolled resource origin."
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",

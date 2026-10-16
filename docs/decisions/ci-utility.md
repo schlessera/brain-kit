@@ -333,10 +333,11 @@ checked when making fresh receipts and revalidating current/source evidence.
 A verified literal producer in an owned temporary root alone does not bind a
 consumer reached through CLI arguments, cwd or configuration redirection.
 
-A bounded command-activation audit covers eight server, Mermaid and scene callbacks
-registered exclusively in the layout and endurance projects. It checks the
+A bounded command-activation audit covers seven dormant server, Mermaid and scene
+callbacks. Registration in a selected project is allowed only when the complete
+selected call inventory proves the callback is never invoked. It checks the
 complete selected spec inventory, inherited setup/global hooks and their static
-imports; active registrations, callback escapes, dynamic loaders and aliased
+imports; actual invocation, callback escapes, dynamic loaders and aliased
 command invocation retain fresh execution. Admission additionally requires exact
 audited runner, configuration, callback and imported-helper source identities.
 An edit requires a new audit rather than general TypeScript partial evaluation.
@@ -420,6 +421,13 @@ and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
 a new audit. The scene, visual assertions and trace remain unchanged.
 
+Diagram capture binds its exact two call sites, closed SVG primitive producers,
+literal adopted fixture, generated consumer CSS and locked inline-font inputs.
+Its additional replay page contains that source-owned document, aborts and records
+HTTP/websocket requests, and checks the zero-request invariant after document and
+font loading and after capture. Unknown DOM or resource origins remain unresolved;
+source or producer drift requires fresh execution and a new audit.
+
 The selected browser capability additionally requires a complete audited
 input-domain identity and an enforced zero-Worker boundary. The native,
 forwarding diagnostic established no intended Worker execution in that
@@ -440,7 +448,11 @@ fresh until re-audited. A constructor hidden by a new alias cannot bypass this
 mandatory browser capability check merely by disappearing from syntax
 discovery. Unknown external resources still prevent admission. The manifest's
 own bytes are ordinary shared fingerprint inputs; it is never self-hashed.
-Its metadata cannot replace complete successful guarded fresh jobs or the
+Version 2 separates current source-audit admission from historical diagnostic
+observations. Historical case counts and their cleanup gap remain attributed to
+the old selection; adding projects does not fabricate a whole-domain observation.
+Old or missing admission metadata stays fresh. Its metadata cannot replace
+complete successful guarded fresh jobs or the
 independent retained-proof validator. This bounds the existing PDF constructor
 to no consumed Worker resource; it does not authorize an arbitrary worker URL.
 
