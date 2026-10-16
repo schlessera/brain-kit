@@ -247,7 +247,15 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
-  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
+  through the offline wrapper as import-graph affected feedback. Bun includes
+  committed, staged, unstaged and untracked changes; no affected test files
+  prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
+  remain `./packages ./tests`, and the optional changed value uses `=`. This
+  feedback misses spawned commands and inputs read from disk or named as
+  strings; complete hosted discovery remains the required proof. Full/all
+  modes retain their existing suites without this extra step.
+  Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
 - Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
