@@ -55,7 +55,7 @@ functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:27`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:130-155`)
+`packages/ui-backend-claude/src/sdk-options.ts:134-159`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:55`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -228,7 +228,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:426-431`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block`, `turn_temp` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:130-155`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block`, `turn_temp` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:134-159`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 Module tools are admitted only by exact name, never by their own annotations,
 as [module-mcp-tools.md §6](module-mcp-tools.md#6-annotations-and-permissions)
@@ -311,7 +311,7 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:281-291`) and is not
+`permission-hooks.ts:289-299`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:53-63`)
 lets a deployment supply its own patterns, which have no phrase when given as
@@ -487,8 +487,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:27`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:50-51`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:130`, and what it
-becomes, `allowedTools: allowed`, `:246`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:134`, and what it
+becomes, `allowedTools: allowed`, `:254`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -598,7 +598,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:18-32`;
   `!mayGrant`, `:71-79`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:508-527`).
+  `const agentHook`, `permission-hooks.ts:520-539`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -615,7 +615,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:183-212`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:189-218`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -635,7 +635,7 @@ with a `BackendRequestError` (`assertTurnPosture`,
 codebase's own shortcuts was never sufficient: the runtime has permission
 opinions of its own that also land before `canUseTool`
 (the block above `enforcementHook`, `DO NOT WEAKEN THIS INTO A FALLTHROUGH`,
-`permission-hooks.ts:150-181`, with the measurements in #154) — a safe-command
+`permission-hooks.ts:156-187`, with the measurements in #154) — a safe-command
 classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
 never consulted), a built-in tool's own check (`ToolSearch` executed twice under
 the same conditions), and a `PreToolUse` hook in the project settings this
@@ -688,8 +688,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:224-226`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:290-297`). So a
+`permission-hooks.ts:230-232`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:298-305`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about
@@ -832,3 +832,18 @@ capture and append-update remain permitted, an archiving update remains denied,
 and archive, raw writes, staged application and speech grants remain excluded.
 The server validates current authority and exact effects independently of runtime
 shortcuts. Ordinary permitted raw edits use the same route with existing approvals.
+
+
+## Native registration amendment — 2026-10-16 (#2022, #2048 A)
+
+The maintainer selected a stable deployment-configured tool roster to preserve
+provider prompt caching across posture/profile changes. For hosted interactive
+Claude native `Write`/`Edit`/`NotebookEdit`, registration therefore no longer
+represents authority: strict and voice turns keep the definitions but refuse
+calls in PreToolUse before execution or an approval card, including when a
+settings hook or remembered grant would otherwise allow them. Governed typed
+natives remain auto-allowed under stale-read, write-lock and protected-path
+controls. Autonomous registration and authority are unchanged. This supersedes
+this record's preference for removing those native definitions; the historical
+bypass measurements and voice-never-grants rule remain binding. #2048 covers
+the broader bridge-tool stable-roster implementation.

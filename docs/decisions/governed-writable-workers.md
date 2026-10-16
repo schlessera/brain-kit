@@ -126,7 +126,7 @@ What a turn can do is the intersection of the two.
 | Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
-| Claude native `Write`/`Edit`/`NotebookEdit` | Available | Disallowed. The server tools are used instead. | Not in the roster |
+| Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |
 | Server application tools | Available | Available | Proposal route only |
 | Journal | Yes | Yes. It only ever sees named-area and server-route changes. | No authoritative changes are possible |
 
@@ -167,6 +167,18 @@ no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
+
+**2026-10-16 native-tool registration amendment (#2022, #2048 A).**
+Hosted interactive Claude keeps native file-tool definitions registered across
+`governed`, `strict` and voice turns to preserve provider prompt caching.
+Governed typed `Write`/`Edit` (and configured `NotebookEdit`) retain their
+SDK auto-allow, alongside existing server writers. Strict and voice natives
+refuse in the mandatory PreToolUse hook and permission callback before any
+handler, approval card or lock acquisition; settings and remembered grants
+cannot override that refusal. Native stale-read checks, write locks, journals
+and protected mounts still apply to governed typed execution. The autonomous
+roster and authority do not change. This amends native availability language
+above; #2048 owns the broader bridge-roster amendment.
 
 ## The policy file
 
@@ -991,7 +1003,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:90`).
+`packages/ui-backend-claude/src/permission-hooks.ts:96`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
