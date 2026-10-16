@@ -25,3 +25,9 @@ translated instances each of true crossing, same-side fan, unavoidable transit
 and vertical labels, all of which must succeed. Emitted paths are parsed
 independently and sampled on their actual circular arcs, rather than trusting
 the builder's radius and bridge metadata alone.
+
+`adopted-homecoming-relay.diagram.yaml` preserves the eight semantic nodes,
+seven relationships and exact desktop/authored 320×1088 placements converted
+from the approved #2091 `composition.json` at `ce92ea1d4142481fadf6cef08bfef7eecf02543b`.
+It covers the DELIVER mask beside fanned rounded elbows. Reflections exercise
+every directed quarter-arc orientation without changing the source fixture.
