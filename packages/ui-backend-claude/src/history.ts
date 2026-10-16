@@ -13,6 +13,7 @@ import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
 import { listArchivedSessions, restoreArchivedSession } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
 import { statusFromText } from "./stream-adapter.js";
+import { taskNotificationMessages } from "./task-notification-history.js";
 
 /**
  * Session list + transcript reader backed by the Claude Agent SDK's native
@@ -77,7 +78,7 @@ export function createHistory(deps: HistoryDeps): History {
     sessionId: string
   ): Promise<SessionHistoryMessage[]> {
     if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
-    return buildSessionHistory(sessionId, getSessionMessagesFn, dir);
+    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env);
   }
 
   return { listSessions, getHistory };
@@ -93,9 +94,11 @@ export function createHistory(deps: HistoryDeps): History {
 export async function buildSessionHistory(
   sessionId: string,
   getSessionMessagesFn: typeof sdkGetSessionMessages,
-  dir: string
+  dir: string,
+  env?: Record<string, string | undefined>
 ): Promise<SessionHistoryMessage[]> {
   const history = await getSessionMessagesFn(sessionId, { dir });
+  const taskNotices = taskNotificationMessages(dir, sessionId, env);
 
   // Build a tool result lookup from user messages (tool_result blocks)
   const toolResults = new Map<string, { output: string; isError: boolean }>();
@@ -127,6 +130,9 @@ export async function buildSessionHistory(
     const content = (entry as any).message?.content;
 
     if (entry.type === "user") {
+      // Runtime notifications have their own native entries, even when they
+      // appear prepended to a prompt after consecutive-user folding below.
+      if (taskNotices.get(entry.uuid) === JSON.stringify(entry.message)) continue;
       const text = Array.isArray(content)
         ? content
             .filter((b: any) => b.type === "text")

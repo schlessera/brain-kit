@@ -141,6 +141,14 @@ name in it. A backend that lists every configured profile, as pi does, omits
 the member. See
 [the integration contract](../integration-contract/wire.md#unavailable-profiles-additive-1044).
 
+Claude refuses explicit background `Bash` calls before execution: each turn's
+worker is disposable, so the model must retry with `run_in_background: false`
+and collect the result within the turn. This denial also covers approved input
+edits and never adds an allowlist grant. Native runtime task notifications are
+excluded from user history using their transcript UUID and runtime provenance;
+the following user prompt and images remain intact. Literal notification XML
+submitted by a user remains user text. Transcripts themselves are unchanged.
+
 Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
