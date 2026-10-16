@@ -4,10 +4,26 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  type DiagramBox
+  type DiagramBridge
   type DiagramCheckResult
+  type DiagramConnector
+  type DiagramEdgeLabel
+  type DiagramElement
   type DiagramFinding
+  DiagramGeometryError
+  type DiagramGeometryFinding
+  type DiagramGeometryOptions
+  type DiagramGroup
+  type DiagramLabelMask
+  type DiagramNode
+  type DiagramPoint
+  type DiagramPort
+  type DiagramSide
   type DiagramSpec
+  type DiagramTree
   type DiagramsConfig
+  buildDiagram
   checkDiagram
   configSchema
   diagramSpecJsonSchema
@@ -26,6 +42,19 @@ export "./render" (./src/render.ts)
 export "./ui" (./src/ui.ts)
 
 signatures (every public export and the types it is made of)
+  DiagramBox (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramBox {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }
+  DiagramBridge (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramBridge extends DiagramPoint {
+        segment: number;
+        radius: 6;
+        over: string;
+    }
   DiagramCheckResult (packages/module-diagrams/src/check.ts)
     export interface DiagramCheckResult {
         schema_version: 1;
@@ -34,16 +63,104 @@ signatures (every public export and the types it is made of)
         errors: DiagramFinding[];
         warnings: DiagramFinding[];
     }
+  DiagramConnector (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramConnector {
+        kind: "connector";
+        id: string;
+        edge: number;
+        from: DiagramPort;
+        to: DiagramPort;
+        points: DiagramPoint[];
+        path: string;
+        radius: 8;
+        bridges: DiagramBridge[];
+        dashed: boolean;
+        transit: string[];
+    }
+  DiagramEdgeLabel (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramEdgeLabel extends DiagramBox {
+        kind: "edge-label";
+        edge: number;
+        text: string;
+        fontSize: number;
+    }
+  DiagramElement (packages/module-diagrams/src/geometry.ts)
+    export type DiagramElement = DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
   DiagramFinding (packages/module-diagrams/src/check.ts)
     export interface DiagramFinding {
         path: string;
         code: string;
         message: string;
     }
+  DiagramGeometryError (packages/module-diagrams/src/geometry.ts)
+    export class DiagramGeometryError extends Error {
+        readonly findings: DiagramGeometryFinding[];
+        constructor(findings: DiagramGeometryFinding[]);
+    }
+  DiagramGeometryFinding (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramGeometryFinding {
+        path: string;
+        code: "unroutable";
+        message: string;
+    }
+  DiagramGeometryOptions (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramGeometryOptions {
+        labelFontSize?: number;
+        labelLineHeight?: number;
+    }
+  DiagramGroup (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramGroup extends DiagramBox {
+        kind: "group";
+        id: string;
+        label: string;
+        focal: boolean;
+    }
+  DiagramLabelMask (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramLabelMask extends DiagramBox {
+        kind: "label-mask";
+        edge: number;
+        opaque: true;
+        gap: 8;
+        segment: number;
+    }
+  DiagramNode (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramNode extends DiagramBox {
+        kind: "node";
+        id: string;
+        label: string;
+        focal: boolean;
+        sub?: string;
+        tag?: string;
+        role?: string;
+        link?: string;
+    }
+  DiagramPoint (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramPoint {
+        x: number;
+        y: number;
+    }
+  DiagramPort (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramPort extends DiagramPoint {
+        node: string;
+        side: DiagramSide;
+    }
+  DiagramSide (packages/module-diagrams/src/geometry.ts)
+    export type DiagramSide = "left" | "right" | "top" | "bottom";
   DiagramSpec (packages/module-diagrams/src/spec.ts)
     export type DiagramSpec = z.infer<typeof diagramSpecSchema>;
+  DiagramTree (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramTree {
+        schema_version: 1;
+        type: DiagramSpec["type"];
+        title: string;
+        desc: string;
+        viewBox: DiagramBox;
+        elements: DiagramElement[];
+    }
   DiagramsConfig (packages/module-diagrams/src/module.ts)
     export type DiagramsConfig = z.infer<typeof configSchema>;
+  buildDiagram (packages/module-diagrams/src/geometry.ts)
+    export function buildDiagram(input: DiagramSpec, options?: DiagramGeometryOptions): DiagramTree;
   checkDiagram (packages/module-diagrams/src/check.ts)
     export function checkDiagram(source: string): DiagramCheckResult;
   configSchema (packages/module-diagrams/src/module.ts)
