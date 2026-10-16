@@ -78,7 +78,7 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
  const stage=node.closest("svg")!.parentElement!.parentElement!;const before=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();expect(before.left<bounds.left||before.right>bounds.right,"CONTROL_NODE_STARTS_OFFSCREEN").toBe(true);
  node.focus();await expect.poll(()=>{const target=node.getBoundingClientRect(),frame=stage.getBoundingClientRect();return target.left>=frame.left&&target.right<=frame.right&&target.top>=frame.top&&target.bottom<=frame.bottom;}).toBe(true);
  fontFloor(node.closest("svg")!);expect(getComputedStyle(node.querySelector('.bk-diagram-node-focus')!).visibility).toBe("visible");await userEvent.keyboard("{Enter}");expect(paths).toEqual(["notes/raft-build.md"]);await userEvent.keyboard("{Escape}");
- }finally{await commands.formViewport(previous.width,previous.height);}
+ }finally{await commands.formViewport(previous.width-100,previous.height-120);}
 });
 
 test("the exact adopted eight-node relay fits both authored layouts with real font bounds",async()=>{
