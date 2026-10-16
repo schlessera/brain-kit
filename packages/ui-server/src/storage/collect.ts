@@ -27,7 +27,7 @@ export function storageTotals(entries: StorageFileEntry[], complete = true): Sto
   for (const entry of entries) {
     if (seen.has(entry.objectId)) continue;
     seen.add(entry.objectId);
-    if (entry.logical === null) hasLogical = false; else logical += BigInt(entry.logical);
+    if (entry.kind === "file") { if (entry.logical === null) hasLogical = false; else logical += BigInt(entry.logical); }
     if (entry.allocated === null) hasAllocation = false; else allocated += BigInt(entry.allocated);
   }
   const safe = (value: bigint) => value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;

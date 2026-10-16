@@ -153,3 +153,17 @@ test("in-tree Git metadata has its own ownership row without running repository 
     expect(result.summary.errors).toEqual([]);
   } finally { f.close(); }
 });
+
+test("directory metadata does not erase known regular-file logical totals", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-storage-logical-"));
+  mkdirSync(join(root, ".brain", "scratch"), { recursive: true });
+  writeFileSync(join(root, ".brain", "scratch", "chart.txt"), "Ithaca map");
+  linkSync(join(root, ".brain", "scratch", "chart.txt"), join(root, ".brain", "scratch", "alias.txt"));
+  try {
+    const result = await collectStorage({ brainPath: root, stores: [], salt: "odysseus" }, "logical-union", new AbortController().signal);
+    expect(result.summary.roots.find(value => value.category === "scratch")?.logical, "STORAGE_FILE_UNION_EXCLUDES_DIRECTORY_METADATA").toBe(10);
+    expect(result.summary.totals.brain.logical).toBe(10);
+    expect(result.summary.roots.find(value => value.category === "content")?.logical).toBe(0);
+    expect(result.summary.totals.all.coverage).toBe("complete");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
