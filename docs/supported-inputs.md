@@ -114,6 +114,13 @@ concrete boundary is qualified; ordinary separate-UID launches without retained
 folders retain their existing behavior. Native output publication refuses staged removal/replacement of
 admitted roots or ancestors through strict-area, maintenance and local sync.
 
+Before admitting a governed live writer with retained folders, the gate refuses
+an active peer with an unaccounted plan or a plan missing a required root pin.
+A peer's descendant root also retains its ancestors; retaining an ancestor alone
+does not retain each child inside it. An unknown peer-plan checker refuses too.
+This check does not wait for or stop an older writer and does not block nested
+shared maintenance, explicitly strict turns or strict inspection fallback.
+
 The gate stores planned root sets, not proof of mounted namespace identities;
 legacy rows remain unaccounted. These primitives do not activate inference-worker
 routing, masks, filtered indexes or server-tool refusals. They do not establish

@@ -7,11 +7,11 @@ import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
 import { createSessionProfileRoutes } from "../src/routes/session-profiles";
-import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
+import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
@@ -310,4 +310,131 @@ test("an invalid admission retains provider folders from the turn reader's last-
     }
     finally { peer.release(); }
   } finally { await hold.end(); }
+});
+
+
+test.each(["missing", "legacy", "ancestor"] as const)("a pre-existing unpinned peer cannot invalidate newly admitted provider folder mounts (%s)", async plan => {
+  const f = fixture(); f.write(plan === "ancestor" ? "providers: [{ paths: [group/**], allow: [anthropic] }]" : ""); mkdirSync(join(f.brain, "group/private"), { recursive: true });
+  writeFileSync(join(f.brain, "group/private/initial.md"), "Athena");
+  const prior = await f.execution.gate()!.acquire("shared", "turn:before-provider-folders");
+  const oldSandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [], folderPaths: prior.folderPaths });
+  const old = launchAgentWorker({ brainPath: f.brain, sandbox: oldSandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+    "printf ready > old-ready.md; IFS= read -r go || exit 43; mv group/private group/retired-private || exit 44; mkdir group/private || exit 45; printf Athena > group/private/born.md"] });
+  async function collect(stream: NodeJS.ReadableStream) { let text = ""; for await (const chunk of stream as AsyncIterable<Buffer>) text += chunk.toString(); return text; }
+  async function ready(path: string) { const deadline = Date.now() + 5000; while (!existsSync(join(f.brain, path))) { if (Date.now() >= deadline) throw Error(`Native peer readiness timed out: ${path}`); await Bun.sleep(5); } }
+  const oldOutput = Promise.all([collect(old.stdout), collect(old.stderr)]);
+  let admitted: Awaited<ReturnType<typeof f.turns.begin>> | undefined;
+  let next: ReturnType<typeof launchAgentWorker> | undefined, refusal: unknown;
+  let nextOutput: Promise<string[]> | undefined;
+  try {
+    await ready("old-ready.md");
+    if (plan === "legacy") f.db.query("UPDATE writer_gate SET folder_topology = NULL WHERE id = ?").run(prior.id);
+    f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+    try { admitted = await f.turns.begin("provider-folder-with-old-peer", new AbortController().signal); }
+    catch (error) { refusal = error; }
+    if (!admitted) {
+      const nested = await f.execution.gate()!.acquire("shared", "nested credential-free maintenance");
+      try { expect(nested.folderPaths, "KNOWN_UNSAFE_PEER_DOES_NOT_BLOCK_NESTED_SHARED_MAINTENANCE").toContain("group/private"); }
+      finally { nested.release(); }
+      f.write("profiles: { interactive: strict }\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]");
+      const strict = await f.turns.begin("strict-during-old-peer", new AbortController().signal);
+      try {
+        expect(strict.sandbox.profile).toBe("strict");
+        const child = launchAgentWorker({ brainPath: f.brain, sandbox: strict.sandbox, startupView: strict.startupView,
+          env: {}, command: ["/bin/cat", "group/private/initial.md"] });
+        child.stdin.end();
+        const [exit, out, err] = await Promise.all([child.exited, collect(child.stdout), collect(child.stderr)]);
+        expect(exit, err).toBe(0); expect(out).toBe("Athena");
+      } finally { await strict.end(); }
+    }
+    if (admitted) {
+      next = launchAgentWorker({ brainPath: f.brain, sandbox: admitted.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+        "printf ready > next-ready.md; IFS= read -r go || exit 46; if mv group/private group/moved-after-peer 2>/dev/null; then printf ROOT_RENAMED; exit 41; fi; printf ROOT_RETAINED"] });
+      nextOutput = Promise.all([collect(next.stdout), collect(next.stderr)]);
+      await ready("next-ready.md");
+    }
+    old.stdin.write("go\n"); old.stdin.end();
+    expect(await old.exited, (await oldOutput).join("")).toBe(0);
+    expect(readFileSync(join(f.brain, "group/private/born.md"), "utf8")).toBe("Athena");
+    if (next) {
+      next.stdin.write("go\n"); next.stdin.end();
+      const exit = await next.exited, output = (await nextOutput!).join("");
+      expect(exit, output).toBe(41);
+      expect(output, "OLD_PEER_INVALIDATES_A_REAL_POSTMOUNT_QUALIFIED_WRITER").toContain("ROOT_RENAMED");
+    }
+    expect(String(refusal), "PREEXISTING_UNPINNED_PEER_REFUSES_GOVERNED_FOLDER_ADMISSION").toContain("active peer");
+  } finally {
+    old.kill(); await old.exited; await oldOutput;
+    if (next) { next.kill(); await next.exited; await nextOutput; }
+    try { await admitted?.end(); } finally { prior.release(); }
+  }
+});
+
+
+test("a live peer retaining a descendant permits shared admission of its pinned ancestor", async () => {
+  const f = fixture(); mkdirSync(join(f.brain, "group/private/deeper"), { recursive: true });
+  f.write("providers: [{ paths: [group/private/deeper/**], allow: [anthropic] }]");
+  const prior = await f.execution.gate()!.acquire("shared", "turn:retained-descendant");
+  const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [], folderPaths: prior.folderPaths });
+  const old = launchAgentWorker({ brainPath: f.brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+    "printf ready > older-ready.md; IFS= read -r go || exit 43; if mv group/private group/moved 2>/dev/null; then exit 41; fi; printf Athena > group/private/deeper/older.md"] });
+  async function collect(stream: NodeJS.ReadableStream) { let text = ""; for await (const chunk of stream as AsyncIterable<Buffer>) text += chunk.toString(); return text; }
+  const oldOutput = Promise.all([collect(old.stdout), collect(old.stderr)]);
+  let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined;
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(join(f.brain, "older-ready.md"))) { if (Date.now() >= deadline) throw Error("Pinned peer readiness timed out"); await Bun.sleep(5); }
+    f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+    hold = await f.turns.begin("shared-pinned-ancestor", new AbortController().signal);
+    expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
+    const next = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+      "if mv group/private group/moved 2>/dev/null; then exit 42; fi; printf Odysseus > group/public.md; printf Athena > group/private/deeper/newer.md"] });
+    next.stdin.end();
+    const [exit, out, err] = await Promise.all([next.exited, collect(next.stdout), collect(next.stderr)]);
+    expect(exit, out + err).toBe(0);
+    old.stdin.write("go\n"); old.stdin.end();
+    expect(await old.exited, (await oldOutput).join("")).toBe(0);
+    expect(readFileSync(join(f.brain, "group/private/deeper/older.md"), "utf8")).toBe("Athena");
+    expect(readFileSync(join(f.brain, "group/private/deeper/newer.md"), "utf8")).toBe("Athena");
+    expect(readFileSync(join(f.brain, "group/public.md"), "utf8")).toBe("Odysseus");
+  } finally { old.kill(); await old.exited; await oldOutput; try { await hold?.end(); } finally { prior.release(); } }
+});
+
+
+test("a gate without peer-plan checking cannot admit a governed folder request", async () => {
+  const f = fixture(); mkdirSync(join(f.brain, "group/private"), { recursive: true });
+  f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+  const gate = f.execution.gate()!, acquire = gate.acquire.bind(gate);
+  const hook = spyOn(gate, "acquire").mockImplementation(async (...args) => {
+    const hold = await acquire(...args);
+    return { ...hold, assertPeerFolderPlans: undefined };
+  });
+  let admitted: Awaited<ReturnType<typeof f.turns.begin>> | undefined, refusal: unknown;
+  try {
+    try { admitted = await f.turns.begin("unknown-peer-checker", new AbortController().signal); }
+    catch (error) { refusal = error; }
+    expect(String(refusal), "UNKNOWN_PEER_CHECKER_CANNOT_ADMIT_GOVERNED_FOLDER").toContain("cannot check active peer plans");
+  } finally { hook.mockRestore(); await admitted?.end(); }
+  expect(gate.holders()).toEqual([]);
+});
+
+
+test("a missing folder preserves strict fallback beside an unaccounted peer", async () => {
+  const f = fixture(); f.write("");
+  const gate = f.execution.gate()!, prior = await gate.acquire("shared", "old unaccounted writer");
+  f.db.query("UPDATE writer_gate SET folder_topology = NULL WHERE id = ?").run(prior.id);
+  f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+  let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined;
+  try {
+    hold = await f.turns.begin("missing-folder-strict-fallback", new AbortController().signal);
+    expect(hold.sandbox.profile).toBe("strict");
+    expect(hold.sandbox.fallbackReason).toContain("protected paths could not be verified");
+    expect(existsSync(join(f.brain, "group/private"))).toBe(false);
+    const child = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, startupView: hold.startupView,
+      env: {}, command: ["/bin/sh", "-c", "test ! -e group/private"] });
+    child.stdin.end();
+    async function collect(stream: NodeJS.ReadableStream) { let text = ""; for await (const chunk of stream as AsyncIterable<Buffer>) text += chunk.toString(); return text; }
+    const [exit, out, err] = await Promise.all([child.exited, collect(child.stdout), collect(child.stderr)]);
+    expect(exit, out + err).toBe(0);
+  } finally { try { await hold?.end(); } finally { prior.release(); } }
 });
