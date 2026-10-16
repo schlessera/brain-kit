@@ -265,6 +265,9 @@ Accuracy and completeness are independent:
 
 ## Growth and low-space evidence
 
+The later [growth proposal](storage-growth.md) specifies candidate fields, bounds,
+cadence, guidance and synthetic decisions without approving production policy.
+
 Reuse concepts from core stats history (nullable values, date/version provenance,
 UTC buckets and thinning), not its schema/file or core authority. That file stores
 corpus/index figures and lacks capacity IDs, coverage/basis and server ownership;
