@@ -141,8 +141,8 @@ on, links to or describes them.
 - A review finding is one instance of a bug class: grep the diff and its file
   for every other instance before calling it closed.
 - Before opening or marking a PR ready, run `bun run check:pr --base
-  origin/main` and keep focused failing-first/mutation receipts. Ready-PR CI
-  supplies the complete affected proof; every selected job must pass, and
+  origin/main` and keep focused failing-first/mutation receipts. Explicit ready-candidate CI
+  supplies complete affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).

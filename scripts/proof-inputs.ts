@@ -43,7 +43,7 @@ export function normalizeInventory(value: unknown, root?: string): Spec[] {
   return specs;
 }
 export function selectedSpecs(category: Reusable, inventory: readonly Spec[]): Spec[] {
-  const selected = inventory.filter(s => category === "layout" ? s.project === "ui-react-layout" : s.project !== "ui-react-layout");
+  const selected = inventory.filter(s => category === "layout" ? s.project === "ui-react-layout" : ! ["ui-react-layout", "ui-react-endurance"].includes(s.project));
   if (selected.length < 2) throw new Error("Incomplete browser category inventory");
   return selected;
 }
@@ -137,7 +137,7 @@ export async function browserInventory(root: string): Promise<Spec[]> {
     const declaration = /const projects = projectArgs\.length \?[^\n]+ : (\[[^\n]+\]);/.exec(readFileSync(join(root, "scripts/visual.mjs"), "utf8"));
     if (!declaration) throw new Error("Unknown browser project selection requires fresh proof");
     const defaults = JSON.parse(declaration[1]!) as string[];
-    const expected = [...defaults, "ui-react-layout"].sort();
+    const expected = [...defaults, "ui-react-layout", "ui-react-endurance"].sort();
     const actual = [...new Set(inventory.map(spec => spec.project))].sort();
     if (!defaults.length || new Set(expected).size !== expected.length || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Unknown or missing browser project discovery requires fresh proof");
     return inventory;
