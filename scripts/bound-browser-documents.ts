@@ -33,7 +33,7 @@ const declarations:DocumentDeclaration[]=[{
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "f82b6f8f77d63e000ec2916539201bbda2a29756a734339aa631aa10294fcb64",
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
-  "callerHash": "6546f81e60768d3741bbbee71229fdbf1ac609b5a1e90de54074a35fe550ffb3",
+  "callerHash": "1a6c47fb9309628f27294b91b18e014ec1f8e4683849788a40ff88ce04a20278",
   "calls": 2,
   "additionalCallers": {
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "6b5bf76d7f0680d772f25ce8d73e2a39b72337c38d5025ec8fd37fba435b1cbb",
+  "identity": "f8a497c017892732a3eeb17c85045081505a070a8b0df8afa84d2d3348954dc2",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "9b7e77a4b5df780b927ade2ebae53bcb4a2e3173",
+    "base": "4ba792473152c89eb74c286fc914e54ca1dae8fc",
     "selected": 305,
     "files": 1727,
-    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. Axis screenshot ordering defect #2253 blocks runtime qualification until repaired."
+    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. The renderer viewport restoration was corrected by #2253 without changing references or assertions."
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",
