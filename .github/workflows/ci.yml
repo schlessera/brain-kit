@@ -464,7 +464,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 7819ff657
+          ref: 7819ff65794060eef05d1a76221f5377c4f6bff7
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -496,7 +496,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 7819ff657
+          ref: 7819ff65794060eef05d1a76221f5377c4f6bff7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
