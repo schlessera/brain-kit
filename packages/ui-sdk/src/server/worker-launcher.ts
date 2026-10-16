@@ -1,3 +1,4 @@
+import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
@@ -11,6 +12,7 @@ import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file
 import { createWorkerPipes } from "./worker-pipes.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
+import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_DIRS,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
@@ -49,6 +51,9 @@ const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 
 const STATE_GATE_OPEN = "go\n";
 /** How long a launch waits for bubblewrap to report and mount, like the probe's bound. */
 const STATE_SETUP_MS = 5_000;
+/** Include the trusted transport wrapper in every start-gate boundary calculation. */
+const payloadCommand = (input: WorkerLaunch): readonly string[] => input.egress
+  ? [process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir), ...input.command] : input.command;
 export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host with bubblewrap and unprivileged user namespaces.";
 
 export interface WorkerLaunch {
@@ -83,6 +88,8 @@ export interface WorkerLaunch {
    * envelope instead of the host root. Absent for interactive and voice turns.
    */
   restricted?: RestrictedEnvelope;
+  /** Explicit measured interactive transport; default activation remains gated by #1665. */
+  egress?: { proxyDir: string };
   /**
    * The writable areas resolved by `prepareWorkerSandbox` for this worker
    * (#1626). The same object renders the agent's sandbox note, so the mounts
@@ -314,7 +321,7 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
  * credentialed worker, then the brain read-write. A credential-free worker
  * gets the brain's `.env*` files covered, so Bun loads no key into it.
  */
-function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string[] {
+function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressMounts: readonly string[] = []): string[] {
   const masks: string[] = [];
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
@@ -395,6 +402,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
   // file mount, not tmpfs. Apply after every permitted bind-back so neither
   // HOME nor a runtime directory can restore their original bytes.
   for (const file of fileMasks) argv.push("--ro-bind", "/dev/null", file);
+  argv.push(...egressMounts);
   if (envelope.readOnlyMasks || envelope.tempBytes !== undefined) {
     for (const mask of readOnlyMasks) argv.push("--remount-ro", mask);
   }
@@ -500,6 +508,17 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   const maintenance = input.maintenance;
   const transport = input.transport;
+  if (input.egress && (maintenance || transport || input.restricted || !input.sandbox?.profile || input.sandbox.profile === "restricted")) {
+    throw new WorkerHostError("egress transport belongs only to a governed or strict interactive worker");
+  }
+  let egressMounts: string[] = [];
+  if (input.egress) {
+    const directory = realpathSync(input.egress.proxyDir);
+    if (directory !== normalize(input.egress.proxyDir) || !lstatSync(directory).isDirectory() || (statSync(directory).mode & 0o077) !== 0
+      || within(brain, directory) || within(directory, brain)
+      || !lstatSync(join(directory, "proxy.sock")).isSocket()) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
+    egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
+  }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
   }
@@ -518,7 +537,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // Explicit maintainer approval on #1708: maintenance commands cannot
     // create nested user namespaces; startup asserts that enforcement.
     ...(maintenance || transport ? ["--disable-userns", "--assert-userns-disabled"] : []),
-    ...(input.restricted || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
+    ...(input.restricted || input.egress || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted || transport ? [] : ["--ro-bind", "/", "/"]),
@@ -529,9 +548,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
       network: true, credentials: false, readOnlyMasks: true,
-      readPaths: input.sandbox.readPaths ?? restrictedReadPaths(input.command.filter(path => isAbsolute(path) && existsSync(path))),
+      readPaths: [...(input.sandbox.readPaths ?? restrictedReadPaths(input.command.filter(path => isAbsolute(path) && existsSync(path)))),
+        ...(input.egress ? restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]) : [])],
       maskPaths: input.sandbox.maskPaths,
-    }, brain) : ["--ro-bind", brain, brain]),
+    }, brain, egressMounts) : ["--ro-bind", brain, brain]),
     // Strict restores the old read-only brain after the common masks/runtime view.
     ...(input.startupView ? ["--ro-bind", input.startupView.root, brain]
       : !maintenance && input.sandbox?.profile === "strict" ? ["--ro-bind", brain, brain] : []),
@@ -550,7 +570,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []), "--clearenv"];
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []),
+    "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
   if (!maintenance) {
@@ -566,7 +587,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
+    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
+    ...payloadCommand(input));
   const outputStorage = input.areaOutput?.storage ?? maintenance?.output?.storage;
   if (outputStorage) {
     const storage = outputStorage;
@@ -715,7 +737,7 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     argv.splice(bwrap + 1, 0, "--json-status-fd", "3", "--block-fd", "4");
     // Every status-qualified launch waits, including commands without state.
     // The PID cannot exit/recycle before verification and freezer setup.
-    if (gated(input)) argv.splice(argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+    if (gated(input)) argv.splice(argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
     // Bun execve closes descriptors above stdio. Reopen only these host-owned
     // FIFOs after the unchanged bootstrap filter. bubblewrap closes both
     // descriptors in its sandbox child before any payload can run.
@@ -1071,7 +1093,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path, status);
     if (helper) {
       const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
-      if (gated(input)) payload.argv.splice(payload.argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+      if (gated(input)) payload.argv.splice(payload.argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
       identityBroker = prepareWorkerIdentity(helper, payload.argv, [
         ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
         ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
@@ -1197,7 +1219,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       finally { if (!input.preparedOutput) await startupView?.cleanup(); }
       throw error;
     });
-    return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
@@ -1205,6 +1227,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         else spawned.kill(signal);
       }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
+    registerWorkerRtk(launched, pid, input);
+    return launched;
   } catch (error) {
     identityFinished = false;
     for (const handle of identityHandles) handle.close();

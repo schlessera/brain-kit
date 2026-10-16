@@ -64,7 +64,20 @@ export interface ModuleSettingsFailure {
   errors: Array<{ path: string; message: string }>;
 }
 
+/** Metadata only: the server never chooses client code or loads these declarations. */
+export interface ContentRendererDeclaration {
+  module: string;
+  version: string | null;
+  name: string;
+  fences: readonly string[];
+  extensions: readonly string[];
+}
+
 export interface ConfiguredModule {
+  /** Package version; null for an unversioned local module. */
+  version?: string | null;
+  /** Renderer metadata only; server consumers never import these specifiers. */
+  renderers?: Record<string, { fences?: string[]; extensions?: string[]; client: string; static?: string }>;
   name: string;
   key: string;
   description: string | null;

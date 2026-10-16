@@ -2,7 +2,9 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
-import { buildHtmlDocument } from "@schlessera/brain-render-template";
+import { prepareStaticDocument } from "@schlessera/brain-render-template/internal";
+import { staticRendererFor } from "@schlessera/brain-ui-sdk/render";
+import type { BrainClient } from "../brain/client.js";
 import {
   readJsonBody,
   RENDER_BODY_LIMIT_BYTES,
@@ -33,7 +35,7 @@ const bodySchema = z.object({
   title: z.string().max(200).optional(),
 }) satisfies z.ZodType<RenderRequest>;
 
-export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
+export function createRenderRoutes(renderer?: AppRenderer, log?: Logger, brain?: BrainClient) {
   return new Hono().post("/render", requireJson(), async (c) => {
     if (!renderer) {
       return c.json(
@@ -53,7 +55,23 @@ export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
 
     try {
       const linkPolicy = "visible-destinations" as const;
-      const html = buildHtmlDocument({ ...parsed, linkPolicy });
+      // Metadata crosses the worker boundary; executable imports never do.
+      const configured = parsed.contentType === "markdown" ? await brain?.modules?.() : undefined;
+      const active = configured?.enabled.filter((mod) => mod.state === undefined || mod.state === "active") ?? [];
+      const prepared = await prepareStaticDocument({ ...parsed, linkPolicy }, {
+        rendererFor: (language) => active.some((mod) => Object.values(mod.renderers ?? {}).some((entry) => entry.static && entry.fences?.includes(language))) ? staticRendererFor(language) : null,
+      });
+      const { html } = prepared;
+      if (prepared.warnings.length) {
+        const warnings: Array<{ code: string; message: string }> = [];
+        for (const warning of prepared.warnings) {
+          const candidate = [...warnings, { code: warning.code, message: warning.message.slice(0, 200) }];
+          if (encodeURIComponent(JSON.stringify(candidate)).length > 3500) break;
+          warnings.push(candidate[candidate.length - 1]);
+        }
+        c.header("X-Brain-Render-Warnings", encodeURIComponent(JSON.stringify(warnings)));
+        if (warnings.length < prepared.warnings.length) c.header("X-Brain-Render-Warnings-Truncated", "true");
+      }
       const buf =
         parsed.format === "png"
           ? await renderer.renderPng({ html, linkPolicy })
@@ -61,7 +79,7 @@ export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
       const filename = (parsed.title ?? "share")
         .replace(/[^a-z0-9_.-]+/gi, "_")
         .slice(0, 60) || "share";
-      return new Response(new Uint8Array(buf), {
+      return c.newResponse(new Uint8Array(buf), {
         status: 200,
         headers: {
           "Content-Type": parsed.format === "png" ? "image/png" : "application/pdf",

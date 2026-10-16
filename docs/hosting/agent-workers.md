@@ -880,7 +880,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:66-91`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:67-92`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1138,3 +1138,43 @@ runs. Setup refusal ends the unstarted worker.
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
 in [#1677](https://github.com/schlessera/brain-kit/issues/1677).
+
+
+## Egress transport qualification
+
+The first-party internal transport offers HTTP forwarding and opaque CONNECT
+through a private Unix socket. An explicitly selected governed or strict worker
+has a private network namespace and a trusted loopback forwarder. Its existing
+host masks, private sized temp, protected brain paths and dropped capabilities
+remain in force. The host transport checks destination rules before opening an
+upstream, charges a conservative HTTP wire bound (target, headers, bodies and framing)
+and exact opaque CONNECT stream bytes against one turn counter, and
+requires explicit host approval for outward destinations and cleartext writes.
+Records contain host, port, method, cleartext path where observable, payload
+bytes, accounting coverage, elapsed time and outcome; they omit headers, bodies
+and query strings. HTTP accounting includes conservative framing allowances,
+so it is an enforced upper bound rather than an exact network-byte measurement.
+A CONNECT record never invents a cleartext path or method inside TLS.
+
+Offline qualification on 2026-10-16 used Bun 1.4.2 and real bubblewrap workers
+in both profiles. All upstreams were fixture loopback listeners. The same
+controls preserve zero effective capabilities and refuse direct TCP access
+and a host home-directory Unix socket.
+
+| Measured path | Result |
+| --- | --- |
+| Bun fetch with explicit HTTP proxy | Fixture response through the Unix transport |
+| Bun fetch with proxy environment only | Fixture response; this installed Bun honors HTTP_PROXY |
+| curl over HTTP | Fixture response and cleartext path and conservative wire accounting |
+| curl over HTTPS with a fixture CA | Verified TLS through CONNECT; only opaque bytes recorded |
+| Destination omitted from allowlist | Refused before upstream contact |
+| Byte budget exhausted across requests | Refused with max_bytes_per_turn |
+| Turn cancelled during outward approval | Pending connection closed and private proxy storage removed |
+
+These controls qualify the transport primitive, not default backend activation
+or credential-free ordinary inference. The remaining inference, authentication,
+Git/SSH, Chromium and complete socket-inventory qualification belongs to #1665.
+Ordinary backend defaults and their existing unrecorded-egress disclosure remain
+unchanged. In particular, this transport does not replace native account login
+with a setup token or grant a network connection from a tool-classification
+observation alone.

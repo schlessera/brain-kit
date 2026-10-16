@@ -19,6 +19,7 @@ export "./internal" (./src/internal.ts)
   applyExportLinkPolicy
   documentTitle
   isFullDocument
+  prepareStaticDocument
   protectExportLinkDestinations
 
 export "./kinds" (./src/kinds.ts)
@@ -85,7 +86,7 @@ signatures (every public export and the types it is made of)
     }
   DocumentWarning (packages/render-template/src/lint.ts)
     export interface DocumentWarning {
-        code: "unknown-class" | "unknown-accent" | "opener-not-first" | "several-openers" | "placeholder-image" | "remote-image" | "empty-link" | "script" | "network-resource";
+        code: "unknown-class" | "unknown-accent" | "opener-not-first" | "several-openers" | "placeholder-image" | "remote-image" | "empty-link" | "script" | "network-resource" | "static-renderer";
         message: string;
     }
   ExportLinkPolicy (packages/render-template/src/link-policy.ts)
