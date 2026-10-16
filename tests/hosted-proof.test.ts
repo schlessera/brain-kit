@@ -129,3 +129,18 @@ test("root consumer unit proof executes exactly selected consumers and tooling o
   expect(() => unitFiles({ ...plan, unitTests: [...files, files[0]!] }, dir)).toThrow("Invalid selected unit inventory");
   expect(() => unitFiles({ ...plan, unitTests: ["tests/missing.test.ts"] }, dir)).toThrow("Invalid selected unit inventory");
 });
+
+test("explicit leaf inventory is exact, validated and preserves aggregate obligations", () => {
+  const plan = planChecks(["packages/ui-sdk/tests/leaf.test.ts"], workspaces(ROOT));
+  plan.unitTests = ["tests/ci-plan.test.ts", "tests/hosted-proof.test.ts"];
+  expect(unitFiles(plan, ROOT)).toEqual(plan.unitTests);
+  const parts = ["1/2", "2/2"].flatMap(shard => unitFiles(plan, ROOT, shard)).sort();
+  expect(parts, "EXACT_LEAF_INVENTORY_ONCE").toEqual([...plan.unitTests].sort());
+  expect(new Set(parts).size).toBe(2);
+  const command = categoryCommands("unit", plan, ROOT)[0]!;
+  expect(command.argv.filter(file => file.endsWith(".test.ts"))).toEqual(plan.unitTests.map(file => join(ROOT, file)));
+  plan.unitTests = ["tests/does-not-exist.test.ts"];
+  expect(() => unitFiles(plan, ROOT), "UNKNOWN_LEAF_REJECTED").toThrow("Invalid selected unit inventory");
+  plan.unitTests = ["tests/ci-plan.test.ts", "tests/ci-plan.test.ts"];
+  expect(() => unitFiles(plan, ROOT)).toThrow("Invalid selected unit inventory");
+});

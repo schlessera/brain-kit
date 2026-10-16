@@ -50,7 +50,7 @@ focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
 CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
-unit/integration discovery includes affected workspaces and every reverse
+unit/integration discovery normally includes affected workspaces and every reverse
 dependant, plus root tooling tests. Global/unknown inputs expand to complete
 default discovery. Newly added files are discovered, not admitted through a
 fixed allowlist. Shipped changes retain all packed-consumer probes; selected
@@ -324,3 +324,21 @@ paths or immutable entries. Neither is the first cost lever here: inspected
 dependency installs were short, and expensive automatic browser jobs have moved
 to required local checks. Do not cache a passing test result as a substitute
 for proving the changed checkout.
+
+### Independent Bun test-only changes
+
+A PR changing only unreferenced Bun test files and prose selects those
+files plus their owning fast invariant groups. Other tracked files must not
+name a test basename, the files must export nothing, and expanded package build
+inventories must not consume them. Source and shared helper inputs are unchanged,
+so executing the changed leaves covers their changed results without repeating
+reverse dependants or unrelated browser, layout, endurance and capture domains.
+A named runtime command retains ordinary runtime selection through the reference
+fallback. Fixtures (including Markdown), helpers, snapshots, exported/referenced
+or deleted tests, unknown inputs and unavailable scans retain ordinary selection.
+Main pushes and exhaustive runs retain complete affected/default discovery.
+
+The exact unit inventory is validated against default Bun discovery. It includes
+owning fast tests once, and uses at most the existing four partitions, reduced
+only when fewer files exist; no empty partition or duplicate execution substitutes
+for coverage. Selected categories remain required by the unchanged aggregate.
