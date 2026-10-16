@@ -657,3 +657,14 @@ described in [the renderer decision](decisions/module-renderers.md).
 `null`) and declared `renderers` (or `{}`), also exposed through `/api/modules`.
 Core's internal `collectModuleRenderers(modules)` returns the merged active
 declarations with module name, renderer name and version for render consumers.
+
+Bundled client packs registered through the SDK content registry render matching
+fences in chat and Markdown files, and matching standalone text-file extensions
+in Preview. Exact multi-part extensions take precedence over their shorter
+suffixes. Raw remains source. Components receive the surface's source, path,
+mode and resolved theme; share mode uses print. A failed renderer falls back
+only its own block to source with an accessible status note. While a lazy
+component loads, source remains visible. Hosts can register `React.lazy`
+components backed by a build-time `import()`; that chunk is requested only
+when a matching block is rendered. The generic browser bundling integration
+and server declaration wiring are separate from this dispatch layer.
