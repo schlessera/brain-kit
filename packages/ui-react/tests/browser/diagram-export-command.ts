@@ -1,6 +1,7 @@
+import assert from "node:assert/strict";
 import {diagramFontCss} from "../../../module-diagrams/src/fonts.ts";
 /// <reference types="@vitest/browser-playwright" />
-import {readFileSync,writeFileSync} from "node:fs";
+import {readFileSync,writeFileSync,mkdirSync} from "node:fs";
 import {spawn} from "node:child_process";
 import {resolve} from "node:path";
 import {chromium} from "playwright";
@@ -19,3 +20,11 @@ export const diagramArtifact:BrowserCommand<[],unknown>=async(ctx)=>{
  }finally{await context.close();await browser.close();}
 };
 declare module "vitest/browser"{interface BrowserCommands{diagramFontStyles():Promise<string>;diagramArtifact():Promise<{format:string;bytes:number;width?:number;height?:number;fonts?:string[];pixelEquivalent?:boolean}[]>;}}
+/** Compare the complete native SVG, including content outside ordinary viewports. */
+export const diagramRasterComparison:BrowserCommand<[string,string,string],boolean>=async(ctx,name,before,after)=>{
+ if(!/^[a-z0-9-]+$/.test(name))throw Error("Invalid diagram proof name");
+ const directory=resolve("../../tmp/diagram-export-proof",ctx.context.browser()!.browserType().name());
+ const page=await ctx.context.newPage();await page.route("**/*",route=>route.abort());const captures:Buffer[]=[];
+ try{for(const [suffix,html] of [["before",before],["after",after]]){await page.setContent(`<!doctype html><html><body style="margin:0">${html}</body></html>`);const size=await page.locator("svg").evaluate(element=>{const box=element.getBoundingClientRect();return {width:Math.ceil(box.width),height:Math.ceil(box.height),nativeWidth:Number(element.getAttribute("width")),nativeHeight:Number(element.getAttribute("height"))};});assert(size.width>0&&size.height>0,"NATIVE_CAPTURE_NONZERO");assert.equal(size.width,size.nativeWidth,"NATIVE_CAPTURE_FULL_WIDTH");assert.equal(size.height,size.nativeHeight,"NATIVE_CAPTURE_FULL_HEIGHT");await page.setViewportSize({width:size.width,height:size.height});await page.evaluate(()=>document.fonts.ready);const capture=await page.locator("svg").screenshot(),ratio=await page.evaluate(()=>devicePixelRatio);assert.equal(capture.readUInt32BE(16),Math.round(size.width*ratio),"CAPTURE_PNG_FULL_WIDTH");assert.equal(capture.readUInt32BE(20),Math.round(size.height*ratio),"CAPTURE_PNG_FULL_HEIGHT");mkdirSync(directory,{recursive:true});writeFileSync(resolve(directory,`${name}-${suffix}.png`),capture);captures.push(capture);}return captures[0]!.equals(captures[1]!);}finally{await page.close();}
+};
+declare module "vitest/browser"{interface BrowserCommands{diagramRasterComparison(name:string,before:string,after:string):Promise<boolean>;}}
