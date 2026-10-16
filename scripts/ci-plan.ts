@@ -2,6 +2,7 @@
 import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 
 export interface Workspace {
   dir: string;
@@ -16,7 +17,7 @@ export interface Workspace {
 // without real browsers, installed model runtimes or real-time deadline waits.
 export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
-    "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
+    "tests/ci-plan.test.ts", "tests/ci-runner.test.ts", "tests/browser-input-closure.test.ts",
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
@@ -276,7 +277,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   });
   const ui = affected.some(dir => ["ui-sdk", "ui-kit", "ui-react", "ui-server", "render-template", "geo"].includes(dir));
   const captureInputs = changed.some(path => path === "docs/process/feature-captures.md" || path.startsWith("scripts/capture") || path.startsWith("scripts/captures/"));
-  return { changed: [...changed].sort(), affected, global,
+  const plan: CheckPlan = { changed: [...changed].sort(), affected, global,
     ...(rootPaths.length && !global && !packageCode ? { unitTests: [...new Set([...tests, ...consumers.tests])].sort() } : {}),
     typecheck: global || rootPaths.some(path => /\.[cm]?[jt]sx?$/.test(path)) || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
     tests, pack: global || ships,
@@ -284,6 +285,16 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
       layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
       endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
       runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+  // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
+  return arguments.length >= 3 && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+}
+
+/** Global dependency/tooling changes remain exhaustive; selected categories remain complete. */
+export function selectBrowserClosures(plan: CheckPlan, closures: BrowserClosures): CheckPlan {
+  if (plan.global) return plan;
+  const local = { ...plan.local };
+  for (const category of ["browser", "layout", "endurance", "captures"] as const) local[category] = closureSelects(plan.changed, closures[category], local[category]);
+  return { ...plan, local };
 }
 
 /** Narrow inventories use fewer nonempty partitions; ordinary proof keeps four. */
