@@ -437,7 +437,7 @@ describe("handoff preparation", () => {
 
     // One run on the source session, named for what it was, with its cost.
     const run = r.db.query("SELECT name, session_id AS sessionId, cost_usd AS cost, outcome, failure_reason AS failureReason FROM activity_run_rollups WHERE run_id = ?").get(draft.runId) as
-      { name: string; sessionId: string; cost: number | null; outcome: string } | null;
+      { name: string; sessionId: string; cost: number | null; outcome: string; failureReason: string | null } | null;
     expect(run).toEqual({ name: "handoff preparation", sessionId: source, cost: 0.03, outcome: "success", failureReason: null });
     // The cost joins the source's total; it is not a turn of its conversation.
     expect(row(r, source)).toMatchObject({ turns: 4 });
@@ -449,7 +449,7 @@ describe("handoff preparation", () => {
     const message = "The fictional summary provider failed.";
     const r = rig({ startTurn: async ({ bridge }) => {
       if (mode === "throw") throw new Error(message);
-      if (mode === "error frame") bridge.emit({ type: "error", message });
+      if (mode === "error frame") bridge.emit({ type: "error", code: "BACKEND_ERROR", message });
       bridge.emit({ type: "result", sessionId: "summary", durationMs: 1, numTurns: 1,
         isError: mode === "result", outcome: mode === "result" ? "error" : "success",
         ...(mode === "result" ? { failure: { errorClass: "server_error", message } } : {}) });
