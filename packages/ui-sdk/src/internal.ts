@@ -91,3 +91,5 @@ export { sessionReplay } from "./server/session-replay.js";
 export type { ReplayReceipt } from "./server/session-replay.js";
 
 export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
+
+export { rewriteWorkerRtk } from "./server/worker-rtk.js";

@@ -305,6 +305,7 @@ function assembleClaudeSdkTurn(
       brainPath: backend.brainPath,
       fileVersions: options.fileVersions,
       observeFile: path => worker.observeFile(path),
+      rewriteRtk: command => worker.rewriteRtk(command),
       turnLock,
       childEnv,
       configurationRoot: () => worker.configurationRoot(),

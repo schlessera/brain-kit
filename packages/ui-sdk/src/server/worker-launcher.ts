@@ -1,3 +1,4 @@
+import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
@@ -1218,7 +1219,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       finally { if (!input.preparedOutput) await startupView?.cleanup(); }
       throw error;
     });
-    return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
@@ -1226,6 +1227,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         else spawned.kill(signal);
       }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
+    registerWorkerRtk(launched, pid, input);
+    return launched;
   } catch (error) {
     identityFinished = false;
     for (const handle of identityHandles) handle.close();
