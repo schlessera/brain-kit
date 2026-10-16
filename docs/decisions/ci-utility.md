@@ -253,8 +253,31 @@ serial runtime category: 13.522/9.719/4.571 seconds for the probes, 424.345 seco
 for hosted admission and 250.566 seconds for shared-process cleanup. Its four-CPU
 VM sampled 2.540 GB used of 16.766 GB and 884.56 active CPU-seconds. These are
 attributed historical observations, not a controlled current-source speedup.
-Current two-job phase and full-job/setup measurements are required to qualify the
-split against the longest single phase plus 90-second wall-time criterion.
+The split's [runtime-only experiment 38920698136, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920698136)
+ran source `e7fea8b1ecb4a9f89f8651eca37e0bca797c20ad`, tree
+`4c3f9f786a6838b02f43ae8753253c927956b2f8`. Actual checkout logs and
+immutable checkout/resource artifacts agree. All five phases succeeded:
+15.75 / 12.01 / 5.38 seconds for the probes, 265.72 seconds for shared-process
+Chrome/cleanup and 427.17 seconds for separate hosted admission. Ordinary
+runtime totaled 298.86 seconds (299-second proof step, 352-second whole job);
+hosted admission took a 427-second step and 480-second whole job. The longest
+whole job, including setup, satisfies the longest phase plus 90-second ceiling
+(480 <= 517.17 seconds). This measurement workflow is an experiment, not a
+production confirmation event.
+
+[Automatic main run 38920963140, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920963140)
+independently executed merged source `80e028d84b7686d6cf864d8166029b1142de8756`,
+tree `5f75530d5f191f6615f78736a7c67577b0cdbf84`, in both successful runtime
+jobs. Its five phases succeeded in 11.90 / 8.85 / 3.93 / 194.25 / 424.80 seconds.
+Ordinary runtime totaled 218.93 seconds; hosted admission's 425-second proof
+step and 478-second whole job satisfy the same ceiling (478 <= 514.80 seconds).
+The ordinary/hosted VM receipts record sampled peaks of 2.53 / 1.93 GB and
+445.21 / 328.54 active CPU-seconds on separate 4-vCPU, 16.77-GB runners.
+These source-bound main jobs establish phase coverage and the wall-time bound;
+they do not establish a whole-workflow pass or a controlled speedup. The
+experiment retains its own source and event identity. The separate
+confirmation-event requirement remains tracked in
+[#2128](https://github.com/schlessera/brain-kit/issues/2128).
 
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
