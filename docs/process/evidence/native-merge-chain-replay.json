@@ -1,0 +1,75 @@
+{
+  "source_issue": "https://github.com/schlessera/brain-kit/issues/2141",
+  "scope": "Immutable historical native metadata checkout and independent ORT tree reconstruction; not passing native candidate qualification.",
+  "git": "git version 2.51.0",
+  "commits": [
+    {
+      "parents": [
+        "3fc6fea5e22304df2810348074c32b1983fbea46",
+        "c40f533e5f2277b961acb1d48b7b3742dd7ac11c"
+      ],
+      "sha": "ff8cecd806cf17987c1fea05ce084c9cf8b8fbef",
+      "tree": "125491a2dc2407dbc042bc36975b94ed1621467c",
+      "reconstructed_tree": "125491a2dc2407dbc042bc36975b94ed1621467c",
+      "reconstruction_exit": 0,
+      "run": 38902174935,
+      "attempt": 1,
+      "event": "pull_request",
+      "metadata_job": 116976830747,
+      "actual_checkout_from_job_log": "ff8cecd806cf17987c1fea05ce084c9cf8b8fbef",
+      "run_head": "c40f533e5f2277b961acb1d48b7b3742dd7ac11c",
+      "qualification": "Historical metadata/shape evidence only; cancelled upper runs are not passing native proof."
+    },
+    {
+      "parents": [
+        "ff8cecd806cf17987c1fea05ce084c9cf8b8fbef",
+        "b11c43ff08c9490f5acce54873682333b2a2601a"
+      ],
+      "sha": "1262a109997fb6b7861f50e52b8da7c5940df0ed",
+      "tree": "25c7dc9c39199610343f59dfc52fd4f9c944d792",
+      "reconstructed_tree": "25c7dc9c39199610343f59dfc52fd4f9c944d792",
+      "reconstruction_exit": 0,
+      "run": 38902179343,
+      "attempt": 1,
+      "event": "pull_request",
+      "metadata_job": 116976845098,
+      "actual_checkout_from_job_log": "1262a109997fb6b7861f50e52b8da7c5940df0ed",
+      "run_head": "b11c43ff08c9490f5acce54873682333b2a2601a",
+      "qualification": "Historical metadata/shape evidence only; cancelled upper runs are not passing native proof."
+    },
+    {
+      "parents": [
+        "1262a109997fb6b7861f50e52b8da7c5940df0ed",
+        "395ff3a0f3981f2da9cebb17aa6a4dc887a7a94a"
+      ],
+      "sha": "acbacf7c4d73dc48af92eae90387d19a7fbb9cc1",
+      "tree": "8bb77e92333ef76ca963938e24e2c0e779070b4c",
+      "reconstructed_tree": "8bb77e92333ef76ca963938e24e2c0e779070b4c",
+      "reconstruction_exit": 0,
+      "run": 38902182348,
+      "attempt": 1,
+      "event": "pull_request",
+      "metadata_job": 116976855103,
+      "actual_checkout_from_job_log": "acbacf7c4d73dc48af92eae90387d19a7fbb9cc1",
+      "run_head": "395ff3a0f3981f2da9cebb17aa6a4dc887a7a94a",
+      "qualification": "Historical metadata/shape evidence only; cancelled upper runs are not passing native proof."
+    },
+    {
+      "parents": [
+        "acbacf7c4d73dc48af92eae90387d19a7fbb9cc1",
+        "0d658e7ca5a1ef98860ad1b79653782931a1b63c"
+      ],
+      "sha": "72caa79f3408a5a56107f0b95cf12e138f7a3a16",
+      "tree": "f3261f4bcfb381eb1bced8a039aae97b01bda102",
+      "reconstructed_tree": "f3261f4bcfb381eb1bced8a039aae97b01bda102",
+      "reconstruction_exit": 0,
+      "run": 38902186914,
+      "attempt": 1,
+      "event": "pull_request",
+      "metadata_job": 116976871841,
+      "actual_checkout_from_job_log": "72caa79f3408a5a56107f0b95cf12e138f7a3a16",
+      "run_head": "0d658e7ca5a1ef98860ad1b79653782931a1b63c",
+      "qualification": "Historical metadata/shape evidence only; cancelled upper runs are not passing native proof."
+    }
+  ]
+}

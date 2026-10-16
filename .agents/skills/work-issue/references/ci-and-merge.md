@@ -57,6 +57,11 @@ fresh candidate; selected job checkout and aggregate checks remain required.
 ## Read the actual head
 
 For stacked PRs, apply [Stacked PR evidence](#stacked-pr-evidence) below;
+native requests use `bun scripts/request-candidate.ts <pr>` to freeze the
+contributing prefix into the ready event. Bare ready transitions lack that
+request evidence. Before native merge, repeat the read-only
+`bun scripts/request-candidate.ts --verify <pr>` and retain its prefix identity
+alongside actual selected-job receipts. A failed request does not mark ready.
 the `main` commands in this reference describe an ordinary PR or bottom layer.
 
 Record the PR head and query live main independently. Run the comparison
@@ -215,10 +220,14 @@ Load `gh-stack` and follow the
 Run local preflight against the immediate parent ref for each upper layer.
 For every PR in the intended merge prefix, record its head and declared base
 branch, independently query that base's live Git ref, and inspect its own
-selected jobs/checkouts. A two-parent synthetic checkout must have that recorded
-parent tip and PR head as parents. Keep contract head-only receipts separate.
-Do not substitute live `main` for an upper layer's base or claim its CI tested
-the eventual integrated trunk tree.
+selected jobs/checkouts. Ordinary dependency PRs require that recorded parent
+tip and PR head as synthetic parents. Native requests instead require every
+ordered immutable synthetic first parent through the exact frozen trunk, each
+second parent equal to its contributing frozen head, and each independently
+reconstructed merge tree. Run the read-only prefix verification immediately
+before native merge. Keep own-parent contract head-only receipts separate;
+neither parent-relative preflight nor final-tree equality replaces native
+prefix proof. Actual integrated-tree/main reconciliation remains required.
 
 Read back every included PR's release milestone and all issues it advances,
 along with current heads, bases, checks and review state. Confirm the resolved
