@@ -515,7 +515,7 @@ export function createActivityStore(
     // SDK's modelUsage) already includes subagent consumption — summing the
     // tree would double-count every fan-out. Verified empirically (plan U3
     // smoke test).
-    const failure =
+    const failure = root.outcome === "success" ? null :
       spans.find(
         (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);

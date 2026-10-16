@@ -259,7 +259,7 @@ write verified scratch/workspace copies through the aliases below.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
 | Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
@@ -387,7 +387,11 @@ while the host execution boundary holds, the server evaluates none of them
 itself. It runs that work in a **maintenance worker**: the same bubblewrap
 launcher, with the brain bound read-write, the host root read-only, and
 `/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
-and the UI database's directory masked by empty private tmpfs mounts. No host
+and the UI database's directory masked by empty private tmpfs mounts. Required
+private regular files, including the native loop backing file, are covered by
+read-only `/dev/null` binds after permitted runtime and HOME binds. Their
+original bytes remain inaccessible even when the backing file is outside a
+masked directory. No host
 Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.

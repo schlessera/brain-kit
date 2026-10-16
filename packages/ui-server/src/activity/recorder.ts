@@ -154,6 +154,8 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
+  let cancelledAt: number | null = null;
+  let cancelledCallIds: string[] = [];
   let roadblocksRecorded = false;
   const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
     let call = calls.get(toolUseId);
@@ -503,6 +505,10 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         ensureRoot();
+        if (kind === "turn" && cancelledAt === null) {
+          cancelledAt = Date.now();
+          cancelledCallIds = [...calls.values()].filter(call => call.endedAt === null).map(call => call.toolCallId);
+        }
         store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
         onWrite?.();
       });
@@ -629,6 +635,8 @@ export function createTurnRecorder(
               ? {tokens:totalTokens(completedUsage),costUsd:completedUsage.costUsd ?? null}
               : resultUsage ? { tokens: totalTokens(resultUsage), costUsd: resultUsage.costUsd ?? null } : null,
             outcomeDetail,
+            cancelledAt,
+            cancelledCallIds,
           });
         });
       }

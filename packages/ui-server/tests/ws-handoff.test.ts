@@ -167,10 +167,10 @@ let teardown: (() => void) | null = null;
 afterEach(() => { teardown?.(); teardown = null; });
 
 const SOURCE_HISTORY = [
-  { type: "user", message: { content: "Plan the return to Ithaca." } },
-  { type: "assistant", message: { model: "fixture", content: [{ type: "text", text: "Sail past the Sirens, then Scylla." }] } },
-  { type: "user", message: { content: "Who keeps the house meanwhile?" } },
-  { type: "assistant", message: { model: "fixture", content: [{ type: "text", text: "Penelope, with Telemachus." }] } },
+  { type: "user", uuid: "source-user-1", message: { content: "Plan the return to Ithaca." } },
+  { type: "assistant", uuid: "source-assistant-1", message: { model: "fixture", content: [{ type: "text", text: "Sail past the Sirens, then Scylla." }] } },
+  { type: "user", uuid: "source-user-2", message: { content: "Who keeps the house meanwhile?" } },
+  { type: "assistant", uuid: "source-assistant-2", message: { model: "fixture", content: [{ type: "text", text: "Penelope, with Telemachus." }] } },
 ];
 
 interface RigOptions {

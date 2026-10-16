@@ -1,6 +1,6 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
-import { writeFileSync, chmodSync, readdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { writeFileSync, truncateSync, chmodSync, readdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
@@ -54,6 +54,39 @@ test("shared snapshots count ignored scratch, workspaces and repeated observed b
     expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 18, cap: 16, overshoot: 2 }); expect(f.receipt().newCap).toBeUndefined();
     f.scope.decide(f.message("stop", "bytes-stop"), true); await child.exited;
   } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
+});
+
+test("repeated ignored 100 MB observations count once per path while hashed rewrites keep their version bytes", async () => {
+  const size = 100_000_000;
+  const f = scopeFixture({ max_bytes_written: size * 2 });
+  const facts: number[] = [];
+  f.journal.onObservation((turnId, observation) => { if (turnId === "voyage") facts.push(observation.observedBytes); });
+  try {
+    writeFileSync(join(f.brain, ".gitignore"), "ignored.txt\nother-ignored.txt\n");
+    const ignored = join(f.brain, "ignored.txt");
+    writeFileSync(ignored, ""); truncateSync(ignored, size);
+    await f.begin();
+    for (let index = 0; index < 10; index++) {
+      // Different metadata stamps with identical bytes still produce retained observations.
+      chmodSync(ignored, index % 2 === 0 ? 0o600 : 0o644);
+      await f.journal.observe();
+    }
+    expect(f.journal.details("ithaca", "voyage")!.changes.filter(change => change.path === "ignored.txt"), "IGNORED_TEN_ACTUAL_OBSERVATIONS").toHaveLength(10);
+    expect(facts, "IGNORED_BYTES_ONCE_PER_PATH_JOURNAL_FACTS").toEqual(Array(10).fill(size));
+    expect(f.journal.summary("voyage").scope, "IGNORED_BYTES_ONCE_PER_PATH_SCOPE_COUNTER").toMatchObject({ observedBytes: size, receipts: [] });
+    truncateSync(ignored, size + 10); await f.journal.observe();
+    truncateSync(ignored, 1); await f.journal.observe();
+    expect(facts.at(-1), "IGNORED_PATH_USES_MAXIMUM_OBSERVED_SIZE").toBe(size + 10);
+    writeFileSync(join(f.brain, "other-ignored.txt"), "Athena");
+    writeFileSync(join(f.brain, "sail.md"), "Sail");
+    writeFileSync(join(f.brain, "loom.md"), "Loom");
+    await f.journal.observe();
+    expect(facts.at(-1), "DISTINCT_IGNORED_PATHS_AND_HASHED_FILES_ADD").toBe(size + 10 + 6 + 4 + 4);
+    writeFileSync(join(f.brain, "sail.md"), "Voyage"); await f.journal.observe();
+    expect(facts.at(-1), "HASHED_REWRITE_RETAINS_EACH_VERSION_SIZE").toBe(size + 10 + 6 + 4 + 4 + 6);
+    await f.journal.finish("voyage"); f.scope.finish("voyage");
+    expect(f.journal.summary("voyage").scope!.observedBytes, "IGNORED_SCOPE_COUNTER_RETAINED_AFTER_FINISH").toBe(facts.at(-1)!);
+  } finally { await f.close(); }
 });
 
 test("connected pause has no scope expiry; disconnect lifetime, reconnect and restart never resume automatically", async () => {
