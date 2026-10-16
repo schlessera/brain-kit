@@ -1186,6 +1186,7 @@ signatures (every public export and the types it is made of)
         readonly profile?: WorkerProfile;
         readonly fallbackReason?: string;
         readonly protection?: WorkerProtection;
+        readonly retainedFolders?: readonly string[];
         readonly readPaths?: readonly string[];
         readonly maskPaths?: readonly string[];
         readonly areas: readonly WorkerArea[];
