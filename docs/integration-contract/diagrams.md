@@ -1,4 +1,4 @@
-# Diagram spec v1, check and geometry (additive, 0.44.0, #2089, #2090)
+# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093)
 
 With `@schlessera/brain-module-diagrams` enabled, `brain diagram check
 <file|-> --json` reads one standalone YAML document or exactly one Markdown
@@ -25,7 +25,7 @@ reference integrity, combined focal roles and geometry rules described below.
 Every object is strict: an unknown field is an error at that field's path.
 Required top-level fields are `schema_version: 1`, `type`, `title` (1–60
 characters), `desc` (nonempty text), `size`, `nodes` and `edges`. Optional fields
-are `groups`, `focal`, `callouts` and `link`. Text fields other than title have
+are `groups`, `focal`, `callouts`, `link` and `layouts`. Text fields other than title have
 a 2048-character parse limit. All numbers are finite.
 
 | Field | Shape |
@@ -98,7 +98,8 @@ not prose or filesystem error text.
 
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
-`focal_count`, `tree_cycle`, `grid`, `overlap`, and `unroutable`. Warnings use `budget`.
+`focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
+`text_floor`, and `contrast`. Warnings use `budget`.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
 
@@ -140,7 +141,7 @@ runs. Masks remain clear of nodes and other masks, and preserve at least 8px
 clearance from route polylines and conservative curve bounds. Optional
 `labelFontSize` and `labelLineHeight` default to 9.5px and 12px. Both must be
 finite, from 9px through 256px, with line height at least font size. Width is
-`ceil((UnicodeCodePoints * fontSize * 0.62 + 8) / 4) * 4`; height is
+`ceil((typeWidthBudget(text, "label", fontSize) + 8) / 4) * 4`; height is
 `ceil((lineHeight + 4) / 4) * 4`. Painters must use compatible metrics or request
 appropriate dimensions; this conservative model does not claim font shaping.
 
@@ -161,3 +162,41 @@ social-square 1080×1080, print-a4-landscape 1120×792,
 print-a3-landscape 1584×1120 and print-letter-landscape 1056×816.
 `fit` uses node extents plus 24px, with a 96px minimum per axis. Routing never
 moves nodes or invents family-specific layout.
+
+## Authored narrow placement and paint
+
+An optional strict `layouts: { narrow: { width: 320, height, nodes } }` supplies
+explicit free-layout placement. `height` is positive, at most 16384 and on
+the 4px grid. Each node is exactly `{id, at: [x,y], size: [width,height]}`.
+Every semantic node ID must occur exactly once, with no extra IDs, no overlap
+and all bounds/grid constraints satisfied. Semantic labels, groups and edges
+remain solely in the original spec. Ordered/fixed types refuse this placement.
+Missing narrow placement is valid and preserves existing checker behavior.
+
+`diagramLayout(spec, name?)` returns original default placement or applies
+`narrow` positions. `buildDiagramLayout(spec, name?)` validates authored
+placement and produces the neutral geometry tree, with an exact 320×height
+narrow viewBox. Groups, routes and label masks must fit that frame. A missing
+requested placement throws; consumers show caption, summary and Open diagram
+instead of shrinking or scrolling an inline figure. These helpers do not draw
+or choose the UI fallback.
+
+`DIAGRAM_TOKEN_CSS` and `DIAGRAM_PALETTE` are generated from the kit's canonical
+stylesheet. The CSS scopes to `.bk-diagram`, supports light-dark pairs and
+explicit data themes, and overrides screen theme selectors under print media.
+`DIAGRAM_TYPE` defines the approved title/name/sub/label fonts and metrics.
+`typeWidthBudget` budgets every Unicode code point and tracking;
+`fitDiagramText(text, role, availableWidth)` uses the standard size or fits down
+to 9px, and throws rather than clipping below that floor. Node text has 8px
+horizontal padding per side, 16px total vertical padding and 12px minimum
+line boxes, counting the generated role tag. Explicit tags replace that tag.
+`checkDiagramSkin` and the main checker refuse impossible node text and every
+below-bar information/text paint pair in light, dark and print (3:1 strokes,
+4.5:1 text). `contrastRatio` accepts opaque canonical six-digit hex colors.
+
+`diagramNodePaint(role, focal?, inGroup?)` supplies token-only fills, strokes,
+text/sub colors, widths, dashes, radii and redundant role tags.
+`diagramEdgePaint(kind, transit?)` supplies the semantic stroke, width,
+dash, line cap and arrowhead shape; callers retain original edge kind through
+geometry. `return` reserves the approved dashed treatment for axis families.
+`diagramInkRamp` returns solid color-mix steps, without alpha ink.

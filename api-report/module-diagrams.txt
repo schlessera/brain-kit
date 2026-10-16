@@ -4,11 +4,15 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  DIAGRAM_PALETTE
+  DIAGRAM_TOKEN_CSS
+  DIAGRAM_TYPE
   type DiagramBox
   type DiagramBridge
   type DiagramCheckResult
   type DiagramConnector
   type DiagramEdgeLabel
+  type DiagramEdgePaint
   type DiagramElement
   type DiagramFinding
   DiagramGeometryError
@@ -16,19 +20,35 @@ export "." (./src/index.ts)
   type DiagramGeometryOptions
   type DiagramGroup
   type DiagramLabelMask
+  type DiagramLayoutFinding
   type DiagramNode
+  type DiagramPaint
   type DiagramPoint
   type DiagramPort
   type DiagramSide
+  type DiagramSkinFinding
   type DiagramSpec
+  type DiagramTheme
   type DiagramTree
+  type DiagramTypeRole
+  type DiagramTypeStyle
   type DiagramsConfig
   buildDiagram
+  buildDiagramLayout
   checkDiagram
+  checkDiagramLayouts
+  checkDiagramSkin
   configSchema
+  contrastRatio
+  diagramEdgePaint
+  diagramInkRamp
+  diagramLayout
+  diagramNodePaint
   diagramSpecJsonSchema
   diagramSpecSchema
+  fitDiagramText
   manifest
+  typeWidthBudget
 
 export "./module" (./src/module.ts)
   type DiagramsConfig
@@ -42,6 +62,12 @@ export "./render" (./src/render.ts)
 export "./ui" (./src/ui.ts)
 
 signatures (every public export and the types it is made of)
+  DIAGRAM_PALETTE (packages/module-diagrams/src/skin.generated.ts)
+    const DIAGRAM_PALETTE: Record<"light" | "dark" | "print", Record<string, string>>;
+  DIAGRAM_TOKEN_CSS (packages/module-diagrams/src/skin.generated.ts)
+    const DIAGRAM_TOKEN_CSS: string;
+  DIAGRAM_TYPE (packages/module-diagrams/src/skin.ts)
+    const DIAGRAM_TYPE: Record<DiagramTypeRole, DiagramTypeStyle>;
   DiagramBox (packages/module-diagrams/src/geometry.ts)
     export interface DiagramBox {
         x: number;
@@ -84,6 +110,14 @@ signatures (every public export and the types it is made of)
         text: string;
         fontSize: number;
     }
+  DiagramEdgePaint (packages/module-diagrams/src/skin.ts)
+    export interface DiagramEdgePaint {
+        stroke: string;
+        width: number;
+        dash: string;
+        linecap: "round" | "butt";
+        head: "open" | "filled" | "hollow";
+    }
   DiagramElement (packages/module-diagrams/src/geometry.ts)
     export type DiagramElement = DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
   DiagramFinding (packages/module-diagrams/src/check.ts)
@@ -123,6 +157,12 @@ signatures (every public export and the types it is made of)
         gap: 8;
         segment: number;
     }
+  DiagramLayoutFinding (packages/module-diagrams/src/layout.ts)
+    export interface DiagramLayoutFinding {
+        path: string;
+        code: "layout" | "text_floor" | "contrast" | "unroutable";
+        message: string;
+    }
   DiagramNode (packages/module-diagrams/src/geometry.ts)
     export interface DiagramNode extends DiagramBox {
         kind: "node";
@@ -133,6 +173,17 @@ signatures (every public export and the types it is made of)
         tag?: string;
         role?: string;
         link?: string;
+    }
+  DiagramPaint (packages/module-diagrams/src/skin.ts)
+    export interface DiagramPaint {
+        fill: string;
+        stroke: string;
+        text: string;
+        sub: string;
+        strokeWidth: number;
+        dash: string;
+        radius: number;
+        tag: string;
     }
   DiagramPoint (packages/module-diagrams/src/geometry.ts)
     export interface DiagramPoint {
@@ -146,8 +197,16 @@ signatures (every public export and the types it is made of)
     }
   DiagramSide (packages/module-diagrams/src/geometry.ts)
     export type DiagramSide = "left" | "right" | "top" | "bottom";
+  DiagramSkinFinding (packages/module-diagrams/src/skin.ts)
+    export interface DiagramSkinFinding {
+        path: string;
+        code: "contrast" | "text_floor";
+        message: string;
+    }
   DiagramSpec (packages/module-diagrams/src/spec.ts)
     export type DiagramSpec = z.infer<typeof diagramSpecSchema>;
+  DiagramTheme (packages/module-diagrams/src/skin.ts)
+    export type DiagramTheme = "light" | "dark" | "print";
   DiagramTree (packages/module-diagrams/src/geometry.ts)
     export interface DiagramTree {
         schema_version: 1;
@@ -157,15 +216,41 @@ signatures (every public export and the types it is made of)
         viewBox: DiagramBox;
         elements: DiagramElement[];
     }
+  DiagramTypeRole (packages/module-diagrams/src/skin.ts)
+    export type DiagramTypeRole = "title" | "name" | "sub" | "label";
+  DiagramTypeStyle (packages/module-diagrams/src/skin.ts)
+    export interface DiagramTypeStyle {
+        family: string;
+        size: number;
+        weight: number;
+        tracking: number;
+        uppercase: boolean;
+    }
   DiagramsConfig (packages/module-diagrams/src/module.ts)
     export type DiagramsConfig = z.infer<typeof configSchema>;
   buildDiagram (packages/module-diagrams/src/geometry.ts)
     export function buildDiagram(input: DiagramSpec, options?: DiagramGeometryOptions): DiagramTree;
+  buildDiagramLayout (packages/module-diagrams/src/layout.ts)
+    export function buildDiagramLayout(spec: DiagramSpec, name?: "default" | "narrow"): DiagramTree;
   checkDiagram (packages/module-diagrams/src/check.ts)
     export function checkDiagram(source: string): DiagramCheckResult;
+  checkDiagramLayouts (packages/module-diagrams/src/layout.ts)
+    export function checkDiagramLayouts(spec: DiagramSpec): DiagramLayoutFinding[];
+  checkDiagramSkin (packages/module-diagrams/src/skin.ts)
+    export function checkDiagramSkin(spec: DiagramSpec): DiagramSkinFinding[];
   configSchema (packages/module-diagrams/src/module.ts)
     const configSchema: z.ZodObject<{}, z.core.$strict>;
+  contrastRatio (packages/module-diagrams/src/skin.ts)
+    export function contrastRatio(foreground: string, background: string): number;
   default (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  diagramEdgePaint (packages/module-diagrams/src/skin.ts)
+    export function diagramEdgePaint(kind?: string, transit?: boolean): DiagramEdgePaint;
+  diagramInkRamp (packages/module-diagrams/src/skin.ts)
+    export function diagramInkRamp(step: 25 | 50 | 75 | 100, ground?: string): string;
+  diagramLayout (packages/module-diagrams/src/layout.ts)
+    export function diagramLayout(spec: DiagramSpec, name?: "default" | "narrow"): DiagramSpec;
+  diagramNodePaint (packages/module-diagrams/src/skin.ts)
+    export function diagramNodePaint(role?: string, focal?: boolean, inGroup?: boolean): DiagramPaint;
   diagramSpecJsonSchema (packages/module-diagrams/src/spec.ts)
     const diagramSpecJsonSchema: z.core.ZodStandardJSONSchemaPayload<z.ZodDiscriminatedUnion<[z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
@@ -191,6 +276,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
@@ -249,6 +345,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
@@ -305,6 +412,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
@@ -363,6 +481,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
@@ -421,6 +550,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
@@ -477,6 +617,17 @@ signatures (every public export and the types it is made of)
             label: z.ZodString;
             members: z.ZodArray<z.ZodString>;
         }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         link: z.ZodOptional<z.ZodString>;
         nodes: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
@@ -512,4 +663,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>], "type">;
   diagramsModule (packages/module-diagrams/src/module.ts)
     const diagramsModule: ModuleManifest<DiagramsConfig>;
+  fitDiagramText (packages/module-diagrams/src/skin.ts)
+    export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number;
   manifest (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  typeWidthBudget (packages/module-diagrams/src/skin.ts)
+    export function typeWidthBudget(text: string, role: DiagramTypeRole, fontSize?: number): number;

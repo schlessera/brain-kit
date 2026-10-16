@@ -58,6 +58,8 @@ const GROUNDS = new Set([
   "rail-bg",
   "diagram-bg",
   "diagram-node",
+  "diagram-cluster",
+  "diagram-focal-tint",
 ]);
 
 /** Washes that disappear: rule 2. Matched on the token name. */

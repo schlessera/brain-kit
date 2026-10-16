@@ -33,7 +33,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const cli = () => ({ brain: { root }, json: true }) as never;
+const cli = () => ({ brain: { root, modules: [] }, json: true }) as never;
 
 /** A renderer that runs `during` while "rendering", then returns a few bytes. */
 function fakeRenderer(during: () => void) {

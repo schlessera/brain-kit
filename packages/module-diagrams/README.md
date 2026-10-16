@@ -30,3 +30,14 @@ cat homecoming.md | brain diagram check - --json
 
 No network or rendering is required. Budget warnings preserve exit 0; errors
 return exit 1. A newer spec version asks you to upgrade the module.
+
+## Diagram skin
+
+`DIAGRAM_TOKEN_CSS` embeds the kit's generated light/dark/print palette on
+`.bk-diagram`. After token edits, run
+`bun packages/module-diagrams/scripts/generate-skin.ts`; the pin test refuses
+drift. Painters share `DIAGRAM_TYPE`, `fitDiagramText`, `diagramNodePaint`
+and `diagramEdgePaint`, preserving the 9px floor and semantic stroke cues.
+Optional `layouts.narrow` authors 320px placement without duplicating semantic
+nodes or edges; `buildDiagramLayout` validates and builds that exact frame.
+See the [spec and skin contract](../../docs/integration-contract/diagrams.md).
