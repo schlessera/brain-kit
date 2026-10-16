@@ -880,7 +880,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:66-91`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:67-92`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
