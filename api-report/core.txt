@@ -191,6 +191,7 @@ export "./queries" (./src/queries/index.ts)
   readGraphMeta
   readGraphNeighborhood
   readLinkWalk
+  readStorageReferences
   readVoiceVocabulary
 
 export "./testing" (./src/testing/index.ts)
@@ -1363,6 +1364,16 @@ signatures (every public export and the types it is made of)
         depth?: number;
         direction?: "outgoing" | "incoming" | "both";
     }): QueryResult<LinkWalk>;
+  readStorageReferences (packages/core/src/queries/index.ts)
+    export function readStorageReferences(opts: Root & {
+        path: string;
+    }): QueryResult<{
+        sources: Array<{
+            path: string;
+            indexedAt: string;
+        }>;
+        truncated: boolean;
+    }>;
   readVoiceVocabulary (packages/core/src/queries/index.ts)
     export function readVoiceVocabulary(opts: Root & {
         limit: number;

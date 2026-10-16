@@ -71,6 +71,10 @@ export interface VoiceQueries {
   readVoiceVocabulary(opts: Root & { limit: number }): QueryResult<{ terms: string[]; extractorVersion: number }>;
 }
 
+export interface StorageQueries {
+  readStorageReferences(opts: Root & { path: string }): QueryResult<{ sources: Array<{ path: string; indexedAt: string }>; truncated: boolean }>;
+}
+
 const GRAPH_OPERATIONS = [
   "readGraphMeta",
   "readGraphClusters",
@@ -104,6 +108,7 @@ export type CoreCapability<T> =
 export interface CoreQueryAccess {
   graph(): CoreCapability<GraphQueries>;
   voice(): CoreCapability<VoiceQueries>;
+  storage?(): CoreCapability<StorageQueries>;
 }
 
 /** How the package is located and loaded — the real `require`, except in tests. */
@@ -188,20 +193,21 @@ export function createCoreQueryAccess(options: { log?: Logger } = {}): CoreQuery
   let resolved: Resolved | undefined;
   let graph: CoreCapability<GraphQueries> | undefined;
   let voice: CoreCapability<VoiceQueries> | undefined;
+  let storage: CoreCapability<StorageQueries> | undefined;
   const reported = new Set<string>();
 
   const entry = (): Resolved => {
     resolved ??= resolveEntry((loaderOverride ?? defaultLoader)());
     return resolved;
   };
-  const report = <T>(name: "graph" | "voice", capability: CoreCapability<T>): CoreCapability<T> => {
+  const report = <T>(name: "graph" | "voice" | "storage", capability: CoreCapability<T>): CoreCapability<T> => {
     if (!capability.ok && !reported.has(name)) {
       reported.add(name);
       const version = resolved && !resolved.ok ? resolved.version : undefined;
       options.log?.emit({
         severityText: "WARN",
         body:
-          `${name === "graph" ? "graph view" : "index-derived voice vocabulary"} unavailable: ` +
+          `${name === "graph" ? "graph view" : name === "storage" ? "Storage reference evidence" : "index-derived voice vocabulary"} unavailable: ` +
           `install ${CORE_PACKAGE} ${CORE_QUERIES_RANGE} alongside this server`,
         attributes: {
           "core.reason": capability.reason,
@@ -214,6 +220,7 @@ export function createCoreQueryAccess(options: { log?: Logger } = {}): CoreQuery
   };
 
   return {
+    storage: () => (storage ??= report("storage", feature<StorageQueries>(entry(), ["readStorageReferences"]))),
     graph: () => (graph ??= report("graph", feature<GraphQueries>(entry(), GRAPH_OPERATIONS))),
     voice: () => (voice ??= report("voice", feature<VoiceQueries>(entry(), VOICE_OPERATIONS))),
   };

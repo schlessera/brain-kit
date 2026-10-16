@@ -16,6 +16,11 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // More detailed existing behavior checks are linked by the coverage matrix;
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
+  "GET /api/storage": { body: { version: 1, state: "idle", snapshot: null } },
+  "POST /api/storage/scans": { init: json("POST", {}), status: 202, body: { version: 1, state: "scanning" } },
+  "DELETE /api/storage/scans/:id": { path: "/api/storage/scans/missing", init: { method: "DELETE" }, status: 409, body: { error: "That scan is no longer active." } },
+  "GET /api/storage/scans/:id/entries": { path: "/api/storage/scans/missing/entries", status: 404, body: { error: "Storage observation expired or unavailable; refresh." } },
+  "GET /api/storage/scans/:id/entries/:entryId/references": { path: "/api/storage/scans/missing/entries/missing/references", status: 404, body: { error: "Storage observation expired or unavailable; refresh." } },
   "GET /api/health": { body: { status: "healthy" } },
   "GET /api/hygiene/review": { body: { review: { version: 1, status: "idle" }, action: null } },
   "POST /api/hygiene/review": { init: json("POST", { operation: "pause" }), body: { review: { version: 1, status: "paused" }, action: null } },

@@ -657,6 +657,8 @@ export interface AgentBackend {
    * queues a message refused that way as the session's next turn.
    */
   followUp?(req: FollowUpRequest): Promise<void>;
+  /** Host-only read-only roots already owned by this backend. Never passed to a worker bridge. */
+  storageRoots?(): readonly { kind: "transcripts" | "archive"; path: string }[];
   /** Sessions this backend owns (its own transcript store). */
   listSessions(): Promise<ChatSession[]>;
   /** Normalized-at-read history; backends own raw transcripts. */

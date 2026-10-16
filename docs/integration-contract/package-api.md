@@ -734,7 +734,11 @@ records the approved request boundary and override policy.
 The concrete synchronous `@schlessera/brain/queries` entry supports
 `readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
 `readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
-`readVoiceVocabulary`, `listIndexDocuments` and `findIndexDocuments`.
+`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments` and
+`readStorageReferences`. The additive Storage operation takes `{brainPath, path}`
+and returns the common query envelope with `{sources: [{path, indexedAt}], truncated}`.
+It limits resolved incoming sources to 200, reads index metadata only, and refuses
+a symlinked index. Zero observed sources never establishes that a file is unused.
 Its [complete API specification](../content-index-queries.md) is part of this
 contract: signatures/reachable exports, validation/defaults/caps/order,
 detached result and safe error envelopes, feature compatibility, read-only
@@ -3196,3 +3200,13 @@ explanation. `showActions={false}` and closed exchanges still omit actions.
 The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
+
+### Backend Storage roots (additive, #2010)
+
+`AgentBackend.storageRoots?()` is a synchronous host-only observation of already
+owned transcript/archive roots: `readonly {kind: "transcripts" | "archive";
+path: string}[]`. It performs no setup or provider discovery. The server consults
+only already initialized owners, never passes these paths to a worker bridge,
+and converts them into opaque root IDs before transport. Older backends remain
+valid and report unavailable transcript accounting. Claude supplies its exact
+brain-specific live/archive leaves; Pi supplies its already resolved session root.
