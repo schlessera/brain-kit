@@ -1747,11 +1747,40 @@ the turn may send out and how its writes are labelled.
 
 Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
 files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
-`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
-configuration, dependency manifests and retained local import/resource inputs.
+`context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
+
+- The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
+  Host commands bind that cwd to the selected brain (`function hostSpawn`,
+  `packages/ui-server/src/brain/host-boundary.ts:359-370`).
+- Bun startup uses root `bunfig.toml` and `package.json`; retained literal
+  preload/module inputs can identify a nested module's nearest package scope.
+  The inventory walks parent directories only within the originating journal
+  scope and includes that `package.json` as module-resolution metadata, without
+  activating its scripts. This follows Bun's
+  [module resolution](https://bun.sh/docs/runtime/module-resolution) and
+  [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
+- Claude's project MCP location is root `.mcp.json`; its cwd is the selected
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:216-233`).
+  Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
+  surfaces remain unchanged. Their retained module references can likewise
+  identify package metadata within that same scope.
+
+A manifest or lockfile in a dependency tree or cloned workspace does not itself
+identify a consumer. Declared projects/scripts do not establish execution.
+Root-only discovery was rejected because genuine nested module consumers need
+package metadata; any-depth basename discovery was rejected because incidental
+clones and dependencies became false seeds. No repository configuration is
+executed during discovery. Conditional package maps, computed configuration,
+unsupported commands and unobserved working directories remain coverage
+limitations; this finite mapping never claims arbitrary shell/runtime coverage.
+Ignored, oversized, unreadable and opaque genuine inputs remain named as
+classification limitations (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`).
+
 The journal follows only data-only references with a supported input role;
 quoted strings and file extensions do not establish consumption. Seed selection
-is separate from reference classification (#2028). The finite mapping is in
+is now consumer-qualified independently of reference classification (#2028). The finite mapping is in
 (`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
 
 | Consumer | Followed input role | Resolution and limits |
@@ -1775,7 +1804,7 @@ Followed JSON resources do not acquire configuration-consumer semantics merely
 from a basename; configuration roles belong to known seeds. Both retained-object
 and sealed-root readers share classification and the
 1 MiB input bound (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:91-100`). Ignored, unreadable,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`). Ignored, unreadable,
 oversized, unsupported or ambiguous inputs are named as coverage limitations;
 unknown never fabricates a consumed path or a claim of complete runtime coverage.
 
@@ -1787,7 +1816,7 @@ field. Internal callers may supply an already resolved identity without
 executing configuration. This excludes no unrelated same-basename resource.
 The inventory preserves scope boundaries, policy exclusions and bounded
 readers (`steeringInventory`,
-`packages/ui-server/src/brain/journal-steering.ts:20-77`).
+`packages/ui-server/src/brain/journal-steering.ts:20-107`).
 
 The maintainer selected role classification over an index-only exception,
 script-extension whitelist or their combination (#2026): none of those

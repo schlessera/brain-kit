@@ -279,6 +279,31 @@ test("opaque configuration input limitations survive replay without executing co
 });
 
 
+test("native capture journals consumed nested configuration and ordinary excluded project edits", async () => {
+  const f = fixture();
+  try {
+    const inputs = {
+      "bunfig.toml": 'preload = ["./config/navigator/start.ts"]\n',
+      "package.json": '{"name":"ithaca"}\n',
+      "config/navigator/start.ts": 'export const route = "Ithaca";\n',
+      "config/navigator/package.json": '{"type":"module","scripts":{"unused":"bun ./unused.ts"}}\n',
+      "config/navigator/unused.ts": 'throw new Error("unused");\n',
+      "node_modules/a/package.json": '{"name":"incidental"}\n',
+      "workspaces/odyssey-tools/package.json": '{"scripts":{"start":"bun ./start.ts"}}\n',
+      "workspaces/odyssey-tools/start.ts": 'throw new Error("unused clone");\n',
+    };
+    writeFileSync(join(f.brain, ".gitignore"), "node_modules/\n");
+    for (const [path, text] of Object.entries(inputs)) { mkdirSync(join(f.brain, path, ".."), {recursive:true}); writeFileSync(join(f.brain, path), text); }
+    await f.begin("consumer-seeds");
+    for (const [path, text] of Object.entries(inputs)) writeFileSync(join(f.brain, path), text + "\n");
+    await f.journal.finish("consumer-seeds");
+    const details = f.journal.details("ithaca", "consumer-seeds")!;
+    for (const path of ["bunfig.toml", "package.json", "config/navigator/start.ts", "config/navigator/package.json"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_CONSUMED_CONFIGURATION_${path}`).toBe("steering");
+    for (const path of ["config/navigator/unused.ts", "workspaces/odyssey-tools/package.json", "workspaces/odyssey-tools/start.ts"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_UNUSED_CONFIGURATION_${path}`).toBe("content");
+    expect(details.missing.filter(item => item.path.startsWith("node_modules/") || item.path.startsWith("workspaces/")), "NATIVE_INCIDENTAL_CONFIG_NOT_COVERAGE_NOISE").toEqual([]);
+    expect(details.changes.find(change => change.path === "node_modules/a/package.json")?.after?.ignored).toBe(true);
+  } finally { await f.close(); }
+});
 test("native journal excludes the resolved index and sidecars while preserving input-role events", async () => {
   const index = "brain.db", f = fixture();
   try {

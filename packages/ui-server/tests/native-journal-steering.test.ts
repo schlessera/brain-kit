@@ -22,6 +22,44 @@ test("native steering follows sealed configuration references without retaining 
 });
 
 
+test("only startup consumers seed configuration, not dependency or cloned manifests", async () => {
+  const inputs = new Map([
+    ["package.json", '{"name":"ithaca"}'],
+    ["node_modules/a/package.json", '{"name":"incidental"}'],
+    ["workspaces/odyssey-tools/package.json", '{"scripts":{"start":"bun ./start.ts"}}'],
+    ["workspaces/odyssey-tools/start.ts", 'throw new Error("unused");'],
+  ]);
+  const snapshot: JournalSnapshot = { missing: [], entries: [...inputs].map(([path, text]) => ({ path, scope: path.startsWith("workspaces/") ? "workspaces/odyssey-tools" : "", kind: "file", mode: 0o600, bytes: Buffer.byteLength(text), stamp: `sealed:${path}`, ignored: path.startsWith("node_modules/") })) };
+  const reads: string[] = [];
+  const result = await nativeJournalSteeringInputs([snapshot], async entry => {
+    reads.push(entry.path); return Buffer.from(inputs.get(entry.path)!);
+  });
+  expect([...result.paths], "CONSUMER_SEEDS_EXCLUDE_INCIDENTAL_MANIFESTS").toEqual(["package.json"]);
+  expect(result.unavailable, "INCIDENTAL_DEPENDENCY_NOT_COVERAGE_NOISE").not.toContain("node_modules/a/package.json");
+  expect(reads).toEqual(["package.json"]);
+});
+
+
+test("Bun module consumers discover nearest nested package scope without activating package scripts", async () => {
+  const inputs = new Map([
+    ["brain.config.ts", 'import "./config/navigator/start.ts";'],
+    ["config/navigator/start.ts", 'export const route = "Ithaca";'],
+    ["config/navigator/package.json", '{"type":"module","scripts":{"unused":"bun ./unused.ts"}}'],
+    ["config/navigator/unused.ts", 'throw new Error("not consumed");'],
+    ["config/incidental/package.json", '{"type":"module"}'],
+    ["workspaces/ithaca/.pi/extensions/voyage.ts", 'import "../../navigation/start.ts";'],
+    ["workspaces/ithaca/navigation/start.ts", 'export const route = "Ithaca";'],
+    ["workspaces/ithaca/navigation/package.json", '{"type":"module"}'],
+    ["workspaces/ithaca/incidental/package.json", '{"type":"module"}'],
+  ]);
+  const snapshot: JournalSnapshot = { missing: [], entries: [...inputs].map(([path, text]) => ({ path, scope: path.startsWith("workspaces/") ? "workspaces/ithaca" : "", kind: "file", mode: 0o600, bytes: Buffer.byteLength(text), stamp: `sealed:${path}`, ignored: false })) };
+  // The native seed index omits incidental configuration entirely. Discovery
+  // must use same-scope lookup, without depending on a full content snapshot.
+  const result = await nativeJournalSteeringInputs([{missing: [], entries: snapshot.entries.filter(entry => entry.path === "brain.config.ts" || entry.path.includes(".pi/"))}], async entry => Buffer.from(inputs.get(entry.path)!), path => snapshot.entries.find(entry => entry.path === path));
+  for (const path of ["config/navigator/package.json", "workspaces/ithaca/navigation/package.json"]) expect(result.paths.has(path), `CONSUMED_NESTED_PACKAGE_${path}`).toBe(true);
+  for (const path of ["config/incidental/package.json", "workspaces/ithaca/incidental/package.json", "config/navigator/unused.ts"]) expect(result.paths.has(path), `UNUSED_CONFIGURATION_${path}`).toBe(false);
+});
+
 for (const reader of ["retained", "native"] as const) test(`${reader} steering classifies supported input roles without promoting output/data literals`, async () => {
   const inputs = new Map([
     ["CLAUDE.md", "@./guide\n`@./data`\n\n```md\n@./output\n```"],

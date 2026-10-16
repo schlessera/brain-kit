@@ -4,7 +4,7 @@ import { posix } from "node:path";
 import type { JournalSnapshot, JournalSnapshotEntry } from "./journal-snapshot.js";
 
 const instructions = /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI|SYSTEM|APPEND_SYSTEM)\.md$/;
-const configuration = /(?:^|\/)(?:brain\.config\.(?:ts|json)|bunfig\.toml|package\.json|bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|\.mcp\.json)$/;
+const startupConfiguration = /^(?:brain\.config\.(?:ts|json)|bunfig\.toml|package\.json|\.mcp\.json)$/;
 const surfaces = /(?:^|\/)(?:\.claude|\.agents|\.pi)\//;
 const schedules = /(?:^|\/)context\/scheduled-tasks\//;
 const policy = /(?:^|\/)context\/policies(?:\/|$)/;
@@ -14,7 +14,7 @@ const scripts = /\.(?:[cm]?[jt]sx?|json|toml|ya?ml|sh|bash)$/;
 export interface JournalSteeringOptions { resolvedIndexPaths?: readonly string[] }
 
 export const isJournalSteeringPath = (path: string): boolean => !policy.test(path) &&
-  (instructions.test(path) || configuration.test(path) || surfaces.test(path) || schedules.test(path));
+  (instructions.test(path) || startupConfiguration.test(path) || surfaces.test(path) || schedules.test(path));
 
 /** A classification inventory, never a claim that arbitrary code was executed. */
 function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (path: string) => JournalSnapshotEntry | undefined, options: JournalSteeringOptions = {}): Generator<JournalSnapshotEntry, { paths: Set<string>; unavailable: string[] }, Buffer | undefined> {
@@ -34,6 +34,24 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
   const disposable = new Set(indexes.flatMap(path => ["", "-wal", "-shm", "-journal"].map(suffix => `${posix.normalize(path)}${suffix}`)));
   for (const path of disposable) paths.delete(path);
   const visited = new Set<string>();
+  const moduleManifests = new Set<string>();
+  const packageScope = (entry: JournalSnapshotEntry) => {
+    // Bun's Node-compatible package scope lookup for a genuinely reached module.
+    // Stop at this journal scope; never promote sibling clones/dependencies.
+    let directory = posix.dirname(entry.path);
+    for (;;) {
+      const name = posix.join(directory, "package.json");
+      const manifest = entries.get(name) ?? lookup?.(name);
+      if (manifest && manifest.scope === entry.scope) {
+        if (!paths.has(name)) { paths.add(name); moduleManifests.add(name); pending.push({entry:manifest, configuration:false}); }
+        return;
+      }
+      if (directory === (entry.scope || ".")) return;
+      const parent = posix.dirname(directory);
+      if (parent === directory || (entry.scope && !parent.startsWith(entry.scope))) return;
+      directory = parent;
+    }
+  };
   const add = (from: JournalSnapshotEntry, reference: SteeringReference) => {
     const value = reference.path;
     if (!value || value.startsWith("/") || value.includes(":") || value.includes("\\") || value.includes("\0")) { unavailable.add(from.path); return; }
@@ -53,6 +71,7 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
       if (policy.test(resolved) || disposable.has(resolved)) return;
       const entry = entries.get(resolved) ?? lookup?.(resolved);
       if (!entry || entry.scope !== from.scope) continue;
+      if (reference.module && /\.[cm]?[jt]sx?$/.test(entry.path)) packageScope(entry);
       if (!paths.has(resolved) || reference.instructionDepth !== undefined) { paths.add(resolved); pending.push({entry, instructionDepth:reference.instructionDepth}); }
       return;
     }
@@ -68,6 +87,17 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
     const bytes = yield entry;
     if (!bytes) { unavailable.add(entry.path); continue; }
     const text = bytes.toString("utf8");
+    // Package-scope metadata controls module resolution. Its scripts are not
+    // thereby executed; script declarations never discover additional consumers.
+    if (moduleManifests.has(entry.path)) {
+      try {
+        const manifest = JSON.parse(text);
+        // Conditional exports/import maps and package discovery are not resolved
+        // by this finite local-file walker; retain a source-specific limitation.
+        if (manifest.imports !== undefined || manifest.exports !== undefined) unavailable.add(entry.path);
+      } catch { unavailable.add(entry.path); }
+      continue;
+    }
     const roles = steeringReferences(entry.path, text, instructionDepth, configuration);
     if (roles.unknown) unavailable.add(entry.path);
     for (const reference of roles.references) add(entry, reference);
