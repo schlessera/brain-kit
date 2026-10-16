@@ -82,8 +82,11 @@ showed two same-model turns inside the cache lifetime reading nothing from the
 cache. Each rewrote a prefix of about 63,000 tokens, including the system
 prompt. A control session with the same flow hit the cache. In the session that
 missed, the first turn had left an untracked file in the brain; in the control,
-it had been removed. Every turn starts a new Claude CLI process, and that
-process re-reads git status into the preset system prompt. The same audit
+it had been removed. Every turn starts a new Claude CLI process, and the most
+likely cause is that process re-reading git status into the preset system
+prompt (#2046). The local guard does not reproduce it, because there the CLI
+replays turn 1's recorded system prompt, so the cause is not confirmed. The
+same audit
 found the system-prompt append rebuilt from per-turn facts, tool lists that
 depend on posture, saved transcripts rewritten after a turn, and a budget note
 appended to every user message. Each is tracked under the provider prompt-cache
@@ -104,7 +107,15 @@ directly:
   budget, the sandbox facts and the posture.
 
 `packages/ui-backend-pi/tests/provider-history.test.ts` does the same for Pi
-against a fake OpenAI-compatible endpoint.
+against a fake OpenAI-compatible endpoint, which Pi reaches through
+`/v1/responses`.
+
+On Claude the guard also checks the `systemPrompt` option brain-kit hands the
+SDK on each turn, not only the bytes that reach the endpoint. Against a local
+endpoint the CLI replays turn 1's recorded system prompt, so a changed append
+never shows up in the request there. The SDK documents that recording as
+account-gated, so production can still send the changed append, and only the
+option-level check catches it.
 
 A known break that is not fixed yet is written as `test.failing` with the
 issue that tracks it. When the fix lands the case starts to pass, `bun test`
