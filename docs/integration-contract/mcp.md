@@ -209,6 +209,21 @@ The Markdown byte cap and supported file kinds above remain unchanged.
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
+**Interactive roster stability (#2048).** Each backend offers its complete
+first-party deployment tool roster in deterministic order on every interactive
+turn, including voice-first sessions. A temporary missing handler, no-grant
+surface or strict sandbox fallback does not remove tools, schemas or descriptions.
+Registration grants no authority. Unavailable bridge calls return a model-readable
+refusal before opening a permission card or invoking the privileged handler;
+voice and no-grant turns refuse visual pickers, image masks, policy proposals and
+inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
+and refuses them at call time on strict/voice turns, including settings or
+remembered allows. Governed typed calls retain their stale-read and write-lock
+checks. Pi still rejects voice dispatch before a provider request: the stable
+roster does not add a voice posture. Restricted autonomous rosters remain exact
+server authority and are outside this interactive stability rule. Existing tool
+names, inputs and result shapes are unchanged.
+
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
 in 0.40.0), `get_current_location` and `request_image_mask` bridge to the

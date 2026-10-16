@@ -37,10 +37,13 @@ import type {
 import { createClaudeBackend } from "../src/backend";
 import { MASK_TOOL_NAME } from "../src/mask-tool";
 import { ASK_USER_LIST_TOOL_NAME } from "../src/ask-user-list-tool";
-import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
+
 import { runToolCall } from "./helpers/run-tool-call";
 
 // Hooks belong to a live turn. End every fixture after its tool assertions.
+// Exercise the retained legacy MCP confirmation gate; hosted operations use the server route.
+const BRAIN_UPDATE_TOOL = "mcp__brain__brain_update";
+
 const finishTurns: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const finish of finishTurns.splice(0)) await finish();

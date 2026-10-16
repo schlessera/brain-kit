@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as worker from "@schlessera/brain-ui-sdk/internal";
-import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 
@@ -76,7 +76,7 @@ describe("the SDK options a turn is built with", () => {
       // The full roster, because a handler that silently failed to register
       // would leave a tool deferred by absence rather than by policy.
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...BRIDGE_TOOL_POSTURE.names].sort()
+        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS)].sort()
       );
       for (const tool of tools) {
         expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);
@@ -100,14 +100,14 @@ describe("the SDK options a turn is built with", () => {
       await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
       await client.connect(clientTransport);
       const names = (await client.listTools()).tools.map(tool => tool.name);
-      expect(names.includes("propose_policy_change")).toBe(mode === "interactive");
+      expect(names.includes("propose_policy_change")).toBe(mode !== "autonomous");
       expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__propose_policy_change");
       expect(JSON.stringify(turn.options.systemPrompt).includes("propose_policy_change")).toBe(mode === "interactive");
       await client.close();
     } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
   });
 
-  test("a no-grant turn withholds the form schema, allowlist entry and prompt brief", async () => {
+  test("a no-grant turn retains the form schema while withholding authority", async () => {
     const brain = mkdtempSync(join(tmpdir(), "sdk-options-form-"));
     try {
       const { options } = turnFor(brain, { askUserForm: async () => ({ answers: {} }) }, true);
@@ -121,7 +121,7 @@ describe("the SDK options a turn is built with", () => {
       await client.connect(clientTransport);
       const { tools } = await client.listTools();
       expect(tools.length).toBeGreaterThan(0);
-      expect(tools.map((tool) => tool.name)).not.toContain("ask_user_form");
+      expect(tools.map((tool) => tool.name)).toContain("ask_user_form");
       expect(options.allowedTools).not.toContain("mcp__brain-ui__ask_user_form");
       expect(JSON.stringify(options.systemPrompt)).not.toContain("ask_user_form");
       await client.close();
