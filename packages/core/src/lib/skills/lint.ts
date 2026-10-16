@@ -91,7 +91,7 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
   let frontmatter: Record<string, unknown> = skill.frontmatter ?? {};
   if (existsSync(skillFile)) {
     try {
-      const parsed = parseFrontmatter(readFileSync(skillFile, "utf8"));
+      const parsed = parseFrontmatter(readFileSync(skillFile, "utf8"), { dataOnly: true });
       body = parsed.content;
       frontmatter = parsed.data as Record<string, unknown>;
     } catch (e) {

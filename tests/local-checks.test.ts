@@ -1,9 +1,10 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkPackages } from "../scripts/check-packages";
 import { localChecks, requireRuntimeTools } from "../scripts/check-pr";
+import { testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 
 const dirs: string[] = [];
@@ -118,4 +119,100 @@ test("ordinary preflight leaves repeatable environment-heavy proof to CI", () =>
   expect(args).not.toContain("run test:layout");
   expect(args).not.toContain("run capture:verify");
   expect(args).not.toContain("unshare");
+});
+
+
+test("default local feedback uses the exact merge-base SHA and full proof does not duplicate it", () => {
+  const plan = planChecks(["packages/common/src/index.ts"], workspaces(join(import.meta.dir, "..")));
+  const sha = "a".repeat(40);
+  const feedback = localChecks(plan, false, sha).filter(command => command.name.startsWith("import-graph affected tests"));
+  expect(feedback).toHaveLength(1);
+  expect(feedback[0]!.argv.slice(1)).toEqual(["run", "test", `--changed=${sha}`, "--pass-with-no-tests"]);
+  expect(localChecks(plan, true, sha).some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
+});
+
+
+/** Real wrapper in an isolated git repository; no external transport can run. */
+function importFixture() {
+  const dir = fixture();
+  const root = join(import.meta.dir, "..");
+  mkdirSync(join(dir, "scripts"));
+  for (const helper of ["test.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+    cpSync(join(root, "scripts", helper), join(dir, "scripts", helper));
+  }
+  mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
+  cpSync(join(root, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
+  mkdirSync(join(dir, "packages/fixture/src"), { recursive: true });
+  mkdirSync(join(dir, "tests"));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "bun scripts/test.ts --timeout 30000" } }));
+  writeFileSync(join(dir, ".gitignore"), "tmp/\n");
+  writeFileSync(join(dir, "packages/fixture/src/value.ts"), "export const value = 1;\n");
+  writeFileSync(join(dir, "tests/imported.test.ts"), `import {test,expect} from "bun:test"; import {value} from "../packages/fixture/src/value"; test("IMPORTED_CASE",()=>{expect(value).toBeGreaterThan(0);console.log("RAN_"+"IMPORTED");});`);
+  writeFileSync(join(dir, "tests/unrelated.test.ts"), `import {test} from "bun:test"; test("UNRELATED_CASE",()=>console.log("RAN_"+"UNRELATED"));`);
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+  };
+  git("init", "-q"); git("add", ".");
+  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
+  const sha = git("rev-parse", "HEAD");
+  async function run() {
+    const command = localChecks(planChecks([], []), false, sha).find(command => command.name.startsWith("import-graph affected tests"))!;
+    // The outer test guard deliberately does not recognize this alias. The
+    // copied wrapper must install its own preload, as in an ordinary shell.
+    const runtime = join(dir, "probe-runtime");
+    if (!existsSync(runtime)) symlinkSync(process.execPath, runtime);
+    const child = Bun.spawn([runtime, ...command.argv.slice(1)], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { code, output: stdout + stderr };
+  }
+  return { dir, git, sha, run };
+}
+
+test("import feedback selects imported committed, staged and unstaged changes, excluding unrelated tests", async () => {
+  const fixture = importFixture();
+  for (const state of ["unstaged", "staged", "committed"]) {
+    writeFileSync(join(fixture.dir, "packages/fixture/src/value.ts"), `export const value = ${state.length};\n`);
+    if (state !== "unstaged") fixture.git("add", "packages/fixture/src/value.ts");
+    if (state === "committed") fixture.git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "source change");
+    const result = await fixture.run();
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain("RAN_IMPORTED");
+    expect(result.output).not.toContain("RAN_UNRELATED");
+  }
+});
+
+test("import feedback includes untracked tests and prose-only changes print an empty-selection reason", async () => {
+  const fixture = importFixture();
+  writeFileSync(join(fixture.dir, "README.md"), "Odysseus plans the return.\n");
+  const empty = await fixture.run();
+  expect(empty.code, empty.output).toBe(0);
+  expect(empty.output).toContain("no test files are affected");
+  expect(empty.output).not.toContain("RAN_IMPORTED");
+  expect(empty.output).not.toContain("RAN_UNRELATED");
+  writeFileSync(join(fixture.dir, "tests/new.test.ts"), `import {test} from "bun:test";test("new",()=>console.log("RAN_"+"NEW"));`);
+  const untracked = await fixture.run();
+  expect(untracked.code, untracked.output).toBe(0);
+  expect(untracked.output).toContain("RAN_NEW");
+  expect(untracked.output).not.toContain("RAN_UNRELATED");
+});
+
+test("import feedback retains directory roots and equals-only optional changed value", () => {
+  const flag = `--changed=${"a".repeat(40)}`;
+  expect(testArgv([flag, "--pass-with-no-tests"])).toEqual(["./packages", "./tests", flag, "--pass-with-no-tests"]);
+  expect(testArgv(["--changed", "packages/fixture"])).toEqual(["--changed", "packages/fixture"]);
+});
+
+test("import feedback offline guard fails a caught fetch without dispatching its native sentinel", async () => {
+  const fixture = importFixture();
+  // A lower transport sentinel makes the negative control explicitly offline
+  // even when the wrapper's preload is deliberately removed for mutation proof.
+  writeFileSync(join(fixture.dir, "sentinel.ts"), `globalThis.fetch = async () => {console.log("NATIVE_"+"TRANSPORT_CALLED"); return new Response("fixture");};`);
+  writeFileSync(join(fixture.dir, "bunfig.toml"), '[test]\npreload=["./sentinel.ts"]\n');
+  writeFileSync(join(fixture.dir, "tests/guard.test.ts"), `import {test} from "bun:test";test("IMPORT_FEEDBACK_OFFLINE_GUARD",async()=>{await fetch("https://escape.example.invalid/probe").catch(()=>{});});`);
+  const result = await fixture.run();
+  expect(result.code, "IMPORT_FEEDBACK_OFFLINE_GUARD_EXIT\n" + result.output).not.toBe(0);
+  expect(result.output).toContain("Offline test guard");
+  expect(result.output).not.toContain("NATIVE_TRANSPORT_CALLED");
 });

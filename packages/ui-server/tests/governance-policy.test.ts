@@ -1,3 +1,4 @@
+import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
@@ -155,6 +156,20 @@ test("confirmed session preference tightens the next actual worker without chang
 });
 
 
+test("session profile renders the byte cap in binary units without changing the policy's exact value", () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const readScope = () => profiles.read(principal.id, "draft", "ithaca-draft").limits.find(limit => limit.name === "Per-turn scope")!.value;
+  expect(readScope(), "PROFILE_DEFAULT_READABLE_BYTE_CAP").toContain("4 GiB observed bytes");
+  expect(f.turns.facts("interactive").policy.policy.scope.max_bytes_written).toBe(4 * 1024 ** 3);
+  for (const [bytes, display] of [[512, "512 B"], [1024, "1 KiB"], [1536 * 1024, "1.5 MiB"]] as const) {
+    f.write(`scope: { max_bytes_written: ${bytes} }`);
+    expect(readScope(), "PROFILE_CUSTOM_READABLE_BYTE_CAP").toContain(`${display} observed bytes`);
+    expect(f.turns.facts("interactive").policy.policy.scope.max_bytes_written).toBe(bytes);
+  }
+});
+
 test("authenticated profile routes persist named preferences, lock policy and refuse expired, unknown and mismatched drafts", async () => {
   const f = fixture(); const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
   const catalog = createSessionCatalog(() => f.db); catalog.persistSessionStub("ithaca-chat", "Odysseus reviews the harbor.", "claude", "claude");
@@ -224,4 +239,31 @@ test("real first sends bind only their authenticated draft preference and emit a
     await runSession(host, { ...common, profileDraftId: "harbor-draft" });
     expect(observations.length, "SESSION_PROFILE_UNCORRELATED_FIRST_SEND_REFUSAL").toBe(before);
   } finally { host.close(); }
+});
+
+
+test("unsupported policy edits never dispatch engines in the reader or actual admission", async () => {
+  const sentinel = frontmatterEngineSentinel();
+  try {
+    const f = fixture(), reader = createGovernancePolicyReader(f.brain);
+    f.write("profiles: { interactive: strict }");
+    const valid = reader.load();
+    const admitted = await f.turns.begin("supported-yaml", new AbortController().signal); const hash = admitted.policy.hash; await admitted.end();
+    for (const [index, language] of ["js", "javascript", "JS", "JavaScript", "json", "unknown"].entries()) {
+      writeFileSync(f.path, `\uFEFF--- ${language} \r\nschema_version: 1\r\n---\r\nOdysseus\r\n`);
+      const current = reader.load();
+      expect(sentinel.dispatched, "READER_NO_ENGINE_DISPATCH").toEqual([]);
+      expect(current.source).toBe("last_valid"); expect(current.hash).toBe(valid.hash);
+      expect(current.policy.profiles.interactive).toBe("strict"); expect(current.errors.join(" ")).toContain("use YAML data only");
+      const turn = await f.turns.begin(`unsupported-${index}`, new AbortController().signal);
+      try {
+        expect(sentinel.dispatched, "ADMISSION_NO_ENGINE_DISPATCH").toEqual([]);
+        expect(turn.policy.source).toBe("last_valid"); expect(turn.policy.hash).toBe(hash);
+        expect(turn.sandbox.profile).toBe("strict");
+        expect(turn.policy.errors.join(" ")).toContain("use YAML data only");
+      } finally { await turn.end(); }
+    }
+    const fresh = createGovernancePolicyReader(f.brain).load();
+    expect(fresh.source).toBe("default"); expect(fresh.hash).toBeNull(); expect(fresh.errors.length).toBeGreaterThan(0);
+  } finally { sentinel.restore(); }
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
 import { tracksFor, trackKey, stagedTrackViews } from "../src/lib/draft-tracks.ts";
@@ -12,6 +12,88 @@ import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 type Row = Draft & { deleted?: boolean };
 
+// These are independent expectations, deliberately not imported from production.
+const SAVE_PAUSE = 800;
+const FIRST_RETRY = 2_000;
+const RETRY_DELAYS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
+const nativeTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+type Operation = { held: boolean; done: Promise<void>; finish: () => void };
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+/** Only this file's registered JS timers move; native promises/body decoding run normally. */
+function registeredClock() {
+  const descriptors = Object.fromEntries(["setTimeout", "clearTimeout", "setInterval", "clearInterval"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)!]));
+  const dateNow = Object.getOwnPropertyDescriptor(Date, "now")!;
+  let now = Date.now();
+  let sequence = 0;
+  const timers = new Map<number, { at: number; delay: number; repeat: boolean; run: () => void }>();
+  const events: { kind: "registered" | "cancelled" | "fired"; id: number; at: number; delay: number }[] = [];
+  const register = (repeat: boolean) => (callback: (...args: unknown[]) => void, delay = 0, ...args: unknown[]) => {
+    const id = ++sequence;
+    const normalized = Math.max(0, Number(delay) || 0);
+    timers.set(id, { at: now + normalized, delay: normalized, repeat, run: () => callback(...args) });
+    events.push({ kind: "registered", id, at: now, delay: normalized });
+    return id;
+  };
+  const cancel = (id: number) => {
+    const timer = timers.get(id);
+    if (timer) events.push({ kind: "cancelled", id, at: now, delay: timer.delay });
+    timers.delete(id);
+  };
+  for (const [key, value] of Object.entries({ setTimeout: register(false), setInterval: register(true), clearTimeout: cancel, clearInterval: cancel })) {
+    Object.defineProperty(globalThis, key, { ...descriptors[key], value });
+  }
+  Object.defineProperty(Date, "now", { ...dateNow, value: () => now });
+  const next = () => [...timers.entries()].sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+  return {
+    events,
+    pending: () => [...timers.keys()],
+    get now() { return now; },
+    nextAt: () => next()?.[1].at,
+    async advance(ms: number, allowHeld = false) {
+      const end = now + ms;
+      await settle(allowHeld);
+      let count = 0;
+      while (next() && next()![1].at <= end) {
+        if (++count > 1_000) throw new Error("timer loop did not yield");
+        const [id, timer] = next()!;
+        now = timer.at;
+        timers.delete(id);
+        if (timer.repeat) timers.set(id, { ...timer, at: now + Math.max(1, timer.delay) });
+        events.push({ kind: "fired", id, at: now, delay: timer.delay });
+        timer.run();
+        await settle(allowHeld);
+      }
+      now = end;
+      await settle(allowHeld);
+    },
+    restore() {
+      timers.clear();
+      for (const [key, descriptor] of Object.entries(descriptors)) Object.defineProperty(globalThis, key, descriptor);
+      Object.defineProperty(Date, "now", dateNow);
+    },
+  };
+}
+
+let clock: ReturnType<typeof registeredClock>;
+const hosts: { settled(allowHeld?: boolean): Promise<void>; releaseAll(): void }[] = [];
+/** Await every runnable request and native body, then its consumer's promise continuations.
+ * A held request is allowed only at an explicit in-flight observation. It cannot
+ * satisfy a completion barrier: release() awaits it, its body and any immediate
+ * follow-up callbacks; future deadlines are advanced explicitly.
+ */
+async function settle(allowHeld = false): Promise<void> {
+  await nativeTurn();
+  for (const host of hosts) await host.settled(allowHeld);
+  await nativeTurn();
+}
+
+
 function fakeHost() {
   const rows = new Map<string, Row>();
   const images = new Map<string, { draftId: string; mime: string; bytes: string; name: string | null }>();
@@ -19,14 +101,51 @@ function fakeHost() {
   let down = false;
   let full = false;
   let losePut = false;
-  let deleteHold: Promise<void> | null = null;
+  let deleteHold: ReturnType<typeof deferred> | null = null;
   let deleteFailure = 0;
   let maxText = Infinity;
-  let getHold: Promise<void> | null = null;
-  let slow: Promise<void> | null = null;
+  let getHold: ReturnType<typeof deferred> | null = null;
+  let slow: ReturnType<typeof deferred> | null = null;
   let seq = 0;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const pending = new Set<Operation>();
+  const gates = new Set<ReturnType<typeof deferred>>();
+  async function held(gate: ReturnType<typeof deferred>, operation: Operation) {
+    operation.held = true;
+    try { await gate.promise; } finally { operation.held = false; }
+  }
+  async function settled(allowHeld = false): Promise<void> {
+    while (pending.size) {
+      const runnable = [...pending].filter((operation) => !operation.held);
+      if (!runnable.length) {
+        if (allowHeld) return;
+        throw new Error("completion barrier reached a held host response; release it explicitly");
+      }
+      await Promise.all(runnable.map((operation) => operation.done));
+      // All fixture bodies are memory-backed Responses. No native IO is hidden
+      // behind this turn: the actual request and json() promises finished above.
+      await nativeTurn();
+    }
+  }
   async function request(url: string, init: RequestInit = {}): Promise<Response> {
+    const completion = deferred();
+    const operation: Operation = { held: false, done: completion.promise, finish: completion.resolve };
+    pending.add(operation);
+    const finish = () => { pending.delete(operation); operation.finish(); };
+    try {
+      const response = await handle(operation, url, init);
+      const json = response.json.bind(response);
+      response.json = async () => {
+        const completion = deferred();
+        const body: Operation = { held: false, done: completion.promise, finish: completion.resolve };
+        pending.add(body);
+        try { return await json(); } finally { pending.delete(body); body.finish(); }
+      };
+      return response;
+    } finally { finish(); }
+  }
+
+  async function handle(operation: Operation, url: string, init: RequestInit): Promise<Response> {
     const { pathname } = new URL(url, "http://localhost");
     const method = init.method ?? "GET";
     calls.push(`${method} ${pathname.replace(/^\/api/, "")}`);
@@ -50,11 +169,11 @@ function fakeHost() {
     if (method === "GET") {
       // The answer is what the host held when the read arrived, however late it lands.
       const now = rows.get(id);
-      if (getHold) await getHold;
+      if (getHold) await held(getHold, operation);
       return now && !now.deleted ? json(now) : json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
     }
     if (method === "DELETE") {
-      if (deleteHold) await deleteHold;
+      if (deleteHold) await held(deleteHold, operation);
       if (deleteFailure) { const status = deleteFailure; deleteFailure = 0; return json({ error: "unavailable" }, status); }
       if (!row) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
       if (row.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
@@ -63,7 +182,7 @@ function fakeHost() {
       return new Response(null, { status: 204 });
     }
     if (method === "PUT") {
-      if (slow) await slow;
+      if (slow) await held(slow, operation);
       const body = JSON.parse(String(init.body)) as { sessionId: string | null; text: string; attachmentIds: string[] };
       if (full && !row) return json({ error: "DRAFT_CAPACITY", message: "full", limit: 100, bound: "drafts" }, 507);
       if (body.text.length > maxText) return json({ error: "DRAFT_TOO_LARGE", message: "too large", limit: maxText, bound: "text" }, 413);
@@ -83,19 +202,22 @@ function fakeHost() {
     }
     return json({ error: "DRAFT_INVALID", message: "" }, 400);
   }
-  return {
-    rows, calls, request,
+  const fixture = {
+    rows, calls, request, settled,
+    releaseAll: () => { for (const gate of gates) gate.resolve(); gates.clear(); },
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
     loseNextPut: () => { losePut = true; },
     failNextDelete: (status: number) => { deleteFailure = status; },
-    holdDeletes: () => { let release!: () => void; deleteHold = new Promise<void>((r) => { release = r; }); return () => { deleteHold = null; release(); }; },
+    holdDeletes: () => { const gate = deferred(); deleteHold = gate; gates.add(gate); return async () => { deleteHold = null; gates.delete(gate); gate.resolve(); await clock.advance(0); }; },
     setMaxText: (value: number) => { maxText = value; },
     /** Hold every draft read until the returned release is called. */
-    holdGets: () => { let release!: () => void; getHold = new Promise<void>((r) => { release = r; }); return () => { getHold = null; release(); }; },
+    holdGets: () => { const gate = deferred(); getHold = gate; gates.add(gate); return async () => { getHold = null; gates.delete(gate); gate.resolve(); await clock.advance(0); }; },
     /** Hold every save until the returned release is called. */
-    hold: () => { let release!: () => void; slow = new Promise<void>((r) => { release = r; }); return () => { slow = null; release(); }; },
+    hold: () => { const gate = deferred(); slow = gate; gates.add(gate); return async () => { slow = null; gates.delete(gate); gate.resolve(); await clock.advance(0); }; },
   };
+  hosts.push(fixture);
+  return fixture;
 }
 
 class FixtureSocket {
@@ -115,19 +237,36 @@ class FixtureSocket {
 }
 
 const ITHACA = "odysseus-ithaca";
-const realSocket = globalThis.WebSocket;
+const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const roots: BrainUiRoot[] = [];
-afterEach(() => {
-  for (const r of roots.splice(0)) r.dispose();
-  globalThis.WebSocket = realSocket;
+beforeEach(() => { clock = registeredClock(); });
+afterEach(async () => {
+  try {
+    // Dispose before releasing forgotten fixture gates so a failing assertion
+    // cannot leak a late response into the next case.
+    const failures: unknown[] = [];
+    for (const r of roots.splice(0)) {
+      try { r.dispose(); } catch (error) { failures.push(error); }
+    }
+    for (const host of hosts) host.releaseAll();
+    await settle();
+    expect(clock.pending(), "root disposal cancels every owned timer").toEqual([]);
+    if (failures.length) throw new AggregateError(failures, "root disposal failed");
+  } finally {
+    hosts.splice(0);
+    clock.restore();
+    Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
+  }
 });
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(predicate: () => boolean, timeout = 5_000) {
-  const end = Date.now() + timeout;
-  while (!predicate()) {
-    if (Date.now() > end) throw new Error("condition never held");
-    await wait(20);
+async function until(predicate: () => boolean, timeout = 5_000, allowHeld = false) {
+  const end = clock.now + timeout;
+  while (true) {
+    await settle(allowHeld);
+    if (predicate()) return;
+    const next = clock.nextAt();
+    if (next === undefined || next > end) throw new Error("condition never held before its logical deadline");
+    await clock.advance(next - clock.now, allowHeld);
   }
 }
 
@@ -148,12 +287,16 @@ describe("saving", () => {
     const id = drafts().idFor(ITHACA); drafts().edit(id, ITHACA, { text: "Inspect the fleet." });
     await until(() => drafts().drafts[id]?.host?.revision === 1);
     const text = "Inspect the fleet.\nPenelope confirms the route.";
-    drafts().edit(id, ITHACA, { text, deviceOnly: true }); await wait(800);
+    drafts().edit(id, ITHACA, { text, deviceOnly: true }); await clock.advance(SAVE_PAUSE - 1);
+    await clock.advance(1);
+    await clock.advance(FIRST_RETRY + 1);
     const puts = host.calls.filter(c => c.startsWith("PUT"));
     host.rows.set(id, { ...host.rows.get(id)!, deleted: true, revision: 2 });
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
     await until(() => drafts().resolveId(id) !== id);
-    const next = drafts().resolveId(id); await wait(800);
+    const next = drafts().resolveId(id); await clock.advance(SAVE_PAUSE - 1);
+    await clock.advance(1);
+    await clock.advance(FIRST_RETRY + 1);
     expect(host.calls.filter(c => c.startsWith("PUT")), "rotation never automatically uploads the accepted transcript").toEqual(puts);
     expect(drafts().drafts[next]?.text).toBe(text);
     drafts().edit(next, null, { text: `${text} Bring the wax tablet.` });
@@ -167,11 +310,15 @@ describe("saving", () => {
     await until(() => drafts().drafts[id]?.host?.revision === 1);
     const text = "Ask Penelope\nInspect the fleet.";
     drafts().edit(id, ITHACA, { text, deviceOnly: true });
-    const before = host.calls.length; await wait(800);
+    const before = host.calls.length; await clock.advance(SAVE_PAUSE - 1);
+    await clock.advance(1);
+    await clock.advance(FIRST_RETRY + 1);
     expect(host.calls.slice(before), "local transcript causes no host request").toEqual([]);
     drafts().beginSend({ requestId: "req-local-fleet", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-local-fleet", source: "typed" } }, text);
     drafts().accepted("req-local-fleet", ITHACA);
-    await wait(800);
+    await clock.advance(SAVE_PAUSE - 1);
+    await clock.advance(1);
+    await clock.advance(FIRST_RETRY + 1);
     expect(host.rows.get(id)?.deleted, "explicit Send cleans up the older saved host draft").toBe(true);
   });
 
@@ -180,7 +327,9 @@ describe("saving", () => {
     const { drafts } = boot(host, { chatRequestAck: true });
     const id = drafts().idFor(ITHACA);
     drafts().edit(id, ITHACA, { text: "Plug the ears with wax" });
-    await wait(1_000);
+    await clock.advance(SAVE_PAUSE - 1);
+    await clock.advance(1);
+    await clock.advance(FIRST_RETRY + 1);
     expect(host.calls.filter((c) => c.startsWith("PUT") || c.startsWith("GET /drafts"))).toEqual([]);
     expect(drafts().supported).toBe(false);
   });
@@ -188,14 +337,30 @@ describe("saving", () => {
   test("saved only after the host acknowledged that revision; a newer edit is not saved", async () => {
     const host = fakeHost();
     const { drafts } = boot(host);
+    await settle(); // The hello's initial refresh has completed before typing.
     const id = drafts().idFor(ITHACA);
+    const release = host.hold();
     drafts().edit(id, ITHACA, { text: "Plug the ears with wax" });
     expect(drafts().drafts[id]?.host).toBeNull();
+    expect(clock.events.at(-1)).toMatchObject({ kind: "registered", delay: SAVE_PAUSE });
+    await clock.advance(SAVE_PAUSE - 1, true);
+    expect(host.calls.filter((c) => c.startsWith("PUT")), "no save before the default pause").toEqual([]);
+    await clock.advance(1, true);
+    expect(host.calls.filter((c) => c.startsWith("PUT")), "save starts at the default deadline").toHaveLength(1);
+    expect(drafts().drafts[id]?.host, "a started request is not an acknowledgement").toBeNull();
+    await clock.advance(1, true);
+    expect(drafts().drafts[id]?.host, "elapsed time cannot acknowledge a held response").toBeNull();
+    await expect(settle()).rejects.toThrow("held host response");
+    await release();
     await until(() => drafts().drafts[id]?.host?.revision === 1);
     expect(host.rows.get(id)).toMatchObject({ text: "Plug the ears with wax", sessionId: ITHACA, revision: 1 });
     expect(drafts().drafts[id]!.host!.edit).toBe(drafts().drafts[id]!.edit);
+    const releaseNewer = host.hold();
     drafts().edit(id, ITHACA, { text: "Plug the ears with wax, and bind me" });
     expect(drafts().drafts[id]!.host!.edit).not.toBe(drafts().drafts[id]!.edit);
+    await clock.advance(SAVE_PAUSE, true);
+    expect(drafts().drafts[id]!.host!.edit, "the newer response is independently held").not.toBe(drafts().drafts[id]!.edit);
+    await releaseNewer();
     await until(() => host.rows.get(id)?.revision === 2);
     expect(host.calls.filter((c) => c === `PUT /drafts/${id}`)).toHaveLength(2);
   });
@@ -224,7 +389,7 @@ describe("saving", () => {
     expect(drafts().drafts[id]!.conflict!.other.text).toBe("Ask Eumaeus at dawn");
     expect(host.rows.get(id)!.text).toBe("Ask Eumaeus at dawn");
     // No retry writes over it while the reader has not chosen.
-    await wait(1_200);
+    await clock.advance(FIRST_RETRY - 1); await clock.advance(1); await clock.advance(1);
     expect(host.rows.get(id)!.revision).toBe(2);
     drafts().resolve(id, "mine");
     await until(() => host.rows.get(id)?.revision === 3);
@@ -262,9 +427,9 @@ describe("saving, continued", () => {
     const id = drafts().idFor(ITHACA);
     const release = host.hold();
     drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
-    await until(() => host.calls.includes(`PUT /drafts/${id}`));
+    await until(() => host.calls.includes(`PUT /drafts/${id}`), 5_000, true);
     drafts().edit(id, ITHACA, { text: "" });
-    release();
+    await release();
     await until(() => host.rows.get(id)?.deleted === true);
     expect(drafts().drafts[id]).toBeUndefined();
   });
@@ -292,8 +457,12 @@ describe("orphans", () => {
     const { ui } = boot(host);
     host.setDown(true);
     ui.stores.drafts.setState((s) => ({ orphans: [...s.orphans, { draftId: "d-gone", revision: 3 }] }));
-    await wait(300);
+    await clock.advance(FIRST_RETRY - 1);
     expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone")).toHaveLength(1);
+    await clock.advance(1);
+    expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone"), "orphan retry fires at 2000 ms").toHaveLength(2);
+    await clock.advance(1);
+    expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone"), "the next retry also backs off").toHaveLength(2);
   });
 });
 
@@ -305,9 +474,9 @@ describe("stale answers", () => {
     const id = drafts().idFor(ITHACA);
     const release = host.hold();
     drafts().edit(id, ITHACA, { text: "Ask Aeolus for every wind in the bag" });
-    await until(() => host.calls.includes(`PUT /drafts/${id}`));
+    await until(() => host.calls.includes(`PUT /drafts/${id}`), 5_000, true);
     drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
-    release();
+    await release();
     await until(() => host.rows.get(id)?.text === "Ask Aeolus");
     expect(drafts().drafts[id]?.failure).toBeNull();
   });
@@ -322,18 +491,83 @@ describe("stale answers", () => {
     host.rows.set(id, { ...host.rows.get(id)!, revision: 2, text: "Ask Aeolus, from the phone" });
     const release = host.holdGets();
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
-    await until(() => host.calls.includes(`GET /drafts/${id}`));
+    await until(() => host.calls.includes(`GET /drafts/${id}`), 5_000, true);
     // Meanwhile the host accepts a send of it and deletes it.
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
     drafts().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-1", source: "typed" } }, "Ask Aeolus");
     socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-1" });
     host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
-    release();
-    await wait(200);
+    await release();
+    await clock.advance(200);
     expect(Object.values(drafts().drafts).some((d) => d.text === "Ask Aeolus, from the phone"), "the stale read restores nothing").toBe(false);
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "the retired read must not upload under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "the retired read leaves no live session draft").toBe(false);
+    };
+    noRecreation();
+    await clock.advance(SAVE_PAUSE - 1 - 200);
+    noRecreation();
+    await clock.advance(1);
+    noRecreation();
+    for (const delay of RETRY_DELAYS) {
+      await clock.advance(delay - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+    }
   });
 });
 
 describe("restoring, continued", () => {
+  test("a second clean client never uploads a consumed draft after a stale read or deletion refresh", async () => {
+    const host = fakeHost();
+    const a = boot(host);
+    const id = a.drafts().idFor(ITHACA);
+    a.drafts().edit(id, ITHACA, { text: "Ask Eumaeus about the harbour fees" });
+    await until(() => a.drafts().drafts[id]?.host?.revision === 1);
+    const b = boot(host);
+    await until(() => b.drafts().drafts[id]?.host?.revision === 1);
+    const text = "Ask Telemachus about the harbour fees";
+    a.drafts().edit(id, ITHACA, { text });
+    await until(() => a.drafts().drafts[id]?.host?.revision === 2);
+    const gets = host.calls.filter(call => call === `GET /drafts/${id}`).length;
+    const release = host.holdGets();
+    b.socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => host.calls.filter(call => call === `GET /drafts/${id}`).length > gets, 5_000, true);
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
+    const ref = a.drafts().beginSend({ requestId: "req-two-clients", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-two-clients", source: "typed" } }, text);
+    expect(ref).toEqual({ draftId: id, revision: 2 });
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
+    a.socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-two-clients" });
+    expect(a.drafts().sends["req-two-clients"]?.state).toBe("accepted");
+    await release();
+    // b never received a's acceptance. Its old GET may restore a clean copy,
+    // but neither that copy nor a later deletion refresh may upload any id.
+    expect(b.drafts().drafts[id]?.host?.revision).toBe(2);
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "a second clean client must not recreate consumed content under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "neither client recreates a live session draft").toBe(false);
+    };
+    const checkHorizons = async () => {
+      await clock.advance(0);
+      noRecreation();
+      await clock.advance(SAVE_PAUSE - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+      for (const delay of RETRY_DELAYS) {
+        await clock.advance(delay - 1);
+        noRecreation();
+        await clock.advance(1);
+        noRecreation();
+      }
+    };
+    await checkHorizons();
+    b.socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await checkHorizons();
+    expect(b.drafts().drafts[id], "the clean client observed the host tombstone through its list").toBeUndefined();
+  });
+
   test("a session's draft replaced on another device is restored as itself", async () => {
     const host = fakeHost();
     const { socket, drafts } = boot(host);
@@ -368,7 +602,7 @@ describe("uncertain answers", () => {
     host.rows.set("d-letter", { draftId: "d-letter", sessionId: null, revision: 1, updatedAt: 2, text: "Letter to Penelope", attachments: [] });
     host.setDown(true);
     const { drafts } = boot(host);
-    await wait(100);
+    await clock.advance(100);
     expect(drafts().drafts["d-letter"]).toBeUndefined();
     host.setDown(false);
     await until(() => drafts().drafts["d-letter"]?.text === "Letter to Penelope", 5_000);
@@ -402,11 +636,11 @@ describe("orphans, continued", () => {
     const release = host.holdGets();
     const reads = host.calls.filter((c) => c === "GET /drafts/d-other").length;
     hello();
-    await until(() => host.calls.filter((c) => c === "GET /drafts/d-other").length > reads);
+    await until(() => host.calls.filter((c) => c === "GET /drafts/d-other").length > reads, 5_000, true);
     drafts().resolve(mine, "mine");
-    await until(() => host.rows.get("d-other")?.deleted === true);
-    release();
-    await wait(200);
+    await until(() => host.rows.get("d-other")?.deleted === true, 5_000, true);
+    await release();
+    await clock.advance(200);
     expect(drafts().drafts[mine]?.conflict, "the choice stands").toBeNull();
   });
 });
@@ -469,14 +703,14 @@ describe("late answers", () => {
     await until(() => drafts().drafts[mine]?.conflict !== null);
     const release = host.holdDeletes();
     drafts().resolve(mine, "mine");
-    await until(() => host.calls.includes("DELETE /drafts/d-other"));
+    await until(() => host.calls.includes("DELETE /drafts/d-other"), 5_000, true);
     const lists = host.calls.filter((c) => c === "GET /drafts").length;
     hello();
-    await until(() => host.calls.filter((c) => c === "GET /drafts").length > lists);
-    await wait(100);
-    release();
+    await until(() => host.calls.filter((c) => c === "GET /drafts").length > lists, 5_000, true);
+    await clock.advance(100, true);
+    await release();
     await until(() => host.rows.get("d-other")?.deleted === true);
-    await wait(100);
+    await clock.advance(100);
     expect(drafts().drafts[mine]?.conflict, "the choice stands").toBeNull();
   });
 });
@@ -525,13 +759,52 @@ describe("restoring", () => {
     const reads = host.calls.filter((c) => c === "GET /drafts/d-raft").length;
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
     await until(() => host.calls.filter((c) => c === "GET /drafts/d-raft").length > reads);
-    await wait(100);
+    await clock.advance(100);
     expect(drafts().drafts["d-raft"]?.text, "a host refresh never overwrites dirty words").toBe("Keep the reader's rope");
     expect(drafts().drafts["d-raft"]?.conflict?.other.text).toBe("The phone's rope");
   });
 });
 
 describe("sends", () => {
+  test("an accepted bound send never uploads its consumed words again across save and retry deadlines", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    const text = "Ask Telemachus about the harbour fees";
+    drafts().edit(id, ITHACA, { text });
+    await until(() => host.rows.get(id)?.revision === 1);
+    const puts = host.calls.filter(call => call.startsWith("PUT"));
+    expect(clock.events.some(event => event.kind === "registered" && event.delay === SAVE_PAUSE), "the client registered its default save deadline").toBe(true);
+    const acceptanceEventsStart = clock.events.length;
+    const ref = drafts().beginSend({ requestId: "req-consumed", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-consumed", source: "typed" } }, text);
+    expect(ref).toEqual({ draftId: id, revision: 1 });
+    // The native runtime proves atomic host consumption. This host preserves
+    // that tombstone while the actual client processes its correlated receipt.
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
+    socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-consumed" });
+    expect(drafts().sends["req-consumed"]?.state).toBe("accepted");
+    const noRecreation = () => {
+      expect(host.calls.filter(call => call.startsWith("PUT")), "accepted content must not issue another PUT under any draft id").toEqual(puts);
+      expect([...host.rows.values()].some(row => row.sessionId === ITHACA && !row.deleted), "consumption leaves no live session draft").toBe(false);
+    };
+    await clock.advance(0);
+    noRecreation();
+    await clock.advance(SAVE_PAUSE - 1);
+    noRecreation();
+    await clock.advance(1);
+    noRecreation();
+    for (const delay of RETRY_DELAYS) {
+      await clock.advance(delay - 1);
+      noRecreation();
+      await clock.advance(1);
+      noRecreation();
+    }
+    const acceptedEvents = clock.events.slice(acceptanceEventsStart);
+    const owedWork = acceptedEvents.find(event => event.kind === "registered" && event.delay === 0);
+    expect(owedWork, "acceptance registers its actual zero-delay owed work").toBeDefined();
+    expect(acceptedEvents.some(event => event.kind === "fired" && event.id === owedWork?.id), "the retired draft's callback actually ran").toBe(true);
+  });
+
   test("the socket closing before acceptance holds the send for review, and nothing is sent again", async () => {
     const host = fakeHost();
     const { ui, socket, drafts } = boot(host);
@@ -548,14 +821,14 @@ describe("sends", () => {
     await until(() => drafts().sends["req-1"]?.state === "unconfirmed");
     // Its optimistic rows leave the transcript; the review block stands in.
     expect(ui.stores.chat.getState().buffers[ITHACA]!.messages.some((m) => m.requestId === "req-1")).toBe(false);
-    await wait(500);
+    await clock.advance(500);
     expect(socket.frames("chat_message")).toHaveLength(0);
     // A new socket: still nothing, until Send again.
     ui.connection.reconnectNow();
     const next = FixtureSocket.last!;
     next.open();
     next.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
-    await wait(200);
+    await clock.advance(FIRST_RETRY + 1);
     expect(next.frames("chat_message")).toHaveLength(0);
     expect(ui.connection.drafts.resend("req-1")).toBe(true);
     const sent = next.frames("chat_message");
@@ -707,13 +980,13 @@ test("a late host save cannot acknowledge the retained original after a device f
   const original = drafts().idFor(ITHACA);
   const release = host.hold();
   drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet" });
-  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  await until(() => host.calls.includes(`PUT /drafts/${original}`), 5_000, true);
   drafts().setSupport(false);
   drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
   drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
-  release();
+  await release();
   await until(() => host.rows.has(original));
-  await wait(20);
+  await clock.advance(20);
   expect(drafts().drafts[original]!.host, "the old save cannot acknowledge another tab's replacement text").toBeNull();
   drafts().hostGone(original);
   expect(Object.values(drafts().drafts).some((d) => d.text === "Penelope keeps the newer weave"), "host consumption cannot discard the retained original").toBe(true);
@@ -728,13 +1001,13 @@ test("a late host delete cannot rotate the retained original after a device fork
   await until(() => drafts().drafts[original]?.host?.revision === 1);
   const release = host.holdDeletes();
   drafts().edit(original, ITHACA, { text: "" });
-  await until(() => host.calls.includes(`DELETE /drafts/${original}`));
+  await until(() => host.calls.includes(`DELETE /drafts/${original}`), 5_000, true);
   drafts().setSupport(false);
   drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
   drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
-  release();
+  await release();
   await until(() => host.rows.get(original)?.deleted === true);
-  await wait(20);
+  await clock.advance(20);
   expect(drafts().drafts[original]?.text, "an old host delete preserves the retained original identity").toBe("Penelope keeps the newer weave");
 });
 
@@ -748,7 +1021,7 @@ test("a delayed host save is fenced even when its predecessor rotated before the
     host: { revision: 1, sessionId: null, updatedAt: 1, clean: true } }]);
   const release = host.hold();
   drafts().edit(original, null, { text: "Telemachus checks the harbour." });
-  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  await until(() => host.calls.includes(`PUT /drafts/${original}`), 5_000, true);
   drafts().beginSend({ requestId: "voyage-rotated", draftId: original, sessionId: null, text: "Telemachus checks the harbour.", attachments: [],
     message: { type: "chat_message", requestId: "voyage-rotated", text: "Telemachus checks the harbour." } }, "Telemachus checks the harbour.");
   drafts().edit(original, null, { text: "Bring the oars." });
@@ -760,9 +1033,9 @@ test("a delayed host save is fenced even when its predecessor rotated before the
   drafts().openDeviceVersion(original);
   const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "blob:fixture/shroud", bytes: 8, name: "shroud.png" };
   drafts().edit(original, null, { text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] });
-  release();
+  await release();
   await until(() => host.rows.get(original)?.revision === 2);
-  await wait(20);
+  await clock.advance(20);
   expect(drafts().drafts[original]?.host?.edit, "the retired predecessor's reply cannot acknowledge the restored original's different text and images").not.toBe(drafts().drafts[original]!.edit);
   drafts().hostGone(original);
   expect(Object.values(drafts().drafts), "a missing-host refresh preserves the newer restored original's editable content").toContainEqual(expect.objectContaining({ text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] }));
@@ -775,11 +1048,11 @@ test("a late host save cannot acknowledge an adopted additional device owner", a
   const original = drafts().idFor(ITHACA);
   const release = host.hold();
   drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet." });
-  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  await until(() => host.calls.includes(`PUT /drafts/${original}`), 5_000, true);
   drafts().setSupport(false);
   const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "blob:fixture/shroud", bytes: 8, name: "shroud.png" };
   drafts().adoptDeviceRecord({draftId:original,sessionId:ITHACA,text:"Penelope keeps the additional committed chart.",attachments:[image],editedAt:2,host:null});
-  release(); await until(() => host.rows.has(original)); await wait(20);
+  await release(); await until(() => host.rows.has(original)); await clock.advance(20);
   expect(drafts().drafts[original]?.host,"an old reply cannot acknowledge an additional owner's newly adopted text and images").toBeNull();
   drafts().hostGone(original);
   expect(Object.values(drafts().drafts)).toContainEqual(expect.objectContaining({text:"Penelope keeps the additional committed chart.",attachments:[image]}));
@@ -792,12 +1065,87 @@ test("a late host save cannot acknowledge an explicitly opened newer device vers
   drafts().edit(original, ITHACA, {text:"Odysseus checks the fleet."});
   drafts().keepDeviceBranch(original,"voyage-branch",{draftId:original,sessionId:ITHACA,text:"Penelope keeps the loom order.",attachments:[],editedAt:1,host:null},ITHACA);
   const release = host.hold();
-  await until(()=>host.calls.includes(`PUT /drafts/${original}`));
+  await until(()=>host.calls.includes(`PUT /drafts/${original}`), 5_000, true);
   drafts().setSupport(false);
   const image: PendingAttachment = {attachment:{data:"iVBORw0KGgo=",mediaType:"image/png"},previewUrl:"blob:fixture/shroud",bytes:8,name:"shroud.png"};
   drafts().openDeviceVersion(original,{draftId:original,sessionId:ITHACA,text:"Telemachus updates the device chart.",attachments:[image],editedAt:2,host:null});
-  release(); await until(()=>host.rows.has(original)); await wait(20);
+  await release(); await until(()=>host.rows.has(original)); await clock.advance(20);
   expect(drafts().drafts[original]?.host,"an old reply cannot acknowledge an explicitly adopted version's different text and images").toBeNull();
   drafts().hostGone(original);
   expect(Object.values(drafts().drafts),"missing-host refresh preserves explicitly adopted work").toContainEqual(expect.objectContaining({text:"Telemachus updates the device chart.",attachments:[image]}));
+});
+
+
+describe("registered draft deadlines", () => {
+  test("typing resets the default save pause and cancels the previous callback", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    await settle();
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Inspect the fleet" });
+    const first = clock.events.at(-1)!;
+    expect(first).toMatchObject({ kind: "registered", delay: 800 });
+    await clock.advance(799);
+    drafts().edit(id, ITHACA, { text: "Inspect the fleet at dawn" });
+    const replacement = clock.events.at(-1)!;
+    expect(replacement).toMatchObject({ kind: "registered", delay: 800, at: first.at + 799 });
+    expect(clock.events, "the old callback was actually cancelled").toContainEqual({ kind: "cancelled", id: first.id, at: first.at + 799, delay: 800 });
+    await clock.advance(1);
+    expect(host.calls.filter((c) => c.startsWith("PUT")), "the retired deadline cannot save the new edit early").toEqual([]);
+    await clock.advance(798);
+    expect(host.calls.filter((c) => c.startsWith("PUT"))).toEqual([]);
+    await clock.advance(1);
+    expect(host.rows.get(id)).toMatchObject({ text: "Inspect the fleet at dawn", revision: 1 });
+    expect(clock.events).toContainEqual({ kind: "fired", id: replacement.id, at: replacement.at + 800, delay: 800 });
+    await clock.advance(1);
+    expect(host.calls.filter((c) => c.startsWith("PUT"))).toHaveLength(1);
+  });
+
+  test("save failures follow every default backoff and stop retrying after acknowledgement", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    await settle();
+    host.setDown(true);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await clock.advance(800);
+    let calls = 1;
+    const puts = () => host.calls.filter((c) => c === `PUT /drafts/${id}`).length;
+    expect(puts()).toBe(calls);
+    // The final repeated 60s entry proves the cap as well as every independent default.
+    for (const delay of [...RETRY_DELAYS, 60_000]) {
+      expect(clock.events.filter((event) => event.kind === "registered" && event.delay === delay).length).toBeGreaterThan(0);
+      await clock.advance(delay - 1);
+      expect(puts(), `no retry before ${delay} ms`).toBe(calls);
+      await clock.advance(1);
+      expect(puts(), `retry at ${delay} ms`).toBe(++calls);
+    }
+    host.setDown(false);
+    await clock.advance(60_000);
+    expect(puts()).toBe(++calls);
+    expect(drafts().drafts[id]?.host?.revision).toBe(1);
+    await clock.advance(60_001);
+    expect(puts(), "an acknowledged revision does not retry again").toBe(calls);
+  });
+
+  test("disposing cancels registered save and orphan retry callbacks", async () => {
+    const host = fakeHost();
+    const { ui, drafts } = boot(host);
+    await settle();
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Inspect the fleet" });
+    const save = clock.events.at(-1)!;
+    host.failNextDelete(503);
+    ui.stores.drafts.setState((state) => ({ orphans: [...state.orphans, { draftId: "d-gone", revision: 3 }] }));
+    await settle();
+    const retry = clock.events.at(-1)!;
+    expect(save).toMatchObject({ kind: "registered", delay: 800 });
+    expect(retry).toMatchObject({ kind: "registered", delay: 2_000 });
+    ui.dispose();
+    roots.splice(roots.indexOf(ui), 1);
+    for (const timer of [save, retry]) expect(clock.events).toContainEqual({ kind: "cancelled", id: timer.id, at: clock.now, delay: timer.delay });
+    const calls = [...host.calls];
+    await clock.advance(60_001);
+    expect(host.calls, "disposed timers cannot issue later requests").toEqual(calls);
+  });
 });

@@ -1,3 +1,4 @@
+import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
@@ -17,15 +18,17 @@ import { formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixtu
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
+import { focusCapture } from "./tests/visual/focus-browser.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { sheetInput } from "./tests/visual/sheet-pointer.ts";
-import { overlayMouse, destinationPaint, destinationSafeArea } from "./tests/visual/overlay-pointer.ts";
+import { overlayMouse, destinationPaint, destinationMotion, destinationSafeArea } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
 import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
 import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
+import { shareReview } from "../ui-react/tests/browser/share-review/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
 import viteConfig from "./vite.config.ts";
@@ -62,6 +65,7 @@ const storyProject = (name: string, theme: string) => ({
     setupFiles: ["./tests/visual/story-theme-setup.ts"],
     browser: {
       enabled: true,
+      commands: { consumerParityViewport },
       provider: playwright({}),
       headless: true,
       instances: [{ browser: "chromium" }],
@@ -85,11 +89,11 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pointer; they need the consumer stylesheet. Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
-    provide: { railPointer: mode },
+    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/keyboard-hints.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
+    provide: { railPointer: mode, keyboardHintsLive: false },
     browser: {
       enabled: true,
-      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, overlayMouse, destinationPaint, destinationSafeArea, dictationMotion },
+      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, focusCapture, overlayMouse, destinationPaint, destinationMotion, destinationSafeArea, dictationMotion },
       provider: playwright({
         launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
@@ -127,7 +131,32 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "ui-react-endurance",
+            // Real-time native media proof has its own scheduling and discovery;
+            // keep the same offline launch, commands and lifecycle as layout.
+            include: ["../ui-react/tests/browser/**/*.endurance.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
@@ -161,7 +190,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
+              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, focusCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
               // Chromium's own web-test mode retains native encoding without
               // waiting for idle periods that can exceed a functional poll (#940).
               provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),
@@ -229,6 +258,23 @@ export default mergeConfig(
               enabled: true,
               commands: { rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture },
               provider: playwright({ contextOptions: { hasTouch: true } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            // Touch emulation does not restore fine-pointer media on disable.
+            // Own its browser lifetime so live hint proof cannot affect other files.
+            name: "keyboard-hints-live",
+            include: ["../ui-react/tests/browser/keyboard-hints.pointer.tsx"],
+            provide: { railPointer: "fine", keyboardHintsLive: true },
+            browser: {
+              enabled: true,
+              commands: { dictationPointer, formViewport, formConsumerStyles, rankTouch, rankTap },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },

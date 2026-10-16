@@ -95,6 +95,31 @@ describe("principal attribution", () => {
 });
 
 describe("turn recorder terminal precedence", () => {
+  test.each(["error", "timeout"] as const)("an explicit %s reason overrides and clips a result failure", (outcome) => {
+    const { db, store, recorder } = setup(`turn-reason-${outcome}`);
+    try {
+      recorder.observeFrame({ type: "result", sessionId: "sess-1", outcome: "error", isError: true,
+        durationMs: 1, numTurns: 1, failure: { errorClass: "server_error", message: "Backend reason" } });
+      const reason = "Host reason ".repeat(80);
+      recorder.finish(outcome, reason);
+      const expected = reason.slice(0, 500);
+      expect(store.getSpan(`turn-reason-${outcome}:turn`)).toMatchObject({ outcome, outcomeReason: expected });
+      expect(rowToRunRollup(db.query("SELECT * FROM activity_run_rollups WHERE run_id = ?").get(`turn-reason-${outcome}`)))
+        .toMatchObject({ outcome, failureReason: expected });
+    } finally { db.close(); }
+  });
+
+  test.each(["success", "cancelled"] as const)("a %s terminal outcome drops a supplied failure reason", (outcome) => {
+    const { db, store, recorder } = setup(`turn-no-reason-${outcome}`);
+    try {
+      recorder.observeFrame({ type: "result", sessionId: "sess-1", outcome, isError: false, durationMs: 1, numTurns: 1,
+        failure: { errorClass: "server_error", message: "Stale backend reason" } });
+      recorder.finish(outcome, "Stale host reason");
+      expect(store.getSpan(`turn-no-reason-${outcome}:turn`)!.outcomeReason).toBeNull();
+      expect(rowToRunRollup(db.query("SELECT * FROM activity_run_rollups WHERE run_id = ?").get(`turn-no-reason-${outcome}`))).toMatchObject({ outcome, failureReason: null });
+    } finally { db.close(); }
+  });
+
   test("a max_turns error result refines finish('error') into a timeout outcome", () => {
     const { store, recorder } = setup("turn-mt");
     recorder.observeFrame({ type: "session_info", sessionId: "sess-1", isNew: true });

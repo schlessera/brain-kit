@@ -119,3 +119,49 @@ Genuine voice and autonomous sessions have no proposal tool. Dictation remains
 ordinary interactive work, but speech grants nothing. Session/account switches
 cannot transfer actions; copy wraps at 320px and 200% zoom, with bounded diffs,
 44px effective targets and existing dark/paper tokens.
+
+## 2026-10-13 — approved Settings organization (#1773)
+
+The [complete maintainer approval](https://github.com/schlessera/brain-kit/issues/1773#issuecomment-6152749522)
+amends D37's fifth-drop Settings placement: Appearance & input is a pane at
+every width. Its theme, single-key switch and banner appear only there.
+The seven logical panes are Appearance & input, Models, Accounts, Skills,
+Modules, Security, and Devices & agents. Desktop groups them under This device,
+This brain and Access; below 900px the same inventory is a horizontal tab strip.
+Models owns the picker roster; Accounts owns existing provider sign-in and
+web-search settings; Security owns passkeys, standing tool grants and sign-out.
+
+The default remains Models and selection stays in memory across width changes.
+Arrows and Home/End move focus only; Enter/Space activate. Traversal makes no
+pane request and invokes no leave guard. Activation resets the new pane to its
+start and keeps focus on its tab. The compact strip reveals selected/focused
+tabs through its own horizontal scroll, with an overflow cue and 44px targets.
+Modules draft guards, credential-mint dismissal/navigation protection, opener
+focus return and D52 N3 remain binding. D36 shortcut policy is unchanged.
+
+Fictional Chromium review captures show the [previous compact allocation](../../assets/settings-1773/phone-before-dark.png),
+[Models with the recovered space and a long roster](../../assets/settings-1773/phone-models-dark.png),
+[Appearance & input on paper](../../assets/settings-1773/phone-appearance-paper.png),
+and [the grouped desktop Accounts pane](../../assets/settings-1773/desktop-accounts-paper.png).
+The original capture has an empty roster; the final capture uses long content
+to prove scrolling. These illustrate the organization, not pixel baselines.
+
+## 2026-10-16 — approved Storage placement (#1782)
+
+The [maintainer's S1 and complete-design approval](https://github.com/schlessera/brain-kit/issues/1782#issuecomment-6206739315)
+extends the #1773 inventory to eight panes: **Storage** follows Modules under
+**This brain**. Keep the desktop section column and compact horizontal tab
+strip, lazy activation, Models as the default, focus/scroll behavior, Modules
+leave guards, credential protection and D52 N3. Palette **Jump to > Storage**
+and contextual links target that pane. D36 is unchanged; no new shortcut,
+main-navigation destination, rail slot or phone-bar item is introduced.
+
+Settings gives repository and app storage a persistent management home. A
+Files subview would misrepresent app-owned stores; another destination would
+spend a navigation slot on an occasional task; a palette-only panel would have
+no persistent Settings home. The extra tab and compact-strip scrolling are the
+accepted tradeoff. The [complete Storage design](storage.md) records the
+accounting, responsive layouts, accessibility, consequence review and recovery
+rules. S4=B holds first public pane delivery until safe binary removal and the
+complete inspect/select/review/remove/result journey are ready; an interim
+read-only pane is not the approved shipping plan.

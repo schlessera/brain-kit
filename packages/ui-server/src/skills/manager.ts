@@ -103,7 +103,7 @@ export function createSkillManager(brainPath: string): SkillManager {
       return { description: "", warning: "SKILL.md is missing" };
     }
     try {
-      const data = parseFrontmatter(readFileSync(file, "utf-8")).data as Record<string, unknown>;
+      const data = parseFrontmatter(readFileSync(file, "utf-8"), { dataOnly: true }).data as Record<string, unknown>;
       const description = typeof data.description === "string" ? data.description : "";
       if (!description) return { description: "", warning: "frontmatter has no description" };
       return { description };
@@ -135,7 +135,7 @@ export function createSkillManager(brainPath: string): SkillManager {
     }
     let data: Record<string, unknown>;
     try {
-      data = parseFrontmatter(content).data as Record<string, unknown>;
+      data = parseFrontmatter(content, { dataOnly: true }).data as Record<string, unknown>;
     } catch (e) {
       throw new SkillValidationError(
         `Frontmatter does not parse: ${e instanceof Error ? e.message : String(e)}`

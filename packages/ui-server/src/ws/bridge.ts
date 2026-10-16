@@ -49,7 +49,9 @@ export function makeBridge(
   /** Frozen policy protection captured after this turn's gate admission. */
   protectedPaths?: readonly string[],
   workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
-  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void
+  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void,
+  pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
+  mainModel?: { current(): string | null; bind(model: string): void }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -82,6 +84,7 @@ export function makeBridge(
   // a follow-up turn's text or destinations when its coordinator slot is reused.
   const promotedLinks = new Map<string, string>();
   let collectedSessionId = turn.sessionId;
+  let claudeUsage: import("./claude-usage-accounting.js").ClaudeUsageEvidence | undefined;
   const persistPromotedBlocks = () => {
     if (collector && collectedSessionId) host.classifier?.rewriteLinks(collectedSessionId, collector.textParts(), promotedLinks);
   };
@@ -96,6 +99,7 @@ export function makeBridge(
   };
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
+  if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, () => !signal.aborted && isAuthorized());
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   /**
    * A linked turn-temp file the backend promoted, or could not (#1655): kept
@@ -108,7 +112,7 @@ export function makeBridge(
     const { kind, ...payload } = event.kind === "promotion" ? (({ aliases: _aliases, ...rest }) => rest)(event) : event;
     catalog.recordGovernanceEvent?.({
       kind, payload, turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive",
-      model: null, profile: null,
+      model: mainModel?.current() ?? null, profile: null,
       // One record per linked file and turn, however often a backend reports it.
       dedupeKey: `${turnId}:${createHash("sha256").update(event.source).digest("hex")}`,
     });
@@ -166,6 +170,7 @@ export function makeBridge(
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
+        host.inboxTools?.shares?.bind(turnId, msg.sessionId);
         if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
           if (!profileBound && workerProfile.draftId && workerProfile.preference) {
             host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId);
@@ -196,13 +201,20 @@ export function makeBridge(
         }
       }
       if (msg.type === "result") {
+        if (claudeUsage && turn.turnId === turnId) {
+          catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+          const costUsd = catalog.accountClaudeUsage?.(msg.sessionId, backendId, turnId, claudeUsage, resumedSession, { ...pricingContext, principalId });
+          const { costUsd: _sessionCost, usage: _reportedUsage, ...terminal } = msg;
+          msg = { ...terminal, ...(claudeUsage.completed ? { usage: claudeUsage.completed } : {}),
+            ...(costUsd !== undefined ? { costUsd } : {}) };
+        }
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
         if (turn.turnId === turnId && msg.stateRoom && msg.failure?.errorClass !== "session_too_large"
           && msg.failure?.errorClass !== "worker_state_exceeded" && msg.failure?.errorClass !== "worker_state_busy") {
           catalog.recordStateRoom?.(msg.sessionId, msg.stateRoom);
           if (stateRoomWarning(msg.stateRoom)) catalog.recordGovernanceEvent?.({
             kind: "state_room_warning", sessionId: msg.sessionId, turnId,
-            actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null,
             payload: { usedBytes: msg.stateRoom.usedBytes, allowanceBytes: msg.stateRoom.allowanceBytes, observedAt: msg.stateRoom.observedAt },
             dedupeKey: `state-room:${backendId}:${msg.sessionId}:${msg.stateRoom.allowanceBytes}`,
           });
@@ -372,12 +384,25 @@ export function makeBridge(
     },
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
-      if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
+      if (event.kind === "main_model") {
+        if (turn.turnId === turnId && turn.backendStarted && !signal.aborted && !turn.cancelled && event.model
+          && (!turn.sessionId || turn.sessionId === event.sessionId)) mainModel?.bind(event.model);
+        return;
+      }
+      if (event.kind === "claude_title_usage" && turn.turnId === turnId) {
+        claudeUsage = { ...claudeUsage, title: { receipts: event.receipts, coverage: event.coverage } };
+      }
+      else if (event.kind === "claude_session_usage" && turn.turnId === turnId) {
+        claudeUsage = { ...claudeUsage, completed: event.completed,
+          ...(event.cumulative ? { cumulative: event.cumulative, cumulativeCompleted: event.completed,
+            reportedCostUsd: event.reportedCostUsd } : {}) };
+      }
+      else if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
       else if (event.kind === "turn_temp_purge") {
         // Each purge of turn temp (#1703), kept with the session history and never shown.
         const { kind, ...payload } = event;
         catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
-          actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
+          actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null });
       }
       else if (event.kind === "budget_backstop" && turn.turnId === turnId) onUsage?.({},true);
       else {
@@ -568,7 +593,18 @@ export function makeBridge(
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path);
     };
-    bridge.applyBrain = async input => { await host.journal?.idle(); return apply({ principalId, turnId, input }); };
+    bridge.applyBrain = async input => {
+      await host.journal?.idle();
+      const execute = () => apply({ principalId, turnId, input });
+      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, execute) : execute();
+    };
+    if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = async input => {
+      await host.journal?.idle();
+      return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, async () => {
+        const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: backendId === "claude" ? "mcp__brain-ui__complete_share" : "complete_share", input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
+        return decision.behavior === "allow" && decision.updatedInput === undefined;
+      }, applicationPolicy!.lock);
+    };
     if (backendId === "claude" || backendId === "pi") {
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths,
@@ -601,7 +637,7 @@ export function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

@@ -33,7 +33,7 @@ import { accent, color, font, token } from "../tokens.js";
  *
  * `onOpenPalette` turns the passive ⌘K cap into the **All commands** button,
  * the visible route to every command without a row of its own. It prints ⌘K
- * at every width and on every pointer (D36 addendum). Without the callback
+ * under a fine pointer; touch-only rails use a search icon (#1774). Without the callback
  * the cap stays a picture, because a control that opens nothing is a lie.
  *
  * The wordmark and All commands are pinned; in a short viewport the middle,
@@ -345,7 +345,7 @@ export function SideRail(p: SideRailProps) {
                   </span>
                 ) : null}
                 {expanded && it.shortcut ? (
-                  <span style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
+                  <span className="bk-keyboard-hint" style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
                     {it.shortcut}
                   </span>
                 ) : null}
@@ -422,9 +422,9 @@ export function SideRail(p: SideRailProps) {
               ...({ "--hv-bg": token("hover-veil-firm"), "--hv-fg": color.inkDim } as CSSProperties),
             }}
           >
-            {/* Printed at every width and on every pointer: the one rail key
-                not gated on a fine pointer (D36 addendum). */}
-            <span aria-hidden style={CAP}>
+            {/* The command stays tappable when its printed key is hidden. */}
+            <span className="bk-touch-command" aria-hidden="true"><Icon icon="search" size={16} /></span>
+            <span className="bk-keyboard-hint" aria-hidden style={CAP}>
               ⌘K
             </span>
             {expanded ? <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{PALETTE_NAME}</span> : null}
@@ -440,7 +440,7 @@ export function SideRail(p: SideRailProps) {
               color: color.inkMute,
             }}
           >
-            <span style={CAP}>⌘K</span>
+            <span className="bk-keyboard-hint" style={CAP}>⌘K</span>
             {expanded ? <span>{p.hint ?? "Command palette"}</span> : null}
           </div>
         ) : null}

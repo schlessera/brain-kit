@@ -3554,10 +3554,10 @@ describe("authentication and passkey root ownership", () => {
     const platform = browser(); const a = transport("alpha"); const b = transport("beta");
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], { credentials: [] });
+      await reply(a.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       expect(platform.ceremonies).toHaveLength(0);
       expect(view.getByText("Beta key")).toBeTruthy();
@@ -3569,12 +3569,12 @@ describe("authentication and passkey root ownership", () => {
     const platform = browser(); const a = transport("alpha"); const b = transport("beta");
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], { credentials: [] });
+      await reply(a.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       await reply(a.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       expect(platform.ceremonies).toHaveLength(1);
       view.rerender(security(b.root));
-      await reply(b.requests[0], { credentials: [] });
+      await reply(b.matching("/auth/passkey/list")[0], { credentials: [] });
       fireEvent.click(view.getByRole("button", { name: "Add a passkey" }));
       await reply(b.matching("/auth/passkey/register-options", "POST")[0], registrationOptions);
       await act(async () => { platform.ceremonies[0].resolve(credential()); await flushPromises(); });
@@ -3619,10 +3619,10 @@ describe("authentication and passkey root ownership", () => {
     const loss = spyOn(a.root.localWorkFlow, "loss").mockReturnValue(inventory.promise);
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], keys("Alpha key"));
+      await reply(a.matching("/auth/passkey/list")[0], keys("Alpha key"));
       fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await act(async () => { inventory.resolve(summary); await flushPromises(); });
       expect(a.matching("/auth/logout", "POST"), "a replaced inventory owner never dispatches logout").toHaveLength(0);
       expect(view.getByText("Beta key")).toBeTruthy();
@@ -3635,7 +3635,7 @@ describe("authentication and passkey root ownership", () => {
     window.confirm = () => true;
     const view = render(security(a.root));
     try {
-      await reply(a.requests[0], keys("Alpha key"));
+      await reply(a.matching("/auth/passkey/list")[0], keys("Alpha key"));
       fireEvent.click(view.getByRole("button", { name: "Rename Alpha key" }));
       changeControlledInput(view.getByRole("textbox") as HTMLInputElement, "Obsolete name");
       fireEvent.click(view.getByRole("button", { name: "Save name" }));
@@ -3644,7 +3644,7 @@ describe("authentication and passkey root ownership", () => {
       await act(async () => { await flushPromises(); });
       expect(a.matching("/auth/logout", "POST")).toHaveLength(1);
       view.rerender(security(b.root));
-      await reply(b.requests[0], keys("Beta key"));
+      await reply(b.matching("/auth/passkey/list")[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/same", "PUT")[0], { ok: true });
       await reply(a.matching("/auth/passkey/same", "DELETE")[0], { ok: true });
       await reply(a.matching("/auth/logout", "POST")[0], { ok: true });
@@ -4752,7 +4752,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Skills", "Modules", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -6482,70 +6482,8 @@ describe("composer track intake", () => {
   });
 });
 
-import { ShareIntake } from "../../src/components/chat/share-card.js";
-import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
-
-describe("track share review", () => {
-  async function mountedShare() {
-    const uploads: Array<{ signal: AbortSignal; resolve: (response: Response) => void }> = [];
-    const sent: import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage[] = [];
-    const root = createBrainUiRoot({ storage: null, request: async (url, init) => {
-      if (url.endsWith("/share")) return new Promise<Response>((resolve, reject) => {
-        const signal = init!.signal!;
-        uploads.push({ signal, resolve });
-        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-      });
-      return Response.json({ providers: [] });
-    } });
-    const sendSpy = spyOn(root.connection, "send").mockImplementation(message => { if (message.type === "chat_message") sent.push(message); return true; });
-    root.stores.connection.setState({ wsStatus: "connected" });
-    const record: StoredShare = { id: "synthetic-track-share", receivedAt: Date.now(), text: "Review this synthetic loop", files: [new File(["original route"], "Ithaca loop.gpx", { type: "application/octet-stream" })] };
-    root.stores.share.getState().enqueue(record);
-    const view = render(<BrainUiProvider root={root}><ShareIntake /></BrainUiProvider>);
-    await act(async () => { await Promise.resolve(); });
-    act(() => root.stores.share.getState().setError(null));
-    const ready = (index: number) => { const file = trackView().file; uploads[index]!.resolve(Response.json({ dir: file.path.slice(0, file.path.lastIndexOf("/")), files: [file] })); };
-    return { root, view, uploads, sent, record, ready, done() { view.unmount(); sendSpy.mockRestore(); root.dispose(); } };
-  }
-
-  test("an unseen share stays under review across connection changes, and dismiss cancels a confirmed upload without dispatch", async () => {
-    const h = await mountedShare();
-    try {
-      expect(h.view.container.textContent).toContain("Ithaca loop.gpx"); expect(h.view.container.textContent).toContain("awaiting your review");
-      act(() => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
-      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
-      expect(h.uploads).toHaveLength(0); expect(h.sent).toHaveLength(0);
-      fireEvent.click(h.view.getByRole("button", { name: "Add to brain" }));
-      expect(h.uploads).toHaveLength(1); expect(h.view.container.textContent).toContain("uploading…");
-      fireEvent.click(h.view.getByRole("button", { name: "Dismiss shared files" }));
-      expect(h.uploads[0]!.signal.aborted).toBe(true);
-      await act(async () => h.ready(0));
-      expect(h.sent).toHaveLength(0); expect(h.root.stores.share.getState().queue).toHaveLength(0);
-    } finally { h.done(); }
-  });
-
-  test("only an explicitly confirmed share resumes after an interrupted upload, retaining nonempty canonical file evidence", async () => {
-    const h = await mountedShare();
-    try {
-      fireEvent.click(h.view.getByRole("button", { name: "Add to brain" })); expect(h.uploads).toHaveLength(1);
-      await act(async () => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
-      expect(h.uploads[0]!.signal.aborted).toBe(true); expect(h.sent).toHaveLength(0);
-      expect(h.view.container.textContent).toContain("waiting for connection");
-      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
-      await waitFor(() => expect(h.uploads).toHaveLength(2));
-      await act(async () => h.ready(1));
-      expect(h.sent).toHaveLength(1); expect(h.sent[0]!.files).toHaveLength(1);
-      expect(h.sent[0]!.files![0]!.path).toBe(trackView().file.path);
-      const user = h.root.stores.chat.getState().draft!.messages.find(message => message.role === "user");
-      expect(user!.files![0]!.summary!.counts.retained).toBe(129);
-      expect(h.root.stores.share.getState().queue).toHaveLength(0);
-      act(() => h.root.stores.share.getState().enqueue({ ...h.record, id: "unseen-second-share" }));
-      act(() => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
-      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
-      expect(h.uploads).toHaveLength(2); expect(h.sent).toHaveLength(1);
-    } finally { h.done(); }
-  });
-});
+// Track-share lifecycle assertions run against native IndexedDB/Web Locks in
+// ../browser/track-share-review.layout.tsx; happy-dom is not that boundary.
 
 import { BlockCard as SupportingFilesCard } from "../../src/components/chat/tool-cards/block-card.js";
 import { registerBuiltinRenderers as registerSupportingRenderers } from "../../src/components/chat/renderers/index.js";

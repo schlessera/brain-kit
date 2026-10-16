@@ -141,10 +141,29 @@ name in it. A backend that lists every configured profile, as pi does, omits
 the member. See
 [the integration contract](../integration-contract/wire.md#unavailable-profiles-additive-1044).
 
+Claude refuses explicit background `Bash` calls before execution: each turn's
+worker is disposable, so the model must retry with `run_in_background: false`
+and collect the result within the turn. This denial also covers approved input
+edits and never adds an allowlist grant. Native runtime task notifications are
+excluded from user history using their transcript UUID and runtime provenance;
+the following user prompt and images remain intact. Literal notification XML
+submitted by a user remains user text. Transcripts themselves are unchanged.
+
 Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
 normalizing to `SessionHistoryMessage` at read time.
+
+The optional store quarantines damaged files from `list()` and throws
+`TranscriptCorruptionError` for their ordinary history/append operations.
+Its factory additionally returns explicit `diagnose`, `quarantined` and
+version-bound `recover` operations. Recovery creates a new writable session
+whose title starts with `Recovered: `; durable metadata records the original
+identity and verified prefix boundary. Keep that title in session presentation
+and resume only the returned new identity. Deliberate host actions may inspect
+qualified diagnostics and request recovery; ordinary history must never show
+an incomplete prefix as complete. Native backend persistence remains separate.
+See the [supported schema, errors and retry behavior](../integration-contract/package-api.md#optional-transcript-diagnostics-and-recovery-additive-1806).
 
 The UI host keeps observed terminal failure metadata separately from those
 transcripts. It reads normalized history before a resumed turn and after a
@@ -219,8 +238,11 @@ by the cross-backend suite:
   actually sit on the execution path of every mutating tool.
 
 `buildSystemPromptAppend` (`packages/ui-sdk/src/server/system-prompt.ts`)
-builds the shared brain-ui system-prompt block; backends that can vary their
-system prompt per turn feed it the advisory `req.client` environment.
+builds the shared brain-ui system-prompt block. The first-party backends retain
+one exact session append and deliver changed advisory `req.client` and host
+facts only in owned new tail context. See the
+[session prompt context decision](../decisions/session-prompt-context.md) and
+[its persistence/replay behavior](../hosting/session-prompt-context.md).
 
 ### Explicit autonomous turns (`@experimental`)
 

@@ -51,6 +51,7 @@ describe("config/env descriptor", () => {
         "BRAIN_CHROME_NO_SANDBOX",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
+        "BRAIN_STORAGE_GIT_ROOTS",
         "BRAIN_UI_CHROME_NO_SANDBOX",
         "BRAIN_WORKER_CONFIG_ROOT",
         "BRAIN_WORKER_DATA_ROOT",

@@ -1,0 +1,1226 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "scope": "Selected observational supplements overlapping the earlier whole-file audit. No test optimization, full-file requalification or universal minimum-duration claim. All raw inputs copied to read-only SHA256-addressed storage before derivation. Repository source/assertions restored unchanged.",
+  "harness": {
+    "serialization": "Each actual command was timed inside the shared benchmark lock. Lock queue time is excluded.",
+    "namespace": "unshare --user --map-current-user --net --keep-caps; enable loopback; verify only lo and no routes; drop inherited, ambient and bounding capabilities with setpriv before /usr/bin/time -v bun run test. Existing root test wrapper/preload retained.",
+    "limits": "Observer overhead and shared-host load are uncontrolled. Console/exit snapshots may precede later teardown/listeners. Actual recorded clear/fire/completion events have their own boundaries. Child authority and inherited FDs are unchanged. The ordinary fragmented-result child adds one diagnostic file write at exit within its existing filesystem authority; no per-byte IO is added."
+  },
+  "totals": {
+    "commands": 10,
+    "passedCases": 14,
+    "failedCases": 0,
+    "expects": 72,
+    "wallSeconds": 75.79,
+    "distinctSourceRowsWithNewSelectedObservations": 9,
+    "overlapWarning": "Selections overlap previous full-file observations and each other by source. These totals are executions, not newly distinct tests. The recovered dispatch traces below are from an earlier run and are excluded."
+  },
+  "leaves": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "scope": "Five selected leaf-attribution commands overlapping earlier whole-file receipts. Original source restored byte-identical; original await counts, matcher ASTs and test-name expressions preserved. Original promises/handles and callback arguments retained. No before/after or whole-file claim.",
+    "guards": "Bun 1.4.2, existing test wrapper/preload, explicit ordinary-UID user/network namespace with loopback only, no routes and inherited/ambient/bounding capabilities dropped. The native browser case retains BRAIN_REQUIRE_CHROME=1, Google Chrome 140.0.7339.127 and its mandatory fixture build.",
+    "observationPoint": "afterAll for host records can precede later teardown; actual fire/clear events recorded where present. Browser103 console captures actual registration/fire; setup span recorded separately within whole command. No minimum duration or equivalence claim.",
+    "counts": {
+      "commands": 5,
+      "passedCases": 5,
+      "expects": 23,
+      "wallSeconds": 57.1
+    },
+    "records": [
+      {
+        "row": "21",
+        "file": "packages/geo/tests/io.test.ts",
+        "line": 91,
+        "originalSha256": "e940572765aa5f1d28c1faa45cb7dc8ea6d3301e11688f05b18b094c7ecafda1",
+        "instrumentedSha256": "0e5a2c19f197496fc8273510f321d19e638c2ca7ae59ce80b76c1f925a06d9c5",
+        "selection": "$ bun scripts/test.ts --timeout 30000 packages/geo/tests/io.test.ts --test-name-pattern \"one connection covers FOSSGIS routing and Overpass endpoint aliases\"",
+        "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "filtered": 16,
+          "expects": 7
+        },
+        "bodyMs": 4068.36,
+        "resources": {
+          "userSeconds": 0.13,
+          "systemSeconds": 0.08,
+          "maximumRssKiB": 61352.0,
+          "exitCode": 0.0,
+          "wallSeconds": 4.17
+        },
+        "rawLogSha256": "a6161915a26eaee2c5cc8b32a2ac35d9d81d733d24d23794f26698facdbd7f67",
+        "observations": [
+          {
+            "site": "21",
+            "requestedMs": 30,
+            "startMs": 52.003712,
+            "completedMs": 82.1763,
+            "elapsedMs": 30.172587999999998
+          },
+          {
+            "site": "21",
+            "requestedMs": 30,
+            "startMs": 1057.671439,
+            "completedMs": 1087.7535,
+            "elapsedMs": 30.082061000000067
+          },
+          {
+            "site": "21",
+            "requestedMs": 30,
+            "startMs": 2063.342275,
+            "completedMs": 2093.417912,
+            "elapsedMs": 30.075636999999915
+          },
+          {
+            "site": "21",
+            "requestedMs": 30,
+            "startMs": 3068.655251,
+            "completedMs": 3098.771888,
+            "elapsedMs": 30.116637000000082
+          },
+          {
+            "site": "21",
+            "requestedMs": 30,
+            "startMs": 4074.242456,
+            "completedMs": 4104.332012,
+            "elapsedMs": 30.089555999999902
+          }
+        ],
+        "command": "bun run test packages/geo/tests/io.test.ts --test-name-pattern 'one connection covers FOSSGIS routing and Overpass endpoint aliases'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {},
+        "environmentScope": "Command-scoped diagnostic flags; existing test wrapper/preload and fixture environment retained. No existing-built bypass for the native browser case.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/geo/tests/io.test.ts",
+          "--test-name-pattern",
+          "one connection covers FOSSGIS routing and Overpass endpoint aliases"
+        ]
+      },
+      {
+        "row": "64",
+        "file": "packages/ui-backend-pi/tests/auth.test.ts",
+        "line": 150,
+        "originalSha256": "2ed4eafc4e81623d269375ce4c966afe8bdb69ba6f591cdc05900c485fcb6ab5",
+        "instrumentedSha256": "b3a2e8f7f9e55a29894543b0998bd5d6ebc3a3b33de6a5f944760b56e838e7f3",
+        "selection": "$ bun scripts/test.ts --timeout 30000 packages/ui-backend-pi/tests/auth.test.ts --test-name-pattern \"a new start supersedes the provider's previous pending flow\"",
+        "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "filtered": 9,
+          "expects": 2
+        },
+        "bodyMs": 0.92,
+        "resources": {
+          "userSeconds": 0.41,
+          "systemSeconds": 0.19,
+          "maximumRssKiB": 120372.0,
+          "exitCode": 0.0,
+          "wallSeconds": 0.33
+        },
+        "rawLogSha256": "4186116b23ee456e9abf4cfdecf07bf9a8e39ce28a409c51a85839527434be3d",
+        "observations": [
+          {
+            "site": "64",
+            "requestedMs": 0,
+            "startMs": 266.42685,
+            "completedMs": 266.670031,
+            "elapsedMs": 0.24318099999999276
+          }
+        ],
+        "command": "bun run test packages/ui-backend-pi/tests/auth.test.ts --test-name-pattern 'a new start supersedes the provider'\"'\"'s previous pending flow'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {},
+        "environmentScope": "Command-scoped diagnostic flags; existing test wrapper/preload and fixture environment retained. No existing-built bypass for the native browser case.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-backend-pi/tests/auth.test.ts",
+          "--test-name-pattern",
+          "a new start supersedes the provider's previous pending flow"
+        ]
+      },
+      {
+        "row": "289",
+        "file": "packages/ui-react/tests/render/render-smoke.test.tsx",
+        "line": 2639,
+        "originalSha256": "202975f52ac979f0f75eb20fbba67c4423ed7d70f200d8e68c19455dea9a7fc1",
+        "instrumentedSha256": "6cf024d9c72b918cade6a0789117d43957db085eb0e87e09d22770cf193f9907",
+        "selection": "$ bun scripts/test.ts --timeout 30000 packages/ui-react/tests/render/render-smoke.test.tsx --test-name-pattern \"keeps a delayed mint response after a real rail press leaves Settings\"",
+        "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "filtered": 274,
+          "expects": 6
+        },
+        "bodyMs": 508.34,
+        "resources": {
+          "userSeconds": 0.63,
+          "systemSeconds": 0.35,
+          "maximumRssKiB": 172544.0,
+          "exitCode": 0.0,
+          "wallSeconds": 0.9
+        },
+        "rawLogSha256": "5e38dfc7d4f07a73bc18081f2185337a8810fd77bc41ddc918c5ccdab38d7394",
+        "observations": [
+          {
+            "site": "289",
+            "requestedMs": 350,
+            "startMs": 461.54157,
+            "completedMs": 812.269724,
+            "elapsedMs": 350.728154
+          }
+        ],
+        "command": "bun run test packages/ui-react/tests/render/render-smoke.test.tsx --test-name-pattern 'keeps a delayed mint response after a real rail press leaves Settings'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {},
+        "environmentScope": "Command-scoped diagnostic flags; existing test wrapper/preload and fixture environment retained. No existing-built bypass for the native browser case.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/render/render-smoke.test.tsx",
+          "--test-name-pattern",
+          "keeps a delayed mint response after a real rail press leaves Settings"
+        ]
+      },
+      {
+        "row": "97",
+        "file": "packages/ui-react/tests/api-client-sync.test.ts",
+        "line": 183,
+        "originalSha256": "e65c34d4702619436d05b7fe69a2a58945e26ba4039e40316292073b8810181f",
+        "instrumentedSha256": "3a480d0a5298c7c881aafd50251864a2ef67702531a989e88533411b5c171294",
+        "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+        "selection": "$ bun scripts/test.ts --timeout 30000 packages/ui-react/tests/api-client-sync.test.ts --test-name-pattern \"a complete terminal resolves without waiting for EOF and releases its reader\"",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "filtered": 21,
+          "expects": 3
+        },
+        "bodyMs": 0.64,
+        "resources": {
+          "userSeconds": 0.17,
+          "systemSeconds": 0.05,
+          "maximumRssKiB": 76456.0,
+          "exitCode": 0.0,
+          "wallSeconds": 0.16
+        },
+        "rawLogSha256": "ba36d0ed1f7ff1693af4b8dd397e5fc73faee5c2872c7f4ee16a7ce764495cc5",
+        "observations": [
+          {
+            "requestedMs": 1000,
+            "startMs": 91.06348,
+            "clearedMs": 91.462088
+          }
+        ],
+        "command": "bun run test packages/ui-react/tests/api-client-sync.test.ts --test-name-pattern 'a complete terminal resolves without waiting for EOF and releases its reader'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {},
+        "environmentScope": "Command-scoped diagnostic flags; existing test wrapper/preload and fixture environment retained. No existing-built bypass for the native browser case.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/api-client-sync.test.ts",
+          "--test-name-pattern",
+          "a complete terminal resolves without waiting for EOF and releases its reader"
+        ]
+      },
+      {
+        "row": "103",
+        "file": "packages/ui-react/tests/association-signout-runtime.test.ts",
+        "line": 571,
+        "originalSha256": "1e84ee668cdf3297aaab576df47a4037b5c3f0a2a64a63f5c1f9ab2312517eed",
+        "instrumentedSha256": "bc4a734b26a1e3afc9421c85ad6c686bd77fb8059720cc000eb364cd80af08e2",
+        "observation": "Local browser lexical native timer forwarder and console forwarding; original await text/callback arguments retained. Setup span includes mandatory build.",
+        "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+        "selection": "$ bun scripts/test.ts --timeout 30000 packages/ui-react/tests/association-signout-runtime.test.ts --test-name-pattern \"cold transcript staging reports native lock refusal before its read hook\"",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "filtered": 72,
+          "expects": 5
+        },
+        "bodyMs": 1113.22,
+        "resources": {
+          "userSeconds": 85.54,
+          "systemSeconds": 7.93,
+          "maximumRssKiB": 1235388.0,
+          "exitCode": 0.0,
+          "wallSeconds": 51.54
+        },
+        "rawLogSha256": "e77f42ab1204371d94d0dc5d0974d022a4bc9cec59a4c8c07f4e7937250b6ec9",
+        "events": [
+          {
+            "site": "setup",
+            "event": "completed",
+            "elapsedMs": 49875.577423
+          },
+          {
+            "site": "103",
+            "event": "registered",
+            "requestedMs": 0,
+            "at": 190
+          },
+          {
+            "site": "103",
+            "event": "fired",
+            "at": 190.10000002384186,
+            "elapsedMs": 0.10000002384185791
+          }
+        ],
+        "command": "bun run test packages/ui-react/tests/association-signout-runtime.test.ts --test-name-pattern 'cold transcript staging reports native lock refusal before its read hook'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        },
+        "environmentScope": "Command-scoped diagnostic flags; existing test wrapper/preload and fixture environment retained. No existing-built bypass for the native browser case.",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/association-signout-runtime.test.ts",
+          "--test-name-pattern",
+          "cold transcript staging reports native lock refusal before its read hook"
+        ]
+      }
+    ]
+  },
+  "geoChild": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRow": 20,
+    "sourceFiles": [
+      {
+        "file": "packages/geo/tests/fixtures/admission-worker.ts",
+        "originalSha256": "425a3879cc607b5eb9de18784ae040e4f65d4f3519f37ed8f82e2c4d0fdf924b",
+        "instrumentedSha256": "91ed2f22bfb50667c00d1be5bafde6be9f8d481a45c844b253af32d23f8d8581"
+      },
+      {
+        "file": "packages/geo/tests/io.test.ts",
+        "originalSha256": "e940572765aa5f1d28c1faa45cb7dc8ea6d3301e11688f05b18b094c7ecafda1",
+        "instrumentedSha256": "8b4b05bec06a2f0cac1cf69ffa6d7ccb8045e075080bbf6eeb1ed2320f04dab0"
+      }
+    ],
+    "selectedCase": "separate processes share one connection and the aggregate public allowance",
+    "result": {
+      "passed": 1,
+      "failed": 0,
+      "filtered": 16,
+      "expects": 8,
+      "bodyMs": 2677.08,
+      "bunSeconds": 2.72,
+      "wallSeconds": 2.81,
+      "userSeconds": 0.19,
+      "systemSeconds": 0.14,
+      "maximumRssKiB": 58772
+    },
+    "observations": [
+      {
+        "id": "two",
+        "stage": "start",
+        "at": 1792014895340
+      },
+      {
+        "id": "two",
+        "stage": "end",
+        "at": 1792014896641,
+        "diagnosticWaitStarted": 46.467201,
+        "diagnosticWaitCompleted": 1347.723369,
+        "diagnosticWaitElapsedMs": 1301.2561680000001
+      },
+      {
+        "id": "one",
+        "stage": "start",
+        "at": 1792014896654
+      },
+      {
+        "id": "one",
+        "stage": "end",
+        "at": 1792014897956,
+        "diagnosticWaitStarted": 1361.021562,
+        "diagnosticWaitCompleted": 2662.943462,
+        "diagnosticWaitElapsedMs": 1301.9219000000003
+      }
+    ],
+    "completedWaits": 2,
+    "sumCompletedWaitMs": 2603.178068,
+    "method": "Synchronous performance.now observations immediately before/after the original await Bun.sleep(1300); numeric fields appended to the original end-event JSONL write. No added await, timer, child stream, argv, FD or authority. Parent logs original parsed event array after all original assertions. Child stderr-empty and JSON stdout assertions unchanged. All original await counts, matcher ASTs and test-name expressions unchanged. Original two files restored byte-identical.",
+    "guards": "Original bun run test wrapper/preload with ordinary-uid isolated user/network namespace, loopback only/no routes, inherited/ambient/bounding capabilities dropped. Existing real child processes and native shared admission retained.",
+    "scope": "Selected diagnostic overlapping prior passing whole-file receipts. Not a before/after optimization, whole-file qualification or native minimum proof. Per-process performance.now origins are independent; do not compare absolute start values across processes.",
+    "failedSetup": "First invocation added an unnecessary --mount-proc and was refused by unshare before test execution. Log retained. Reused established user/network namespace command without mounting proc; no test/guard weakened.",
+    "rawLogSha256": "e50b685f6e541ac82d0217ea7017f87286bf76ae612d39b4df3ac427727f3d42",
+    "command": "bun run test packages/geo/tests/io.test.ts --test-name-pattern 'separate processes share one connection and the aggregate public allowance'",
+    "namespace": {
+      "interfaces": [
+        "lo"
+      ],
+      "routes": [],
+      "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+    },
+    "environment": {},
+    "commandArgs": [
+      "bun",
+      "run",
+      "test",
+      "packages/geo/tests/io.test.ts",
+      "--test-name-pattern",
+      "separate processes share one connection and the aggregate public allowance"
+    ]
+  },
+  "fragmentChildren": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRows": [
+      1,
+      2
+    ],
+    "sourceFiles": [
+      {
+        "file": "experiments/measurement-results.test.ts",
+        "originalSha256": "d67cee46aac08be3595a503d528ca260ff0158d9cc11dcc44a512384e2cf6a2f",
+        "instrumentedSha256": "b388f3716bfa100223a470933aeae30770a4190ac1e98545f9a297052a589a85"
+      }
+    ],
+    "result": {
+      "passed": 2,
+      "failed": 0,
+      "filtered": 5,
+      "expects": 16,
+      "bodyMs": [
+        626.67,
+        619.63
+      ],
+      "bunSeconds": 1.387,
+      "wallSeconds": 1.46,
+      "userSeconds": 0.35,
+      "systemSeconds": 0.16,
+      "maximumRssKiB": 105484
+    },
+    "observations": [
+      {
+        "terminated": "newline",
+        "byteWaits": 532,
+        "sumByteWaitMs": 576.5919169999999,
+        "exitWaits": 1,
+        "sumExitWaitMs": 10.18027799999993,
+        "rawSha256": "3eacd12c50ec024003b59f28ce7d27f10cc08fd384f1fe5f1b9767544ff308e4"
+      },
+      {
+        "terminated": "unterminated",
+        "byteWaits": 532,
+        "sumByteWaitMs": 578.2682260000003,
+        "exitWaits": 1,
+        "sumExitWaitMs": 10.150788999999918,
+        "rawSha256": "c8d0b89ba926cd668bef0f04a5be72c75f64cf9c7187bf9b270ead060c5ece29"
+      }
+    ],
+    "method": "Only two original terminated/unterminated real SDK/native result cases. Synchronous clocks around original one-ms byte and ten-ms pre-exit awaits; in-memory samples serialized by child exit listener to diagnostic directory already writable by this ordinary unrestricted fixture. No per-byte added IO; child argv shape, environment, inherited FDs, stdin/stdout/stderr, and all assertions unchanged. Added ordinary filesystem observation is diagnostic overhead, not production or controlled-time proof. Original source restored.",
+    "guards": "Original bun run test wrapper/preload plus existing explicit ordinary-uid user/network namespace, loopback only/no routes, capabilities dropped. Native child and actual SDK transport retained. Both selected cases assert exit code 1, no forced kill and closed stdout.",
+    "scope": "Selected diagnostic overlapping earlier whole-file evidence. Other controlled() callers (success, rejecting consumer, missing result) are not counted here. The process exit snapshot covers completed waits by exit; no general killed-child observation claim.",
+    "rawLogSha256": "a1b34e997652f0bb3cc63b6052c840e2a5a8029b4530963958d5f676586347ee",
+    "command": "bun run test experiments/measurement-results.test.ts --test-name-pattern '^real SDK rejects (terminated|unterminated) native error-result but retains nonzero receipt and main-loop counters$'",
+    "namespace": {
+      "interfaces": [
+        "lo"
+      ],
+      "routes": [],
+      "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+    },
+    "environment": {},
+    "commandArgs": [
+      "bun",
+      "run",
+      "test",
+      "experiments/measurement-results.test.ts",
+      "--test-name-pattern",
+      "^real SDK rejects (terminated|unterminated) native error-result but retains nonzero receipt and main-loop counters$"
+    ]
+  },
+  "hostProcessHelper": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRows": [
+      378
+    ],
+    "sourceFiles": [
+      {
+        "file": "packages/ui-server/tests/helpers/host-processes.ts",
+        "originalSha256": "66c532933c06bbfd9e28eb1553b449eeb1329686fa530e2161fe7090185cbb1c",
+        "instrumentedSha256": "71730c39e6a4f90cf439cfbeabac26df28dbe683114946fafecf607d22dd8c49"
+      },
+      {
+        "file": "packages/ui-server/tests/brain-client.test.ts",
+        "originalSha256": "60be9bb9ad1f97745597a4e9a75445af4af952c8f26968ec53603bca8d293cc9"
+      },
+      {
+        "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+        "originalSha256": "b680aba7d61dcd897b8bdcc2fee3dc686daa68f9aa69c405ff693b4104f86768"
+      },
+      {
+        "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+        "originalSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0"
+      }
+    ],
+    "records": [
+      {
+        "file": "packages/ui-server/tests/brain-client.test.ts",
+        "command": "bun run test packages/ui-server/tests/brain-client.test.ts --test-name-pattern 'a probe that times out does not orphan the CLI behind its wrapper'",
+        "environment": {},
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "passedCases": [
+          {
+            "name": "the exec wrapper covers the shared CLI client > a probe that times out does not orphan the CLI behind its wrapper",
+            "bodyMs": 5079.1
+          }
+        ],
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "expects": 2,
+          "bunSeconds": 5.22
+        },
+        "resources": {
+          "wallSeconds": 5.31,
+          "userSeconds": 0.29,
+          "systemSeconds": 0.23,
+          "maximumRssKiB": 85032
+        },
+        "observationsInOriginalCaseOrder": [
+          {
+            "polls": 8,
+            "completedPolls": 8,
+            "pollElapsedMs": 117.13190799999998,
+            "elapsedMs": 145.49672500000003,
+            "completed": true
+          }
+        ],
+        "rawLogSha256": "ec6abc78dcf27321da5360f5721f19a3d0e4e4239ab2170cd1d35296cee6c38a",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/brain-client.test.ts",
+          "--test-name-pattern",
+          "a probe that times out does not orphan the CLI behind its wrapper"
+        ]
+      },
+      {
+        "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+        "command": "bun run test packages/ui-server/tests/host-version-requirements.test.ts --test-name-pattern 'an explicit (timed-out|failed) probe leaves no wrapper child|a cancelled explicit invocation check reaps its child before sending user input'",
+        "environment": {},
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "passedCases": [
+          {
+            "name": "explicit probes retain bounded wrapper cleanup > an explicit failed probe leaves no wrapper child",
+            "bodyMs": 463.36
+          },
+          {
+            "name": "explicit probes retain bounded wrapper cleanup > an explicit timed-out probe leaves no wrapper child",
+            "bodyMs": 5072.73
+          },
+          {
+            "name": "explicit CLI minima on direct clients and probes > a cancelled explicit invocation check reaps its child before sending user input",
+            "bodyMs": 558.75
+          }
+        ],
+        "result": {
+          "passed": 3,
+          "failed": 0,
+          "expects": 13,
+          "bunSeconds": 6.29
+        },
+        "resources": {
+          "wallSeconds": 6.38,
+          "userSeconds": 0.48,
+          "systemSeconds": 0.32,
+          "maximumRssKiB": 109656
+        },
+        "observationsInOriginalCaseOrder": [
+          {
+            "polls": 7,
+            "completedPolls": 7,
+            "pollElapsedMs": 98.83316899999991,
+            "elapsedMs": 130.441345,
+            "completed": true
+          },
+          {
+            "polls": 8,
+            "completedPolls": 8,
+            "pollElapsedMs": 113.60821099999998,
+            "elapsedMs": 140.673403,
+            "completed": true
+          },
+          {
+            "polls": 4,
+            "completedPolls": 4,
+            "pollElapsedMs": 53.75679499999933,
+            "elapsedMs": 64.37984500000039,
+            "completed": true
+          }
+        ],
+        "rawLogSha256": "b5f0bffbb9d4f5e5a09d34a715c8c2565f06d3f9cf65c0591ebcfe8ba43ded4b",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/host-version-requirements.test.ts",
+          "--test-name-pattern",
+          "an explicit (timed-out|failed) probe leaves no wrapper child|a cancelled explicit invocation check reaps its child before sending user input"
+        ]
+      },
+      {
+        "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+        "command": "bun run test packages/ui-server/tests/maintenance-startup-view.test.ts --test-name-pattern 'app close drains its real deferred maintenance refresh before closing the writer gate database|cancellation during Git preparation starts no maintenance command and releases admission'",
+        "environment": {},
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressReceiptSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routeReceiptSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapReceiptSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "passedCases": [
+          {
+            "name": "app close drains its real deferred maintenance refresh before closing the writer gate database",
+            "bodyMs": 1969.9
+          },
+          {
+            "name": "cancellation during Git preparation starts no maintenance command and releases admission",
+            "bodyMs": 466.27
+          }
+        ],
+        "result": {
+          "passed": 2,
+          "failed": 0,
+          "expects": 10,
+          "bunSeconds": 2.64
+        },
+        "resources": {
+          "wallSeconds": 2.73,
+          "userSeconds": 0.59,
+          "systemSeconds": 0.33,
+          "maximumRssKiB": 157044
+        },
+        "observationsInOriginalCaseOrder": [
+          {
+            "polls": 3,
+            "completedPolls": 3,
+            "pollElapsedMs": 80.39277600000014,
+            "elapsedMs": 90.29873300000008,
+            "completed": true
+          },
+          {
+            "polls": 3,
+            "completedPolls": 3,
+            "pollElapsedMs": 88.19325600000002,
+            "elapsedMs": 116.03373599999986,
+            "completed": true
+          }
+        ],
+        "rawLogSha256": "354ae8115964d018dacf88ca13a6dbc2a02a5c3dc2b91ac075806d127e5de9bc",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/maintenance-startup-view.test.ts",
+          "--test-name-pattern",
+          "app close drains its real deferred maintenance refresh before closing the writer gate database|cancellation during Git preparation starts no maintenance command and releases admission"
+        ]
+      }
+    ],
+    "method": "Synchronous clocks and counters around the original await Bun.sleep(10), with per-helper entry/return spans. Original caller sources and assertions untouched; original helper await text identical. afterAll emits one snapshot after the selected cases. The helper was restored byte-identical. No extra await, timer, child FD, authority or clock replacement.",
+    "observationLimit": "Six selected helper invocations only. Poll elapsed is included within helper elapsed; neither can be added to case or command time. A passing host PID scan does not observe scheduling inside the child.",
+    "counts": {
+      "helperCompletions": 6,
+      "completedPolls": 33,
+      "pollElapsedMs": 551.9161149999993,
+      "helperElapsedMs": 687.3237870000004
+    }
+  },
+  "recoveredDispatchTrace": {
+    "sourceRow": 636,
+    "sourceFiles": [
+      {
+        "file": "packages/ui-react/tests/browser/dispatch-actions-scene.tsx",
+        "sha256": "f19a3beee1570967872ba4ed0e34d217f3f00dc3022cfa75afca7e92dd2b4355"
+      },
+      {
+        "file": "packages/ui-react/tests/browser/dispatch-actions-command.ts",
+        "sha256": "1e832b08a6560980f224bfc38713517091f381446da8e6eabeb28062f7ac151e"
+      },
+      {
+        "file": "packages/ui-react/tests/browser/dispatch-actions.layout.tsx",
+        "sha256": "b16a8803cd5ab1aa5f6afa1b40d7a738bf2572cad0a3d1fd8624cdd2bf14c995"
+      }
+    ],
+    "originalVitestWindowMs": [
+      1792008887936,
+      1792008893023.9
+    ],
+    "records": [
+      {
+        "sha256": "ef437ea2b41753ad6756634e9772e4f1a06fcd19e090b53a699d4aa2bbd0ae0d",
+        "mtimeNs": 1792008890783682853,
+        "framesByDevice": [
+          2,
+          2
+        ],
+        "traceLengths": [
+          20,
+          20
+        ],
+        "sequence": [
+          "phone:outbound-decision-held",
+          "phone:native-click-complete",
+          "laptop:outbound-decision-held",
+          "laptop:native-click-complete",
+          "phone:decision-forwarded",
+          "laptop:decision-forwarded"
+        ],
+        "originalArtifact": "dispatch-actions-two-confirmations-probe.json"
+      },
+      {
+        "sha256": "40c737741821a96db55b020cacd92c4a5a18f3a7f30edf27888c2d529c5b8bbe",
+        "mtimeNs": 1792008893009546036,
+        "framesByDevice": [
+          2,
+          2
+        ],
+        "traceLengths": [
+          20,
+          18
+        ],
+        "sequence": [
+          "laptop:native-press-started",
+          "phone:outbound-decision-held",
+          "phone:native-click-complete",
+          "phone:decision-forwarded",
+          "laptop:terminal-painted-before-release",
+          "laptop:native-press-finished"
+        ],
+        "originalArtifact": "dispatch-actions-terminal-during-press-probe.json"
+      }
+    ],
+    "callbacksByOriginalCapture": 8,
+    "method": "Original scene trace appends frame:after-approval-change from the actual rAF callback. Two original command artifacts retain two callbacks per device for each of two cases. Artifact mtimes lie within the recorded Vitest window in the owned checkout; original source/command/log association is retained. File mtime is not a standalone cryptographic execution attestation.",
+    "observationLimit": "Counts describe only the original trace capture, not later cleanup. Callback elapsed was not recorded. No rerun was made."
+  },
+  "rawReceiptIndexes": {
+    "leaves": [
+      {
+        "name": "103.instrumented",
+        "sha256": "bc4a734b26a1e3afc9421c85ad6c686bd77fb8059720cc000eb364cd80af08e2",
+        "bytes": 73970
+      },
+      {
+        "name": "103.log",
+        "sha256": "e77f42ab1204371d94d0dc5d0974d022a4bc9cec59a4c8c07f4e7937250b6ec9",
+        "bytes": 771
+      },
+      {
+        "name": "103.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "103.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "103.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "103.original",
+        "sha256": "1e84ee668cdf3297aaab576df47a4037b5c3f0a2a64a63f5c1f9ab2312517eed",
+        "bytes": 73125
+      },
+      {
+        "name": "103.time",
+        "sha256": "b8500e6e6e3e1d067f989477cc45bd528db1eda604d403beed666e6cf78b282c",
+        "bytes": 900
+      },
+      {
+        "name": "21-1512822.json",
+        "sha256": "63b2de4c63ea465b170e259fd3c92f6e435051b53bc2733fc365fe1f8dbc9fd8",
+        "bytes": 621
+      },
+      {
+        "name": "21.instrumented",
+        "sha256": "0e5a2c19f197496fc8273510f321d19e638c2ca7ae59ce80b76c1f925a06d9c5",
+        "bytes": 13583
+      },
+      {
+        "name": "21.log",
+        "sha256": "a6161915a26eaee2c5cc8b32a2ac35d9d81d733d24d23794f26698facdbd7f67",
+        "bytes": 504
+      },
+      {
+        "name": "21.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "21.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "21.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "21.original",
+        "sha256": "e940572765aa5f1d28c1faa45cb7dc8ea6d3301e11688f05b18b094c7ecafda1",
+        "bytes": 12678
+      },
+      {
+        "name": "21.time",
+        "sha256": "8a4c0fe5a378484214ab7c9915717f9e77ab54a31f43ab8242faa597d89237d2",
+        "bytes": 850
+      },
+      {
+        "name": "289-1516847.json",
+        "sha256": "311509531d2bf4719d70eef66ce6198e66e3a8ee1adcec7410afa9fb2323f718",
+        "bytes": 180
+      },
+      {
+        "name": "289.instrumented",
+        "sha256": "6cf024d9c72b918cade6a0789117d43957db085eb0e87e09d22770cf193f9907",
+        "bytes": 392143
+      },
+      {
+        "name": "289.log",
+        "sha256": "5e38dfc7d4f07a73bc18081f2185337a8810fd77bc41ddc918c5ccdab38d7394",
+        "bytes": 1277
+      },
+      {
+        "name": "289.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "289.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "289.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "289.original",
+        "sha256": "202975f52ac979f0f75eb20fbba67c4423ed7d70f200d8e68c19455dea9a7fc1",
+        "bytes": 391235
+      },
+      {
+        "name": "289.time",
+        "sha256": "4f88fa4c02e7d13811085af416ae83d8e3da59a680bb76d7fb2f29cbb2894018",
+        "bytes": 879
+      },
+      {
+        "name": "64-1516431.json",
+        "sha256": "4f56732ea5f7cd4b00866e482fbceb019ca7445f3df6734b19151b3066dec9f3",
+        "bytes": 186
+      },
+      {
+        "name": "64.instrumented",
+        "sha256": "b3a2e8f7f9e55a29894543b0998bd5d6ebc3a3b33de6a5f944760b56e838e7f3",
+        "bytes": 8457
+      },
+      {
+        "name": "64.log",
+        "sha256": "4186116b23ee456e9abf4cfdecf07bf9a8e39ce28a409c51a85839527434be3d",
+        "bytes": 485
+      },
+      {
+        "name": "64.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "64.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "64.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "64.original",
+        "sha256": "2ed4eafc4e81623d269375ce4c966afe8bdb69ba6f591cdc05900c485fcb6ab5",
+        "bytes": 7553
+      },
+      {
+        "name": "64.time",
+        "sha256": "1e9680560907ccb4cf52e68b47d5f046217af34fcff00fba26f642f7321945e5",
+        "bytes": 856
+      },
+      {
+        "name": "97-1516637.json",
+        "sha256": "b144b93544cfcd0354f7f984084cfcc8ef43de0b1b3bc636dd2405e047c84340",
+        "bytes": 136
+      },
+      {
+        "name": "97.instrumented",
+        "sha256": "3a480d0a5298c7c881aafd50251864a2ef67702531a989e88533411b5c171294",
+        "bytes": 11158
+      },
+      {
+        "name": "97.log",
+        "sha256": "ba36d0ed1f7ff1693af4b8dd397e5fc73faee5c2872c7f4ee16a7ce764495cc5",
+        "bytes": 561
+      },
+      {
+        "name": "97.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "97.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "97.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "97.original",
+        "sha256": "e65c34d4702619436d05b7fe69a2a58945e26ba4039e40316292073b8810181f",
+        "bytes": 10168
+      },
+      {
+        "name": "97.time",
+        "sha256": "466650d0401aaaf5a79877e15230c16e63b3c877b0e60c94351ffca38ee5b604",
+        "bytes": 877
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "6733f1651fe4a59b63c97a8a7e6d7e6f535197abec1022577ff0a3734b5fc134",
+        "bytes": 68
+      },
+      {
+        "name": "first-four-results.json",
+        "sha256": "c7bad7f6fbe5de2049ee82352af482788dae8843f8e3fd332de7df6431de2571",
+        "bytes": 2497
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "e53e6f83d2cdbf937004911eb7545a1840fac1dc6b6819edc93e355cb64ae16a",
+        "bytes": 1703
+      },
+      {
+        "name": "report.json",
+        "sha256": "daa2b6e9916178cd49a9efba1bccb35cea4ab485dd1b4dac3df420246fb6dab5",
+        "bytes": 8274
+      }
+    ],
+    "geoChild": [
+      {
+        "name": "0.instrumented",
+        "sha256": "91ed2f22bfb50667c00d1be5bafde6be9f8d481a45c844b253af32d23f8d8581",
+        "bytes": 1211
+      },
+      {
+        "name": "0.original",
+        "sha256": "425a3879cc607b5eb9de18784ae040e4f65d4f3519f37ed8f82e2c4d0fdf924b",
+        "bytes": 991
+      },
+      {
+        "name": "1.instrumented",
+        "sha256": "8b4b05bec06a2f0cac1cf69ffa6d7ccb8045e075080bbf6eeb1ed2320f04dab0",
+        "bytes": 12747
+      },
+      {
+        "name": "1.original",
+        "sha256": "e940572765aa5f1d28c1faa45cb7dc8ea6d3301e11688f05b18b094c7ecafda1",
+        "bytes": 12678
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "14e8dd22f361c298ed20b9f7a8b7e4a760b5172b6d1e7b06e1dce0c46fb923a3",
+        "bytes": 93
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "a1ba803caf827c4411c886882d4f86221a0d6887b379cd6057324d9846ad9964",
+        "bytes": 495
+      },
+      {
+        "name": "namespace-mount-refusal.log",
+        "sha256": "5b7ed65986a3a6041a44517237329ef21e13a8cadc3c2332b7b0fdb533e01450",
+        "bytes": 53
+      },
+      {
+        "name": "report.json",
+        "sha256": "24447ab9151e49d223fd4eb230e7f64ca634c6f7071addbc44c45ea5054f905e",
+        "bytes": 2968
+      },
+      {
+        "name": "run.log",
+        "sha256": "e50b685f6e541ac82d0217ea7017f87286bf76ae612d39b4df3ac427727f3d42",
+        "bytes": 970
+      },
+      {
+        "name": "run.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "run.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "run.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "run.time",
+        "sha256": "1808731eab408a8abe1b5488168b45e45d4e913f5286bda9d204c5917c1d8a61",
+        "bytes": 858
+      }
+    ],
+    "fragmentChildren": [
+      {
+        "name": "0.instrumented",
+        "sha256": "b388f3716bfa100223a470933aeae30770a4190ac1e98545f9a297052a589a85",
+        "bytes": 8818
+      },
+      {
+        "name": "0.original",
+        "sha256": "d67cee46aac08be3595a503d528ca260ff0158d9cc11dcc44a512384e2cf6a2f",
+        "bytes": 8272
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "7f150273b5a941a1d7d07a51bd69be233148cbddec24ad27a4e7130312b6b4ea",
+        "bytes": 104
+      },
+      {
+        "name": "children/1632377.json",
+        "sha256": "3eacd12c50ec024003b59f28ce7d27f10cc08fd384f1fe5f1b9767544ff308e4",
+        "bytes": 10021
+      },
+      {
+        "name": "children/1632420.json",
+        "sha256": "c8d0b89ba926cd668bef0f04a5be72c75f64cf9c7187bf9b270ead060c5ece29",
+        "bytes": 10002
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "4b705a90c50905f45591564ecc90b421496886031f94d9abc8af1b11336d1259",
+        "bytes": 249
+      },
+      {
+        "name": "report.json",
+        "sha256": "9538c58fd2d58eb759855c9ec1dbc5400e9a8381367ab33d365980cf78926679",
+        "bytes": 2365
+      },
+      {
+        "name": "run.log",
+        "sha256": "a1b34e997652f0bb3cc63b6052c840e2a5a8029b4530963958d5f676586347ee",
+        "bytes": 686
+      },
+      {
+        "name": "run.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "run.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "run.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "run.time",
+        "sha256": "1f8bcfcf0f38a305f5d761419e83ce2effb81a8430d9536b7ea4f29e01a2d321",
+        "bytes": 910
+      }
+    ],
+    "hostProcessHelper": [
+      {
+        "name": "brain-client.test.ts.log",
+        "sha256": "ec6abc78dcf27321da5360f5721f19a3d0e4e4239ab2170cd1d35296cee6c38a",
+        "bytes": 679
+      },
+      {
+        "name": "brain-client.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "brain-client.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "brain-client.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "brain-client.test.ts.time",
+        "sha256": "51cd71e3e34422a060cc988c84510491205e1f40a8708bef8b4ec79d3ad11c75",
+        "bytes": 865
+      },
+      {
+        "name": "host-processes.ts.instrumented",
+        "sha256": "71730c39e6a4f90cf439cfbeabac26df28dbe683114946fafecf607d22dd8c49",
+        "bytes": 1795
+      },
+      {
+        "name": "host-processes.ts.original",
+        "sha256": "66c532933c06bbfd9e28eb1553b449eeb1329686fa530e2161fe7090185cbb1c",
+        "bytes": 974
+      },
+      {
+        "name": "host-version-requirements.test.ts.log",
+        "sha256": "b5f0bffbb9d4f5e5a09d34a715c8c2565f06d3f9cf65c0591ebcfe8ba43ded4b",
+        "bytes": 1243
+      },
+      {
+        "name": "host-version-requirements.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "host-version-requirements.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "host-version-requirements.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "host-version-requirements.test.ts.time",
+        "sha256": "9a6bf9476dab1d9bc52de8a0c0b3af2d8882c25d77cdf2c694fb368c1bf22751",
+        "bytes": 956
+      },
+      {
+        "name": "integrity.json",
+        "sha256": "cbeee24e03e6a09566f163e23d7b8382f1cc70c43cb430576ce9a41a7299b788",
+        "bytes": 134
+      },
+      {
+        "name": "maintenance-startup-view.test.ts.log",
+        "sha256": "354ae8115964d018dacf88ca13a6dbc2a02a5c3dc2b91ac075806d127e5de9bc",
+        "bytes": 6543
+      },
+      {
+        "name": "maintenance-startup-view.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "maintenance-startup-view.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "maintenance-startup-view.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "maintenance-startup-view.test.ts.time",
+        "sha256": "622cbb35b30d6d55bb99e12f28a1f8836097e98e56ed9d3bdefab2adc947edd0",
+        "bytes": 999
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "a975cb5956897f4f18a61956e7093f6002a9b80b378fbade7ef75f1388c24b5f",
+        "bytes": 3186
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "45262f3d77f4942ae5d69ce6cb27cb19c4bd29d6ce97d3416ecd929e1f2320c4",
+        "bytes": 172
+      }
+    ]
+  }
+}

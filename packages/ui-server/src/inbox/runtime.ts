@@ -97,6 +97,7 @@ export function createInboxRuntime(db: Database, deps: {
       const at = now();
       for (const { item } of store.orderedItems()) {
         if (item.queue !== "queue" || !eligible(item, at) || seen.has(item.id)) continue;
+        if (db.query("SELECT 1 FROM inbox_interactive_shares WHERE item_id = ?").get(item.id)) continue;
         if (deps.claimable && !deps.claimable(item)) continue;
         seen.add(item.id);
         const admitted = budget!.claim(item.id, deps.operation!(item), at + LEASE_MS);

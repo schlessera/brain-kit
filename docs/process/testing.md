@@ -68,6 +68,52 @@ inspecting CI on a PR live in the `work-issue` skill's
   smallest collaborator that proves the behavior; borrowing a real adapter
   for a helper's test couples that assertion to unrelated adapter changes.
 
+## PDF optimizer startup regression
+
+For #1897, an empty-cache pass alone misses the failing state: Vite can accept
+an incomplete cache created by a smaller test discovery. Late PDF discovery
+then replaces dependency URLs during an executing test. A lazy graph can
+receive a different React default export and internals from the active
+renderer, leaving its hook dispatcher null. React package deduplication does
+not prevent this URL transition. Both PDF modules belong in the eager inputs
+in `packages/ui-kit/vite.config.ts`.
+
+Keep this bounded native regression recipe when changing browser optimizer
+inputs. Use an isolated checkout with its own frozen dependencies, completed
+build and no generated `packages/ui-kit/node_modules/.vite/**` cache. Run from
+the repository root, using the pinned offline runner and its locked fonts:
+
+1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
+   only the `ui-react-layout` project's discovery array with
+   `["../ui-react/tests/browser/graph-labels.layout.tsx"]`.
+2. Seed the partial cache (all four cases must pass):
+
+   ```sh
+   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=graph-labels.layout
+   ```
+
+3. Restore the saved configuration byte for byte, retaining the generated cache.
+   Save its `_metadata.json` and hash the lockfile/config/test inputs. Run this
+   command twice, recording each exit code, complete log and optimizer metadata
+   separately, even when the first fails:
+
+   ```sh
+   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=remaining-buttons.layout
+   ```
+
+The corrected seed already contains both PDF modules. Both target invocations
+must pass all 38 cases without `optimized dependencies changed. reloading`,
+Vitest's unexpected-reload warning or hook errors. Also run the target once
+from an empty cache. Preserve graph assertions and pointer/theme coverage.
+
+For mutation proof, remove both PDF entries from the eager optimizer inputs
+**before seeding a fresh cache**, then repeat the recipe. The partial-cache
+arm reproduces two graph-row failures and null `useRef` dispatcher errors;
+the identical prepared-cache arm passes. Retain the first failed assertion;
+the second run demonstrates recovery, not correction. Restore the entries
+and repeat the seed/target pair. Merely removing entries against an already
+prepared cache does not exercise this guard.
+
 ## Light and dark parity
 
 Storybook is the central owner of reusable light/dark layout and interaction
@@ -85,6 +131,12 @@ consumer stylesheet boundary not already covered centrally. Reconnection,
 persistence or auth alone does not justify a theme multiplier. Before reducing
 one, map every assertion to retained runtime or central coverage; preserve
 unique behavior, security, responsive and native-browser proof.
+
+## Deliberate waits
+
+Follow [the wait classification and clock rules](test-waits.md): distinguish
+actual awaited delays from failure caps and fixture holds, preserve negative
+temporal guarantees, and measure native exceptions separately.
 
 ## Tests that cannot fail
 
@@ -188,14 +240,25 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
 
 - Contract tests assert the `--json` envelopes. Automatic CI runs cheap
   metadata gates and complete affected hosted unit/integration/runtime,
-  keyless funnel, pinned browser proof, strict types and packaging on ready
-  PRs. Agents keep focused local behavioral proof.
+  keyless funnel, pinned browser proof, strict types and packaging on explicit
+  ready-candidate confirmation events. Agents keep focused local behavioral proof.
 - Run `bun run check:pr --base origin/main` before opening or marking ready.
+  For an upper stack layer, substitute its verified immediate parent ref;
+  see [stack rules](github.md#stacked-pull-requests). Each included PR needs
+  its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
-  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
+  through the offline wrapper as import-graph affected feedback. Bun includes
+  committed, staged, unstaged and untracked changes; no affected test files
+  prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
+  remain `./packages ./tests`, and the optional changed value uses `=`. This
+  feedback misses spawned commands and inputs read from disk or named as
+  strings; complete hosted discovery remains the required proof. Full/all
+  modes retain their existing suites without this extra step.
+  Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
-- Ready PR CI supplies complete repeatable proof for affected workspaces and
+- Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
   reverse dependencies plus root tests. Global/unknown changes expand to full
   discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
   endurance, editorial, real Claude/Chrome and cleanup categories remain
@@ -209,20 +272,35 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
+- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+  events request full affected confirmation. Ready `synchronize` runs affected
+  fast invariants and types only; `proof` remains nonpassing until the author
+  converts to draft and marks ready after the final push. A push invalidates
+  the request. Main pushes retain full affected proof; scheduled/manual runs
+  remain exhaustive and have a distinct aggregate name.
 - Keep drafts cheap and batch intermediate pushes. After cheap gates, run
   independent proof categories concurrently. Preserve per-browser file bounds;
   measure queue/elapsed time and cancellation/repeated work before adding
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. Assess base changes before rebasing; unrelated main
-  advancement alone does not require repeated long proof. Relevant
+  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  and live PR readiness/head plus the independent live base ref. Any base advance
+  requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
   receipt a new combined-tree pass. Under #1333, complete browser/layout
   domains may retain validated equivalent successful automatic receipts. Read
   the current retention ledger and aggregate; original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
-  parent/tree and automatic main-push proof. Respect branch rules.
+  parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
+  agents still require passing candidate proof and must re-read head/base before
+  matching-head merge. This change does not alter repository protection.
+- Endurance runs separately with `bun run test:endurance` and its own mandatory
+  selected job. Ordinary layout shards exclude `.endurance.tsx`; their real-time
+  cost cannot distort ordinary weights. Keep per-browser concurrency unchanged.
+  `bun run test:inventory` emits discovered execution ownership and source
+  navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
+  counts and passing assertions come from actual suite reports, not AST counts.
 
 ## GitHub Actions CI
 
@@ -242,6 +320,20 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
+
+Hosted unit partitions run up to two serial Bun test processes through
+`scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
+install, build output and workspace lease. The wrapper preserves the caller's
+umask, drops setup capabilities and binds a private maintenance ledger without
+changing within-worker child limits or hiding the host's `/tmp` from Docker.
+Its checkout container lives outside host `/tmp`, which native workers replace
+with private storage. Namespace setup is a real prerequisite, never a skipped
+runtime. JUnit and timings must each match the complete discovered file set;
+combined reports and per-worker diagnostics are uploaded. Local `bun run test`
+and `check:pr` defaults keep their existing behavior. Use the internal unit
+proof `--workers=1` diagnostic for a serial measurement, preserving the actual
+source identity; performance qualification and remaining evidence live in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121).
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the

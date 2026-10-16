@@ -102,6 +102,16 @@ signatures (every public export and the types it is made of)
     };
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
+        writeLifecycle(record: ActivityTurnLifecycle): void;
+        lifecycleChangesSince(cursor: number, limit?: number): Array<{
+            changeId: number;
+            runId: string;
+            seq: number;
+            kind: "lifecycle";
+            lifecycle: ActivityTurnLifecycle;
+        }>;
+        lifecycle(turnId: string): ActivityTurnLifecycle | null;
+        lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
         readonly writer: string;
         startSpan(input: StartSpanInput): SpanRow;
         endSpan(spanId: string, input: EndSpanInput): boolean;
@@ -126,6 +136,7 @@ signatures (every public export and the types it is made of)
         snapshotRun(runId: string): RunSnapshot | null;
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
+        previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
         openRootSpans(): SpanRow[];
         runRollup?(runId: string): RunRollupRow | null;
         rollupRun(runId: string): void;
@@ -1147,8 +1158,16 @@ signatures (every public export and the types it is made of)
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export function createInMemoryMeterProvider(): InMemoryMeterProvider;
   createInboxBridgeTools (packages/ui-server/src/inbox/bridge-tools.ts)
-    export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>): {
+    export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>, brainRoot?: string): {
         forTurn(context: InboxBridgeContext): Pick<BackendBridge, "inboxAdd" | "inboxGet" | "inboxList" | "resolveAction">;
+        shares: undefined | {
+            apply(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, input: import("@schlessera/brain-ui-sdk/server").BrainApplicationInput, apply: () => Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>): Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>;
+            bind(runId: string, sessionId: string): void;
+            complete(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, raw: import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareInput, approve: () => Promise<boolean>, lock: import("@schlessera/brain-ui-sdk/server").BrainApplicationPolicy["lock"]): Promise<import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareResult>;
+            end(runId: string): void;
+            resolveSession(principalId: string, stagingId: string, requested: string | undefined, current: () => boolean): string | undefined;
+            start: (principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean) => void;
+        };
     };
   createInboxIntake (packages/ui-server/src/inbox/intake.ts)
     export function createInboxIntake(db: Database, brainRoot: string, log?: Logger): {
@@ -1295,6 +1314,7 @@ signatures (every public export and the types it is made of)
             profile: "governed" | "strict";
             sessionId: null | string;
         }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
+        bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): void;
         close(): Promise<void>;
         coverPaths(turnId: string, paths: readonly string[]): void;
@@ -1469,6 +1489,8 @@ signatures (every public export and the types it is made of)
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
+  start (packages/ui-server/src/inbox/interactive-share.ts)
+    function start(principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean): void;
   summary (packages/ui-server/src/brain/turn-journal.ts)
     function summary(turnId: string): TurnJournalSummary;
   websocket re-exported from hono

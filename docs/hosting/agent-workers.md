@@ -58,6 +58,12 @@ requested runtime remains free to install its own handlers. A host needs
 GNU `env` with this option; a missing or unsupported binary fails the real
 worker probe and refuses agent turns.
 
+On Btrfs, the trusted Python filesystem filter runs after that bootstrap
+reset. After installing its seccomp rules it restores every catchable signal
+disposition again, preserving the signal mask, before executing the worker.
+This removes Python's own SIGPIPE and SIGXFSZ ignores without weakening the
+Btrfs management ioctl denial (#2066).
+
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts the host root read-only, and replaces `/proc` and `/dev`.
 The brain mount follows the resolved profile: governed permits direct writes
@@ -259,7 +265,7 @@ write verified scratch/workspace copies through the aliases below.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
 | Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
@@ -387,7 +393,11 @@ while the host execution boundary holds, the server evaluates none of them
 itself. It runs that work in a **maintenance worker**: the same bubblewrap
 launcher, with the brain bound read-write, the host root read-only, and
 `/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
-and the UI database's directory masked by empty private tmpfs mounts. No host
+and the UI database's directory masked by empty private tmpfs mounts. Required
+private regular files, including the native loop backing file, are covered by
+read-only `/dev/null` binds after permitted runtime and HOME binds. Their
+original bytes remain inaccessible even when the backing file is outside a
+masked directory. No host
 Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.
@@ -434,9 +444,12 @@ refuses rather than run git on the host.
   validated output workspace. Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
-  root remain read-only. After that worker and all its descendants have
-  exited, the host rejects linked storage and object alternates and runs
-  `git fsck --full --strict` before pushing. The transport has an explicit
+  root remain read-only. Maintenance completion awaits both the outer
+  bubblewrap monitor and EOF on the output pipes retained by namespace init.
+  A descendant can leave files between CLI exit and namespace teardown;
+  file presence alone does not show a surviving process. Before admitting
+  another transport, the host rejects linked storage and object alternates
+  and runs `git fsck --full --strict` before pushing. The transport has an explicit
   system/mirror mount list and never mounts the brain or its `.git`.
   It uses the literal protected `remote.origin.url`, without loading includes;
   writable Git includes cannot choose the credential's destination.
@@ -452,7 +465,12 @@ refuses rather than run git on the host.
   exclusively. A holder whose process died is cleared by the next request.
 - **The brain's CLI must be installed in the brain** (`bun install`, so
   `node_modules/.bin/brain` is a real package inside it). A CLI linked to a
-  path below a masked directory is not visible in the worker.
+  path below a masked directory is not visible in the worker. Governed and
+  strict interactive workers prepend the brain's `node_modules/.bin` to the
+  inherited `PATH`, as maintenance workers do. Other entries keep their order;
+  restricted autonomous workers retain `/usr/bin:/bin`. If the packaged `brain`
+  is absent, the sandbox note asks for `@schlessera/brain` to be installed in
+  the brain repository with `bun install`. This adds no host-directory access.
 - **Cron** lines now start with `cd /`, outside the brain: the runner is a Bun
   process and must not load the brain's `bunfig.toml` or `.env`. The runner
   starts each repository job in the brain itself, in a maintenance worker,
@@ -772,7 +790,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:60-81`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:62-83`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1001,9 +1019,13 @@ index refresh after its workers exit, serialized on the server lock.
 
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
-the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials and egress retain the interim
-limits stated in the capabilities note. The journal keeps observed canonical
+the actual mounts, fallback cause and limits. Both governed and strict notes
+state that the worker shares the server's uid and server-state protection is
+mask-only. A read-only brain does not prevent reads of other host paths
+available to that uid. The separate-uid broker in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) is not implemented
+yet. Maintenance credentials and egress retain the interim limits stated in
+the capabilities note. The journal keeps observed canonical
 brain/workspace versions, not every write between observations; external
 persisted Claude auto-memory remains outside that review/revert coverage.
 Native read observations survive ordinary turns on the running backend but

@@ -509,3 +509,41 @@ describe("what the host is told about the turn's posture", () => {
 });
 
 mockWorkerHostForSdkStream();
+
+describe("background Bash admission", () => {
+  for (const enforced of [false, true]) test(`background Bash is denied with foreground guidance (enforced=${enforced})`, async () => {
+    const { options, requests } = await startTurn({ allowedTools: enforced ? WITHOUT_SHELL_OR_AGENT : WITH_SHELL_AND_AGENT, enforceAllowedTools: enforced });
+    const outcome = await runToolCall(options, "Bash", { command: "echo Ithaca", run_in_background: true }, "background-shell", true);
+    expect(outcome.executed, "BACKGROUND_BASH_MUST_NOT_EXECUTE").toBe(false);
+    expect(outcome.message).toContain("run_in_background: false");
+    expect(requests).toHaveLength(0);
+  });
+
+  test("foreground Bash still needs an enforced off-list grant", async () => {
+    const { options, requests } = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT, enforceAllowedTools: true });
+    const outcome = await runToolCall(options, "Bash", { command: "echo Ithaca", run_in_background: false }, "foreground-shell", true);
+    expect(outcome.executed).toBe(false);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.outsideEnforcedAllowlist).toBe(true);
+  });
+});
+
+
+test("a concurrent RTK rewrite cannot re-admit background Bash", async () => {
+  const restore = withFakeRtk();
+  try {
+    const { options } = await startTurn({ allowedTools: WITH_SHELL_AND_AGENT });
+    const outcome = await runToolCall(options, "Bash", { command: "git status", run_in_background: true }, "background-rtk");
+    expect(outcome.executed).toBe(false);
+    expect(outcome.message).toContain("run_in_background: false");
+  } finally { restore(); }
+});
+
+test("approval edits cannot introduce background Bash", async () => {
+  const { options, requests } = await startTurn({ allowedTools: WITHOUT_SHELL_OR_AGENT, enforceAllowedTools: true,
+    decision: { behavior: "allow", updatedInput: { command: "echo Ithaca", run_in_background: true } } });
+  const outcome = await runToolCall(options, "Bash", { command: "echo Ithaca", run_in_background: false }, "edited-background");
+  expect(requests).toHaveLength(1);
+  expect(outcome.executed).toBe(false);
+  expect(outcome.message).toContain("run_in_background: false");
+});

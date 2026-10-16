@@ -1,0 +1,4077 @@
+{
+  "schemaVersion": 1,
+  "issue": 1855,
+  "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+  "prototypeSource": "cf42e8503",
+  "scope": "Only the three captured-history snapshot final windows. All scene windows and original product matcher expressions remain. This is scoped evidence, not completion of the broader wait audit.",
+  "environment": {
+    "bun": "1.4.2",
+    "chrome": "140.0.7339.127 inherited installed metadata; not a newly captured version per command.",
+    "platform": "Linux; ordinary UID, own checkout and dependencies.",
+    "guards": "Original preload and BRAIN_REQUIRE_CHROME=1; unshare --user --map-current-user --net --keep-caps, loopback-only route checks and capability drop. GNU time runs inside the serialized benchmark lock.",
+    "build": "Original mandatory package build and browser bundle in every command.",
+    "overhead": "Original setup/preparation/recovery/drop counters plus bounded operation snapshots, synchronous logging and attached promise reactions. These are inside measured cost. No new worker permissions, transport or native clock override."
+  },
+  "originalSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-react/src/connection.ts",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-server/src/ws/connection.ts",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-server/src/ws/dispatch.ts",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-react/src/lib/draft-client.ts",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "bun.lock",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "package.json",
+      "sha256": "232d38504e9568ef3976dd48a38db3f732d09fcdebbead162b4f652ba93fa350",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "bunfig.toml",
+      "sha256": "3fef2f8dd575b80b8280fd9f3afe9048181df522d95232bbf2f491cbb55ba7c5",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "cac6061176046c4987620622aac9b5edf89987aa712ab3d47b959e65f411ada6",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "scripts/build.ts",
+      "sha256": "3b6d685506a53f46671ed44764711a2bf46e68cdfacf80791fc5d84cbc516fa1",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "scripts/test.ts",
+      "sha256": "df3f3109ec6e0e92dc21dfeaf80a5bb9bd897fb53941fa52385a4b75dd5d6a23",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-react/bunfig.toml",
+      "sha256": "377cf4ce2d5b53c7156610958d9676a4bed896b2fd90db5c441e816c69f1c017",
+      "matchesPriorFrozenCandidate": true
+    },
+    {
+      "path": "packages/ui-react/src/lib/local-work.ts",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "matchesPriorFrozenCandidate": true
+    }
+  ],
+  "baselineReuse": {
+    "receipt": "historical/restored",
+    "sourceLimit": "Earlier command executed its recorded measured source on7e; the diagnostic-free candidate and every listed relevant source/config now match d7 byte-for-byte. Original synchronous setup/preparation/recovery/drop timing instrumentation is carried forward. Added observer and diagnostics overhead remains inside candidate timing; shared-host load and elapsed-time variation uncontrolled. No whole-CI claim.",
+    "validationSha256": "37b4c2617b2204c81a4cd97e973a79a098c16a330a09b6eeee8c51bb4680d891",
+    "commandSha256": "cf3de1df26518e647bfac9b036208a4693ed54ab9ea8038611e9e79264225c79",
+    "equalSelection": "The same finite-render helper plus all three snapshot cases. Supplementary observer checks increase expectations 43 to 49. Historical shared-host pair, not simultaneous controlled load."
+  },
+  "finalSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+      "sha256": "c2b579eea39fe042010e43560f6f2bcc2c1b0d7426c649ad3a63e98230ddbe04"
+    }
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592"
+    }
+  ],
+  "observerReuse": {
+    "functionalSha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+    "measuredSha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+    "byteIdenticalToPriorV3": true
+  },
+  "commentOnlyCorrection": {
+    "emittedJavaScriptByteIdentical": true,
+    "emittedBytes": 5872,
+    "sha256": "ed39228b75db37cdc835a53fb068018a52dd26e1fb79b29f0a69e5a3c987d50f",
+    "scope": "Only fixture comment changes empty/newer to three captured-history cases"
+  },
+  "astProof": {
+    "phase": "Pre-execution static preservation receipt; its no-native-runs wording describes that preparation point only. Executed outcomes are recorded separately below.",
+    "receipt": {
+      "originalD7": {
+        "awaits": 201,
+        "matchers": 65,
+        "names": 5
+      },
+      "preservedPrototype": {
+        "awaits": 205,
+        "matchers": 67,
+        "names": 5
+      },
+      "extension": {
+        "awaits": 204,
+        "matchers": 67,
+        "names": 5
+      },
+      "changed": [
+        {
+          "before": "await context.addInitScript((selection) => { Object.assign(window, { __observeContinuityPreparation: true, __observeContinuitySelection: selection }); }, mode === \"empty\" && newer)",
+          "after": "await context.addInitScript(() => { Object.assign(window, { __observeContinuityPreparation: true, __observeContinuitySelection: true }); })",
+          "reason": "Enable existing observer for all snapshot cases / pass history mode and captured turn"
+        },
+        {
+          "before": "await until(page, `p.preparation.selectionReady(window.__selectionCheckpoint, ${preparation!.heldResumes}, ${JSON.stringify(sessionId)}, ${JSON.stringify(draft)})`, 5000)",
+          "after": "await until(page, `p.preparation.selectionReady(window.__selectionCheckpoint, ${preparation!.heldResumes}, ${JSON.stringify(sessionId)}, ${JSON.stringify(draft)}, ${JSON.stringify(mode)}, ${JSON.stringify(oldTurn)})`, 5000)",
+          "reason": "Enable existing observer for all snapshot cases / pass history mode and captured turn"
+        },
+        {
+          "before": "await settle(page)",
+          "reason": "Remove only the two remaining snapshot final windows, represented by this loop branch"
+        }
+      ],
+      "scope": "All original 65 matcher expressions and five names retained in order; both previously added matchers now execute in all three cases. No native runs."
+    }
+  },
+  "footprint": {
+    "heldOneCaseNetLines": 166,
+    "finalAddedLines": 185,
+    "finalRemovedLines": 8,
+    "finalNetLines": 177,
+    "sharedObserverLines": 127
+  },
+  "causalScope": [
+    "Actual selected tab/session/draft context6-12 must commit natively and receive its associated normal postcommit status publication. Pre-arm in-flight operations remain observed; account, lock, error and fork transitions fail closed.",
+    "Own-method descriptors, this, arguments, returned plans, handles and original promises are preserved. The mutation callback identity is wrapped; added promise reactions handle rejection. Cleanup restores descriptors and unsubscribes; no flush, snapshotNow or disposal creates readiness.",
+    "All held current-socket responses complete after the selection cursor: successful resumes send history then status; failed resumes send exactly SESSION_LOAD_ERROR with no requestId/turnId/failure payload, while connect finally sends the captured thinking status. No invented request ID or generic-error count is used.",
+    "Healthy completion is followed by finite rendering before the unchanged original streaming assertion. Explicit escaped outcomes bypass only that added render and reach the original assertion; a supplementary assertion rejects healing.",
+    "All three final lifecycle snapshots have pending=true. Later scroll/selection work remains possible. The single native writer, unchanged account/content, observed no-fork version publication and host-sequence fences justify later context-only writes in this exact fixture; this is not a global drain."
+  ],
+  "controls": [
+    {
+      "receipt": "shared/candidate-held",
+      "claim": "Native selected commit followed by a real 2000 ms postcommit hold; readiness waits through associated publication and all original assertions pass."
+    },
+    {
+      "receipt": "shared/omitted-held",
+      "claim": "Removing publication and pending gates fails named diagnostic with actual committed 6–12 but unfinished continuation; no teardown completion inferred."
+    },
+    {
+      "receipt": "shared/cancelled",
+      "claim": "Actual native selection callback enters but its write is cancelled. No matching commit; named 5-second readiness assertion fails, not the runner watchdog."
+    },
+    {
+      "receipt": "shared/candidate-terminal",
+      "claim": "Original captured-status/ended-guard fault fails original newer-stream assertion through escaped outcome; historical original control retained separately."
+    },
+    {
+      "receipt": "extension-v2/candidate-held",
+      "claim": "Real failed-resume error delayed 2000 ms; exact error completion is awaited after actual native selection commit/publication and original quiet-case assertions pass."
+    },
+    {
+      "receipt": "extension-v2/omitted-held",
+      "claim": "Only failed-error count/equality requirement removed; captured thinking, native selected commit/publication and draft gates remain. Named completion diagnostic fails before rendering; hold remains unfinished at final observed teardown."
+    },
+    {
+      "receipts": [
+        "extension-v2/original-fault",
+        "extension-v2/candidate-fault"
+      ],
+      "claim": "Same erroneous finishAssistantMessage(sessionId) call inside unchanged special error handler fails both original streaming assertions. No test matcher/action is changed."
+    }
+  ],
+  "unexpectedFault": {
+    "receipt": "unexpected-v1/original-fault",
+    "expected": "Original streaming failures0/2/21",
+    "actual": "Original retained-node Rowing again waitForFunction timeouts0/2/23 after streaming and advance assertions passed; checker rejected and sequence stopped.",
+    "correction": "Removing the special guard can append a separate failure message because the existing assistant has a real turnId. Buffer streaming remains true via the original live assistant; appendText targets the latest assistant. This source explanation is not a captured runtime message-array trace. Later identity/focus/no-send assertions were unreached.",
+    "commandSeconds": 128.35
+  },
+  "runs": [
+    {
+      "receipt": "historical/restored",
+      "sourceBase": "7e5bfa2abab214c89e91ece1a6ac1ff15154c59e",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*(?:single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn|render readiness waits for a finite entrance even when its initial geometry is quiet)$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "expects": 43
+      },
+      "resources": {
+        "commandSeconds": 79.69,
+        "cpuSeconds": 93.82000000000001,
+        "maxRssKiB": 1231080,
+        "setupMs": 48766.739600999994,
+        "bunSeconds": 79.61
+      },
+      "testExitCode": 0,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        },
+        {
+          "path": "packages/ui-react/src/lib/draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 15,
+        "renderMs": 2796.975455000007,
+        "observationCalls": 3,
+        "observationMs": 1501.6339989999906,
+        "retainedFrameCalls": 3,
+        "retainedFrameMs": 72.26063299999078,
+        "pollCalls": 5,
+        "pollMs": 50.4915850000034
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 336.51,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10322.46,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10168.71,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9591.17,
+          "outcome": "pass"
+        }
+      ],
+      "readiness": [],
+      "nativeSnapshots": []
+    },
+    {
+      "receipt": "historical/candidate-terminal",
+      "sourceBase": "7e5bfa2abab214c89e91ece1a6ac1ff15154c59e",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 11
+      },
+      "resources": {
+        "commandSeconds": 59.19,
+        "cpuSeconds": 91.86999999999999,
+        "maxRssKiB": 1272004,
+        "setupMs": 48477.273776999995,
+        "bunSeconds": 59.11
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        },
+        {
+          "path": "packages/ui-react/src/lib/draft-client.ts",
+          "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 904.1166419999936,
+        "observationCalls": 1,
+        "observationMs": 500.6940919999979,
+        "retainedFrameCalls": 1,
+        "retainedFrameMs": 9.253338999995322,
+        "pollCalls": 3,
+        "pollMs": 30.305238000000827
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10169.23,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [],
+      "nativeSnapshots": []
+    },
+    {
+      "receipt": "shared/candidate-held",
+      "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "expects": 17
+      },
+      "resources": {
+        "commandSeconds": 61.75,
+        "cpuSeconds": 94.08,
+        "maxRssKiB": 1245864,
+        "setupMs": 49078.450166999995,
+        "bunSeconds": 61.66
+      },
+      "testExitCode": 0,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "b1b6d27fd54f8eb4dbbfebd6fdaa431c8529cf801198825cbcf038729025aafa"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/lib/local-work.ts",
+          "sha256": "c05ef77179dabf1a4dbaaf176998e55deb5bcaf0f7ccb64953716388bd6c90ea"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 6,
+        "renderMs": 975.8097579999958,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 2,
+        "pollMs": 20.23685000000114
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 12099.91,
+          "outcome": "pass"
+        }
+      ],
+      "readiness": [
+        {
+          "elapsedMs": 2252.353384000002,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 7,
+          "selectedOperations": [
+            {
+              "id": 7,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9782.5,
+              "completeAt": 9783.100000023842,
+              "forks": 0,
+              "publishedAt": 11783.400000035763
+            }
+          ],
+          "finalOperationCount": 7,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    },
+    {
+      "receipt": "shared/omitted-held",
+      "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 12
+      },
+      "resources": {
+        "commandSeconds": 59.24,
+        "cpuSeconds": 92.49,
+        "maxRssKiB": 1249460,
+        "setupMs": 48817.776239000006,
+        "bunSeconds": 59.16
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "2ad9bf0d94e77b6016526072e3e4ecb487ee7b143acfd4bd3f505e9a266b231a"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "6156f0169b8ab7fc43d73808aa3438f069a0c323bdcb4b031b88bc2a4e330bb5"
+        },
+        {
+          "path": "packages/ui-react/src/lib/local-work.ts",
+          "sha256": "c05ef77179dabf1a4dbaaf176998e55deb5bcaf0f7ccb64953716388bd6c90ea"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 887.2210409999971,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 2,
+        "pollMs": 20.22574000000168
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 9878.27,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [
+        {
+          "elapsedMs": 252.0143620000017,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": true,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 7,
+          "selectedOperations": [
+            {
+              "id": 7,
+              "complete": true,
+              "published": false,
+              "plannedAt": 9766.300000011921,
+              "completeAt": 9766.900000035763,
+              "forks": 0
+            }
+          ],
+          "finalOperationCount": 7,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": [
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "receipt": "shared/cancelled",
+      "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 12
+      },
+      "resources": {
+        "commandSeconds": 63.62,
+        "cpuSeconds": 91.94999999999999,
+        "maxRssKiB": 1253368,
+        "setupMs": 48399.197885,
+        "bunSeconds": 63.53
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "0824aaee1d30900239e474ec99b3c7975f0f713f918dc4273dc521fe2b47e597"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/lib/local-work.ts",
+          "sha256": "1f9434290941f21ec826f209d46d89e78e5b8ba3211467131d88441b45788805"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 907.9095010000092,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 2,
+        "pollMs": 20.185914000001503
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 14690.72,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [
+        {
+          "elapsedMs": 5002.658647999997,
+          "completed": false
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "pending",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": false,
+          "boundaryPending": null,
+          "boundaryFailed": null,
+          "boundaryOperationCount": null,
+          "selectedOperations": [],
+          "finalOperationCount": 6,
+          "finalPending": false,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    },
+    {
+      "receipt": "shared/candidate-terminal",
+      "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured empty history snapshot cannot end a newer turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 12
+      },
+      "resources": {
+        "commandSeconds": 58.75,
+        "cpuSeconds": 92.07,
+        "maxRssKiB": 1233628,
+        "setupMs": 48401.066632,
+        "bunSeconds": 58.68
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "b453b1ac0e98c7b8cf2027229de33b7401da570187229b3536acd9ae0bdb6b7e"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/lib/local-work.ts",
+          "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 922.1246279999978,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 3,
+        "pollMs": 30.276710999998613
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 9798.61,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [
+        {
+          "elapsedMs": 14.259111999999732,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "escaped-stream",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": false,
+          "boundaryPending": null,
+          "boundaryFailed": null,
+          "boundaryOperationCount": null,
+          "selectedOperations": [],
+          "finalOperationCount": 6,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    },
+    {
+      "receipt": "shared/restored",
+      "sourceBase": "d7b103937529f8880bac17fd894f6e3043c85c42",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*(?:single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn|render readiness waits for a finite entrance even when its initial geometry is quiet)$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "expects": 45
+      },
+      "resources": {
+        "commandSeconds": 78.88,
+        "cpuSeconds": 93.21,
+        "maxRssKiB": 1257656,
+        "setupMs": 48271.945940000005,
+        "bunSeconds": 78.8
+      },
+      "testExitCode": 0,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "03fcc745bfa56f770f9b3becfa565f2ca50de198b642d8a235a067df105f4131"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/lib/local-work.ts",
+          "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/connection.ts",
+          "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+        }
+      ],
+      "rawReceiptEntries": 34,
+      "waitMetrics": {
+        "renderCalls": 16,
+        "renderMs": 2896.2092619999894,
+        "observationCalls": 2,
+        "observationMs": 1001.2690070000099,
+        "retainedFrameCalls": 2,
+        "retainedFrameMs": 37.17979400001059,
+        "pollCalls": 5,
+        "pollMs": 50.474928000003274
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 372.54,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10039.23,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10193.35,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9484.75,
+          "outcome": "pass"
+        }
+      ],
+      "readiness": [
+        {
+          "elapsedMs": 252.3155009999973,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 7,
+          "selectedOperations": [
+            {
+              "id": 7,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9780.600000023842,
+              "completeAt": 9781.100000023842,
+              "forks": 0,
+              "publishedAt": 9781.199999988079
+            }
+          ],
+          "finalOperationCount": 7,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    },
+    {
+      "receipt": "unexpected-v1/original-fault",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 2,
+        "expects": 23
+      },
+      "resources": {
+        "commandSeconds": 128.35,
+        "cpuSeconds": 92.99,
+        "maxRssKiB": 1236252,
+        "setupMs": 48222.425931000005,
+        "bunSeconds": 128.27
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": false,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "6fa1907cbd77fcafa38af5d3ca05f2dddf1bb78219a6b0f41ba79e6d0887be76"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        }
+      ],
+      "rawReceiptEntries": 31,
+      "waitMetrics": {
+        "renderCalls": 9,
+        "renderMs": 1672.158637000015,
+        "observationCalls": 2,
+        "observationMs": 1001.1284739999974,
+        "retainedFrameCalls": 2,
+        "retainedFrameMs": 48.80696700000408,
+        "pollCalls": 3,
+        "pollMs": 30.416271000009147
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 40158.03,
+          "outcome": "fail"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 39394.62,
+          "outcome": "fail"
+        }
+      ]
+    },
+    {
+      "receipt": "extension-v2/original-fault",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 2,
+        "expects": 21
+      },
+      "resources": {
+        "commandSeconds": 68.43,
+        "cpuSeconds": 92.4,
+        "maxRssKiB": 1240096,
+        "setupMs": 48360.83784,
+        "bunSeconds": 68.34
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "07270d043dfb7a5f6cc2c3c56d48664d89109ac25332fdbda0da9b739aab3481"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        }
+      ],
+      "rawReceiptEntries": 32,
+      "waitMetrics": {
+        "renderCalls": 9,
+        "renderMs": 1614.8869479999994,
+        "observationCalls": 2,
+        "observationMs": 1004.8566490000012,
+        "retainedFrameCalls": 2,
+        "retainedFrameMs": 32.898425999999745,
+        "pollCalls": 3,
+        "pollMs": 30.37258999999176
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10145.05,
+          "outcome": "fail"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9377.52,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [],
+      "nativeSnapshots": []
+    },
+    {
+      "receipt": "extension-v2/candidate-held",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end its quiet turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "expects": 16
+      },
+      "resources": {
+        "commandSeconds": 59.97,
+        "cpuSeconds": 91.63,
+        "maxRssKiB": 1241660,
+        "setupMs": 48346.88261,
+        "bunSeconds": 59.88
+      },
+      "testExitCode": 0,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "32224eb87ea5591fe68dde6de549d9beca94c32b6e8a8c673f0d3462dcd64453"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "d89762ac0d465d8ff8f7e96cb5a41350960576da5fa3721b41f8abc74571f474"
+        }
+      ],
+      "rawReceiptEntries": 32,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 720.6114919999964,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 1,
+        "pollMs": 10.19077400000242
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 11122.79,
+          "outcome": "pass"
+        }
+      ],
+      "readiness": [
+        {
+          "mode": "failed",
+          "newer": false,
+          "elapsedMs": 2002.2515019999992,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": false
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 1,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 5,
+          "selectedOperations": [
+            {
+              "id": 5,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9040.199999988079,
+              "completeAt": 9040.5,
+              "forks": 0,
+              "publishedAt": 9040.599999964237
+            }
+          ],
+          "finalOperationCount": 5,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ],
+      "heldErrorProof": {
+        "heldResumes": 1,
+        "observedErrors": 1,
+        "hostControls": [
+          {
+            "id": 1,
+            "entered": 57584.874767,
+            "finished": true,
+            "ended": 59585.033509,
+            "sentAt": 59585.127681
+          }
+        ],
+        "teardownControls": [
+          [
+            {
+              "id": 1,
+              "entered": 57584.874767,
+              "finished": true,
+              "ended": 59585.033509,
+              "sentAt": 59585.127681
+            }
+          ]
+        ],
+        "clockLimit": "Host hold times and browser selection times are separate clocks; no cross-clock latency is inferred."
+      }
+    },
+    {
+      "receipt": "extension-v2/omitted-held",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end its quiet turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 11
+      },
+      "resources": {
+        "commandSeconds": 57.99,
+        "cpuSeconds": 91.32,
+        "maxRssKiB": 1236172,
+        "setupMs": 48177.496418999996,
+        "bunSeconds": 57.9
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "a14a7a3cd46069c3bba81aca32e0893b4e3e3abdb7da52f7f014f46ab70c281a"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "5125062d27c58ac0fff775ce6a4f1efb4fa3a192fb07dfd17f78679f50bf0dc6"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "d89762ac0d465d8ff8f7e96cb5a41350960576da5fa3721b41f8abc74571f474"
+        }
+      ],
+      "rawReceiptEntries": 32,
+      "waitMetrics": {
+        "renderCalls": 4,
+        "renderMs": 683.7482769999988,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 1,
+        "pollMs": 10.09661000000051
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9247.42,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [
+        {
+          "mode": "failed",
+          "newer": false,
+          "elapsedMs": 269.9079399999973,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": false
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 0,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 5,
+          "selectedOperations": [
+            {
+              "id": 5,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9127.800000011921,
+              "completeAt": 9128.300000011921,
+              "forks": 0,
+              "publishedAt": 9128.300000011921
+            }
+          ],
+          "finalOperationCount": 5,
+          "finalPending": false,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ],
+      "heldErrorProof": {
+        "heldResumes": 1,
+        "observedErrors": 0,
+        "hostControls": [
+          {
+            "id": 1,
+            "entered": 57447.454367,
+            "finished": false
+          }
+        ],
+        "teardownControls": [
+          [
+            {
+              "id": 1,
+              "entered": 57447.454367,
+              "finished": false
+            }
+          ]
+        ],
+        "clockLimit": "Host hold times and browser selection times are separate clocks; no cross-clock latency is inferred."
+      }
+    },
+    {
+      "receipt": "extension-v2/candidate-fault",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*single running session: a captured failed history snapshot cannot end (?:a newer|its quiet) turn$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 2,
+        "expects": 23
+      },
+      "resources": {
+        "commandSeconds": 67.46,
+        "cpuSeconds": 92.09,
+        "maxRssKiB": 1289600,
+        "setupMs": 48327.339339,
+        "bunSeconds": 67.38
+      },
+      "testExitCode": 1,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "004f288b33e6fab0509daea6a5d7319e754b8263613288fd4770de1e373eaa70"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "07270d043dfb7a5f6cc2c3c56d48664d89109ac25332fdbda0da9b739aab3481"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        }
+      ],
+      "rawReceiptEntries": 32,
+      "waitMetrics": {
+        "renderCalls": 9,
+        "renderMs": 1605.4578660000043,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 3,
+        "pollMs": 30.335522999994282
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 9668.8,
+          "outcome": "fail"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 8914.86,
+          "outcome": "fail"
+        }
+      ],
+      "readiness": [
+        {
+          "mode": "failed",
+          "newer": true,
+          "elapsedMs": 5.045070000000123,
+          "completed": true
+        },
+        {
+          "mode": "failed",
+          "newer": false,
+          "elapsedMs": 8.414918000009493,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": true
+          },
+          "outcome": "escaped-stream",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 1,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": false,
+          "boundaryPending": null,
+          "boundaryFailed": null,
+          "boundaryOperationCount": null,
+          "selectedOperations": [],
+          "finalOperationCount": 6,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        },
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": false
+          },
+          "outcome": "escaped-stream",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 1,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": false,
+          "boundaryPending": null,
+          "boundaryFailed": null,
+          "boundaryOperationCount": null,
+          "selectedOperations": [],
+          "finalOperationCount": 3,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    },
+    {
+      "receipt": "extension-v2/restored",
+      "sourceBase": "cf42e850323e3a494291533c64b7e4554c59d9db",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "--test-name-pattern",
+        "^repeated connection drops in the mounted app.*(?:single running session: a captured (?:empty|failed) history snapshot cannot end (?:a newer|its quiet) turn|render readiness waits for a finite entrance even when its initial geometry is quiet)$"
+      ],
+      "env": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "expects": 49
+      },
+      "resources": {
+        "commandSeconds": 78.83,
+        "cpuSeconds": 93.49,
+        "maxRssKiB": 1249220,
+        "setupMs": 48615.35079,
+        "bunSeconds": 78.76
+      },
+      "testExitCode": 0,
+      "sourcesRestored": true,
+      "expectedGatePassed": true,
+      "executedSources": [
+        {
+          "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "sha256": "0c40484be3a20e4a7405ce140fcf18c332e3ef6b0049e90af435af7d5f796f8d"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+          "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb"
+        },
+        {
+          "path": "packages/ui-react/tests/fixtures/continuity-selection-observer.ts",
+          "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355"
+        },
+        {
+          "path": "packages/ui-react/src/connection.ts",
+          "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+        },
+        {
+          "path": "packages/ui-server/src/ws/dispatch.ts",
+          "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+        }
+      ],
+      "rawReceiptEntries": 32,
+      "waitMetrics": {
+        "renderCalls": 18,
+        "renderMs": 2987.2934329999844,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 5,
+        "pollMs": 50.712933000017074
+      },
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 343.26,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10098.08,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10012.53,
+          "outcome": "pass"
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9257.33,
+          "outcome": "pass"
+        }
+      ],
+      "readiness": [
+        {
+          "mode": "empty",
+          "newer": true,
+          "elapsedMs": 252.4646470000007,
+          "completed": true
+        },
+        {
+          "mode": "failed",
+          "newer": true,
+          "elapsedMs": 251.7297350000008,
+          "completed": true
+        },
+        {
+          "mode": "failed",
+          "newer": false,
+          "elapsedMs": 270.0628250000009,
+          "completed": true
+        }
+      ],
+      "nativeSnapshots": [
+        {
+          "case": {
+            "historyMode": "empty",
+            "newer": true
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 1,
+            "completed": 2,
+            "errors": 0,
+            "captured": 1,
+            "mode": "empty",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 7,
+          "selectedOperations": [
+            {
+              "id": 7,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9822.699999988079,
+              "completeAt": 9823.100000023842,
+              "forks": 0,
+              "publishedAt": 9823.199999988079
+            }
+          ],
+          "finalOperationCount": 7,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        },
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": true
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 1,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 6,
+          "selectedOperations": [
+            {
+              "id": 6,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9751.300000011921,
+              "completeAt": 9751.600000023842,
+              "forks": 0,
+              "publishedAt": 9751.700000047684
+            }
+          ],
+          "finalOperationCount": 6,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        },
+        {
+          "case": {
+            "historyMode": "failed",
+            "newer": false
+          },
+          "outcome": "committed-and-published",
+          "actualSelectedRange": [
+            6,
+            12
+          ],
+          "historyCompletion": {
+            "heldResumes": 1,
+            "histories": 0,
+            "completed": 1,
+            "errors": 1,
+            "captured": 1,
+            "mode": "failed",
+            "socket": 5,
+            "extraResumes": 0
+          },
+          "boundaryObserved": true,
+          "boundaryPending": false,
+          "boundaryFailed": false,
+          "boundaryOperationCount": 4,
+          "selectedOperations": [
+            {
+              "id": 4,
+              "complete": true,
+              "published": true,
+              "plannedAt": 9006,
+              "completeAt": 9006.5,
+              "forks": 0,
+              "publishedAt": 9006.5
+            }
+          ],
+          "finalOperationCount": 4,
+          "finalPending": true,
+          "finalFailed": false,
+          "laterIncompleteEnteredOperationIds": []
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "baseline": {
+      "commandSeconds": 79.69,
+      "cpuSeconds": 93.82000000000001,
+      "rssKiB": 1231080,
+      "setupMs": 48766.739600999994,
+      "snapshotCases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10322.46
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10168.71
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9591.17
+        }
+      ],
+      "helperCases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 336.51
+        }
+      ],
+      "snapshotBodyMs": 30082.339999999997,
+      "waitMetrics": {
+        "renderCalls": 15,
+        "renderMs": 2796.975455000007,
+        "observationCalls": 3,
+        "observationMs": 1501.6339989999906,
+        "retainedFrameCalls": 3,
+        "retainedFrameMs": 72.26063299999078,
+        "pollCalls": 5,
+        "pollMs": 50.4915850000034
+      }
+    },
+    "candidate": {
+      "commandSeconds": 78.83,
+      "cpuSeconds": 93.49,
+      "rssKiB": 1249220,
+      "setupMs": 48615.35079,
+      "snapshotCases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10098.08
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10012.53
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9257.33
+        }
+      ],
+      "helperCases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 343.26
+        }
+      ],
+      "snapshotBodyMs": 29367.940000000002,
+      "waitMetrics": {
+        "renderCalls": 18,
+        "renderMs": 2987.2934329999844,
+        "observationCalls": 0,
+        "observationMs": 0,
+        "retainedFrameCalls": 0,
+        "retainedFrameMs": 0,
+        "pollCalls": 5,
+        "pollMs": 50.712933000017074
+      }
+    },
+    "delta": {
+      "commandSeconds": -0.8599999999999994,
+      "cpuSeconds": -0.3300000000000125,
+      "rssKiB": 18140,
+      "setupMs": -151.38881099999708,
+      "snapshotBodyMs": -714.3999999999942,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": -224.3799999999992
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": -156.17999999999847
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": -333.84000000000015
+        }
+      ]
+    },
+    "semanticBoundaryMs": [
+      252.4646470000007,
+      251.7297350000008,
+      270.0628250000009
+    ],
+    "oneCasePrototype": {
+      "snapshotBodyMs": 29717.33,
+      "commandSeconds": 78.88,
+      "decision": "Held from integration at 166 net lines for one case; unchanged observer subsequently shared across three."
+    }
+  },
+  "cost": {
+    "sharedPrototypeNewSeconds": 322.24,
+    "unexpectedV1Seconds": 128.35,
+    "revisedExtensionNewSeconds": 332.68,
+    "totalNewSeconds": 783.27,
+    "costDomain": "Native test command wall time only; excludes engineering time and static checks.",
+    "historicalBaselineSeconds": 79.69,
+    "historicalTerminalSeconds": 59.19,
+    "reuseRule": "Historical and shared controls are indexed once by receipt; no reused control is charged again as new execution.",
+    "receiptEntries": 429,
+    "entryBreakdown": {
+      "sharedStudyIncludingHistorical": 238,
+      "unexpectedV1": 31,
+      "extensionV2": 160
+    }
+  },
+  "limits": [
+    "No whole-file or whole-CI speedup claim. No measured physical minimum or minimum justified duration established for retained scene windows.",
+    "All six nonselected cases remain filtered in the final helper-plus-snapshot command. Their native windows and the separate initial-upload prerequisite are unchanged.",
+    "Final pending=true is not suppressed; readiness proves one source-correlated commit/publication and history boundary, not universal asynchronous quiescence.",
+    "The frozen one-case observer comment names empty/newer; final correction changes only that comment and emits byte-identical JavaScript.",
+    "Untouched partition control/component bytes and exact static receipts are reused; failed-error completion and terminal-policy controls are separate new evidence."
+  ],
+  "receiptIndex": [
+    {
+      "receipt": "historical/restored/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "historical/restored/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "historical/restored/ast-proof.json",
+      "sha256": "90b253f9eb40f6c95d5a37a4044116e4e21590f25d3247d426843021eb7f6c31",
+      "bytes": 55499
+    },
+    {
+      "receipt": "historical/restored/candidate-types.json",
+      "sha256": "b82426cf712a5b031d0c7be56192b35f0a96af3e27536c550e8bec9c213a6956",
+      "bytes": 233
+    },
+    {
+      "receipt": "historical/restored/causal-review.md",
+      "sha256": "3a72ef56ebb7fd6c69ce2689edf9fcee7eeedd0bbc8c32f755576a9578ee7521",
+      "bytes": 8812
+    },
+    {
+      "receipt": "historical/restored/check-measured-ast.ts",
+      "sha256": "0201d29d5d469fc9b8b3b18ef9a664251250a5c507d2b7115ae798cce101b60e",
+      "bytes": 2078
+    },
+    {
+      "receipt": "historical/restored/check-result.py",
+      "sha256": "17a495619644648b72db8c89fa0879e903ef9d9a789762c333fb2cab438cce56",
+      "bytes": 2260
+    },
+    {
+      "receipt": "historical/restored/command.json",
+      "sha256": "cf3de1df26518e647bfac9b036208a4693ed54ab9ea8038611e9e79264225c79",
+      "bytes": 1879
+    },
+    {
+      "receipt": "historical/restored/completion.json",
+      "sha256": "362453477724be288712764a557b4207f3111509001f56b24dea1c0c57da07c8",
+      "bytes": 83
+    },
+    {
+      "receipt": "historical/restored/execution-manifest.json",
+      "sha256": "8c9ad870ad7a8fb9d86d43570b48fd45166d0a2c66166a2737bda09c15fe1d73",
+      "bytes": 8208
+    },
+    {
+      "receipt": "historical/restored/helper-source-identity.json",
+      "sha256": "16ae77256d545ca3b11daf962e4c3fb42100c2488217cedaf2b268614aae96a2",
+      "bytes": 495
+    },
+    {
+      "receipt": "historical/restored/manifest.json",
+      "sha256": "4369397818797b8489b03baa4f7c60ec713e52796e66d09329a5acb2f324c94e",
+      "bytes": 554
+    },
+    {
+      "receipt": "historical/restored/measured-types.json",
+      "sha256": "4c76f71645712f8e85c0cc4c4d6d1a59da380a31e571cd33633e4f1c21da349c",
+      "bytes": 167
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__src__lib__draft-client.ts.executed",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__src__lib__draft-client.ts.restored",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f",
+      "bytes": 52430
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical/restored/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical/restored/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical/restored/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical/restored/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical/restored/reused-source-identities.json",
+      "sha256": "644b5739036b331552fc8b234ff1c5ede8bc6b7968c2853d625048e605eceb07",
+      "bytes": 3223
+    },
+    {
+      "receipt": "historical/restored/run.log",
+      "sha256": "162f58a2333def418c61e57e6f6c9ef1c2a8908af41eaf6c4afa692703732afe",
+      "bytes": 2035
+    },
+    {
+      "receipt": "historical/restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "historical/restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "historical/restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "historical/restored/run.py",
+      "sha256": "321a0ac8bd8a66bff117445a93896f44125e4923bd3f1892efa14c17d5aaba0e",
+      "bytes": 5155
+    },
+    {
+      "receipt": "historical/restored/run.time",
+      "sha256": "53578f05e3b84f4b0f8cf37a345d9811f1fbbc5a767e2cdaf0bb31026453fb2d",
+      "bytes": 1074
+    },
+    {
+      "receipt": "historical/restored/validation.json",
+      "sha256": "37b4c2617b2204c81a4cd97e973a79a098c16a330a09b6eeee8c51bb4680d891",
+      "bytes": 1474
+    },
+    {
+      "receipt": "historical/restored/validation.log",
+      "sha256": "ceebbc88dd53d3b53e47f49697fd3c1e43282864ee1ecb8daf677afc2fa9841a",
+      "bytes": 1312
+    },
+    {
+      "receipt": "historical/candidate-terminal/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "historical/candidate-terminal/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "historical/candidate-terminal/ast-proof.json",
+      "sha256": "22ce256434851703c292d39095bfb9b9a1a397668f17e70bd83431ea0d224556",
+      "bytes": 55509
+    },
+    {
+      "receipt": "historical/candidate-terminal/candidate-types.json",
+      "sha256": "b82426cf712a5b031d0c7be56192b35f0a96af3e27536c550e8bec9c213a6956",
+      "bytes": 233
+    },
+    {
+      "receipt": "historical/candidate-terminal/causal-review.md",
+      "sha256": "3a72ef56ebb7fd6c69ce2689edf9fcee7eeedd0bbc8c32f755576a9578ee7521",
+      "bytes": 8812
+    },
+    {
+      "receipt": "historical/candidate-terminal/check-measured-ast.ts",
+      "sha256": "0201d29d5d469fc9b8b3b18ef9a664251250a5c507d2b7115ae798cce101b60e",
+      "bytes": 2078
+    },
+    {
+      "receipt": "historical/candidate-terminal/check-result.py",
+      "sha256": "17a495619644648b72db8c89fa0879e903ef9d9a789762c333fb2cab438cce56",
+      "bytes": 2260
+    },
+    {
+      "receipt": "historical/candidate-terminal/command.json",
+      "sha256": "2ff3193a038d93a088294beca12260b1ffa7e0bfa21216a6c7000b1373b37a71",
+      "bytes": 1785
+    },
+    {
+      "receipt": "historical/candidate-terminal/completion.json",
+      "sha256": "c43a18e9fa3c5f29208534d6d069070199e02f297e963e870ea01c02a477cf77",
+      "bytes": 83
+    },
+    {
+      "receipt": "historical/candidate-terminal/execution-manifest.json",
+      "sha256": "8c9ad870ad7a8fb9d86d43570b48fd45166d0a2c66166a2737bda09c15fe1d73",
+      "bytes": 8208
+    },
+    {
+      "receipt": "historical/candidate-terminal/helper-source-identity.json",
+      "sha256": "16ae77256d545ca3b11daf962e4c3fb42100c2488217cedaf2b268614aae96a2",
+      "bytes": 495
+    },
+    {
+      "receipt": "historical/candidate-terminal/manifest.json",
+      "sha256": "4369397818797b8489b03baa4f7c60ec713e52796e66d09329a5acb2f324c94e",
+      "bytes": 554
+    },
+    {
+      "receipt": "historical/candidate-terminal/measured-types.json",
+      "sha256": "4c76f71645712f8e85c0cc4c4d6d1a59da380a31e571cd33633e4f1c21da349c",
+      "bytes": 167
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__src__connection.ts.executed",
+      "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+      "bytes": 48418
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__src__lib__draft-client.ts.executed",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__src__lib__draft-client.ts.restored",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f",
+      "bytes": 52430
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+      "bytes": 14913
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical/candidate-terminal/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical/candidate-terminal/reused-source-identities.json",
+      "sha256": "644b5739036b331552fc8b234ff1c5ede8bc6b7968c2853d625048e605eceb07",
+      "bytes": 3223
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.log",
+      "sha256": "89d164890aa40cd87a01d172dc4b7fab2088436a175d704397c984df235356ab",
+      "bytes": 2529
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.py",
+      "sha256": "321a0ac8bd8a66bff117445a93896f44125e4923bd3f1892efa14c17d5aaba0e",
+      "bytes": 5155
+    },
+    {
+      "receipt": "historical/candidate-terminal/run.time",
+      "sha256": "417581a0a05f4fa930aa563048038e63516f4a26e2c42e9ee644c9f6b1ff7f95",
+      "bytes": 998
+    },
+    {
+      "receipt": "historical/candidate-terminal/validation.json",
+      "sha256": "645141774a30048079d2085931755c63ea62b19380b23b9e7fc9d26c92cb7606",
+      "bytes": 464
+    },
+    {
+      "receipt": "historical/candidate-terminal/validation.log",
+      "sha256": "a9dfca9506ad7069e8b528da39ad2d59c99fac219ab436cd616c8d847ebef9e1",
+      "bytes": 400
+    },
+    {
+      "receipt": "shared/candidate-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "shared/candidate-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "shared/candidate-held/ast-candidate-held.json",
+      "sha256": "bfb5e37095670e56c7da5c9e9991bb69fed7fe172ca980a42fe2e231b1bd242a",
+      "bytes": 58486
+    },
+    {
+      "receipt": "shared/candidate-held/ast-proof.json",
+      "sha256": "bfb5e37095670e56c7da5c9e9991bb69fed7fe172ca980a42fe2e231b1bd242a",
+      "bytes": 58486
+    },
+    {
+      "receipt": "shared/candidate-held/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "shared/candidate-held/causal-review.md",
+      "sha256": "c75982030da3350e5df49187bc5dd84021799ef66faf82a88842e04ddd25e8b8",
+      "bytes": 10457
+    },
+    {
+      "receipt": "shared/candidate-held/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "shared/candidate-held/check-result.py",
+      "sha256": "e39e27d19b3ee4a0cb9b6cb20a19d9640abf66ffc9754adc12c785cd41800d70",
+      "bytes": 4535
+    },
+    {
+      "receipt": "shared/candidate-held/command-proposal.md",
+      "sha256": "71f6ef2909045694f872d3efa502bd5c81c508df48e26d2d43a977e4938ecde2",
+      "bytes": 4357
+    },
+    {
+      "receipt": "shared/candidate-held/command.json",
+      "sha256": "2536705d2de52d8f6d6d2ce20d4fe61295955383d198b7ae30e97e02709d0ab9",
+      "bytes": 1807
+    },
+    {
+      "receipt": "shared/candidate-held/completion.json",
+      "sha256": "bd0807953275ed9d477e7f1617239bbe7f52d093b885ac26f0f0e8d101fdaba3",
+      "bytes": 83
+    },
+    {
+      "receipt": "shared/candidate-held/exact-types.json",
+      "sha256": "5809202b808aa16c979578fe4c32020ad9b8b00a5b16356416cfcf03d93721f6",
+      "bytes": 7190
+    },
+    {
+      "receipt": "shared/candidate-held/execution-manifest.json",
+      "sha256": "922b52d312dfd6b4a4587684e42ec60f8a36c4003ed4fbfe1b27ab9f4a274735",
+      "bytes": 14820
+    },
+    {
+      "receipt": "shared/candidate-held/manifest.json",
+      "sha256": "67a3e7693b9cf83b21ae742a169f00bc27ccaa6f48cf45f0053140d445beb15e",
+      "bytes": 732
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__src__lib__local-work.ts.executed",
+      "sha256": "c05ef77179dabf1a4dbaaf176998e55deb5bcaf0f7ccb64953716388bd6c90ea",
+      "bytes": 45355
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__src__lib__local-work.ts.restored",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "b1b6d27fd54f8eb4dbbfebd6fdaa431c8529cf801198825cbcf038729025aafa",
+      "bytes": 56540
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "e7f1e16b1d64613fcc295186cd36ca50ecd8949758d6cbcb946e1bde39169dda",
+      "bytes": 53557
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648",
+      "bytes": 12749
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "aa1bbdf47a6798134050e309505bf2e59a58cf1f941c8fb62e4737d82ee358a4",
+      "bytes": 12208
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/candidate-held/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/candidate-held/run.log",
+      "sha256": "7999130be9d03b2653dac3c852fe66b879e0e3362b44eb3faabb2c984af13574",
+      "bytes": 6103
+    },
+    {
+      "receipt": "shared/candidate-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "shared/candidate-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "shared/candidate-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "shared/candidate-held/run.py",
+      "sha256": "72c509466193a2b3c18ebd6d7c3a452424e6518200cca01b91f57a8940715323",
+      "bytes": 5646
+    },
+    {
+      "receipt": "shared/candidate-held/run.time",
+      "sha256": "278d30995543a63a8691e08f5be8602b3669d959bfd8aad3176e6bfa8f98698b",
+      "bytes": 960
+    },
+    {
+      "receipt": "shared/candidate-held/validation.json",
+      "sha256": "f5c684f8545ea9882d3e2252c90d999de1846303567c16567cf06ec2bcf1f15b",
+      "bytes": 8296
+    },
+    {
+      "receipt": "shared/candidate-held/validation.log",
+      "sha256": "54321e3ac74d6fd57a954c8412665c07a81a9b6d08c6271f61e2d985851fc8c9",
+      "bytes": 5654
+    },
+    {
+      "receipt": "shared/omitted-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "shared/omitted-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "shared/omitted-held/ast-omitted-held.json",
+      "sha256": "fc8730362370686dac6ff372b986452c7c8cd7157362ca03001e1ad80c626dba",
+      "bytes": 58484
+    },
+    {
+      "receipt": "shared/omitted-held/ast-proof.json",
+      "sha256": "fc8730362370686dac6ff372b986452c7c8cd7157362ca03001e1ad80c626dba",
+      "bytes": 58484
+    },
+    {
+      "receipt": "shared/omitted-held/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "shared/omitted-held/causal-review.md",
+      "sha256": "c75982030da3350e5df49187bc5dd84021799ef66faf82a88842e04ddd25e8b8",
+      "bytes": 10457
+    },
+    {
+      "receipt": "shared/omitted-held/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "shared/omitted-held/check-result.py",
+      "sha256": "e39e27d19b3ee4a0cb9b6cb20a19d9640abf66ffc9754adc12c785cd41800d70",
+      "bytes": 4535
+    },
+    {
+      "receipt": "shared/omitted-held/command-proposal.md",
+      "sha256": "71f6ef2909045694f872d3efa502bd5c81c508df48e26d2d43a977e4938ecde2",
+      "bytes": 4357
+    },
+    {
+      "receipt": "shared/omitted-held/command.json",
+      "sha256": "7d2c4175b510cdae98ec849cc8d277325d11132a4772c981ecbcf4c5f446483f",
+      "bytes": 1803
+    },
+    {
+      "receipt": "shared/omitted-held/completion.json",
+      "sha256": "587edce72b7ab45ae2678dc671a07ac36e5f0018b9a11641939b9f129c76613d",
+      "bytes": 83
+    },
+    {
+      "receipt": "shared/omitted-held/exact-types.json",
+      "sha256": "5809202b808aa16c979578fe4c32020ad9b8b00a5b16356416cfcf03d93721f6",
+      "bytes": 7190
+    },
+    {
+      "receipt": "shared/omitted-held/execution-manifest.json",
+      "sha256": "922b52d312dfd6b4a4587684e42ec60f8a36c4003ed4fbfe1b27ab9f4a274735",
+      "bytes": 14820
+    },
+    {
+      "receipt": "shared/omitted-held/manifest.json",
+      "sha256": "67a3e7693b9cf83b21ae742a169f00bc27ccaa6f48cf45f0053140d445beb15e",
+      "bytes": 732
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__src__lib__local-work.ts.executed",
+      "sha256": "c05ef77179dabf1a4dbaaf176998e55deb5bcaf0f7ccb64953716388bd6c90ea",
+      "bytes": 45355
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__src__lib__local-work.ts.restored",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "2ad9bf0d94e77b6016526072e3e4ecb487ee7b143acfd4bd3f505e9a266b231a",
+      "bytes": 56538
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "e7f1e16b1d64613fcc295186cd36ca50ecd8949758d6cbcb946e1bde39169dda",
+      "bytes": 53557
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648",
+      "bytes": 12749
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "aa1bbdf47a6798134050e309505bf2e59a58cf1f941c8fb62e4737d82ee358a4",
+      "bytes": 12208
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "6156f0169b8ab7fc43d73808aa3438f069a0c323bdcb4b031b88bc2a4e330bb5",
+      "bytes": 7826
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/omitted-held/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/omitted-held/run.log",
+      "sha256": "b9250106640a0f021a4d122dd2539c30da967fa362d43f68f6b8d6a06fbf32b2",
+      "bytes": 7046
+    },
+    {
+      "receipt": "shared/omitted-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "shared/omitted-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "shared/omitted-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "shared/omitted-held/run.py",
+      "sha256": "72c509466193a2b3c18ebd6d7c3a452424e6518200cca01b91f57a8940715323",
+      "bytes": 5646
+    },
+    {
+      "receipt": "shared/omitted-held/run.time",
+      "sha256": "bc2bcb5f691638b101b2cf5bd1dd50809ea96572f464dc88a0e265af975a62fd",
+      "bytes": 997
+    },
+    {
+      "receipt": "shared/omitted-held/validation.json",
+      "sha256": "9bfd0dcd77f89a224273ca1bdc491ade1df7f15598632206e1a29037b556dfec",
+      "bytes": 8044
+    },
+    {
+      "receipt": "shared/omitted-held/validation.log",
+      "sha256": "8e2a3063d89afb43123aa039fb245fb8d98460261be922112f26e1841f6065f8",
+      "bytes": 5432
+    },
+    {
+      "receipt": "shared/cancelled/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "shared/cancelled/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "shared/cancelled/ast-cancelled.json",
+      "sha256": "343372295d32236f6465f7bb7aae1cbce7d479407dbb7377b10c87d7f17ce092",
+      "bytes": 58481
+    },
+    {
+      "receipt": "shared/cancelled/ast-proof.json",
+      "sha256": "343372295d32236f6465f7bb7aae1cbce7d479407dbb7377b10c87d7f17ce092",
+      "bytes": 58481
+    },
+    {
+      "receipt": "shared/cancelled/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "shared/cancelled/causal-review.md",
+      "sha256": "c75982030da3350e5df49187bc5dd84021799ef66faf82a88842e04ddd25e8b8",
+      "bytes": 10457
+    },
+    {
+      "receipt": "shared/cancelled/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "shared/cancelled/check-result.py",
+      "sha256": "e39e27d19b3ee4a0cb9b6cb20a19d9640abf66ffc9754adc12c785cd41800d70",
+      "bytes": 4535
+    },
+    {
+      "receipt": "shared/cancelled/command-proposal.md",
+      "sha256": "71f6ef2909045694f872d3efa502bd5c81c508df48e26d2d43a977e4938ecde2",
+      "bytes": 4357
+    },
+    {
+      "receipt": "shared/cancelled/command.json",
+      "sha256": "f4b7384434a9c816e30d8d99e9443291f92aca1595656fbd6de7ca2df094e4be",
+      "bytes": 1797
+    },
+    {
+      "receipt": "shared/cancelled/completion.json",
+      "sha256": "38d7d44ada90ccfc3e907f1b1e2a9a1c050e3e662678bf8231aee7db8fbbd448",
+      "bytes": 83
+    },
+    {
+      "receipt": "shared/cancelled/exact-types.json",
+      "sha256": "5809202b808aa16c979578fe4c32020ad9b8b00a5b16356416cfcf03d93721f6",
+      "bytes": 7190
+    },
+    {
+      "receipt": "shared/cancelled/execution-manifest.json",
+      "sha256": "922b52d312dfd6b4a4587684e42ec60f8a36c4003ed4fbfe1b27ab9f4a274735",
+      "bytes": 14820
+    },
+    {
+      "receipt": "shared/cancelled/manifest.json",
+      "sha256": "67a3e7693b9cf83b21ae742a169f00bc27ccaa6f48cf45f0053140d445beb15e",
+      "bytes": 732
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__src__lib__local-work.ts.executed",
+      "sha256": "1f9434290941f21ec826f209d46d89e78e5b8ba3211467131d88441b45788805",
+      "bytes": 45217
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__src__lib__local-work.ts.restored",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "0824aaee1d30900239e474ec99b3c7975f0f713f918dc4273dc521fe2b47e597",
+      "bytes": 56535
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "e7f1e16b1d64613fcc295186cd36ca50ecd8949758d6cbcb946e1bde39169dda",
+      "bytes": 53557
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648",
+      "bytes": 12749
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "aa1bbdf47a6798134050e309505bf2e59a58cf1f941c8fb62e4737d82ee358a4",
+      "bytes": 12208
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/cancelled/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/cancelled/run.log",
+      "sha256": "15419b2be10ef92698a0a827635429090a0a764d173343866aa2715304aa462e",
+      "bytes": 4141
+    },
+    {
+      "receipt": "shared/cancelled/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "shared/cancelled/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "shared/cancelled/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "shared/cancelled/run.py",
+      "sha256": "72c509466193a2b3c18ebd6d7c3a452424e6518200cca01b91f57a8940715323",
+      "bytes": 5646
+    },
+    {
+      "receipt": "shared/cancelled/run.time",
+      "sha256": "272ebf42d83615717444974087a1a73cf00b94f145f66abf110f4579964fa864",
+      "bytes": 997
+    },
+    {
+      "receipt": "shared/cancelled/validation.json",
+      "sha256": "cb5ac1c1df3247fa026d1ce26c48b6986f82ab2e1b564f1e2c0ebdec5c581831",
+      "bytes": 2815
+    },
+    {
+      "receipt": "shared/cancelled/validation.log",
+      "sha256": "a4dd8a9da17e9cbe384e562f2c55f61c98da34834823f5193926645b4cdfc533",
+      "bytes": 1997
+    },
+    {
+      "receipt": "shared/candidate-terminal/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "shared/candidate-terminal/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "shared/candidate-terminal/ast-candidate-terminal.json",
+      "sha256": "7d2ff2b9e3f0008f48abefb3f6654e7ff8af15f8182c2a72d72b8a5a999d9113",
+      "bytes": 58490
+    },
+    {
+      "receipt": "shared/candidate-terminal/ast-proof.json",
+      "sha256": "7d2ff2b9e3f0008f48abefb3f6654e7ff8af15f8182c2a72d72b8a5a999d9113",
+      "bytes": 58490
+    },
+    {
+      "receipt": "shared/candidate-terminal/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "shared/candidate-terminal/causal-review.md",
+      "sha256": "c75982030da3350e5df49187bc5dd84021799ef66faf82a88842e04ddd25e8b8",
+      "bytes": 10457
+    },
+    {
+      "receipt": "shared/candidate-terminal/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "shared/candidate-terminal/check-result.py",
+      "sha256": "e39e27d19b3ee4a0cb9b6cb20a19d9640abf66ffc9754adc12c785cd41800d70",
+      "bytes": 4535
+    },
+    {
+      "receipt": "shared/candidate-terminal/command-proposal.md",
+      "sha256": "71f6ef2909045694f872d3efa502bd5c81c508df48e26d2d43a977e4938ecde2",
+      "bytes": 4357
+    },
+    {
+      "receipt": "shared/candidate-terminal/command.json",
+      "sha256": "119707ca728b8692affc99f71c6189b0e2d780bacec6666b6664617d687f9f56",
+      "bytes": 1815
+    },
+    {
+      "receipt": "shared/candidate-terminal/completion.json",
+      "sha256": "d9da99f686c97559d77223e6e35a8f1b8b542cd4ce31147b82554d4cf604141d",
+      "bytes": 83
+    },
+    {
+      "receipt": "shared/candidate-terminal/exact-types.json",
+      "sha256": "5809202b808aa16c979578fe4c32020ad9b8b00a5b16356416cfcf03d93721f6",
+      "bytes": 7190
+    },
+    {
+      "receipt": "shared/candidate-terminal/execution-manifest.json",
+      "sha256": "922b52d312dfd6b4a4587684e42ec60f8a36c4003ed4fbfe1b27ab9f4a274735",
+      "bytes": 14820
+    },
+    {
+      "receipt": "shared/candidate-terminal/manifest.json",
+      "sha256": "67a3e7693b9cf83b21ae742a169f00bc27ccaa6f48cf45f0053140d445beb15e",
+      "bytes": 732
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__src__connection.ts.executed",
+      "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+      "bytes": 48418
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__src__lib__local-work.ts.executed",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__src__lib__local-work.ts.restored",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "b453b1ac0e98c7b8cf2027229de33b7401da570187229b3536acd9ae0bdb6b7e",
+      "bytes": 56544
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "e7f1e16b1d64613fcc295186cd36ca50ecd8949758d6cbcb946e1bde39169dda",
+      "bytes": 53557
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648",
+      "bytes": 12749
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "aa1bbdf47a6798134050e309505bf2e59a58cf1f941c8fb62e4737d82ee358a4",
+      "bytes": 12208
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+      "bytes": 14913
+    },
+    {
+      "receipt": "shared/candidate-terminal/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.log",
+      "sha256": "84bcc483e772d15cc2491aad44ddd87d8b3694a90ef3a34cb16105549d4e52e5",
+      "bytes": 3721
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.py",
+      "sha256": "72c509466193a2b3c18ebd6d7c3a452424e6518200cca01b91f57a8940715323",
+      "bytes": 5646
+    },
+    {
+      "receipt": "shared/candidate-terminal/run.time",
+      "sha256": "7ed0d336be7034eac66fb3a1844aecdd283716331561d4b75bf93fe7f5e38c09",
+      "bytes": 998
+    },
+    {
+      "receipt": "shared/candidate-terminal/validation.json",
+      "sha256": "2aa871585f5d2e204fbe3d5d71b65f2e94193968d02e1d063fcd96c6a6f3ee67",
+      "bytes": 2700
+    },
+    {
+      "receipt": "shared/candidate-terminal/validation.log",
+      "sha256": "4ebd3547a9b4c642fed21a8fc3f2c359d9f28b78de364dda220d926408cac5d5",
+      "bytes": 1906
+    },
+    {
+      "receipt": "shared/restored/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "shared/restored/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "shared/restored/ast-proof.json",
+      "sha256": "097c63c4765c8b0a06c5c7ec6f342af0080e2eca76a29088281d01a80402235c",
+      "bytes": 58480
+    },
+    {
+      "receipt": "shared/restored/ast-restored.json",
+      "sha256": "097c63c4765c8b0a06c5c7ec6f342af0080e2eca76a29088281d01a80402235c",
+      "bytes": 58480
+    },
+    {
+      "receipt": "shared/restored/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "shared/restored/causal-review.md",
+      "sha256": "c75982030da3350e5df49187bc5dd84021799ef66faf82a88842e04ddd25e8b8",
+      "bytes": 10457
+    },
+    {
+      "receipt": "shared/restored/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "shared/restored/check-result.py",
+      "sha256": "e39e27d19b3ee4a0cb9b6cb20a19d9640abf66ffc9754adc12c785cd41800d70",
+      "bytes": 4535
+    },
+    {
+      "receipt": "shared/restored/command-proposal.md",
+      "sha256": "71f6ef2909045694f872d3efa502bd5c81c508df48e26d2d43a977e4938ecde2",
+      "bytes": 4357
+    },
+    {
+      "receipt": "shared/restored/command.json",
+      "sha256": "3fddc2e3a164adbddb78d3b96caf444ad8685dfa64d1640703d3132bbab99486",
+      "bytes": 1909
+    },
+    {
+      "receipt": "shared/restored/completion.json",
+      "sha256": "cef1e539bcf8f154d29104f928c457c86692074a982ef2502e9b387bb0546a83",
+      "bytes": 83
+    },
+    {
+      "receipt": "shared/restored/exact-types.json",
+      "sha256": "5809202b808aa16c979578fe4c32020ad9b8b00a5b16356416cfcf03d93721f6",
+      "bytes": 7190
+    },
+    {
+      "receipt": "shared/restored/execution-manifest.json",
+      "sha256": "922b52d312dfd6b4a4587684e42ec60f8a36c4003ed4fbfe1b27ab9f4a274735",
+      "bytes": 14820
+    },
+    {
+      "receipt": "shared/restored/manifest.json",
+      "sha256": "67a3e7693b9cf83b21ae742a169f00bc27ccaa6f48cf45f0053140d445beb15e",
+      "bytes": 732
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__src__lib__local-work.ts.executed",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__src__lib__local-work.ts.restored",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "bytes": 44896
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "03fcc745bfa56f770f9b3becfa565f2ca50de198b642d8a235a067df105f4131",
+      "bytes": 56534
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "e7f1e16b1d64613fcc295186cd36ca50ecd8949758d6cbcb946e1bde39169dda",
+      "bytes": 53557
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "6228f3ae97d7c923d74fe69b005a2891b5811d0c5630a48f9cd5ee090efc6648",
+      "bytes": 12749
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "aa1bbdf47a6798134050e309505bf2e59a58cf1f941c8fb62e4737d82ee358a4",
+      "bytes": 12208
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "shared/restored/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "shared/restored/packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/restored/packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "shared/restored/run.log",
+      "sha256": "58cc8a36b108d59e1b70ca8abb436ea9afe4722ec9f1a64980228007bafdcdb8",
+      "bytes": 5260
+    },
+    {
+      "receipt": "shared/restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "shared/restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "shared/restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "shared/restored/run.py",
+      "sha256": "72c509466193a2b3c18ebd6d7c3a452424e6518200cca01b91f57a8940715323",
+      "bytes": 5646
+    },
+    {
+      "receipt": "shared/restored/run.time",
+      "sha256": "cfa0c444c55fd17a00fa9d189d855f788858a9231c430c797026e544a0b4fba6",
+      "bytes": 1074
+    },
+    {
+      "receipt": "shared/restored/validation.json",
+      "sha256": "bf2a0e6aaac2ee3ecd80dd179dc22b4da5bcfe2f077486e30e2e7fc69286986d",
+      "bytes": 6450
+    },
+    {
+      "receipt": "shared/restored/validation.log",
+      "sha256": "0cecb51670c452e3a917ac46045f08f5275b8ce1dc3c5580facc854ed394b1b6",
+      "bytes": 4588
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/ast-original-fault.json",
+      "sha256": "d9519f296a861c214b712e13f33381dc714be8479f6013c95fee064f64b35f63",
+      "bytes": 55505
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/ast-proof.json",
+      "sha256": "d9519f296a861c214b712e13f33381dc714be8479f6013c95fee064f64b35f63",
+      "bytes": 55505
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/causal-review.md",
+      "sha256": "12347a8f72804f6fcb74b2285ff34d95337a65623a697833e0c679a079be1a7e",
+      "bytes": 5216
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/command-proposal.md",
+      "sha256": "6747269c10b4a54758408d576b8d310298c22130526dd32ea452bb7c7a2b93df",
+      "bytes": 3734
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/command.json",
+      "sha256": "58cbe35660ffa26c96e0ba452133d8ec94317cade00152003b6aa46733494475",
+      "bytes": 1676
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/completion.json",
+      "sha256": "15ff5b285dc16116afa04bec752582f176a837910b6e46f64b9e419c1b9711e4",
+      "bytes": 83
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/exact-types.json",
+      "sha256": "ed4a84067d7efd39b1e17c7a252d547b8457c472d72ed4ec8a074fa8966c425d",
+      "bytes": 6166
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/execution-manifest.json",
+      "sha256": "cd7b76f8607eb672d72bec71a6c7a352db62f4369aed4ee6f4a879db279d17b2",
+      "bytes": 14877
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/manifest.json",
+      "sha256": "d29ad3557e942fd2b2560e79037b5eb1fd6e39660895457715cc3ef0326d8a84",
+      "bytes": 3432
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__src__connection.ts.executed",
+      "sha256": "6fa1907cbd77fcafa38af5d3ca05f2dddf1bb78219a6b0f41ba79e6d0887be76",
+      "bytes": 47831
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.log",
+      "sha256": "3adb6ad552e2403475ba63751a93f190e2f762d73cd44eadcee8714234303c4a",
+      "bytes": 3942
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.py",
+      "sha256": "0ccd80c5b8900e0b4187365518df38efd5b66dd4124dcac542a1a52042716a76",
+      "bytes": 5816
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/run.time",
+      "sha256": "ba21736401657b46a2cac8024acf9e77cb5c9d3032b1de327c95272de25c6c0d",
+      "bytes": 1012
+    },
+    {
+      "receipt": "unexpected-v1/original-fault/validation.log",
+      "sha256": "02239f383fff7283fc6f498bbfe629c6bac9e7b45a314c20c99b5e5f910fba80",
+      "bytes": 304
+    },
+    {
+      "receipt": "extension-v2/original-fault/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "extension-v2/original-fault/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "extension-v2/original-fault/ast-original-fault.json",
+      "sha256": "d9519f296a861c214b712e13f33381dc714be8479f6013c95fee064f64b35f63",
+      "bytes": 55505
+    },
+    {
+      "receipt": "extension-v2/original-fault/ast-proof.json",
+      "sha256": "d9519f296a861c214b712e13f33381dc714be8479f6013c95fee064f64b35f63",
+      "bytes": 55505
+    },
+    {
+      "receipt": "extension-v2/original-fault/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "extension-v2/original-fault/causal-review.md",
+      "sha256": "53d56597ad7e54cb490193c2cecb2d25fa93380f76de1771ce93fa520f072e0d",
+      "bytes": 5912
+    },
+    {
+      "receipt": "extension-v2/original-fault/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "extension-v2/original-fault/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "extension-v2/original-fault/command-proposal.md",
+      "sha256": "5f3dbb42c733e096979f4fafd51ca440eea36a5fe95ef31708ae1ec24518edd6",
+      "bytes": 4163
+    },
+    {
+      "receipt": "extension-v2/original-fault/command.json",
+      "sha256": "9cd02ad6ad4cf0f3276cd0b52ed5701d97e869938a4ab47739aa6ece4121c812",
+      "bytes": 1679
+    },
+    {
+      "receipt": "extension-v2/original-fault/completion.json",
+      "sha256": "0e0af1b6e55c5b6fb644fa4fe818d02b09c8e257d2f343bc76cb0e93f76b7dd1",
+      "bytes": 83
+    },
+    {
+      "receipt": "extension-v2/original-fault/exact-types.json",
+      "sha256": "a25375cf2097c0481131b73385898bfbc51b6d6b825ae8b4616901131879468d",
+      "bytes": 7740
+    },
+    {
+      "receipt": "extension-v2/original-fault/execution-manifest.json",
+      "sha256": "072227e447f3207a17e81e25c1f851ad3748b92d2322f0cddb1eda1ca1e19244",
+      "bytes": 15575
+    },
+    {
+      "receipt": "extension-v2/original-fault/manifest.json",
+      "sha256": "482392c1afdd62a22d2b7c728c3864bad3578723b4244ce7ad945769dfb0d141",
+      "bytes": 4206
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__src__connection.ts.executed",
+      "sha256": "07270d043dfb7a5f6cc2c3c56d48664d89109ac25332fdbda0da9b739aab3481",
+      "bytes": 48557
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/original-fault/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.log",
+      "sha256": "432b18e5299bdf87d99119cb5d35caae0257d3fe6342d9683d871fda588978e9",
+      "bytes": 4082
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.py",
+      "sha256": "32af80850aab83f8ff17ebbb1604a6e960c5ff5111f1011296338f1511287f77",
+      "bytes": 5823
+    },
+    {
+      "receipt": "extension-v2/original-fault/run.time",
+      "sha256": "3b4a008b47b0780040a8b4225575baacfa9947978727efee5b38a6787f8e02a5",
+      "bytes": 1013
+    },
+    {
+      "receipt": "extension-v2/original-fault/validation.json",
+      "sha256": "c1614854dddf497623188f094d9eefc81cc8d67332db6f95fdbfe07d8bd5ff10",
+      "bytes": 466
+    },
+    {
+      "receipt": "extension-v2/original-fault/validation.log",
+      "sha256": "748dc3afb713fcdb5731095f06d8f93fc5371096df6ca1a750f9697bd57ebf19",
+      "bytes": 406
+    },
+    {
+      "receipt": "extension-v2/candidate-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "extension-v2/candidate-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "extension-v2/candidate-held/ast-candidate-held.json",
+      "sha256": "03ea5500ada150911b96487f936d4dcb42801f4368f8b353b084aba15f5c37b4",
+      "bytes": 58527
+    },
+    {
+      "receipt": "extension-v2/candidate-held/ast-proof.json",
+      "sha256": "03ea5500ada150911b96487f936d4dcb42801f4368f8b353b084aba15f5c37b4",
+      "bytes": 58527
+    },
+    {
+      "receipt": "extension-v2/candidate-held/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "extension-v2/candidate-held/causal-review.md",
+      "sha256": "53d56597ad7e54cb490193c2cecb2d25fa93380f76de1771ce93fa520f072e0d",
+      "bytes": 5912
+    },
+    {
+      "receipt": "extension-v2/candidate-held/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "extension-v2/candidate-held/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "extension-v2/candidate-held/command-proposal.md",
+      "sha256": "5f3dbb42c733e096979f4fafd51ca440eea36a5fe95ef31708ae1ec24518edd6",
+      "bytes": 4163
+    },
+    {
+      "receipt": "extension-v2/candidate-held/command.json",
+      "sha256": "3312e99a73b92946d9c68655fedf99332639b3209b1a8fe8da7358304e40f0ff",
+      "bytes": 1667
+    },
+    {
+      "receipt": "extension-v2/candidate-held/completion.json",
+      "sha256": "f5530d0a8463d71af4342f6f66bfc5ad79f6c2d46c5bfc1ba19d2f2c061c335c",
+      "bytes": 83
+    },
+    {
+      "receipt": "extension-v2/candidate-held/exact-types.json",
+      "sha256": "a25375cf2097c0481131b73385898bfbc51b6d6b825ae8b4616901131879468d",
+      "bytes": 7740
+    },
+    {
+      "receipt": "extension-v2/candidate-held/execution-manifest.json",
+      "sha256": "072227e447f3207a17e81e25c1f851ad3748b92d2322f0cddb1eda1ca1e19244",
+      "bytes": 15575
+    },
+    {
+      "receipt": "extension-v2/candidate-held/manifest.json",
+      "sha256": "482392c1afdd62a22d2b7c728c3864bad3578723b4244ce7ad945769dfb0d141",
+      "bytes": 4206
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "32224eb87ea5591fe68dde6de549d9beca94c32b6e8a8c673f0d3462dcd64453",
+      "bytes": 56710
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb",
+      "bytes": 13990
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "d89762ac0d465d8ff8f7e96cb5a41350960576da5fa3721b41f8abc74571f474",
+      "bytes": 30663
+    },
+    {
+      "receipt": "extension-v2/candidate-held/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.log",
+      "sha256": "f65b0956c729fe5ace374753df49ed35c01f1bcf20dea06767ceb0351912f442",
+      "bytes": 6719
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.py",
+      "sha256": "32af80850aab83f8ff17ebbb1604a6e960c5ff5111f1011296338f1511287f77",
+      "bytes": 5823
+    },
+    {
+      "receipt": "extension-v2/candidate-held/run.time",
+      "sha256": "999febfa9bbc6cc54b9413a145037c1b5e12c1052c06e9a17372dc55976b3a1d",
+      "bytes": 963
+    },
+    {
+      "receipt": "extension-v2/candidate-held/validation.json",
+      "sha256": "0139d91cd8d6bc47ad2a3f166f1c38143bcad02a435c5cc5396e5fd766c55cc8",
+      "bytes": 10101
+    },
+    {
+      "receipt": "extension-v2/candidate-held/validation.log",
+      "sha256": "b283353acb06d5e5b83b27fb213da33f8c6bffdb66d77905159d4e6ce90e5206",
+      "bytes": 6447
+    },
+    {
+      "receipt": "extension-v2/omitted-held/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "extension-v2/omitted-held/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "extension-v2/omitted-held/ast-omitted-held.json",
+      "sha256": "586fec5f4d669d0c506d80bf247df3395eab0cacde3e5608a3295999cfc357d0",
+      "bytes": 58525
+    },
+    {
+      "receipt": "extension-v2/omitted-held/ast-proof.json",
+      "sha256": "586fec5f4d669d0c506d80bf247df3395eab0cacde3e5608a3295999cfc357d0",
+      "bytes": 58525
+    },
+    {
+      "receipt": "extension-v2/omitted-held/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "extension-v2/omitted-held/causal-review.md",
+      "sha256": "53d56597ad7e54cb490193c2cecb2d25fa93380f76de1771ce93fa520f072e0d",
+      "bytes": 5912
+    },
+    {
+      "receipt": "extension-v2/omitted-held/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "extension-v2/omitted-held/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "extension-v2/omitted-held/command-proposal.md",
+      "sha256": "5f3dbb42c733e096979f4fafd51ca440eea36a5fe95ef31708ae1ec24518edd6",
+      "bytes": 4163
+    },
+    {
+      "receipt": "extension-v2/omitted-held/command.json",
+      "sha256": "1ac705f096ac05368a6e2c39b498d7771a2c0bfd899877cd10bc05be2281f1f9",
+      "bytes": 1663
+    },
+    {
+      "receipt": "extension-v2/omitted-held/completion.json",
+      "sha256": "f26396f9d96e7d6ae90fbcbc588e98dec4aa87d2ed43494f40c8170b22d11692",
+      "bytes": 83
+    },
+    {
+      "receipt": "extension-v2/omitted-held/exact-types.json",
+      "sha256": "a25375cf2097c0481131b73385898bfbc51b6d6b825ae8b4616901131879468d",
+      "bytes": 7740
+    },
+    {
+      "receipt": "extension-v2/omitted-held/execution-manifest.json",
+      "sha256": "072227e447f3207a17e81e25c1f851ad3748b92d2322f0cddb1eda1ca1e19244",
+      "bytes": 15575
+    },
+    {
+      "receipt": "extension-v2/omitted-held/manifest.json",
+      "sha256": "482392c1afdd62a22d2b7c728c3864bad3578723b4244ce7ad945769dfb0d141",
+      "bytes": 4206
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "a14a7a3cd46069c3bba81aca32e0893b4e3e3abdb7da52f7f014f46ab70c281a",
+      "bytes": 56708
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "5125062d27c58ac0fff775ce6a4f1efb4fa3a192fb07dfd17f78679f50bf0dc6",
+      "bytes": 13889
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "d89762ac0d465d8ff8f7e96cb5a41350960576da5fa3721b41f8abc74571f474",
+      "bytes": 30663
+    },
+    {
+      "receipt": "extension-v2/omitted-held/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.log",
+      "sha256": "f5ea4db81e6fe659b6bce35f2532170fbde2d4c883bb1a635280b3449fd93473",
+      "bytes": 7947
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.py",
+      "sha256": "32af80850aab83f8ff17ebbb1604a6e960c5ff5111f1011296338f1511287f77",
+      "bytes": 5823
+    },
+    {
+      "receipt": "extension-v2/omitted-held/run.time",
+      "sha256": "a68f4a2076b31495bbe411ab509432a4d63725d2a1c30c5d13e43a1a65517198",
+      "bytes": 1000
+    },
+    {
+      "receipt": "extension-v2/omitted-held/validation.json",
+      "sha256": "e045721bdac0d43057360160c8c4b09822ad21eeb6d44d7b501be80be4840c72",
+      "bytes": 10147
+    },
+    {
+      "receipt": "extension-v2/omitted-held/validation.log",
+      "sha256": "6862b9f39ccaf23601429ac1725490ba9573a78111a3e43c5575a5e66e6315c3",
+      "bytes": 6529
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/ast-candidate-fault.json",
+      "sha256": "72f3f6a42c888f02bb175f323d8202c4a3bf67e6c3a4cb253db018a10d3b0ba9",
+      "bytes": 58528
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/ast-proof.json",
+      "sha256": "72f3f6a42c888f02bb175f323d8202c4a3bf67e6c3a4cb253db018a10d3b0ba9",
+      "bytes": 58528
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/causal-review.md",
+      "sha256": "53d56597ad7e54cb490193c2cecb2d25fa93380f76de1771ce93fa520f072e0d",
+      "bytes": 5912
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/command-proposal.md",
+      "sha256": "5f3dbb42c733e096979f4fafd51ca440eea36a5fe95ef31708ae1ec24518edd6",
+      "bytes": 4163
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/command.json",
+      "sha256": "c86d095a2df88a391224eab904a2275ed4f24eae18b5b2dfb1ab87ffff361688",
+      "bytes": 1681
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/completion.json",
+      "sha256": "fae81e433a410141a8893354a6ca5cc0a21445a3b6f3a7d3c1cebe530982cab4",
+      "bytes": 83
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/exact-types.json",
+      "sha256": "a25375cf2097c0481131b73385898bfbc51b6d6b825ae8b4616901131879468d",
+      "bytes": 7740
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/execution-manifest.json",
+      "sha256": "072227e447f3207a17e81e25c1f851ad3748b92d2322f0cddb1eda1ca1e19244",
+      "bytes": 15575
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/manifest.json",
+      "sha256": "482392c1afdd62a22d2b7c728c3864bad3578723b4244ce7ad945769dfb0d141",
+      "bytes": 4206
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__src__connection.ts.executed",
+      "sha256": "07270d043dfb7a5f6cc2c3c56d48664d89109ac25332fdbda0da9b739aab3481",
+      "bytes": 48557
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "004f288b33e6fab0509daea6a5d7319e754b8263613288fd4770de1e373eaa70",
+      "bytes": 56711
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb",
+      "bytes": 13990
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.log",
+      "sha256": "1e116ccf53f7b075c3b5aceb8ff5b01973865b3cb26df32a75b026b894b83586",
+      "bytes": 6728
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.py",
+      "sha256": "32af80850aab83f8ff17ebbb1604a6e960c5ff5111f1011296338f1511287f77",
+      "bytes": 5823
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/run.time",
+      "sha256": "39acc4a3317549eb3f6d93446cd08165baa262e132355367776fcb74e31beaac",
+      "bytes": 1014
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/validation.json",
+      "sha256": "ea1604bd09c73d7bc7660b2d5eecdc9eb1c3a4405de773e7036db7623886ea20",
+      "bytes": 5198
+    },
+    {
+      "receipt": "extension-v2/candidate-fault/validation.log",
+      "sha256": "4febecc163f32dc23170bed0730d700e3f7d2d5f03adb067c7441ace0a1bcd5d",
+      "bytes": 3424
+    },
+    {
+      "receipt": "extension-v2/restored/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "extension-v2/restored/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "extension-v2/restored/ast-proof.json",
+      "sha256": "c196b3cf35fb113853724606a187fbac8e8dff164a590572bc85c5fc13b41f1e",
+      "bytes": 58521
+    },
+    {
+      "receipt": "extension-v2/restored/ast-restored.json",
+      "sha256": "c196b3cf35fb113853724606a187fbac8e8dff164a590572bc85c5fc13b41f1e",
+      "bytes": 58521
+    },
+    {
+      "receipt": "extension-v2/restored/baseline-identity.json",
+      "sha256": "a8335c6885a54704419be848689cc0917f5b54ee4ba6f2623b2eed3ffa234d15",
+      "bytes": 3486
+    },
+    {
+      "receipt": "extension-v2/restored/causal-review.md",
+      "sha256": "53d56597ad7e54cb490193c2cecb2d25fa93380f76de1771ce93fa520f072e0d",
+      "bytes": 5912
+    },
+    {
+      "receipt": "extension-v2/restored/check-measured-ast.ts",
+      "sha256": "5288e5ee87dbe6bcba4c504da537863cbbbfdc271fb79c7384a0b0d25c9b6e10",
+      "bytes": 1827
+    },
+    {
+      "receipt": "extension-v2/restored/check-result.py",
+      "sha256": "886ce3b74f50138834613c273b616db2c2718368bd9381d33882a1d2c885d821",
+      "bytes": 5079
+    },
+    {
+      "receipt": "extension-v2/restored/command-proposal.md",
+      "sha256": "5f3dbb42c733e096979f4fafd51ca440eea36a5fe95ef31708ae1ec24518edd6",
+      "bytes": 4163
+    },
+    {
+      "receipt": "extension-v2/restored/command.json",
+      "sha256": "d7915f3bc576a35a3a4b39a2e7da473e9f397a2d71e5d658a98fb2a21985a7ab",
+      "bytes": 1766
+    },
+    {
+      "receipt": "extension-v2/restored/completion.json",
+      "sha256": "fee61ee454d30fee549e07b8280bfa2539ed62799b320c6c5e49fd3e1b124399",
+      "bytes": 83
+    },
+    {
+      "receipt": "extension-v2/restored/exact-types.json",
+      "sha256": "a25375cf2097c0481131b73385898bfbc51b6d6b825ae8b4616901131879468d",
+      "bytes": 7740
+    },
+    {
+      "receipt": "extension-v2/restored/execution-manifest.json",
+      "sha256": "072227e447f3207a17e81e25c1f851ad3748b92d2322f0cddb1eda1ca1e19244",
+      "bytes": 15575
+    },
+    {
+      "receipt": "extension-v2/restored/manifest.json",
+      "sha256": "482392c1afdd62a22d2b7c728c3864bad3578723b4244ce7ad945769dfb0d141",
+      "bytes": 4206
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "0c40484be3a20e4a7405ce140fcf18c332e3ef6b0049e90af435af7d5f796f8d",
+      "bytes": 56704
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "8a97e7e0cd536d8b87d074c2de06628564f7e1dda92720f9fe1e17670d989559",
+      "bytes": 53429
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "0b77c69db0ba85ec196071ae6080f4f6b9ddc772feb773ea17781be9fd5dd4cb",
+      "bytes": 13990
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "048cbeb9e053fe3733750a413f2ccea799d36a69a9c9cd80f11622a1c7555794",
+      "bytes": 13416
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.executed",
+      "sha256": "7cc2e0172787b366e6201cc38a2e4ce989f89b39406a7393fa35a41f7ea12355",
+      "bytes": 7877
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-react__tests__fixtures__continuity-selection-observer.ts.restored",
+      "sha256": "d71ef5b5f7e53915c674d3867ae2bb74d17989bbed8d941ed92cbb4adc8d5592",
+      "bytes": 7127
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/restored/packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "extension-v2/restored/run.log",
+      "sha256": "928aef10670450b4909c930cbe090fb2971ee6c53aaa4eb00aa7eab86fee081d",
+      "bytes": 11244
+    },
+    {
+      "receipt": "extension-v2/restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "extension-v2/restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "extension-v2/restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "extension-v2/restored/run.py",
+      "sha256": "32af80850aab83f8ff17ebbb1604a6e960c5ff5111f1011296338f1511287f77",
+      "bytes": 5823
+    },
+    {
+      "receipt": "extension-v2/restored/run.time",
+      "sha256": "29ef4cd69d4c6fa1357f3ff4ffa2b8693d5555bd97f9f46bf860d1ffc36bd4fc",
+      "bytes": 1075
+    },
+    {
+      "receipt": "extension-v2/restored/validation.json",
+      "sha256": "4cb81083f566eea555930e5f9f61712dfde365b1d010d0b23667f8b55bba40d4",
+      "bytes": 16885
+    },
+    {
+      "receipt": "extension-v2/restored/validation.log",
+      "sha256": "5e312b78361ef6570b0a0a46cec64ee845409732a1e21ec5a7f41a3fc8464a08",
+      "bytes": 11007
+    }
+  ]
+}

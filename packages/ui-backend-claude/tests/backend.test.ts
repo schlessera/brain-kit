@@ -65,6 +65,11 @@ function makeReq(
   return { prompt: "hi", signal, bridge, ...extra };
 }
 
+// Lock lifecycle controls must reach a permitted native write, not strict refusal.
+const governedNativeTurn: Partial<StartTurnRequest> = {
+  workerSandbox: { brain: "/brain", profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+};
+
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 /** Spin until `pred` holds, so a test never races a background acquire/emit. */
@@ -305,7 +310,7 @@ describe("createClaudeBackend identity + profiles", () => {
   test("listProfiles returns the built-in claude profile by default", () => {
     const backend = createClaudeBackend({ brainPath: "/brain" });
     expect(backend.listProfiles()).toEqual([
-      { id: "claude", label: "Claude", vendor: "anthropic", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "claude", label: "Claude", vendor: "anthropic", model: "claude-opus-5-5", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
     ]);
   });
 
@@ -453,7 +458,6 @@ describe("startTurn", () => {
       type: "result",
       sessionId: "sess-1",
       outcome: "success",
-      costUsd: 0,
       durationMs: 1,
       numTurns: 1,
       isError: false,
@@ -926,7 +930,7 @@ describe("writeLock", () => {
 
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
     const b1 = makeBridge();
-    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal, governedNativeTurn));
 
     expect(denied).toBe(true);
     expect(heldBeforeDenial).toEqual(["path:/brain/notes/a.md"]);
@@ -982,7 +986,7 @@ describe("writeLock", () => {
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
 
     const b1 = makeBridge();
-    const turn1 = backend.startTurn(makeReq(b1.bridge, abort1.signal));
+    const turn1 = backend.startTurn(makeReq(b1.bridge, abort1.signal, governedNativeTurn));
     await until(() => t1Resolved);
     expect(writeLock.locked).toBe(true);
 
@@ -993,7 +997,7 @@ describe("writeLock", () => {
 
     // A later mutating turn acquires cleanly, proving the lock was freed.
     const b2 = makeBridge();
-    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal));
+    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal, governedNativeTurn));
     await turn2;
     expect(b2.frames.some((f) => f.type === "result")).toBe(true);
     expect(writeLock.locked).toBe(false);
@@ -1209,14 +1213,14 @@ describe("lockKeyForTool — the serialization policy", () => {
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
 
     const b1 = makeBridge();
-    const turn1 = backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    const turn1 = backend.startTurn(makeReq(b1.bridge, new AbortController().signal, governedNativeTurn));
     await until(() => t1Resolved);
     expect(writeLock.heldKeys).toEqual(["path:/brain/notes/a.md"]);
 
     // The second write targets a different file: it must NOT park behind the
     // first — this is the single-session-collapse regression guard.
     const b2 = makeBridge();
-    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal));
+    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal, governedNativeTurn));
     await until(() => t2Resolved);
     expect(writeLock.heldKeys.sort()).toEqual([
       "path:/brain/notes/a.md",
@@ -1432,15 +1436,22 @@ describe("Agent background rewrite", () => {
   });
 });
 
-describe("turn budget in the system prompt", () => {
-  test("req.turnBudgetMs surfaces in the appended brief", async () => {
+describe("turn budget in the current tail", () => {
+  test("req.turnBudgetMs surfaces in owned tail beside the generic lifecycle brief", async () => {
     let captured: Options | undefined;
-    const queryFn = ((params: { options?: Options }) => {
+    let promptText = "";
+    const queryFn = ((params: { options?: Options; prompt: string | AsyncIterable<import("@anthropic-ai/claude-agent-sdk").SDKUserMessage> }) => {
       captured = params.options!;
-      return (async function* () {
+      return {
+        initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
+        getSettings: async () => ({ effective: {}, sources: [] }),
+        async *[Symbol.asyncIterator]() {
+        if (typeof params.prompt === "string") promptText = params.prompt;
+        else { const first = await params.prompt[Symbol.asyncIterator]().next(); if (!first.done) promptText = JSON.stringify(first.value.message.content); }
         yield initMsg("s1");
         yield resultMsg("s1");
-      })();
+        },
+      };
     }) as unknown as typeof query;
 
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn });
@@ -1450,7 +1461,8 @@ describe("turn budget in the system prompt", () => {
     );
 
     const sp = captured!.systemPrompt as { append?: string };
-    expect(sp.append).toContain("about 25 minutes");
+    expect(sp.append).not.toContain("about 25 minutes");
+    expect(promptText).toContain("about 25 minutes");
     expect(sp.append).toContain("Turn lifecycle");
   });
 });
@@ -1464,4 +1476,17 @@ test("the admitted remaining USD budget reaches Claude's SDK backstop and its st
  await backend.startTurn(makeReq({...fixture.bridge,activity:event=>events.push(event)},new AbortController().signal,{maxBudgetUsd:37.25}));
  expect(captured,"BUDGET_CLAUDE_ACTUAL_SDK_OPTION").toBe(37.25);expect(events.filter(event=>event.kind==="budget_backstop")).toHaveLength(1);
  expect(fixture.frames.find(frame=>frame.type==="result")).toMatchObject({outcomeDetail:"max_budget"});
+});
+
+test("a fresh nonpersistent handoff helper retains its own terminal cost", async () => {
+  const backend = createClaudeBackend({ brainPath: "/brain", queryFn: makeQueryFn(async function* () {
+    yield initMsg("odysseus-handoff-helper");
+    yield { ...resultMsg("odysseus-handoff-helper"), total_cost_usd: 0.25 };
+  }) });
+  const { frames, bridge } = makeBridge();
+  await backend.startTurn(makeReq({ ...bridge, checkpointPermission: () => {} }, new AbortController().signal, {
+    enforceAllowedTools: true, noGrantSurface: true,
+    autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "Summarize the voyage." },
+  }));
+  expect(frames.at(-1), "FRESH_HANDOFF_COST_RETAINED").toMatchObject({ type: "result", costUsd: 0.25 });
 });

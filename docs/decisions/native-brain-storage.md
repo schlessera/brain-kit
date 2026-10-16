@@ -90,7 +90,22 @@ checkpoint identities. It executes no brain configuration, Git, hooks or CLI.
 Workers receive no manager endpoint, block device or administrative capability.
 Untrusted writers must be prevented from creating nested subvolumes or changing
 snapshot flags; otherwise native snapshots could omit writable content or lose
-immutability. Read-only mounts and inaccessible private aliases remain required.
+immutability. Read-only mounts and inaccessible private aliases remain required. Maintenance
+masking covers exact regular-file paths as well as directories; the qualified
+loop backing file does not rely on its parent being masked or its DAC mode
+denying reads.
+
+> **2026-10-15 — Recovery scope for mutable private storage.** The
+> [runtime-state recovery amendment](policy-write-boundary.md#cross-uid-runtime-state-and-best-effort-recovery--2026-10-15)
+> records #1677 option E. Read-only native checkpoints remain immutable inputs;
+> their existence does not snapshot the mutable tmpfs outputs described below.
+> After verified owned-tree termination and implemented owned-I/O cleanup,
+> recovery is best effort over observed bytes, with explicit external-reference,
+> source-consistency and physical-reclamation limits. Configured bounds, known
+> retained-resource accounting and this record's no-qgroup policy remain.
+> This neither selects Btrfs-backed runtime state nor claims broker/runtime
+> qualification; production packaging remains in
+> [brain-hosting-template #18](https://github.com/schlessera/brain-hosting-template/issues/18).
 
 Writable maintenance and strict-worker outputs use a private bounded tmpfs
 upper layer over the admitted checkpoint. The host manager mounts OverlayFS

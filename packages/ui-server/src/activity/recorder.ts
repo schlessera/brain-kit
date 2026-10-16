@@ -1,3 +1,4 @@
+import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnostics.js";
 /**
  * Per-turn span derivation: the host-side half of activity recording.
  *
@@ -60,6 +61,7 @@ export interface TurnRecorderDeps {
 }
 
 export interface TurnRecorder {
+  setMainModel(model: string): void;
   setWorkerProfile(profile: GovernanceProfile): void;
   /** The run id (one run per turn). */
   readonly runId: string;
@@ -94,12 +96,14 @@ export interface TurnRecorder {
    */
   /** Host budget stop outranks the runtime cancellation it caused. */
   recordBudgetStop(reason: string, errorClass?: "budget_exceeded" | "budget_unavailable"): void;
-  finish(disposition: "success" | "error" | "cancelled" | "timeout"): void;
+  /** An explicit host failure reason wins over a backend result's message. */
+  finish(disposition: "success" | "error" | "cancelled" | "timeout", reason?: string): void;
 }
 
 export function createTurnRecorder(
   deps: TurnRecorderDeps,
   turn: {
+    lifecycle?: ReturnType<typeof import("./turn-lifecycle.js").createTurnLifecycle>;
     turnId: string;
     sessionId: string | null;
     /** The RESOLVED inference profile this turn runs on (post pin-drop fallback). */
@@ -132,9 +136,13 @@ export function createTurnRecorder(
   let finished = false;
   /** Buffered terminal enrichment from the result frame. */
   let resultOutcome: SpanOutcome | null = null;
+  let resultFailureReason: string | undefined;
   let resultUsage: SpanUsage | undefined;
+  let mainModel: string | null = null;
   let resultAttrs: Record<string, unknown> | undefined;
   let completedUsage: TurnUsage | undefined;
+  let firstRequestRecorded = false;
+  let prefixRecorded = false;
   let atToolBoundary = false;
   let autonomousStop = false;
   let budgetStop: {reason:string;errorClass:"budget_exceeded" | "budget_unavailable"} | undefined;
@@ -152,6 +160,8 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
+  let cancelledAt: number | null = null;
+  let cancelledCallIds: string[] = [];
   let roadblocksRecorded = false;
   const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
     let call = calls.get(toolUseId);
@@ -182,6 +192,7 @@ export function createTurnRecorder(
 
   function ensureRoot() {
     if (rootStarted) return;
+    turn.lifecycle?.firstFrame(null);
     rootStarted = true;
     store.startSpan({
       spanId: rootSpanId,
@@ -204,6 +215,7 @@ export function createTurnRecorder(
         ...(turn.pricingRoute ? { "brain.pricing_route": turn.pricingRoute } : {}),
       },
     });
+    turn.lifecycle?.linkBackend(runId);
     onWrite?.();
   }
 
@@ -219,15 +231,18 @@ export function createTurnRecorder(
   }
 
   return {
+    setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
     runId,
 
     observeFrame(msg) {
       guard(() => {
         if (finished) return;
+        turn.lifecycle?.firstFrame(rootStarted ? runId : null);
         switch (msg.type) {
           case "session_info": {
             sessionId = msg.sessionId;
+            turn.lifecycle?.bindSession(msg.sessionId);
             ensureRoot();
             // The root may have been opened before the session had a name.
             store.patchSpan(rootSpanId, { attrs: { "session.id": msg.sessionId } });
@@ -310,6 +325,7 @@ export function createTurnRecorder(
                   : msg.outcomeDetail === "max_turns" || msg.outcomeDetail === "max_budget"
                     ? "timeout"
                     : "error";
+            resultFailureReason = msg.failure?.message;
             outcomeDetail = msg.outcomeDetail ?? null;
             if (msg.usage) resultUsage = usageFromTurnUsage(msg.usage);
             if (typeof msg.costUsd === "number") {
@@ -333,6 +349,32 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         switch (event.kind) {
+
+          case "prompt_prefix": {
+            if (prefixRecorded || turn.origin === "autonomous" || typeof event.resumed !== "boolean" || !validPrefix(event.prefix)) break;
+            ensureRoot();
+            prefixRecorded = true;
+            const prior = sessionId ? store.previousSessionRoot?.(rootSpanId, sessionId) : null;
+            store.patchSpan(rootSpanId, { attrs: {
+              "brain.cache.prefix": { tools: event.prefix.tools, system: event.prefix.system, model: event.prefix.model,
+                thinking: event.prefix.thinking, gitStatusIncluded: event.prefix.gitStatusIncluded, coverage: event.prefix.coverage },
+              "brain.cache.resumed": event.resumed,
+              "brain.cache.changed": event.resumed ? changedPrefix(event.prefix, prior?.attrs["brain.cache.prefix"] as typeof event.prefix | undefined) : "unknown",
+            } });
+            onWrite?.();
+            break;
+          }
+          case "first_request_cache": {
+            if (firstRequestRecorded || turn.origin === "autonomous" || !validFirstRequest(event.usage)) break;
+            ensureRoot();
+            firstRequestRecorded = true;
+            const u = event.usage;
+            store.patchSpan(rootSpanId, { attrs: { "brain.cache.first_request": {
+              inputTokens: u.inputTokens, cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens, source: u.source, coverage: u.coverage,
+            } } });
+            onWrite?.();
+            break;
+          }
           case "usage":
           case "autonomous_usage": {
             if (event.kind === "autonomous_usage" && turn.origin !== "autonomous") break;
@@ -425,7 +467,7 @@ export function createTurnRecorder(
               deps.governance?.({ kind: event.kind, payload: event.payload,
                 sessionId: sessionId ?? null, turnId: runId,
                 actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
-                model: resultUsage?.model ?? null, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
+                model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
             } catch (error) {
               log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
             }
@@ -480,6 +522,7 @@ export function createTurnRecorder(
     recordPrincipalRevocation(principalId) {
       guard(() => {
         if (finished || principalRevocationRecorded) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("principal_revoked", principalId); principalRevocationRecorded = true; return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "principal_revoked", { principalId });
         principalRevocationRecorded = true;
@@ -490,6 +533,7 @@ export function createTurnRecorder(
     recordFollowUp(principalId) {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("follow_up", principalId); return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "follow_up", { principalId });
         onWrite?.();
@@ -499,7 +543,12 @@ export function createTurnRecorder(
     recordCancellation(principalId, kind = "turn") {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordCancellation(principalId, kind); return; }
         ensureRoot();
+        if (kind === "turn" && cancelledAt === null) {
+          cancelledAt = Date.now();
+          cancelledCallIds = [...calls.values()].filter(call => call.endedAt === null).map(call => call.toolCallId);
+        }
         store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
         onWrite?.();
       });
@@ -560,20 +609,22 @@ export function createTurnRecorder(
     recordAutonomousStop() { autonomousStop = true; },
     recordBudgetStop(reason,errorClass="budget_exceeded") { budgetStop = {reason,errorClass}; },
 
-    finish(disposition) {
+    finish(disposition, reason) {
       guard(() => {
         if (finished) return;
         finished = true;
+        if (turn.lifecycle && !rootStarted) return;
         ensureRoot();
         // Merged precedence: the buffered result enrichment refines the
         // host's own disposition; the host wins only where the backend said
-        // nothing. Cancellation/timeout are host-owned facts and always win.
+        // nothing, or explicitly supplies its own failure. Cancellation/timeout
+        // are host-owned facts and always win.
         // An auth failure is a failed run even where the runtime's own result
         // frame reports success (the SDK does, with is_error set; #191).
         const outcome: SpanOutcome =
           disposition === "cancelled" || disposition === "timeout"
             ? disposition
-            : budgetStop || authFailed
+            : budgetStop || authFailed || (disposition === "error" && reason !== undefined)
               ? "error"
               : (resultOutcome ?? disposition);
         // A successful autonomous checkpoint can use completed responses;
@@ -590,7 +641,9 @@ export function createTurnRecorder(
           outcome,
           usage: resultUsage,
           attrs: { ...resultAttrs, ...(budgetStop ? {"brain.failure.class":budgetStop.errorClass} : {}) },
-          ...(budgetStop ? {reason:budgetStop.reason} : {}),
+          ...((outcome === "error" || outcome === "timeout") && (reason ?? budgetStop?.reason ?? resultFailureReason) !== undefined
+            ? { reason: clip((reason ?? budgetStop?.reason ?? resultFailureReason)!, 500) }
+            : {}),
         });
         // Anything still open died with the turn.
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
@@ -612,7 +665,7 @@ export function createTurnRecorder(
             turnId: runId,
             sessionId: sessionId ?? null,
             actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
-            model: resultUsage?.model ?? null,
+            model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel,
             profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null),
           }, {
             startedAt,
@@ -623,6 +676,8 @@ export function createTurnRecorder(
               ? {tokens:totalTokens(completedUsage),costUsd:completedUsage.costUsd ?? null}
               : resultUsage ? { tokens: totalTokens(resultUsage), costUsd: resultUsage.costUsd ?? null } : null,
             outcomeDetail,
+            cancelledAt,
+            cancelledCallIds,
           });
         });
       }

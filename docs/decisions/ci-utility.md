@@ -9,6 +9,37 @@ for complete mandatory local proof and packaging-before-verification scheduling.
 Every test, offline boundary, image/runtime pin and behavioral assertion remains.
 The earlier #1321 exception was one PR's ruling; this is the general policy.
 
+## Browser proof input ownership
+
+The maintainer selected D/A/A under [#2125](https://github.com/schlessera/brain-kit/issues/2125)
+on 2026-10-16: discover repository static imports and validate explicit declarations
+for spawned processes, generated entrypoints, file reads, assets and CSS/build inputs.
+Browser, layout, endurance and captures each use their applicable combined closure.
+Captures use their own entrypoints and declarations. A selected category runs in full;
+this changes category selection, never its internal case inventory or shard coverage.
+
+Declarations live alongside the harness in `packages/ui-kit/tests/proof-inputs.json`
+and `scripts/captures/proof-inputs.json`. Each binds an exact owner call expression
+to nonempty repository targets. Targets must exist and participate transitively;
+directories also own newly added descendants. Missing, duplicate, stale, unused,
+escaping or unsupported inputs retain the previous broad selection. Exact source
+matching detects a changed call site; it does not prove an arbitrary runtime target
+is bounded. Do not declare an owner as its own target to conceal unknown inputs.
+
+Runtime-selected configuration/modules and backend imports can prevent a closed
+category. That is a conservative result, not permission to discard an edge. The
+shared Vitest config imports the dispatch command; its real application fixture
+reaches every current server route. A synthetic unrelated-route negative therefore
+does not demonstrate savings for any existing route. Fixed spawned fixture and
+corpus paths are declared independently of these runtime-variable edges.
+
+Global dependency/tooling changes retain complete selection. Main pushes retain
+complete affected proof. Scheduled and manual runs remain exhaustive as an
+independent detector of omitted inputs; they do not replace exact candidate proof.
+The same immutable 100-PR replay must identify every newly omitted browser category
+and its closure evidence. Zero reductions is a valid observed result, without a
+speedup claim or an inferred narrower harness.
+
 ## Local feedback and authoritative proof
 
 `bun run check:pr --base origin/main` runs local lint/leakage, metadata,
@@ -18,8 +49,8 @@ packaging, strict types or full browser/runtime proof. Agents still supply
 focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
-CI supplies authoritative complete repeatable proof on ready PRs. Complete
-unit/integration discovery includes affected workspaces and every reverse
+CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
+unit/integration discovery normally includes affected workspaces and every reverse
 dependant, plus root tooling tests. Global/unknown inputs expand to complete
 default discovery. Newly added files are discovered, not admitted through a
 fixed allowlist. Shipped changes retain all packed-consumer probes; selected
@@ -30,6 +61,18 @@ native delegation/capability/Haiku probes, measurement isolation and shared
 process cleanup. Native probes run against loopback fixtures without live keys.
 The Linux runner setup retains the existing ephemeral namespace prerequisite;
 the test/preload and offline namespace guards remain enabled.
+
+
+Root `tests/**`, `scripts/**`, `experiments/**` and `website/**` now use a
+conservative reverse reference closure to select root and package test consumers,
+plus the reviewed category table in `scripts/ci-plan.ts`. Root test leaves select
+themselves. Narrow unit inventories include the tooling fast invariants exactly
+once: when complete unit proof is selected, verify does not repeat the fast
+subset. Package changes still discover all root tests alongside affected packages.
+Unreadable inputs, outside symlinks, conflicting mappings and inputs without a
+recognised test/category consumer remain global. Lockfiles, root manifests,
+changeset configuration, workflows and unknown roots remain global. Exhaustive
+and event/candidate/aggregate requirements are unchanged.
 
 Complete local commands remain available: `check:pr --full` runs the affected
 full inventory and `check:pr --all` runs every category for releases or diagnosis.
@@ -51,14 +94,23 @@ proof. They are not substitutes for automatic event/checkout evidence.
 
 ## Scheduling and selection
 
-Drafts run cheap rejection/metadata gates only. Marking ready selects complete
-proof; subsequent synchronize events reselect actual changed inputs. Batch
-intermediate pushes. Title/label edits run the separate contract gate, not long
+Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap
+rejection/metadata gates only. Opening or reopening a ready PR, or marking a
+PR ready (`ready_for_review`), explicitly requests complete affected candidate
+confirmation. A ready PR's `synchronize` event runs affected strict types and
+curated fast invariants; packaging, complete unit/native/browser/layout/capture
+proof and endurance wait for confirmation. Its `proof` check deliberately fails
+with the action needed: convert to draft, finish pushes, then mark ready again.
+Fast feedback being green is useful, but never sufficient merge evidence.
+The request belongs to one event, not a label that can approve later commits.
+Main pushes still execute complete affected proof. Scheduled and manual runs
+execute exhaustive discovery with a distinct aggregate check name, so they
+cannot impersonate a PR's candidate confirmation. Title/label edits run the separate contract gate, not long
 proof. Main commits keep independent SHA concurrency groups; obsolete heads of
 one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
-browser shards, layout/endurance shards and captures start independently.
+browser shards, layout shards, a separate endurance job and captures start independently.
 There are four measured-cost unit partitions and two browser/layout partitions,
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
@@ -77,18 +129,100 @@ the observation record. Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
-with `bun scripts/refresh-browser-costs.ts <run-id> <attempt>`; reviewed CI
-reports are measurement inputs, never runtime dependencies.
+with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(the default remains browser). Each domain retains its own run/attempt/job,
+checkout/tree/parent and pinned-image provenance. Refresh requires both fresh
+successful jobs from a successful CI run, matching actual checkouts, complete
+reported project/file coverage and source/image attribution; cancelled,
+partial or retained-only proof supplies no measurements. Refreshing one domain
+preserves the other's costs and provenance. Reviewed CI reports are measurement
+inputs, never runtime dependencies. Layout refresh admits ordinary
+`ui-react-layout` measurements; `ui-react-endurance` remains a separate mandatory
+fresh job and never becomes an ordinary browser/layout weight. Requalify timing
+inputs after scenario ownership changes: the former combined recording-file
+measurement includes endurance and is not its current ordinary-layout cost.
+Two layout shards, per-project serial execution and all deadlines remain unchanged.
+
+Hosted unit partitions use a queue capped at two serial Bun test processes
+(`scripts/unit-workers.ts`), or one when only one file is selected. Native
+Bun `--parallel=2` failed all four hosted partitions in
+[run 38905715338](https://github.com/schlessera/brain-kit/actions/runs/38905715338):
+DOM cleanup, an import initialization cycle and shared build output require
+separate ownership. The queue gives each process a detached source checkout,
+private frozen dependency copies, a private build and its existing workspace
+lease. Its mode-0700 container sits beside the original checkout, outside
+host `/tmp` so native workers can still load their runtime. A private mount
+binds only that process's maintenance ledger; children still share its original
+limits. Setup capabilities are dropped and the caller's umask is restored.
+Discovery, per-test deadlines, offline preload, browser concurrency and the
+outer job budget remain unchanged. Combined JUnit and timings must cover the
+selected files exactly; worker artifacts retain partial failure diagnostics.
+
+[Run 38913463131](https://github.com/schlessera/brain-kit/actions/runs/38913463131)
+at actual source `b8a75225` supplies the serial baseline: 961 files, 13,512 cases,
+28 skips and no TODOs; the longest proof took 1,402.32 seconds, used 2,227.51
+VM CPU seconds and peaked at 5.48 GB on a 16.77 GB runner (11.29 GB headroom).
+All four queued arms failed because their checkout location hid native source
+under `/tmp` and their setup umask changed test file modes. Those timings do
+not establish a speedup. Restoring caller permissions and native source
+visibility has real failing/restored runtime controls. N=2 is the implemented
+bounded candidate; complete queue throughput, same-SHA count equality and the
+two exhaustive/main passes remain verification obligations in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121). An earlier source's
+serial pass is never relabeled as a different source's full pass. Dependency
+copies and private builds count in proof time and sampled VM resources; job
+setup/install and queue cost remain separate step measurements.
+
+Unit weights have the same explicit reviewed path:
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
+successful exhaustive unit jobs and binds actual checkout logs, immutable
+source discovery, complete JUnit/timing partitions and downloaded archive
+digests. `scripts/unit-shard-measurement.json` records that provenance; the
+refresh names any observed unweighted file exceeding 30 seconds. Timings
+are reviewed inputs, never fetched during contribution CI.
+
+Runtime proof uses two independently selected jobs. `runtime` retains the three
+loopback-only Claude probes and the shared-process Chrome/child-cleanup command;
+`runtime_host` retains native managed hosted admission, including its four healthy
+backend/UID cells, index-release negative control, owned loop cleanup, unchanged
+runner quota and failure diagnostics. Both selections derive from the same runtime
+requirement and both must pass the aggregate. Local `check:pr --full` and `--all`
+retain the complete five-command inventory.
+
+A single checkout cannot safely overlap those two long phases: both test wrappers
+acquire its exclusive workspace-output lease, including the lease bind-mounted
+into the native container. The Chrome fixtures rebuild output while retaining
+that lease. The existing real-host/container lock controls prove contention;
+read-only access rejects a nested build. Separate jobs preserve those ownership
+rules without private-copy setup or an override. The exact two Chrome test files
+still execute in one process with `--shard=1/1`. Native cell order, deadlines,
+capabilities, offline namespaces and the pinned runtime remain unchanged.
+
+The successful historical main run 38903809808 at
+`626a03af4a9db064751230a84732755b8afa961e` records 702.725 seconds for the
+serial runtime category: 13.522/9.719/4.571 seconds for the probes, 424.345 seconds
+for hosted admission and 250.566 seconds for shared-process cleanup. Its four-CPU
+VM sampled 2.540 GB used of 16.766 GB and 884.56 active CPU-seconds. These are
+attributed historical observations, not a controlled current-source speedup.
+Current two-job phase and full-job/setup measurements are required to qualify the
+split against the longest single phase plus 90-second wall-time criterion.
+
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
-`proof` gate examines every selected job: success is required; missing output,
+`proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
 failure, cancellation and unexpected skips cannot pass. Only explicit planner
 exclusions permit skips. Exhaustive scheduled/manual runs detect selection drift
 and remain supplementary to affected pre-merge proof.
 
 Retain actual tested head/base/checkout identities, commands, attempts and
-artifacts. Inspect new main commits before refreshing. Unrelated advancement
-alone does not demand a rebase or repeat long suites. Reuse is justified only
+artifacts. Inspect new main commits before refreshing. The final candidate gate compares the actual merge checkout and immutable GitHub
+commit/tree/parents to the requested head/base and live PR readiness/head plus
+an independently queried base ref. A changed base requires a new confirmation
+request, even when a reviewer considers that base change unrelated. This is a
+conservative identity rule: no rebase is required solely to request a new
+combined checkout, and admitted equivalent browser/layout domains can still be
+retained. It supersedes the earlier permission to merge after only a manual
+unrelated-base assessment. Endurance and Git-sensitive domains remain fresh. Reuse is justified only
 when the complete suite inputs, dependency closure, fixtures and harness are
 unchanged and recorded evidence establishes that fact; unknown/global changes
 require fresh proof. There is no generic passing-result cache. The earlier run
@@ -146,21 +280,58 @@ Discovery has a 15-second timeout; a missing immutable Git object has an
 eight-second bounded fetch. Runner image context comes from the image's
 [recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
 
+### Execution domains and assertion ownership
+
+The [proof-domain inventory](../process/proof-domains.md) describes default
+ownership and the recording split. `bun run test:inventory` uses actual Vitest
+file discovery and Bun default discovery, emits declaration/assertion source
+locations, refuses missing/duplicate browser ownership and misplaced endurance
+files, and reports unmeasured browser weights. Source locations are navigation,
+not an expansion of dynamic cases or a substitute for executing assertions.
+New ordinary tests conservatively join complete final discovery. There is no
+duration threshold that silently removes expensive cases. Keep paid opt-in
+provider tests and experiment-only discovery distinct.
+
+`bun run test:endurance` selects `ui-react-endurance` and every `.endurance.tsx`
+file, with the same pinned image, offline Docker network, real media APIs,
+deadlines and cleanup. Mixed files retain their short functional/security cases
+in ordinary proof. The separate job has one project and the original sequential
+file bound; it runs on its own VM alongside ordinary proof, never adds browser
+contention within a layout shard, and contributes no ordinary shard weights.
+Full local preflight remains sequential for safe resource ownership; standalone
+endurance can run concurrently in a separate checkout. Hosted confirmation,
+main affected proof and exhaustive scheduled/manual runs require endurance
+whenever UI/global inputs select it. Missing/cancelled/skipped selected endurance
+is a failed gate, not deferred optional coverage.
+
 ## Measuring the critical path
 
-Record queue wait, job elapsed times, ready-to-merge duration, cancelled attempt
+Record queue wait, setup/install/build and suite times, job elapsed times, ready-to-merge duration, cancelled attempt
 time and repeated work after base advancement. Historical Depot samples (198
 terminal workflows, 43% cancellation consumption, median successful 21-minute
 elapsed/93-minute summed time) explain the former policy; they are not hosted
 GitHub benchmarks. Measure the new pinned runner before changing shard counts,
 browser file concurrency or test deadlines. Free runner minutes do not remove
 account concurrency limits. Preserve diagnostic reports and failure images,
-with bounded artifact retention. Fix flaky behavior; never rerun a real failure
+with bounded artifact retention. Each proof job emits per-command elapsed times
+and VM-wide active CPU seconds and sampled used memory (including container
+work) to `proof-resources.json`. These one-second samples are not an exact
+process peak; job-step timestamps supply setup and queue costs. Keep source,
+runner identity and resource scope beside comparisons, and never infer causal
+speedups from unrelated historical SHAs. Fix flaky behavior; never rerun a real failure
 or shorten its assertion merely to obtain green.
 
 The repository is user-owned, so native GitHub merge queues are unavailable.
 Do not invent a queue or require ownership migration as part of this change.
-The existing matching-head merge plus relevance assessment remains in use.
+Matching-head merges still require a live base/head read immediately before
+merge and actual squash parent/tree verification afterward. A passing check
+cannot lock the base against another merge. If it changed since confirmation,
+request confirmation again; if it races the merge, do not attribute old proof
+to the new tree. The workflow is a fail-closed evidence gate, not a repository
+permission: without branch protection a writer can technically bypass it.
+Agents must not do so, and this policy does not change protection settings.
+The read-only [Get a pull request API](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
+accepts the existing `contents: read` permission; no privileged token/event is added.
 
 ## Historical measurement and upstream guidance
 
@@ -209,3 +380,21 @@ paths or immutable entries. Neither is the first cost lever here: inspected
 dependency installs were short, and expensive automatic browser jobs have moved
 to required local checks. Do not cache a passing test result as a substitute
 for proving the changed checkout.
+
+### Independent Bun test-only changes
+
+A PR changing only unreferenced Bun test files and prose selects those
+files plus their owning fast invariant groups. Other tracked files must not
+name a test basename, the files must export nothing, and expanded package build
+inventories must not consume them. Source and shared helper inputs are unchanged,
+so executing the changed leaves covers their changed results without repeating
+reverse dependants or unrelated browser, layout, endurance and capture domains.
+A named runtime command retains ordinary runtime selection through the reference
+fallback. Fixtures (including Markdown), helpers, snapshots, exported/referenced
+or deleted tests, unknown inputs and unavailable scans retain ordinary selection.
+Main pushes and exhaustive runs retain complete affected/default discovery.
+
+The exact unit inventory is validated against default Bun discovery. It includes
+owning fast tests once, and uses at most the existing four partitions, reduced
+only when fewer files exist; no empty partition or duplicate execution substitutes
+for coverage. Selected categories remain required by the unchanged aggregate.

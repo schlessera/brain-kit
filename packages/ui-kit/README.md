@@ -39,6 +39,11 @@ Acts that focus background content belong in that callback. `CommandPalette` no
 longer carries dialog semantics; wrap it in `Overlay`. Load the mandatory kit stylesheet for geometry,
 scrims, scroll lock and motion. `z` and `LAYERS` name the six document layers.
 
+Printed keyboard hints follow `(any-pointer: fine)` in the mandatory stylesheet,
+including command-picker fallbacks, the rail palette cap, composer instructions
+and answer-field Enter glyph. Touch-only All commands keeps its labelled icon
+control. Hiding a hint never disables its keyboard binding.
+
 ## Loading
 
 Loading is blurred ghost text in the replaced content's type role, with one
@@ -62,6 +67,14 @@ and controlled `active` preserve result identity and keyboard selection in a
 search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
 metric rather than a calibrated probability. Opening remains the caller's
 `onClick`, and long snippet tokens wrap within the card.
+
+## Custom answers
+
+`AskUserCard` keeps Submit and Dismiss visible when `otherOpen` shows the
+custom-answer field. Submit and Enter call `onOtherSubmit` with the current
+nonblank text. Blank text disables Submit and prints the reason. Pass
+`otherText` and `onOtherChange` to retain the draft in the caller; otherwise
+the card keeps it locally. A closed exchange renders neither field nor actions.
 
 ## Grouped questions
 

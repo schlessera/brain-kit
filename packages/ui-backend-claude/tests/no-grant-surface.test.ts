@@ -37,10 +37,13 @@ import type {
 import { createClaudeBackend } from "../src/backend";
 import { MASK_TOOL_NAME } from "../src/mask-tool";
 import { ASK_USER_LIST_TOOL_NAME } from "../src/ask-user-list-tool";
-import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
+
 import { runToolCall } from "./helpers/run-tool-call";
 
 // Hooks belong to a live turn. End every fixture after its tool assertions.
+// Exercise the retained legacy MCP confirmation gate; hosted operations use the server route.
+const BRAIN_UPDATE_TOOL = "mcp__brain__brain_update";
+
 const finishTurns: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const finish of finishTurns.splice(0)) await finish();
@@ -89,7 +92,7 @@ async function startTurn(setup: {
     },
     // The per-turn runtime report (#211) is not what these tests are about.
     activity: (event) => {
-      if (event.kind !== "runtime_observed") activity.push(event);
+      if (event.kind !== "runtime_observed" && event.kind !== "claude_session_usage" && event.kind !== "prompt_prefix") activity.push(event);
     },
     ...(setup.withMaskHandler
       ? { requestMask: async () => new Uint8Array() }
@@ -292,7 +295,7 @@ describe("a turn with no grant surface, kind command", () => {
 });
 
 describe("the capability that needs eyes", () => {
-  test("the mask editor is not appended to a turn with no grant surface", async () => {
+  test("the mask editor remains in the fixed brief without gaining no-grant authority", async () => {
     const harness = await startTurn({
       allowedTools: WITHOUT_SHELL,
       enforceAllowedTools: true,
@@ -304,9 +307,9 @@ describe("the capability that needs eyes", () => {
     // append, which puts the tool INSIDE the enforced allowlist whatever the
     // posture declared.
     expect(harness.options.allowedTools).not.toContain(MASK_TOOL_NAME);
-    // And it is withheld, not merely un-allowlisted: nothing tells the model
-    // it has an editor it cannot open.
-    expect(JSON.stringify(harness.options.systemPrompt)).not.toContain(MASK_TOOL_NAME);
+    // Stable descriptions are independent of live authority; current availability
+    // is sent only in the new user message.
+    expect(JSON.stringify(harness.options.systemPrompt)).toContain(MASK_TOOL_NAME);
   });
 
   test("the same bridge hands it to a turn that has a grant surface", async () => {
@@ -319,7 +322,7 @@ describe("the capability that needs eyes", () => {
     expect(harness.options.allowedTools).toContain(MASK_TOOL_NAME);
   });
 
-  test("the list card is not appended to a turn with no grant surface", async () => {
+  test("the list card remains in the fixed brief without gaining no-grant authority", async () => {
     const harness = await startTurn({
       allowedTools: WITHOUT_SHELL,
       enforceAllowedTools: true,
@@ -327,7 +330,7 @@ describe("the capability that needs eyes", () => {
       withListHandler: true,
     });
     expect(harness.options.allowedTools).not.toContain(ASK_USER_LIST_TOOL_NAME);
-    expect(JSON.stringify(harness.options.systemPrompt)).not.toContain(ASK_USER_LIST_TOOL_NAME);
+    expect(JSON.stringify(harness.options.systemPrompt)).toContain(ASK_USER_LIST_TOOL_NAME);
   });
 
   test("the same bridge hands the list card to a turn that has a grant surface", async () => {

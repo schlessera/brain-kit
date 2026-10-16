@@ -1,3 +1,4 @@
+import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -149,6 +150,7 @@ test.each([
   const input = opening + data + closing + (closing ? "Keep prose.\n" : "");
   const root = fixture(input);
   const original = parseFrontmatter(input);
+  expect(loadScoringConfig(root, "career/criteria.md")).toEqual(parseScoringConfig(original.data.scoring));
   const plan = planScoringMigration(root, { criteria: "career/criteria.md" });
   const after = plan.changes[0]!.after;
   expect(after.startsWith(opening)).toBe(true);
@@ -168,4 +170,24 @@ test("migration preserves comments and blank lines belonging to retained frontma
     if (future) expect(after).toContain(future);
     expect(parseFrontmatter(after).content).toBe("Keep prose.\n");
   }
+});
+
+
+test("legacy scoring migration refuses executable engines before its source-format check", () => {
+  const sentinel = frontmatterEngineSentinel({ scoring: { groups: [{ name: "Voyage", weight: 25, keywords: ["Ithaca"] }] } });
+  try {
+    for (const language of ["js", "javascript", "JS", "JavaScript", "coffee", "odyssey"]) {
+      const root = fixture(`---${language}\nOdysseus\n---\n`);
+      for (const [label, action] of [
+        ["LEGACY_READER_NO_EXECUTABLE_DISPATCH", () => loadScoringConfig(root, "career/criteria.md")],
+        ["LEGACY_MIGRATION_NO_EXECUTABLE_DISPATCH", () => planScoringMigration(root, { criteria: "career/criteria.md" })],
+      ] as const) {
+        let error: unknown;
+        try { action(); } catch (caught) { error = caught; }
+        expect(sentinel.dispatched, label).toEqual([]);
+        expect(String(error)).toContain("use YAML or JSON data only");
+      }
+      expect(readFileSync(join(root, "career/criteria.md"), "utf8")).toBe(`---${language}\nOdysseus\n---\n`);
+    }
+  } finally { sentinel.restore(); }
 });

@@ -180,6 +180,8 @@ export interface SessionWorkerProfile {
 }
 
 export interface ClientChatMessage {
+  /** Authenticated share intake to bind at interactive start, never an item grant. */
+  shareId?: string;
   type: "chat_message";
   text: string;
   sessionId?: string;
@@ -1388,6 +1390,8 @@ export interface ServerSessionInfo {
 
 /** Safe profile metadata exposed to the client (never keys/env). */
 export interface ProviderInfo {
+  /** Explicit configured main-model id; absent when the runtime chooses it. */
+  model?: string;
   id: string;
   label: string;
   /**
@@ -2382,6 +2386,8 @@ export interface SharedFileMeta {
 
 /** Answer to POST /api/share: where the payload was staged. */
 export interface ShareIntakeResult {
+  /** Authenticated recovery of an already bound filing; open it without resending. */
+  filingSessionId?: string;
   /** Server-minted. The client never supplies a path component. */
   id: string;
   /** Repo-relative staging directory. */
@@ -2985,6 +2991,7 @@ export interface ActivitySpanEvent {
  * carries open root spans only — history comes from the REST activity API.
  */
 export interface ServerActivitySnapshot {
+  lifecycles?: ActivityTurnLifecycle[];
   type: "activity_snapshot";
   view: ActivityView;
   sessionId?: string;
@@ -2997,8 +3004,9 @@ export interface ServerActivitySnapshot {
   append?: boolean;
 }
 
-/** One committed change. Exactly one of `span` / `event` is present. */
+/** One committed change. Exactly one of `span`, `event`, `lifecycle` is present. */
 export interface ServerActivityDelta {
+  lifecycle?: ActivityTurnLifecycle;
   type: "activity_delta";
   runId: string;
   seq: number;
@@ -3046,7 +3054,39 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
   return v === "openrouter" || v === "direct";
 }
 
+/** Host-owned envelope; never contributes inference usage or cost. */
+export interface ActivityTurnLifecycle {
+  hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
+  skippedPhases: Array<"governed" | "budget" | "journal">;
+  lifecycleId: string;
+  turnId: string;
+  sessionId: string | null;
+  backendRunId: string | null;
+  acceptedAt: number;
+  dequeuedAt: number | null;
+  governedStartedAt: number | null;
+  governedAcquiredAt: number | null;
+  budgetStartedAt: number | null;
+  budgetAdmittedAt: number | null;
+  journalStartedAt: number | null;
+  journalBeganAt: number | null;
+  backendInvokedAt: number | null;
+  firstFrameAt: number | null;
+  failureObservedAt: number | null;
+  endedAt: number | null;
+  outcome: ActivitySpanOutcome | null;
+  reason: string | null;
+  totalElapsedMs: number | null;
+  timeToFirstFrameMs: number | null;
+  queueWaitMs: number | null;
+  governedAdmissionMs: number | null;
+  budgetAdmissionMs: number | null;
+  journalBeginMs: number | null;
+  backendStartupMs: number | null;
+}
+
 export interface ActivityRunSummary {
+  lifecycle?: ActivityTurnLifecycle;
   runId: string;
   origin: ActivitySpanOrigin;
   name: string;
@@ -3080,6 +3120,7 @@ export interface ActivityRunSummary {
 }
 
 export interface ActivityRunRollup {
+  lifecycle?: ActivityTurnLifecycle;
   origin: string;
   name: string;
   sessionId: string | null;
@@ -3103,7 +3144,39 @@ export interface ActivityRunRollup {
   failureReason: string | null;
 }
 
+/** Hashes describe backend-assembled inputs, not provider cache keys or hits. */
+export interface PromptPrefixFingerprint {
+  tools: string | null;
+  system: string | null;
+  model: string | null;
+  thinking: string | null;
+  gitStatusIncluded: boolean | null;
+  /** CLI-owned preset, tools and project configuration can remain opaque. */
+  coverage: "assembled_inputs";
+}
+
+export interface FirstRequestCacheUsage {
+  inputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  source: "claude_root_stream" | "pi_main_message";
+  /** Pi may normalize absent provider fields to zero; those are not raw reported zeros. */
+  coverage: "provider_reported" | "runtime_normalized";
+}
+
+export interface ActivityCacheDiagnostics {
+  firstRequest: FirstRequestCacheUsage | null;
+  prefix: PromptPrefixFingerprint | null;
+  resumed: boolean | null;
+  suspectedBreak: boolean | null;
+  /** unknown includes absent/pruned prior fingerprints. Multiple components may change. */
+  changed: Array<"tools" | "system" | "model" | "thinking" | "gitStatusIncluded"> | "unchanged" | "unknown";
+}
+
 export interface ActivityRunDetail {
+  cacheDiagnostics?: ActivityCacheDiagnostics;
+  lifecycleSeq?: number;
+  lifecycle?: ActivityTurnLifecycle;
   runId: string;
   detailPruned: boolean;
   spans?: ActivitySpan[];
@@ -3223,6 +3296,18 @@ export interface ActivityRuntimeStats {
     detailRetention: { days: number; cutoffAt: number; insideWindow: boolean };
     /** Runs in the window whose detail is already gone. */
     detailPrunedRuns: number;
+    /** Retained diagnostic details only; unknown runs are excluded from each sum. */
+    cacheDiagnostics?: {
+      scope: "retained_detail";
+      observedRuns: number;
+      runtimeNormalizedRuns: number;
+      unknownRuns: number;
+      inputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      suspectedBreaks: number;
+      unknownBreakRuns: number;
+    };
     runs: number;
     failures: number;
     /**

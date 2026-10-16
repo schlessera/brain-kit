@@ -16,14 +16,27 @@ means CI has not started on that commit, which is not the same as green.
 ## Required evidence
 
 Before opening/marking ready, execute `bun run check:pr --base origin/main`
-for focused preflight. Record actual behavioral failing-first/restored mutation
+(`--base <parent-ref>` for an upper stack layer) for focused preflight.
+Default preflight includes offline-wrapped `--changed=<merge-base-sha>`
+import-graph feedback, including working-tree changes, in addition to fast
+invariants. An empty selection prints Bun’s no-affected-tests reason and
+succeeds. This misses spawned commands and file-read/string-named inputs;
+it does not replace complete affected hosted discovery. Full/all modes retain
+their existing suites without adding this feedback step.
+Record actual behavioral failing-first/restored mutation
 receipts and visual judgment. Complete repeatable proof runs in selected hosted
 jobs under #1326, including full affected discovery, pinned browser/layout/
 endurance/editorial and native runtime categories. Optional `--full` and `--all`
 retain complete local commands. Every selected hosted job must pass; missing
 runtimes, failures/cancellations and unexpected skips leave proof unfinished.
-Keep drafts cheap and batch pushes. Assess relevant base changes before redoing
-heavy work; an unrelated merge alone does not justify restarting every suite.
+Keep drafts cheap and batch pushes. Ready synchronize runs fast feedback and
+leaves `proof` nonpassing; convert to draft and mark ready after the final push
+to request candidate confirmation. Open/reopen ready events also request it.
+The candidate gate checks actual merge parents/tree against the live head/base.
+A changed base requires a fresh confirmation event even without a rebase;
+valid immutable browser/layout retention remains available. Endurance is fresh
+and separately mandatory whenever selected. Assess relevant base changes before redoing
+heavy work; a new base requires confirmation, with valid browser/layout retention avoiding unnecessary execution.
 Under #1333, a selected browser/layout domain may intentionally skip fresh
 execution after complete input equivalence and original successful run/attempt/
 job/check/checkout receipts are validated. Inspect the current retention ledger
@@ -31,7 +44,20 @@ and independently validating aggregate. Preserve original identities; do not
 describe retained jobs as executions on the new SHA. Native/Git-dependent and
 unknown domains, main pushes and scheduled/manual coverage remain fresh.
 
+A draft-to-ready transition can retain GitHub's previous PR base and synthetic
+merge ref even after live main advances. Before requesting expensive confirmation,
+read the REST pull request's `base.sha` and fetch `refs/pull/<pr>/merge`; verify
+its immutable parents against the independently queried live base and current
+head. If those still describe the old base, keep the PR draft and refresh the
+branch onto the verified live base, preserving source receipts where their
+inputs are unchanged. Rerun focused preflight, push, and verify the refreshed
+merge parents before marking ready. A new event alone does not establish a
+fresh candidate; selected job checkout and aggregate checks remain required.
+
 ## Read the actual head
+
+For stacked PRs, apply [Stacked PR evidence](#stacked-pr-evidence) below;
+the `main` commands in this reference describe an ordinary PR or bottom layer.
 
 Record the PR head and query live main independently. Run the comparison
 blocks with shell error checking enabled; a failed comparison stops the merge
@@ -62,6 +88,15 @@ a push/rebase/conflict resolution, inspect the new SHA from scratch. If CI
 tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
+
+A fresh ready event can still carry GitHub's cached `pull_request.base.sha`.
+Compare the metadata job's `BASE_SHA` with the actual checkout's first parent,
+as well as the live base; checking only the checkout against live main misses
+this mismatch. If the requested base is stale, merge fetched `origin/main`
+into the issue branch, run the required preflight, push while draft and request
+confirmation again. Verify the refreshed metadata before spending the rest of
+the run. Do not weaken the candidate identity gate or call the earlier tests
+proof of a differently requested candidate.
 
 Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
 `project-sync.yml`, plus the merge requirements, for expected checks. GitHub
@@ -132,8 +167,7 @@ The local object must agree with the immutable API receipt. Reconcile all
 required jobs' checkouts with this proof; investigate different trees rather
 than applying one job's receipt to the others. A changed head requires fresh
 inspection. If main advanced, inspect the missing commits before refreshing:
-only commits relevant to this work or its checks require a rebase and affected
-revalidation. Record unrelated advancement without rebasing or restarting suites.
+rebase only when needed, but request new candidate confirmation for the new base. Record the new base and request confirmation; do not call the earlier receipt current.
 The earlier run still describes its recorded tree, not the newer combined tree;
 retain its actual head/base, the relevance assessment and existing branch rules.
 Do not overwrite the recorded base to make a comparison pass. Missing
@@ -174,6 +208,36 @@ verify affected behavior. A required unavailable review or new ruling is a
 blocker; an optional review is not a reason to invent an approval step.
 Never bypass required reviewers or use `--admin`.
 
+## Stacked PR evidence
+
+Load `gh-stack` and follow the
+[project stack rules](../../../../docs/process/github.md#stacked-pull-requests).
+Run local preflight against the immediate parent ref for each upper layer.
+For every PR in the intended merge prefix, record its head and declared base
+branch, independently query that base's live Git ref, and inspect its own
+selected jobs/checkouts. A two-parent synthetic checkout must have that recorded
+parent tip and PR head as parents. Keep contract head-only receipts separate.
+Do not substitute live `main` for an upper layer's base or claim its CI tested
+the eventual integrated trunk tree.
+
+Read back every included PR's release milestone and all issues it advances,
+along with current heads, bases, checks and review state. Confirm the resolved
+merge target: numeric arguments prefer stack numbers over PR numbers.
+Use `gh stack merge <target> --yes --squash` for a native stack. The installed
+CLI has no matching-head option; a final readback reduces the race window but
+does not lock heads. Retain the inspected heads and reconcile the actual result
+against them. Never substitute `gh pr merge` or `--admin` to bypass a refused
+stack merge.
+
+After landing, read each included PR's state and reported merge commit. Fetch
+main, prove those commits are ancestors, and inspect their actual parents,
+trees and delivered diffs against the inspected layers. Squashing can replace
+parent commit identities; do not require every upper squash to have its old
+parent branch SHA or apply the ordinary single-PR tree equality blindly.
+Reconcile any different integrated tree and verify automatic main-push proof,
+then read back issue closure and milestone assignments for every delivered
+slice. Queued PRs require actual merge-group and eventual landing evidence.
+
 ## Merge and verify
 
 Before every merge, assign the PR and each completed/advanced issue a release
@@ -200,8 +264,7 @@ rtk proxy git diff --name-only "$verified_base" "$current_base"
 ```
 
 A head mismatch requires new inspection. A base mismatch requires assessment of
-the missing commits: refresh/revalidate only if they affect this work or its
-checks. Record unrelated advancement and retain the original tested base/tree;
+the missing commits and new confirmation: request candidate confirmation for the new base; a rebase is needed only when the change requires it. Record unrelated advancement and retain the original tested base/tree;
 never report the earlier run as testing a different combined tree. Merge only the inspected,
 passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.

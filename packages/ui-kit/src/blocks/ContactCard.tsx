@@ -5,7 +5,7 @@ import { warnOnce } from "../internal/dev.js";
 import { VALUE_CUE } from "../internal/tone-cue.js";
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
-import type { IconName } from "../primitives/Icon.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { ButtonTone, ContactKind, ContactTone, ValueTone } from "../types.js";
 
@@ -44,6 +44,11 @@ export interface ContactAction {
   icon?: IconName;
   tone?: ButtonTone;
   onClick?: () => void;
+  disabled?: boolean;
+  ariaDisabled?: boolean;
+  ariaLabel?: string;
+  ariaDescribedBy?: string;
+  loading?: boolean;
 }
 
 export interface ContactCardProps {
@@ -242,15 +247,22 @@ export function ContactCard(p: ContactCardProps) {
       {actions ? (
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
           {actions.map((a, i) => (
-            <Button
-              key={i}
-              label={a.label}
-              icon={a.icon}
-              tone={a.tone}
-              size="sm"
-              block={false}
-              onClick={a.onClick}
-            />
+            <div key={i} style={{ position: "relative", flex: "0 0 auto" }}>
+              <Button
+                label={a.label}
+                icon={a.loading ? undefined : a.icon}
+                tone={a.tone}
+                size="sm"
+                block={false}
+                onClick={a.onClick}
+                disabled={a.disabled}
+                ariaDisabled={a.ariaDisabled}
+                ariaLabel={a.ariaLabel}
+                ariaDescribedBy={a.ariaDescribedBy}
+                style={a.loading ? { padding: "6px 12px 6px 30px" } : undefined}
+              />
+              {a.loading ? <span aria-hidden="true" className="bk-action-spinner" style={{ position: "absolute", left: 8, top: "50%", marginTop: -7, pointerEvents: "none" }}><Icon icon="loading" size={14} /></span> : null}
+            </div>
           ))}
         </div>
       ) : null}

@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const roots: string[] = [];
 const node = Bun.which("node");
 if (!node) throw new Error("visual runner tests require Node, as does the pinned browser image");
-const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed"];
+const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live"];
 type Call = { command: string; args: string[]; cwd: string };
 
 afterEach(async () => {
@@ -69,6 +69,15 @@ test("inside default serializes browser files in every configured project", asyn
     "run", ...projects.map((project) => `--project=${project}`), "--browser.fileParallelism=false",
   ]);
   expect(result.calls[0]!.cwd).toBe(resolve(result.root, "packages/ui-kit"));
+});
+
+test("hosted proof adds project-aware case receipts while retaining human output and the runner failure", async () => {
+  const result = await invoke(["--inside", "--project=ui-react-endurance", "--proof-report"], 7);
+  expect(result.code).toBe(7);
+  expect(result.calls[0]!.args).toEqual([
+    "run", "--project=ui-react-endurance", "--browser.fileParallelism=false",
+    "--reporter=default", `--reporter=${resolve(result.root, "scripts/proof-case-report.mjs")}`,
+  ]);
 });
 
 test("local container path reaches the same default and preserves project, shard and update", async () => {

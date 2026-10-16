@@ -8,6 +8,7 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 import { moduleContextTokens } from "../../lib/module-instructions.js";
 import { lintModuleTools } from "../../lib/module-tool-lint.js";
+import { lintModuleRenderers } from "../../lib/module-renderers.js";
 import { ModuleToolNameError } from "../../lib/module-tool-names.js";
 
 const HELP = `brain module <list|lint|enable|disable|settings>
@@ -24,10 +25,10 @@ const HELP = `brain module <list|lint|enable|disable|settings>
 Legacy mixed generated instruction sections require explicit migration first.
 See docs/modules.md (instruction migration).`;
 
-function pkgInfo(dir: string): { name?: string; description?: string } {
+function pkgInfo(dir: string): { name?: string; description?: string; version?: string } {
   try {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
-    return { name: pkg.name, description: pkg.description };
+    return { name: pkg.name, description: pkg.description, version: pkg.version };
   } catch {
     return {};
   }
@@ -50,6 +51,8 @@ function moduleList(cli: CliContext): Record<string, unknown> {
     name: m.manifest.name,
     key: m.key,
     description: pkgInfo(m.dir).description ?? null,
+    version: pkgInfo(m.dir).version ?? null,
+    renderers: m.manifest.renderers ?? {},
     types: Object.keys(m.manifest.taxonomy?.types ?? {}),
     commands: Object.keys(m.manifest.commands ?? {}),
     tools: Object.keys(m.manifest.tools ?? {}).map((local) => `${m.manifest.name}_${local}`),
@@ -145,6 +148,7 @@ async function moduleLint(cli: CliContext, name: string): Promise<{ findings: Li
   findings.push(...lintSkills(moduleSkills));
   for (const w of warnings) add("error", "skill-frontmatter", w);
   findings.push(...await lintModuleTools(mod));
+  findings.push(...await lintModuleRenderers(mod));
 
   // Config validity needs no re-check here: loadModules() hard-fails on a
   // config the module's configSchema rejects, so a loaded module implies a

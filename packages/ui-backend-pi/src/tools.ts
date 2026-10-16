@@ -37,7 +37,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { killWrapped } from "@schlessera/brain-ui-sdk/server";
-import { NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
 import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
@@ -236,7 +236,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   ask_user_form: "read",
   get_current_location: "read",
   query_activity: "read",
-  inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate",
+  inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -269,6 +269,7 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "brain_search",
   "brain_context",
   "brain_read",
+  "brain_read_base",
   "brain_list",
   "brain_graph",
   "brain_add",
@@ -553,7 +554,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // by now (and may have edited the command via updatedInput). The rtk
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
-      const childEnv = subprocessEnv(resolveEnabledWebSearchEnvNames());
+      const childEnv = { ...subprocessEnv(resolveEnabledWebSearchEnvNames()), ...RTK_WORKER_ENV };
       const cmd = await rtkRewriteCommand(params.command, childEnv);
       if (signal?.aborted) throw new DOMException("Tool cancelled before lock admission", "AbortError");
       // Only commands that touch git staging/history or the brain CLI's
@@ -570,7 +571,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
           stderr: "pipe",
           ...execWrapperSpawnOptions(exec.wrapper),
         });
-        const onAbort = () => killWrapped(proc, exec);
+        let killedByAbort = false;
+        const onAbort = () => {
+          killedByAbort = true;
+          killWrapped(proc, exec);
+        };
         signal?.addEventListener("abort", onAbort, { once: true });
         const [stdout, stderr, code] = await Promise.all([
           new Response(proc.stdout).text(),
@@ -581,10 +586,12 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         const body = [stdout, stderr].filter(Boolean).join("\n").trim();
         // The exit line goes after the clip, so a long failing output still
         // ends with it: the host classifies a nonzero exit from it (#1671).
-        return textResult(
-          `${clip(`$ ${cmd}\n${body}`)}${code === 0 ? "" : `\n[exit ${code}]`}`,
-          { exitCode: code }
-        );
+        const output = `${clip(body || "(no output)")}${code === 0 ? "" : `\n[exit ${code}]`}`;
+        // Pi turns thrown tool errors into Activity-visible error results.
+        // Keep the exit evidence, but distinguish a host abort from a command
+        // that independently exited with the same status (including 143).
+        if (killedByAbort) throw new DOMException(`Tool cancelled by abort\n${output}`, "AbortError");
+        return textResult(output, { exitCode: code });
       });
     },
   } satisfies ToolDefinition;

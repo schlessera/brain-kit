@@ -15,7 +15,7 @@
  * writes into the rest of the brain (`EXDEV`/`EROFS`); this walk covers the
  * links made before the turn.
  */
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSync } from "./maintenance-worker.js";
@@ -436,10 +436,12 @@ export interface WorkerNoteFacts {
   readonly hardTimeoutMs?: number;
 }
 
+const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
+
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox) => string> = {
-  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. The worker shares the server's uid; protection is mask-only until an identity helper is installed. Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
-  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.`,
+  governed: sandbox => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${SHARED_UID_NOTE} Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
+  strict: sandbox => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${SHARED_UID_NOTE}`,
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */
@@ -497,6 +499,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "3. **The brain: canonical and versioned.**",
       "",
       linkRule(scratch?.rel),
+      `The brain's packaged CLI directory \`${join(sandbox.brain, "node_modules", ".bin")}\` is first on PATH.`,
+      ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
+        ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
   }
   if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {
