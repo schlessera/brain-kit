@@ -207,6 +207,13 @@ export function createRoot(
   const stopStateRoomHistory = stores.chat.subscribe((next, prior) => {
     if (next.stateRooms !== prior.stateRooms || next.backendIds !== prior.backendIds) reconcileStateRoom();
   });
+  const stopContentRendererScope = stores.connection.subscribe((next, prior) => {
+    if (next.accountKey !== prior.accountKey || next.socketOpens !== prior.socketOpens ||
+      (next.vpnStatus !== prior.vpnStatus && (next.vpnStatus === "unauthorized" || next.vpnStatus === "forbidden"))) {
+      stores.contentRenderers.getState().reset();
+      if (next.vpnStatus === "connected") void stores.contentRenderers.getState().load();
+    }
+  });
   let vpnRecheck: (() => void) | null = null;
   // A root built without persistence (stories, tests, SSR) keeps submitted
   // answers in memory: receipts and live-page recovery still work, a reload
@@ -283,7 +290,8 @@ export function createRoot(
     connection,
     answers: connection.answers,
     dispose() {
-      stopStateRoomRoster(); stopStateRoomHistory();
+      stopStateRoomRoster(); stopStateRoomHistory(); stopContentRendererScope();
+      stores.contentRenderers.getState().reset();
       services.localWorkFlow.dispose();
       services.authLock.dispose();
       connection.dispose();
