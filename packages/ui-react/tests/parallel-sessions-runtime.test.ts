@@ -351,7 +351,8 @@ function waitingWorker() {
 
 type ApprovalInput = { type: string; target: string | null; at: number; node: number | null; connected: boolean; y: number | null };
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
-type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
+type ProfileRead = { path: string; status?: number; body?: string; failure?: string };
+type Device = { profileReads: ProfileRead[]; context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
 async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -368,6 +369,18 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   // Every socket the page opens, so a reconnect is observed rather than inferred.
   const sockets: string[] = [];
   const approvals: ApprovalFrame[] = [];
+  // Keep bounded evidence for a composer that never reaches admitted Send.
+  // Successful later runs cannot explain a missing response in an earlier run.
+  const profileReads: ProfileRead[] = [];
+  const rememberProfile = (read: ProfileRead) => { profileReads.push(read); if (profileReads.length > 8) profileReads.shift(); };
+  page.on("response", async response => {
+    const path = new URL(response.url()).pathname;
+    if (path.endsWith("/profile")) rememberProfile({ path, status: response.status(), body: (await response.text().catch(error => String(error))).slice(0, 4096) });
+  });
+  page.on("requestfailed", request => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/profile")) rememberProfile({ path, failure: request.failure()?.errorText });
+  });
   page.on("websocket", (ws) => {
     const socket = sockets.push(ws.url()) - 1;
     const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
@@ -401,7 +414,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   await page.goto(opts.update ? `${origin}/?update` : origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
-  return { context, page, dialogs, sockets, approvals };
+  return { context, page, dialogs, sockets, approvals, profileReads };
 }
 
 /** A real tap under a coarse pointer, a real click otherwise; Playwright waits until the control is at rest (#992). */
@@ -1018,7 +1031,12 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             expect(replies(), "completion sends no duplicate decision").toHaveLength(1);
             if (decision === "Always allow") expect(await readPolicy(), "only the explicit online decision wrote policy").toMatchObject({ tools: expect.arrayContaining(["Read"]) });
           } catch (error) {
-            console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId) }));
+            console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, profileReads: a.profileReads,
+              composer: await a.page.evaluate(() => ({ value: (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value,
+                placeholder: document.querySelector("textarea[data-composer]")?.getAttribute("placeholder"),
+                visibleText: document.body.innerText.slice(-4000),
+                send: [...document.querySelectorAll('[role="button"][aria-label="Send"]')].map(node => ({ disabled: node.getAttribute("aria-disabled") })) })).catch(() => null),
+              tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId) }));
             throw error;
           } finally {
             await a.context.close();
