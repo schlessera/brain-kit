@@ -50,3 +50,7 @@ export type {
   PlaceRow,
   UnpinnedReason,
 } from "../places.js";
+
+export type { ContentRenderer, ContentRendererPack, ContentRendererProps, ContentRendererRegistry } from "./content-renderers.js";
+export { createContentRendererRegistry, defaultContentRendererRegistry, registerContentRenderers } from "./content-renderers.js";
+export type { ContentRendererTheme } from "../render.js";

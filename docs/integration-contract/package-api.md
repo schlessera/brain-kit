@@ -877,6 +877,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
 | `AsrClient` | `@schlessera/brain-ui-sdk/client` |
 | `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
+| `ContentRenderer` | `@schlessera/brain-ui-sdk/client` |
 | `SiteAdapter` | `@schlessera/brain-scrape` |
 
 `tests/seam-list.test.ts` fails when this table, the one in
@@ -3196,3 +3197,31 @@ explanation. `showActions={false}` and closed exchanges still omit actions.
 The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
+
+## Content-renderer entries (additive #2081)
+
+The experimental `@schlessera/brain-ui-sdk/client` content seam exports
+`ContentRenderer`, `ContentRendererProps`, `ContentRendererPack`,
+`ContentRendererRegistry`, `ContentRendererTheme`, `createContentRendererRegistry`,
+`defaultContentRendererRegistry` and `registerContentRenderers`.
+Components receive source, optional path, mode (`chat | file | share`) and
+theme (`light | dark | print`). Exact, case-sensitive language and extension
+claims resolve first-registration-wins. Extensions include the leading dot.
+Pack object identity dedupes registration; reset clears claims and identities.
+A missing lookup returns null.
+
+The React/DOM-independent `@schlessera/brain-ui-sdk/render` exports
+`StaticRenderer`, `StaticRendererPack`, `StaticRendererRegistry`,
+`ContentRendererTheme`, `createStaticRendererRegistry`, `registerStaticRenderers`
+and `staticRendererFor`. Static entries carry claims, `needsBrowser`, and
+`toStatic(source, { theme, path? }): Promise<string>`. The default lookup checks
+language before extension on ambiguity. Client and static builds register
+independently; neither loads code named by content/runtime configuration.
+
+The experimental `@schlessera/brain-ui-sdk/testing` exports
+`contentRendererConformance(pack, fixtures)`, `ContentRendererFixture` and
+`ContentRendererFixtures`. A real-browser mount harness lets the suite exercise
+client components in every mode/theme and static output in every theme.
+The [authoring guide](../extending/content-renderers.md) specifies the token
+block/root ground convention. Conformance tests trusted bundled code; it is
+not a sanitizer. Dispatch, manifests and concrete packs are separate epic work.
