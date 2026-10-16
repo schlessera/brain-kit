@@ -1,7 +1,6 @@
 /** Concurrent serial Bun processes, each owning its source/dependencies/build lease. */
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, statSync, existsSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { runCommands } from "./ci-runner";
 import { balanceTests } from "./test-shards";
 import { validateUnitReports } from "./unit-proof-report";
@@ -16,8 +15,9 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   if (!files.length) throw new Error("Unit workers need discovered files");
   mkdirSync(join(root, "tmp"), { recursive: true });
   mkdirSync(reportDir, { recursive: true });
-  // Keep cloned test trees outside the parent's Bun path-filter discovery.
-  const container = mkdtempSync(join(tmpdir(), "brain-unit-workers-"));
+  // Keep cloned test trees outside parent discovery and the native worker's
+  // private /tmp. mkdtemp keeps this owned sibling container mode 0700.
+  const container = mkdtempSync(join(dirname(root), ".brain-unit-workers-"));
   const head = git(root, "rev-parse", "HEAD");
   const partitions = balanceTests([...files], Math.min(2, files.length));
   const workers: { root: string; files: string[]; checkout: string }[] = [];

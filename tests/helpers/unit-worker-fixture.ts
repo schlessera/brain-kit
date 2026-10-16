@@ -1,11 +1,10 @@
 /** Small real Git/Bun workspaces for the queue's filesystem and kernel boundaries. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 export function unitWorkerFixture() {
   const source = resolve(import.meta.dir, "../..");
-  const root = mkdtempSync(join(tmpdir(), "odysseus-unit-workers-"));
+  const root = mkdtempSync(join(dirname(source), ".odysseus-unit-workers-"));
   mkdirSync(join(root, "tmp"));
   const lease = join(source, "scripts/workspace-lease.mjs");
   const guard = join(source, "scripts/test-network-child-preload.ts");
@@ -34,6 +33,12 @@ import {existsSync,mkdirSync,readFileSync,statSync,writeFileSync} from "node:fs"
 import {dirname,join} from "node:path";
 import {reserveMaintenanceTemp} from ${JSON.stringify(budget)};
 test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance admission",async()=>{
+  expect(process.umask(),"CALLER_UMASK_PRESERVED").toBe(${process.umask()});
+  expect(statSync(dirname(process.cwd())).mode&0o777,"PRIVATE_UNIT_CONTAINER_MODE").toBe(0o700);
+  expect(statSync("tmp/maintenance-ledger").mode&0o777,"PRIVATE_UNIT_LEDGER_MODE").toBe(0o700);
+  const native=Bun.spawnSync(["bwrap","--unshare-net","--ro-bind","/","/","--tmpfs","/tmp","--proc","/proc","--dev","/dev",process.execPath,"-e",'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).name)',join(process.cwd(),"package.json")],{stdout:"pipe",stderr:"pipe"});
+  expect(native.exitCode,"PRIVATE_NATIVE_SOURCE_VISIBLE: "+new TextDecoder().decode(native.stderr)).toBe(0);
+  expect(new TextDecoder().decode(native.stdout).trim()).toBe("odysseus-unit-fixture");
   const status=readFileSync("/proc/self/status","utf8");
   for(const key of ["CapEff","CapInh","CapAmb"])expect(BigInt("0x"+new RegExp(key+":\\\\s+([0-9a-f]+)").exec(status)![1]),"UNIT_SETUP_CAPABILITIES_DROPPED").toBe(0n);
   expect(existsSync("dist/ready.txt"),"PRIVATE_UNIT_BUILD_READY").toBe(true);
