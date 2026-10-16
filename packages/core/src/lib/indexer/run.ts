@@ -24,6 +24,8 @@
  * produces a smaller one.
  */
 import type { Database } from "bun:sqlite";
+import { checkGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { geminiEmbeddingRecipient } from "../../providers/embeddings/gemini.js";
 
 import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../graph/precompute.js";
 import { indexAssets } from "./assets.js";
@@ -58,8 +60,12 @@ function emptyStats(): IndexStats {
  * `quiet` suppresses progress on stdout, never diagnostics on stderr. JSON
  * callers receive the stable stats object and can still detect partial runs.
  */
-function createRun(db: Database, options: IndexOptions): IndexRun {
+async function createRun(db: Database, options: IndexOptions): Promise<IndexRun> {
   const quiet = options.quiet ?? false;
+  const checked = checkGovernancePolicy(options.root);
+  if (!checked.ok) console.warn(`provider_policy_invalid: embedding and enrichment disabled; ${checked.errors.join("; ")}`);
+  const rules = checked.ok ? checked.effective.providers : [{ paths: ["**"], allow: [] }];
+  const recipient = rules.length ? await geminiEmbeddingRecipient(options.provider) : undefined;
   return {
     db,
     root: options.root,
@@ -69,6 +75,7 @@ function createRun(db: Database, options: IndexOptions): IndexRun {
     provider: options.provider,
     enrichment: options.enrichment,
     now: new Date().toISOString(),
+    ...(rules.length ? { embeddingRouting: { rules, recipient, excludedDocuments: [] } } : {}),
     stats: emptyStats(),
     report: quiet ? () => {} : (message) => console.log(message),
     warn: (message) => console.warn(message),
@@ -165,7 +172,7 @@ export async function indexAll(db: Database, options: IndexOptions): Promise<Ind
 }
 
 async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats> {
-  const run = createRun(db, options);
+  const run = await createRun(db, options);
   try {
     return await runPipeline(run, options);
   } finally {
@@ -226,6 +233,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     assetQueue = await indexAssets(run, assetFiles, existingDocs, assetsOnDisk);
   }
 
+  if (run.embeddingRouting && run.wantEmbeddings) await dropIneligibleVectors(run);
   const embeddingPhaseRan = await runEmbeddingPhase(run, assetQueue, assetsOnDisk);
   if (embeddingPhaseRan) saveSidecarCaches(run);
 

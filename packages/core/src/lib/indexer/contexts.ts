@@ -12,6 +12,7 @@
  * makes the next `--embeddings` run retry both. Persisting a fallback here
  * would look identical to a real context and never be revisited.
  */
+import { providerAllows } from "@schlessera/brain-common/internal/governance-policy";
 import { chunkContextKey, loadContextCache } from "./caches.js";
 import type { IndexRun } from "./types.js";
 
@@ -61,6 +62,7 @@ export async function generateChunkContexts(
   // A page shares each parent body rather than joining (and copying) the whole
   // document onto every chunk. Cached contexts need no parent body at all.
   const documents = new Map<number, { content: string; n: number }>();
+  const currentDocument = run.db.prepare("SELECT path,type FROM documents WHERE id=?");
   const getDocument = run.db.prepare(`SELECT content,
     (SELECT COUNT(*) FROM chunks WHERE document_id = documents.id) AS n
     FROM documents WHERE id = ?`);
@@ -72,7 +74,10 @@ export async function generateChunkContexts(
       batch.map((c) => {
         // Tier 2: single-chunk documents, and any run without enrichment,
         // fall back to the frontmatter summary. Never blocks, never billed.
-        if (!enrichment) {
+        const current = currentDocument.get(c.document_id) as {path:string;type:string} | null;
+        // A vector recipient does not authorize a separate completion route.
+        // Until that concrete route is proven, matching data uses local context.
+        if (!enrichment || (run.embeddingRouting && (!current || !providerAllows(run.embeddingRouting.rules, current.path, current.type, undefined)))) {
           return Promise.resolve(c.summary ?? "");
         }
         let doc = documents.get(c.document_id);

@@ -89,7 +89,7 @@ export function createGovernedTurns(options: {
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
-        for (const warning of policy.warnings) options.report(`Governance policy skipped invalid pattern: ${warning}`);
+        for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         if (governed) { await startupView.cleanup(); startupView = undefined; }
         signal.throwIfAborted();
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));

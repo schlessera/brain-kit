@@ -14,6 +14,8 @@
  * vector, so the next run picks them up by the same rule.
  */
 import { resolve } from "path";
+import { providerAllows } from "@schlessera/brain-common/internal/governance-policy";
+import { currentGeminiEmbeddingRecipient } from "../../providers/embeddings/gemini.js";
 
 import { chunkTextForEmbedding } from "../chunker.js";
 import { hasVecSupport } from "../db.js";
@@ -31,9 +33,16 @@ const BATCH_SIZE = 50;
 const CONCURRENCY = 5;
 const ASSET_CONCURRENCY = 10;
 
+/** Recheck after asynchronous context/file work, before sending captured bytes. */
+function routeStillAllows(run: IndexRun, chunkId: number): boolean {
+  if (!run.embeddingRouting) return true;
+  const doc = run.db.query("SELECT d.path,d.type FROM documents d JOIN chunks c ON c.document_id=d.id WHERE c.id=?").get(chunkId) as {path:string;type:string} | null;
+  return Boolean(doc && providerAllows(run.embeddingRouting.rules, doc.path, doc.type, currentGeminiEmbeddingRecipient(run.provider)));
+}
+
 /** One page of missing chunks; the parent body is fetched once per document later. */
 function chunksNeedingVectors(run: IndexRun, after: number, through: number): EmbeddableChunk[] {
-  const eligible = embeddingEligibilitySql(run.taxonomy);
+  const eligible = embeddingEligibilitySql(run.taxonomy, run.embeddingRouting?.excludedDocuments);
   return run.db.prepare(
     `SELECT c.id, c.document_id, c.heading, c.content, c.context, d.title, d.summary
      FROM chunks c JOIN documents d ON d.id = c.document_id
@@ -60,7 +69,7 @@ async function embedMarkdownChunks(run: IndexRun, provider: EmbeddingProvider): 
     after = chunks[chunks.length - 1].id;
     cache ??= loadContextCache(run.root);
     const failedContext = await generateChunkContexts(run, chunks, cache);
-    let embeddable = chunks.filter((c) => !failedContext.has(c.id));
+    let embeddable = chunks.filter((c) => !failedContext.has(c.id) && routeStillAllows(run, c.id));
     // A `--force` rebuild's carried vectors answer for any chunk whose
     // embedding text did not change: no provider call for those.
     const carried = run.carriedVectors;
@@ -126,7 +135,8 @@ async function embedAssets(
 ): Promise<void> {
   // Descriptions also feed FTS. Gate only their vector work, including both
   // newly described assets and the unchanged-asset backfill queue.
-  queue = queue.filter((asset) => embedsType(run.taxonomy, asset.docType));
+  queue = queue.filter((asset) => embedsType(run.taxonomy, asset.docType)
+    && (!run.embeddingRouting || providerAllows(run.embeddingRouting.rules, asset.path, asset.docType, run.embeddingRouting.recipient)));
   if (queue.length === 0) return;
   run.report(`  Embedding ${queue.length} assets...`);
 
@@ -154,6 +164,7 @@ async function embedAssets(
         const buffer = Buffer.from(
           await Bun.file(resolve(run.root, asset.path)).arrayBuffer()
         );
+        if (!routeStillAllows(run, asset.chunkId)) throw new Error("provider_policy_denied: asset eligibility changed before embedding");
         if (asset.mimeType === "application/pdf") {
           return provider.embedPdf
             ? provider.embedPdf(buffer, asset.description)

@@ -138,7 +138,7 @@ Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes
 were safely read; it never claims to report a running server's retained policy.
-`warnings` reports regex sources skipped from a mixed list. The content hash is
+`warnings` reports regex sources skipped from a mixed list and warns that provider restrictions cost affected turns Git history. The content hash is
 lowercase SHA-256 of exact file bytes, including body and line endings. Usage
 errors exit 1; an entirely invalid regex list is a policy validation error.
 
@@ -147,6 +147,34 @@ release may name only an exact built-in tier B path. Profile selection and added
 protection consume this policy; successful parsing does not imply any sibling
 budget/network/outward/provider guardrail is active. Without `--json`, the
 command prints status/hash and reports errors/warnings on stderr.
+
+### Provider embedding eligibility (additive, #1668)
+
+Policy schema v1 adds optional exact `types` selectors beside `paths` in each
+`providers` entry; an entry needs at least one selector. Path patterns are
+canonical brain-relative Bun globs. Either selector matches; allowlists of all
+matching rules intersect, unmatched documents retain their existing behavior,
+and an unknown recipient never authorizes a match. The CLI envelope and
+`schema_version` remain unchanged. Each effective rule retains its `paths` array;
+a type-only input normalizes it to `[]`.
+
+Core recognizes `google` for its concrete built-in Gemini embedding instance
+only after inspecting that instance's actual resolved HTTPS Generative Language
+endpoint. A model id, `PricingRoute` (`direct`/`openrouter`), arbitrary custom
+provider, Vertex endpoint or proxy does not prove this recipient. No custom
+identity extension is introduced. Matching documents without a proven allowed
+recipient retain FTS, links and metadata, lose their vectors on an ordinary
+index, and are excluded before context/vector work, carried vectors, cache reuse
+and vector writes. Asset vector work uses the same eligibility. Matching content
+uses local context fallback instead of an unproven completion/vision route.
+
+`health.embeddingCoverage` keeps its existing eligible-vector/eligible-chunk
+meaning with provider eligibility included. No eligible chunks remains `null`.
+Invalid policy disables external index enrichment/embedding work, reconciles
+vectors as ineligible and reports `provider_policy_invalid`; keyword indexing
+continues. These core guarantees do not establish inference-worker masks,
+filtered turn indexes, retained-history filtering or arbitrary copied-text
+redaction. Those boundaries require their own verified enforcement.
 
 <a id="operational-recovery-command-additive-686"></a>
 
