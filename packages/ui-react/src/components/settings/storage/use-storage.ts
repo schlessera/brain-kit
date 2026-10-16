@@ -143,7 +143,11 @@ export function useStorage(root: BrainUiRoot) {
     snapshot?.id,
   ]);
   useEffect(() => {
-    if (!snapshot || (filtering && !validThreshold)) return;
+    if (!snapshot || (filtering && !validThreshold)) {
+      setFiles(null);
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -262,7 +266,7 @@ export function useStorage(root: BrainUiRoot) {
       const [links, review] = await Promise.allSettled([
         api.references(snapshot.id, entry.id, signal),
         path && capability?.available
-          ? api.review(crypto.randomUUID(), [path], signal)
+          ? api.inspect([path], signal)
           : Promise.resolve(null),
       ]);
       if (!guarded(signal)) return;
@@ -270,9 +274,9 @@ export function useStorage(root: BrainUiRoot) {
       const result: InspectedFile = {
         ...base,
         references: links.status === "fulfilled" ? links.value : null,
-        facts: record?.review.files[0] ?? null,
-        unchecked: record?.review.unchecked ?? [],
-        observedAt: record?.review.observedAt ?? null,
+        facts: record?.files[0] ?? null,
+        unchecked: record?.unchecked ?? [],
+        observedAt: record?.observedAt ?? null,
         error:
           review.status === "rejected"
             ? "Eligibility could not be verified. No removal was started."
@@ -301,7 +305,7 @@ export function useStorage(root: BrainUiRoot) {
   }
   const selection = Object.values(selected),
     selectedBytes = selection.reduce(
-      (sum, file) => sum + (file.entry.logical ?? 0),
+      (sum, file) => sum + (file.facts?.bytes ?? 0),
       0
     );
   useEffect(() => {

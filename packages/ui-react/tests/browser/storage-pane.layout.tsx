@@ -147,6 +147,10 @@ for (const width of [320, 1280])
         expect(host.textContent).toContain("Unknown");
         expect(host.textContent).toContain("quota headroom unknown");
         const map = page.getByRole("group", { name: /Storage map/ }).element();
+        expect(
+          map.textContent,
+          "STORAGE_UNKNOWN_ALLOCATION_HAS_NO_TILE"
+        ).not.toContain("Native retained store");
         const tiles = Array.from(
           map.querySelectorAll<HTMLButtonElement>("button")
         ).sort(
@@ -211,7 +215,10 @@ for (const kind of [
     if (kind === "partial")
       expect(host.textContent).toContain("permission denied");
     if (kind === "separate")
-      expect(host.querySelectorAll("[data-storage-capacity]")).toHaveLength(2);
+      expect(
+        host.querySelectorAll("[data-storage-capacity]"),
+        "STORAGE_CAPACITY_ID_COUNTED_ONCE"
+      ).toHaveLength(2);
     if (kind === "unsupported") {
       expect(host.textContent).toContain(
         "This host can't remove attachments yet"
@@ -219,27 +226,44 @@ for (const kind of [
       await files();
       await button("Inspect Ithaca-harbor.pdf").click();
       await expect.poll(() => button("Preview").elements().length).toBe(1);
-      expect(disabled(button("Select file").element())).toBe(true);
+      await expect.poll(()=>page.getByRole("dialog").element().textContent).toContain("Eligibility: Not verified");
+      expect(
+        disabled(button("Select file").element()),
+        "STORAGE_INELIGIBLE_SELECTION_DISABLED"
+      ).toBe(true);
       expect(
         fixture.requests.some((row) => row.path.endsWith("/reviews"))
       ).toBe(false);
     }
     await commands.buttonCapture(`storage-${kind}`);
   });
+test("invalid size filters remove the prior matching file list", async () => {
+  await scene();
+  await files();
+  await page.getByRole("textbox", { name: "Larger than (MB)", exact: true }).fill("invalid");
+  await expect.poll(() => page.getByRole("table").element().textContent,
+    { message: "STORAGE_INVALID_FILTER_HAS_NO_OLD_ROWS" }).not.toContain("Troy-charts.PDF");
+  expect(disabled(button("Copy visible file list").element())).toBe(true);
+});
 test("PDF boundary, file-entry sum and hard-link union remain distinct", async () => {
   await scene("alias", 1280);
   await files();
   const table = page.getByRole("table").element();
   expect(table.textContent).not.toContain("Calypso-notes.pdf");
-  expect(table.textContent).not.toContain("Aeaea-boundary.pdf");
+  expect(table.textContent, "STORAGE_STRICT_PDF_BOUNDARY").not.toContain(
+    "Aeaea-boundary.pdf"
+  );
   expect(table.textContent).toContain("Troy-charts.PDF");
   expect(host.textContent).toContain("101,500,000 bytes");
   expect(host.textContent).toContain("Matching object union: 53.3 MB");
   await button("Inspect Troy-charts.PDF").click();
   await expect
     .poll(() => page.getByRole("dialog").element().textContent)
-    .toContain("shared object");
-  expect(disabled(button("Select file").element())).toBe(true);
+    .toContain("Eligibility: shared object");
+  expect(
+    disabled(button("Select file").element()),
+    "STORAGE_INELIGIBLE_SELECTION_DISABLED"
+  ).toBe(true);
 });
 for (const width of [320, 1280])
   test(`Mixed removal, original receipt and fresh Undo review at ${width}`, async () => {
@@ -310,8 +334,8 @@ test("List-only drill restores the parent row and retains D52", async () => {
   }
   await button("attachments").click();
   await expect
-    .poll(() => document.activeElement)
-    .toBe(button("Open papers").element());
+    .poll(() => document.activeElement === button("Open papers").elements()[0])
+    .toBe(true);
   expect(ui.stores.ui.getState().activeView).not.toBe("storage");
 });
 test("Account lock and root replacement discard selected versions", async () => {
@@ -336,4 +360,170 @@ test("Account lock and root replacement discard selected versions", async () => 
   expect(host.textContent).not.toContain("Ithaca-harbor");
   expect(host.textContent).not.toContain("1 selected");
   expect(fixture.confirms).toBe(0);
+});
+
+test("Dense folder pages preserve the full measured subtotal and query before paging", async () => {
+  const fixture = await scene("paged", 320);
+  await page.getByRole("checkbox", { name: "Use list only" }).click();
+  for (const name of ["Brain files", "attachments", "papers"]) {
+    await button(`Open ${name}`).click();
+    await expect.poll(() => document.activeElement?.textContent).toBe(name);
+  }
+  const table = page.getByRole("table");
+  expect(table.element().querySelectorAll("tbody tr")).toHaveLength(200);
+  expect(host.textContent).toContain("205 children");
+  expect(table.element().textContent).toContain("Ithaca-chart-204.pdf");
+  await button("Next 200 items").click();
+  await expect
+    .poll(() => table.element().querySelectorAll("tbody tr").length)
+    .toBe(5);
+  expect(host.textContent).toContain("205 children");
+  await page
+    .getByRole("textbox", { name: "Search this folder" })
+    .fill("chart-204");
+  await expect
+    .poll(() => table.element().querySelectorAll("tbody tr").length)
+    .toBe(1);
+  expect(table.element().textContent).toContain("Ithaca-chart-204.pdf");
+  expect(fixture.requests.some((row) => row.path.endsWith("/tree"))).toBe(true);
+});
+test("Refresh preserves focused rows and requires explicit adoption before clearing selection", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await button("Refresh").click();
+  const row = button("Inspect Troy-charts.PDF").element() as HTMLElement;
+  row.focus();
+  await expect
+    .poll(() => button("Show new measurement").elements().length, {
+      timeout: 4000,
+    })
+    .toBe(1);
+  expect(document.activeElement, "STORAGE_REFRESH_RETAINS_ROW_FOCUS").toBe(row);
+  expect(host.textContent).toContain("1 selected");
+  await button("Show new measurement").click();
+  await expect.poll(() => host.textContent).not.toContain("1 selected");
+  expect(
+    fixture.requests.filter((row) => row.path.endsWith("/reviews")),
+    "STORAGE_INSPECTION_DOES_NOT_CREATE_REVIEW"
+  ).toHaveLength(0);
+});
+test("Maintenance lost response keeps its identity and cancellation reads the owner receipt", async () => {
+  const fixture = await scene("maintenance");
+  await page.getByRole("button", { name: /Pack Git objects/ }).click();
+  await expect
+    .poll(() => host.textContent)
+    .toContain("Maintenance: response unconfirmed");
+  const writes = () =>
+    fixture.requests.filter(
+      (row) => row.method === "POST" && row.path === "/api/storage/maintenance"
+    );
+  expect(writes()).toHaveLength(1);
+  await button("Check maintenance receipt").click();
+  await expect
+    .poll(() => button("Cancel maintenance").elements().length)
+    .toBe(1);
+  await button("Cancel maintenance").click();
+  await expect.poll(() => host.textContent).toContain("Maintenance: cancelled");
+  expect(writes(), "STORAGE_MAINTENANCE_DOES_NOT_REPOST").toHaveLength(1);
+  expect(host.textContent).toContain("Measured before → after");
+});
+
+test("Cancellation keeps acknowledged removal and stops the remaining selection", async () => {
+  const fixture = await scene();
+  await files();
+  await select("Ithaca-harbor.pdf");
+  await select("Troy-charts.PDF");
+  fixture.holdNextConfirmation();
+  await button("Review selected files").click();
+  await button("Remove 2 files").click();
+  await expect
+    .poll(() => button("Cancel remaining files").elements().length)
+    .toBe(1);
+  await button("Cancel remaining files").click();
+  await expect
+    .poll(() => page.getByRole("dialog").element().textContent)
+    .toContain("Operation cancelled");
+  expect(fixture.receipt?.items.map((item) => item.state)).toEqual([
+    "removed",
+    "not-started",
+  ]);
+  expect(fixture.confirms).toBe(1);
+});
+test("A late old-root inspection cannot populate the replacement root", async () => {
+  const oldFixture = await scene();
+  await files();
+  await select("Troy-charts.PDF");
+  const release = oldFixture.deferInspection();
+  await button("Inspect Ithaca-harbor.pdf").click();
+  await expect
+    .poll(
+      () =>
+        oldFixture.requests.filter((row) => row.path.endsWith("/inspection"))
+          .length
+    )
+    .toBe(2);
+  const old = ui,
+    next = storageViewFixture("never");
+  ui = createBrainUiRoot({ storage: null, request: next.request });
+  flushSync(() =>
+    renderer.render(
+      <BrainUiProvider root={ui}>
+        <StorageTab active />
+      </BrainUiProvider>
+    )
+  );
+  old.dispose();
+  release();
+  await expect
+    .poll(() => host.textContent, {
+      message: "STORAGE_ROOT_REPLACEMENT_DROPS_OLD_SELECTION",
+    })
+    .toContain("Not measured yet");
+  expect(host.textContent).not.toContain("Troy-charts");
+  expect(page.getByRole("dialog").elements()).toHaveLength(0);
+  expect(oldFixture.confirms).toBe(0);
+});
+
+test("Hard-link alias stays named in the list without acquiring map area", async () => {
+  await scene("alias", 1280);
+  for (const name of ["Brain files", "attachments", "papers"]) {
+    await button(`Open ${name}`).click();
+    await expect.poll(() => document.activeElement?.textContent).toBe(name);
+  }
+  await page
+    .getByRole("combobox", { name: "Size basis" })
+    .selectOptions("logical");
+  await expect.poll(() => host.textContent).toContain("measured file size");
+  const map = page.getByRole("group", { name: /Storage map/ }).element();
+  expect(map.textContent, "STORAGE_ALIAS_NO_SECOND_AREA").not.toContain(
+    "Troy-charts"
+  );
+  expect(page.getByRole("table").element().textContent).toContain(
+    "Troy-charts.PDF"
+  );
+});
+test("Unsupported removal still permits copying the visible filtered list", async () => {
+  await scene("unsupported");
+  await files();
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  let copied = "";
+  try {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          copied = value;
+        },
+      },
+    });
+    await button("Copy visible file list").click();
+    await expect
+      .poll(() => copied)
+      .toContain("attachments/Troy-charts.PDF\t48200000 bytes");
+    expect(copied).not.toContain("Aeaea-boundary");
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });

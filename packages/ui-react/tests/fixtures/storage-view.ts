@@ -6,6 +6,7 @@ import type {
   StorageRemovalReceipt,
   StorageRemovalFile,
   StorageRemovalCapability,
+  StorageMaintenanceReceipt,
 } from "@schlessera/brain-ui-sdk/protocol";
 const id = (n: number) => n.toString(16).padStart(32, "0"),
   stamp = Date.UTC(2026, 6, 12, 9, 41),
@@ -17,13 +18,17 @@ export type StorageScene =
   | "partial"
   | "unsupported"
   | "never"
-  | "alias";
+  | "alias"
+  | "paged"
+  | "maintenance";
 /** Synthetic Odysseus walkthrough. No host path, credentials or provider is needed. */
 export function storageViewFixture(scene: StorageScene = "dense") {
   const requests: Array<{ path: string; method: string; body: unknown }> = [];
   let measured = scene !== "never",
     scanReads = 0,
     scanning = false;
+  let inspectionWait: Promise<void> | null = null;
+  let holdConfirmation = false;
   let receipt: StorageRemovalReceipt | null = null,
     changed = false,
     dropConfirm = false,
@@ -55,6 +60,33 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       unchecked: ["external consumers"],
     },
   }));
+  if (scene === "paged")
+    files.splice(
+      0,
+      files.length,
+      ...Array.from({ length: 205 }, (_, index) => ({
+        ...files[0]!,
+        id: id(1000 + index),
+        objectId: id(1000 + index),
+        name: `Ithaca-chart-${String(index).padStart(3, "0")}.pdf`,
+        path: `attachments/papers/Ithaca-chart-${String(index).padStart(
+          3,
+          "0"
+        )}.pdf`,
+        logical: 5_100_000 + index,
+        allocated: 5_110_000 + index,
+      }))
+    );
+  const uniqueFiles = [
+    ...new Map(files.map((file) => [file.objectId, file])).values(),
+  ];
+  const fileTotals = {
+    logical: uniqueFiles.reduce((sum, file) => sum + (file.logical ?? 0), 0),
+    allocated: uniqueFiles.reduce(
+      (sum, file) => sum + (file.allocated ?? 0),
+      0
+    ),
+  };
   const roots = Array.from({ length: 12 }, (_, index) => ({
     id: id(index + 1),
     label: [
@@ -96,11 +128,14 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       : index === 3
       ? "operator"
       : "app") as "brain" | "app" | "operator",
-    logical: index === 11 ? null : Math.floor(6_000_000_000 / (index + 1)),
+    logical:
+      index === 11 ? 3_000_000_000 : Math.floor(6_000_000_000 / (index + 1)),
     allocated: index === 11 ? null : Math.floor(6_000_000_000 / (index + 1)),
     coverage: index === 11 ? ("unknown" as const) : ("complete" as const),
     reason: index === 11 ? "shared-extent-attribution-unknown" : null,
   }));
+  roots[0]!.logical = fileTotals.logical;
+  roots[0]!.allocated = fileTotals.allocated;
   if (scene === "empty")
     for (const root of roots) {
       root.logical = 0;
@@ -108,10 +143,10 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       root.coverage = "complete";
       root.reason = null;
     }
-  const sum = (owner: string) =>
+  const sum = (owner: string, metric: "logical" | "allocated" = "allocated") =>
     roots
       .filter((root) => owner === "all" || root.owner === owner)
-      .reduce((sum, root) => sum + (root.allocated ?? 0), 0);
+      .reduce((sum, root) => sum + (root[metric] ?? 0), 0);
   const snapshot: StorageSnapshot = {
     id: "odysseus-scan",
     startedAt: stamp - 1000,
@@ -139,20 +174,28 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       },
     ],
     totals: {
-      all: { logical: sum("all"), allocated: sum("all"), coverage: "partial" },
+      all: {
+        logical: sum("all", "logical"),
+        allocated: sum("all"),
+        coverage: "partial",
+      },
       brain: {
-        logical: sum("brain"),
+        logical: sum("brain", "logical"),
         allocated: sum("brain"),
         coverage: "complete",
       },
-      app: { logical: sum("app"), allocated: sum("app"), coverage: "partial" },
+      app: {
+        logical: sum("app", "logical"),
+        allocated: sum("app"),
+        coverage: "partial",
+      },
       operator: {
-        logical: sum("operator"),
+        logical: sum("operator", "logical"),
         allocated: sum("operator"),
         coverage: "complete",
       },
     },
-    entries: 1204,
+    entries: files.length + roots.length + 2,
     errors:
       scene === "partial"
         ? [
@@ -173,6 +216,9 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       available: 1_000_000_000,
       kind: "tmpfs",
     });
+  if (scene === "separate")
+    snapshot.capacities.push({ ...snapshot.capacities[0]! });
+  let maintenanceReceipt: StorageMaintenanceReceipt | null = null;
   const capability: StorageRemovalCapability = {
     available: scene !== "unsupported",
     reason:
@@ -243,13 +289,13 @@ export function storageViewFixture(scene: StorageScene = "dense") {
               ...next,
               kind: "directory",
               totals: {
-                logical: 96_400_000,
-                allocated: 96_400_000,
+                logical: fileTotals.logical,
+                allocated: fileTotals.allocated,
                 coverage: "complete",
               },
               area: {
-                logical: 96_400_000,
-                allocated: 96_400_000,
+                logical: fileTotals.logical,
+                allocated: fileTotals.allocated,
                 coverage: "complete",
               },
             },
@@ -336,7 +382,8 @@ export function storageViewFixture(scene: StorageScene = "dense") {
     attribution: "concurrent-writers-possible" as const,
   };
   function review(body: { id: string; paths: string[]; sourceId?: string }) {
-    const selected = body.paths.map(facts),reviewedAt=Date.now();
+    const selected = body.paths.map(facts),
+      reviewedAt = Date.now();
     receipt = {
       review: {
         id: body.id,
@@ -386,6 +433,9 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       if (scanning && ++scanReads > 1) {
         scanning = false;
         measured = true;
+        snapshot.id += "-new";
+        snapshot.observedAt += 1000;
+        snapshot.staleAfter += 1000;
       }
       return Response.json({
         version: 1,
@@ -444,14 +494,33 @@ export function storageViewFixture(scene: StorageScene = "dense") {
         },
       });
     }
-    if (path.endsWith("/tree"))
-      return Response.json(
-        tree(
-          query.get("parentId"),
-          query.get("owner") ?? "all",
-          query.get("search") ?? ""
-        )
+    if (path.endsWith("/tree")) {
+      const result = tree(
+        query.get("parentId"),
+        query.get("owner") ?? "all",
+        query.get("search") ?? ""
       );
+      result.nodes.sort((a, b) =>
+        query.get("sort") === "name"
+          ? a.name.localeCompare(b.name)
+          : (b.area[
+              query.get("metric") === "logical" ? "logical" : "allocated"
+            ] ?? -1) -
+            (a.area[
+              query.get("metric") === "logical" ? "logical" : "allocated"
+            ] ?? -1)
+      );
+      if (
+        (query.get("direction") === "asc" && query.get("sort") !== "name") ||
+        (query.get("direction") === "desc" && query.get("sort") === "name")
+      )
+        result.nodes.reverse();
+      const start = Number(query.get("cursor") ?? 0);
+      result.nextCursor =
+        start + 200 < result.nodes.length ? String(start + 200) : null;
+      result.nodes = result.nodes.slice(start, start + 200);
+      return Response.json(result);
+    }
     if (path.endsWith("/entries")) {
       let selected =
         scene === "empty"
@@ -481,8 +550,14 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       ];
       return Response.json({
         scanId: snapshot.id,
-        entries: selected,
-        nextCursor: null,
+        entries: selected.slice(
+          Number(query.get("cursor") ?? 0),
+          Number(query.get("cursor") ?? 0) + 200
+        ),
+        nextCursor:
+          Number(query.get("cursor") ?? 0) + 200 < selected.length
+            ? String(Number(query.get("cursor") ?? 0) + 200)
+            : null,
         stale: false,
         matched: selected.length,
         fileLogicalTotal: selected.reduce(
@@ -509,6 +584,38 @@ export function storageViewFixture(scene: StorageScene = "dense") {
         freshness: "unchecked",
         unchecked: ["external consumers"],
       });
+    if (path === "/api/storage/maintenance" && method === "POST") {
+      maintenanceReceipt = {
+        id: body.id,
+        operation: "pack-git",
+        owner: "core",
+        scope: ["git"],
+        requestedAt: stamp,
+        startedAt: stamp,
+        completedAt: null,
+        state: "running",
+        reason: null,
+        headroom: {
+          requiredBytes: null,
+          reservation: false,
+          note: "Can grow before it shrinks; needs headroom.",
+        },
+        before: observe,
+        after: null,
+        outcome: null,
+      };
+      throw Error("Synthetic lost maintenance response");
+    }
+    if (path.startsWith("/api/storage/maintenance/") && maintenanceReceipt) {
+      if (method === "DELETE")
+        maintenanceReceipt = {
+          ...maintenanceReceipt,
+          state: "cancelled",
+          completedAt: stamp + 1000,
+          after: observe,
+        };
+      return Response.json(maintenanceReceipt);
+    }
     if (path === "/api/storage/maintenance")
       return Response.json({
         operations: [
@@ -518,26 +625,41 @@ export function storageViewFixture(scene: StorageScene = "dense") {
             owner: "core",
             scope: ["git"],
             effect: "Pack objects; history and reflogs remain.",
-            available: false,
-            reason: "headroom-unavailable",
+            available: scene === "maintenance",
+            reason: scene === "maintenance" ? null : "headroom-unavailable",
             headroom: {
               requiredBytes: null,
               reservation: false,
               note: "Can grow before it shrinks; needs headroom.",
             },
-            latest: null,
+            latest: maintenanceReceipt,
           },
         ],
       });
     if (path === "/api/storage/removals" && method === "GET")
       return Response.json({ ...capability, latest: receipt });
+    if (path.endsWith("/inspection")) {
+      await inspectionWait;
+      return Response.json({
+        observedAt: stamp,
+        files: body.paths.map(facts),
+        complete: false,
+        unchecked: ["conversations", "other workspaces", "external consumers"],
+        selectedFileBytes: body.paths
+          .map(facts)
+          .reduce(
+            (sum: number, file: StorageRemovalFile) => sum + (file.bytes ?? 0),
+            0
+          ),
+      });
+    }
     if (path.endsWith("/reviews") || path.endsWith("/undo-reviews"))
       return Response.json(review(body));
     if (path === "/api/storage/removals" && method === "POST" && receipt) {
       confirms++;
       receipt = {
         ...receipt,
-        state: "partial",
+        state: holdConfirmation ? "running" : "partial",
         startedAt: stamp,
         completedAt: stamp + 1000,
         items: receipt.review.files.map((file, index) => ({
@@ -547,8 +669,11 @@ export function storageViewFixture(scene: StorageScene = "dense") {
               ? "restored"
               : index === 0
               ? "removed"
+              : holdConfirmation
+              ? "not-started"
               : "changed",
-          reason: index === 0 ? null : "changed-since-review",
+          reason:
+            index === 0 || holdConfirmation ? null : "changed-since-review",
           undoAvailable: receipt!.review.action === "remove" && index === 0,
           undoReason: null,
         })),
@@ -562,7 +687,11 @@ export function storageViewFixture(scene: StorageScene = "dense") {
       }
       return Response.json(receipt, { status: 202 });
     }
-    if (path.includes("/removals/") && receipt) return Response.json(receipt);
+    if (path.includes("/removals/") && receipt) {
+      if (method === "DELETE")
+        receipt = { ...receipt, state: "cancelled", completedAt: stamp + 2000 };
+      return Response.json(receipt);
+    }
     return Response.json(
       { error: "Unknown synthetic request" },
       { status: 404 }
@@ -578,6 +707,16 @@ export function storageViewFixture(scene: StorageScene = "dense") {
     },
     changeVersion() {
       changed = true;
+    },
+    holdNextConfirmation() {
+      holdConfirmation = true;
+    },
+    deferInspection() {
+      let release!: () => void;
+      inspectionWait = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
     },
     dropNextConfirmation() {
       dropConfirm = true;

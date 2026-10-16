@@ -10,6 +10,7 @@ import type {
   StorageMaintenanceKind,
   StorageRemovalCapability,
   StorageRemovalReceipt,
+  StorageRemovalInspection,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { ApiRequestError } from "./api-client.js";
@@ -92,6 +93,10 @@ export function storageApi(root: Pick<BrainUiServices, "request" | "apiBase">) {
       ),
     removal: (signal?: AbortSignal) =>
       call<StorageRemovalCapability>("/removals", signal),
+    inspect: (paths: string[], signal?: AbortSignal) =>
+      call<StorageRemovalInspection>("/removals/inspection", signal, "POST", {
+        paths,
+      }),
     review: (id: string, paths: string[], signal?: AbortSignal) =>
       call<StorageRemovalReceipt>("/removals/reviews", signal, "POST", {
         id,
