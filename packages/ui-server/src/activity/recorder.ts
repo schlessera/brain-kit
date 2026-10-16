@@ -1,3 +1,4 @@
+import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnostics.js";
 /**
  * Per-turn span derivation: the host-side half of activity recording.
  *
@@ -140,6 +141,8 @@ export function createTurnRecorder(
   let mainModel: string | null = null;
   let resultAttrs: Record<string, unknown> | undefined;
   let completedUsage: TurnUsage | undefined;
+  let firstRequestRecorded = false;
+  let prefixRecorded = false;
   let atToolBoundary = false;
   let autonomousStop = false;
   let budgetStop: {reason:string;errorClass:"budget_exceeded" | "budget_unavailable"} | undefined;
@@ -346,6 +349,32 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         switch (event.kind) {
+
+          case "prompt_prefix": {
+            if (prefixRecorded || turn.origin === "autonomous" || !validPrefix(event.prefix)) break;
+            ensureRoot();
+            prefixRecorded = true;
+            const prior = sessionId ? store.previousSessionRoot?.(rootSpanId, sessionId) : null;
+            store.patchSpan(rootSpanId, { attrs: {
+              "brain.cache.prefix": { tools: event.prefix.tools, system: event.prefix.system, model: event.prefix.model,
+                thinking: event.prefix.thinking, gitStatusIncluded: event.prefix.gitStatusIncluded, coverage: event.prefix.coverage },
+              "brain.cache.resumed": event.resumed,
+              "brain.cache.changed": event.resumed ? changedPrefix(event.prefix, prior?.attrs["brain.cache.prefix"] as typeof event.prefix | undefined) : "unknown",
+            } });
+            onWrite?.();
+            break;
+          }
+          case "first_request_cache": {
+            if (firstRequestRecorded || turn.origin === "autonomous" || !validFirstRequest(event.usage)) break;
+            ensureRoot();
+            firstRequestRecorded = true;
+            const u = event.usage;
+            store.patchSpan(rootSpanId, { attrs: { "brain.cache.first_request": {
+              inputTokens: u.inputTokens, cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens, source: u.source,
+            } } });
+            onWrite?.();
+            break;
+          }
           case "usage":
           case "autonomous_usage": {
             if (event.kind === "autonomous_usage" && turn.origin !== "autonomous") break;

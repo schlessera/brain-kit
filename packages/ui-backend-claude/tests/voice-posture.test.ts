@@ -297,7 +297,7 @@ describe("a turn under the voice posture", () => {
     expect(turn.requests).toHaveLength(0);
     expect(approvalFrames(turn.frames)).toHaveLength(0);
     expect(turn.activity.map((event) => event.kind)).toEqual([
-      "outward_classification", "permission_denied", "outward_classification",
+      "prompt_prefix", "outward_classification", "permission_denied", "outward_classification",
       "outward_classification", "permission_denied", "outward_classification",
       "permission_denied", "outward_classification",
     ]);
@@ -391,7 +391,7 @@ for (const mode of ["voice", "chat"] as const) {
         expect(db.query("SELECT review_status FROM jobs ORDER BY id").all()).toEqual([
           { review_status: "queued" }, { review_status: "queued" },
         ]);
-        expect(turn.activity.map((event) => event.kind)).toEqual(["outward_classification", "outward_classification", "permission_denied", "outward_classification"]);
+        expect(turn.activity.map((event) => event.kind)).toEqual(["prompt_prefix", "outward_classification", "outward_classification", "permission_denied", "outward_classification"]);
       }
     } finally {
       db.close();

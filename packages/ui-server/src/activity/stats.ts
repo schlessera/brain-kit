@@ -1,3 +1,4 @@
+import { cacheDiagnostics } from "./cache-diagnostics.js";
 /**
  * The runtime stats channel: what the server's OWN database says about
  * sessions, runs, tokens and cost. The corpus channel is `brain stats`
@@ -116,6 +117,13 @@ function windowFromRollups(
       .all(since, now) as any[]
   ).map(rowToRunRollup);
   const summary = summarizeRollups(rows);
+  const diagnostics = (db.query(`SELECT s.attrs FROM activity_spans s
+    JOIN activity_run_rollups r ON r.run_id = s.run_id
+    WHERE s.parent_span_id IS NULL AND r.started_at >= ? AND r.started_at <= ?`).all(since, now) as { attrs: string | null }[])
+    .map(row => cacheDiagnostics(row.attrs ? JSON.parse(row.attrs) : {})).filter(d => d !== undefined);
+  const known = diagnostics.filter(d => d.firstRequest && d.firstRequest.inputTokens !== null
+    && d.firstRequest.cacheReadTokens !== null && d.firstRequest.cacheCreationTokens !== null);
+
 
   // Bounded by `now` for the same reason: the record starts where its oldest
   // run that has actually happened starts.
@@ -151,6 +159,13 @@ function windowFromRollups(
     coveredDays,
     detailRetention: { days: retentionDays, cutoffAt, insideWindow: since < cutoffAt },
     detailPrunedRuns: rows.filter((r) => r.detailPruned).length,
+    cacheDiagnostics: { scope: "retained_detail", observedRuns: known.length, unknownRuns: rows.length - known.length,
+      inputTokens: known.reduce((n, d) => n + d.firstRequest!.inputTokens!, 0),
+      cacheReadTokens: known.reduce((n, d) => n + d.firstRequest!.cacheReadTokens!, 0),
+      cacheCreationTokens: known.reduce((n, d) => n + d.firstRequest!.cacheCreationTokens!, 0),
+      suspectedBreaks: diagnostics.filter(d => d.suspectedBreak === true).length,
+      unknownBreakRuns: rows.length - diagnostics.filter(d => d.suspectedBreak !== null).length,
+    },
     // Listed, not spread: the summary is an internal fold and this object is
     // a documented wire shape — a field added to the former must not reach
     // the latter by accident (a spread defeats excess-property checking).

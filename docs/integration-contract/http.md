@@ -503,3 +503,48 @@ it. The agent Activity query returns the same envelope on run/recent reads.
 See [host turn lifecycle](wire.md#host-turn-lifecycle-additive) for timestamp,
 terminal, missing-phase and historical semantics. No inference aggregation
 includes envelope records.
+
+### Prompt-cache diagnostics (additive, #2050)
+
+Retained `GET /api/activity/runs/:runId` detail adds optional `cacheDiagnostics`:
+
+- `firstRequest`: nullable `{ inputTokens, cacheReadTokens, cacheCreationTokens,
+  source }`. Each counter is a nonnegative integer or `null` when unreported;
+  `source` is `claude_root_stream` or `pi_main_message`. Claude selects the first
+  root `message_start`; Pi selects the first completed non-error assistant
+  `message_end`. Later responses, child channels and title-helper evidence
+  cannot replace it, including when helper and main use the same model.
+- `prefix`: nullable `{ tools, system, model, thinking, gitStatusIncluded,
+  coverage: "assembled_inputs" }`. Each component is a lowercase 64-character
+  SHA-256 digest or `null` when unavailable. `gitStatusIncluded` is boolean or
+  `null` when unknown. No prompt, tool description, schema or message text is
+  retained in these diagnostics.
+- `resumed`: nullable boolean; `suspectedBreak`: true only for a known resumed
+  turn with first cache-read zero and creation positive, false for a fresh
+  turn or a known nonmatching split, otherwise `null`.
+- `changed`: an array of changed component names (`tools`, `system`, `model`,
+  `thinking`, `gitStatusIncluded`), `unchanged`, or `unknown` when a comparison
+  baseline or required component is unavailable. This compares assembled
+  inputs against the preceding retained conversation turn, excluding auxiliary
+  accounting runs. A pruned baseline is unknown.
+
+Fingerprints cover backend assembly, not complete provider wire bytes. Claude's
+roster digest includes the ordered assembled brain-ui schemas and explicit SDK
+built-in selection/exclusions; CLI-owned built-in schemas and project MCP
+configuration remain opaque. Its system digest includes the preset and exact
+append passed to the SDK; runtime/model defaults are unknown when unspecified.
+Pi computes its ordered active tool schemas, system prompt, model and effort
+inside the actual worker before prompting. Subsequent runtime extensions may
+still alter provider assembly. Neither backend's digest establishes a provider
+cache key, cache eligibility, first-party request equality or savings.
+
+`GET /api/activity/stats` adds optional `window.cacheDiagnostics` with
+`scope: "retained_detail"`, `observedRuns`, `unknownRuns`, sums of first-request
+`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `suspectedBreaks` and
+`unknownBreakRuns`. Token sums include only runs with all three reported
+counters; old, auxiliary, uninstrumented and pruned runs count as unknown,
+not zero cache usage. Detail pruning removes these diagnostics with the root
+span; existing lifetime/window accounting and turn totals retain their meaning.
+No historical rows are backfilled, and these fields do not assert a live cache
+hit. Existing root attributes also expose the hash-only records to Activity's
+span/query consumers.

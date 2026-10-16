@@ -49,6 +49,10 @@ test("ordinary Pi turns emit general completed usage and never count terminal re
   try {
     await createPiTurnRunner(pool, { brainPath: "/brain" })({ prompt: "Odysseus reviews the harbor.", signal: new AbortController().signal,
       bridge: { emit() {}, activity: event => events.push(event), requestPermission: async () => ({ behavior: "deny", message: "No fixture authority" }) } });
+    const first = events.filter(event => event.kind === "first_request_cache");
+    expect(first, "PI_FIRST_MAIN_CACHE_RECEIPT").toEqual([{ kind: "first_request_cache", usage: {
+      inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 3, source: "pi_main_message",
+    } }]);
     const receipts = events.filter(event => String(event.kind) === "usage");
     expect(receipts.length, "BUDGET_PI_GENERAL_COMPLETED_RECEIPT").toBeGreaterThan(0);
     expect(receipts.at(-1)).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 } });

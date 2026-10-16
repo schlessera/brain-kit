@@ -1,3 +1,4 @@
+import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
@@ -118,6 +119,7 @@ export function createPiTurnRunner(
     const completedUsage = createUsageAccumulator();
     const failures = createTurnFailureTracker();
     let failed = false;
+    let firstMainRequest = false;
     let thrown: TurnFailure | null = null;
 
     try {
@@ -138,6 +140,15 @@ export function createPiTurnRunner(
         const message = event.message;
         if (message.role !== "assistant") return;
         const completed = event.type === "message_end" && message.stopReason !== "aborted" && message.stopReason !== "error";
+
+        if (completed && !req.autonomous && !firstMainRequest) {
+          firstMainRequest = true;
+          const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+          try { req.bridge.activity?.({ kind: "first_request_cache", usage: {
+            inputTokens: token(message.usage?.input), cacheReadTokens: token(message.usage?.cacheRead),
+            cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message",
+          } }); } catch { /* Observability must not fail the observed turn. */ }
+        }
         if (completed) completedUsage.observe(event);
         const receipt = completedUsage.toWire();
         if (receipt) {
@@ -176,6 +187,15 @@ export function createPiTurnRunner(
       if (!req.signal.aborted) {
         const images = toImages(req);
         emit({ type: "status", status: "thinking" });
+
+        if (!req.autonomous && !session.reportsPromptPrefix) {
+          try { req.bridge.activity?.({ kind: "prompt_prefix", resumed: !isNew,
+            prefix: promptPrefixFingerprint({
+              tools: session.agent?.state.tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),
+              system: session.systemPrompt, model: session.model?.id, thinking: session.thinkingLevel,
+              gitStatusIncluded: null,
+            }) }); } catch { /* Observability must not fail the observed turn. */ }
+        }
         await session.prompt(req.prompt, images.length > 0 ? { images } : undefined);
       } else {
         await session.abort();

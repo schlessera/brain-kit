@@ -1,3 +1,4 @@
+import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
 import { claudePromptContext, acknowledgeClaudeContext } from "./prompt-context.js";
 import { describeClient } from "@schlessera/brain-ui-sdk/internal";
@@ -343,8 +344,10 @@ function assembleClaudeSdkTurn(
   // Interactive schema membership is deployment-stable, even without a live
   // handler. The mandatory hook refuses unavailable calls; fallback tool
   // bodies also return model-readable errors instead of acquiring authority.
+  let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      observeTools: tools => { assembledTools = tools; },
       stableRoster: !req.autonomous,
       proposePolicyChange,
       application: req.bridge,
@@ -379,6 +382,18 @@ function assembleClaudeSdkTurn(
     // changes. This also removes the CLI's commit/PR guidance; a brain can
     // keep its own guidance in CLAUDE.md. Apply after both billing branches.
     sdkOptions.settings = { ...sdkOptions.settings as object, includeGitInstructions: false };
+  }
+
+
+  if (!req.autonomous) {
+    try { req.bridge.activity?.({ kind: "prompt_prefix", resumed: req.sessionId !== undefined,
+      prefix: promptPrefixFingerprint({
+        // These are SDK assembly inputs. CLI built-ins/project MCP schemas are
+        // opaque here; this digest must never be called a complete wire roster.
+        tools: assembledTools === undefined ? undefined : { builtinSelection: sdkOptions.tools ?? "runtime_default", disallowed: sdkOptions.disallowedTools, bridge: assembledTools },
+        system: sdkOptions.systemPrompt, model: sdkOptions.model, thinking: sdkOptions.effort,
+        gitStatusIncluded: false,
+      }) }); } catch { /* Observability must not fail the observed turn. */ }
   }
 
   // The selected relay origin makes the CLI coalesce custom system blocks.
