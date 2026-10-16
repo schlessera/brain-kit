@@ -525,7 +525,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     catalog: createSessionCatalog(() => db, dbLog, scratchPins),
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
-    inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver),
+    inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver, config.brainPath),
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       hygieneReview.resolver),
     classifier,

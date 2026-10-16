@@ -1,3 +1,4 @@
+import { useOpenSession } from "./use-open-session.js";
 import { useBrainUiRoot } from "../root-context.js";
 import { useCallback, useEffect, useRef } from "react";
 import {
@@ -64,6 +65,7 @@ export function useShareIntake(): {
   dismiss: (record: StoredShare) => void;
 } {
   const root = useBrainUiRoot();
+  const openSession = useOpenSession();
   const canUpload = useCallback(() => root.stores.connection.getState().wsStatus === "connected" && navigator.onLine !== false, [root]);
   const reviewSession = useRef<ShareReviewSession | null>(null);
   const wsStatus = useConnectionStore(state => state.wsStatus);
@@ -206,15 +208,19 @@ export function useShareIntake(): {
           return;
         }
 
-        // A successful intake response acknowledges the server's durable Queue.
-        // Commit cleanup before starting chat: a reload must not dispatch this
-        // share a second time. Server-owned post-upload completion is #1764.
-        await shareReviewPartition(root).write([{ delete: `${SHARE_REVIEW_PREFIX}${record.id}` }]);
-        if (signal.aborted) return;
-        remove(record.id);
-        dropShareClaim(record.id);
-        session.owners.get(record.id)?.();
-        session.owners.delete(record.id);
+        const retireReview = async () => {
+          await shareReviewPartition(root).write([{ delete: `${SHARE_REVIEW_PREFIX}${record.id}` }]);
+          if (signal.aborted) return;
+          remove(record.id);
+          dropShareClaim(record.id);
+          session.owners.get(record.id)?.();
+          session.owners.delete(record.id);
+        };
+        if (typeof receipt.filingSessionId === "string" && receipt.filingSessionId.length > 0) {
+          await retireReview();
+          if (!signal.aborted) openSession(receipt.filingSessionId);
+          return;
+        }
 
         const { attachments, errors } = await shareImagesToAttachments(record.files);
         if (signal.aborted) {
@@ -223,6 +229,7 @@ export function useShareIntake(): {
         }
         if (errors.length) setNotes(errors);
 
+        const requestId = crypto.randomUUID();
         const prompt = buildSharePrompt(outcome.result as ShareIntakeResult);
         const chat = root.stores.chat.getState();
         // Always start from a fresh draft: `activeSessionId` is restored from
@@ -242,13 +249,29 @@ export function useShareIntake(): {
                 mediaType: a.attachment.mediaType,
               }))
             : undefined,
-          undefined,
+          { requestId },
           trackFiles.length ? trackFiles : undefined
         );
-        chat.startAssistantMessage(null);
+        chat.startAssistantMessage(null, undefined, requestId);
 
+        // A websocket send is not durable admission. Keep the confirmed
+        // account review until the host names its bound filing session.
+        const admission = new Promise<boolean>(resolve => {
+          const finish = (accepted: boolean) => { stopChat(); stopConnection(); signal.removeEventListener("abort", aborted); clearTimeout(timer); resolve(accepted); };
+          const check = () => {
+            const receipt = root.stores.chat.getState().chatReceipts[requestId];
+            if (receipt) finish(receipt.state === "accepted" && !!receipt.sessionId);
+          };
+          const aborted = () => finish(false);
+          const stopChat = root.stores.chat.subscribe(check);
+          const stopConnection = root.stores.connection.subscribe(state => { if (state.wsStatus !== "connected") finish(false); });
+          const timer = setTimeout(() => finish(false), 10_000);
+          signal.addEventListener("abort", aborted, { once: true });
+        });
         const sent = root.connection.send({
           type: "chat_message",
+          shareId: outcome.result.id,
+          requestId,
           text: prompt,
           ...(trackFiles.length ? { files: trackFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
           ...(attachments.length
@@ -257,10 +280,19 @@ export function useShareIntake(): {
           ...(detectClientEnvironment() ? { client: detectClientEnvironment() } : {}),
           source: "typed",
         });
-        if (!sent) {
-          setError("The connection dropped before that could be sent.");
+        if (!sent) controller.abort();
+        const accepted = await admission;
+        const acceptedSession = root.stores.chat.getState().chatReceipts[requestId]?.sessionId;
+        root.stores.chat.getState().clearChatReceipt(requestId);
+        if (!accepted || signal.aborted) {
+          if (owner.aborted || session.controller.signal.aborted) return;
+          root.stores.chat.getState().withdrawSend(null, requestId);
+          if (!canUpload()) session.waiting = record;
+          setError("Filing was not confirmed. Your share is kept on this device; try again when connected.");
           return;
         }
+        await retireReview();
+        if (!signal.aborted && acceptedSession && root.stores.chat.getState().activeSessionId !== acceptedSession) openSession(acceptedSession);
 
       } catch (err) {
         if (!signal.aborted) setError(err instanceof Error ? err.message : "Could not complete shared content intake");
@@ -273,7 +305,7 @@ export function useShareIntake(): {
         }
       }
     },
-    [remove, setBusy, setError, setNotes, root, canUpload]
+    [remove, setBusy, setError, setNotes, root, canUpload, openSession]
   );
 
   // Only a share the reader already confirmed may resume automatically.
