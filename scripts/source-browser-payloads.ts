@@ -11,7 +11,7 @@ const literals:Record<string,{source:string;expression:string}> = {
     "expression": "route.fulfill({ status: 200, contentType: \"image/svg+xml\", body: '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"60\"><rect width=\"100\" height=\"60\" fill=\"teal\"/></svg>' })"
   },
   "packages/ui-kit/tests/visual/ghost-browser.ts": {
-    "source": "4f79ab1ac6ed7dcda8a62db1a423a0b1bd9b9a96f4f172f1ab187d88fc26c594",
+    "source": "004c45bd7261997efccc74623ee2f67db4fc832b99039bc2f49cea81e75fb799",
     "expression": "page.setContent('<div id=\"probe\" style=\"height:20px;background:black\"><div style=\"width:100%;height:100%;background:white\"></div></div>')"
   }
 };

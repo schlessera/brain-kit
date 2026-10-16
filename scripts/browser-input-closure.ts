@@ -6,6 +6,7 @@ import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
 import { generatedThemeInputs } from "./generated-theme-inputs";
 import { sourceBrowserDispatch } from "./source-browser-dispatch";
+import { boundBrowserDocuments, type BrowserDocumentInputs } from "./bound-browser-documents";
 import { browserImporters, boundBrowserRuntimeInputs, type BrowserRuntimeBindings } from "./bound-browser-runtime-inputs";
 import { sourceBrowserPayload } from "./source-browser-payloads";
 import { lockedBrowserAsset, type LockedBrowserAsset } from "./locked-browser-assets";
@@ -40,16 +41,20 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   const external = new Map<string, LockedBrowserAsset>();
   const declared = new Map<string, Map<string, IndirectInput>>();
   const inactive = new Map<string, Set<string>>();
+  const executionRoots = new Set<string>();
   let runtimeBindings: BrowserRuntimeBindings = new Map();
   let dispatchBindings = new Map<string, Set<string>>();
+  let documentBindings = new Map<string, Map<string,BrowserDocumentInputs>>();
   let themeBinding: ReturnType<typeof generatedThemeInputs>;
   if (activation) {
     const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
     for (const failure of audit.unresolved) unresolved.add(failure);
     if (!audit.unresolved.length) {
+      for(const file of audit.roots)executionRoots.add(file);
       const importers = browserImporters(root, audit.files);
       runtimeBindings = boundBrowserRuntimeInputs(root, audit.files, importers);
       dispatchBindings = sourceBrowserDispatch(root, audit.files, importers);
+      documentBindings = boundBrowserDocuments(root, audit.files, importers);
       themeBinding = generatedThemeInputs(root, audit.files, importers);
     }
     if (!audit.unresolved.length) for (const candidate of audit.candidates) {
@@ -266,6 +271,8 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           const literalPayload = /\.(?:fulfill|setContent)$/.test(originalCallee) && sourceBrowserPayload(root, normalized, expression);
           const boundRuntime = runtimeBindings.get(normalized)?.get(expression);
           const boundDispatch = dispatchBindings.get(normalized)?.has(expression) === true;
+          const boundDocument = documentBindings.get(normalized)?.get(expression);
+          if(boundDocument){for(const target of boundDocument.runtime)visit(target);for(const target of boundDocument.bytes)visit(target,true);}
           const generatedTheme = themeBinding?.owner===normalized && themeBinding.read===expression ? themeBinding : undefined;
           if(generatedTheme){for(const target of generatedTheme.css)visit(target);for(const target of generatedTheme.bytes)visit(target,true);external.set(`${generatedTheme.compiler.package}/${generatedTheme.compiler.asset}`,generatedTheme.compiler);}
           if (boundRuntime) for (const target of boundRuntime) visit(target, true);
@@ -279,7 +286,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime && !boundDispatch && !generatedTheme) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime && !boundDispatch && !generatedTheme && !boundDocument) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
@@ -294,7 +301,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     walk(ast);
     for (const [key, declaration] of declared.get(normalized) ?? []) if (!uses.has(key)) unresolved.add(`Stale declaration ${normalized}: ${declaration.expression}`);
   };
-  for (const file of entrypoints) visit(file);
+  for (const file of [...entrypoints,...executionRoots]) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);
   return { files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
 }

@@ -21,12 +21,20 @@ export default {test:{setupFiles:["./setup.ts"],projects:[{test:{name:"layout",b
 }
 test("literal unselected registration is audited without suppressing callback or top-level inputs", () => {
   const {root,write,audit}=fixture();
-  expect(audit()).toEqual({candidates:[{owner:"command.ts",name:"heavy",projects:["layout"]}],files:["command.ts","config.ts","setup.ts","spec.ts"],unresolved:[],executionExcluded:false});
+  expect(audit()).toEqual({candidates:[{owner:"command.ts",name:"heavy",projects:["layout"]}],files:["command.ts","config.ts","setup.ts","spec.ts"],roots:["config.ts","setup.ts","spec.ts"],unresolved:[],executionExcluded:false});
   expect(discoverInputClosure(root,["config.ts"]).unresolved.some(value=>value.includes("Undeclared input command.ts"))).toBe(true);
   write("dependency.ts", `import {readFileSync} from "node:fs"; readFileSync(process.env.INPUT!,"utf8");`);
   write("command.ts", `import "./dependency.ts"; import type {BrowserCommand} from "vitest/node"; export const heavy:BrowserCommand<[],unknown>=async()=>0;`);
   expect(audit().executionExcluded).toBe(false);
   expect(discoverInputClosure(root,["config.ts"]).unresolved.some(value=>value.includes("Undeclared input dependency.ts"))).toBe(true);
+});
+test("inherited setup roots retain normal runtime reads and declared input bytes",()=>{
+  const {root,write}=fixture();write("setup.ts",'import {readFileSync} from "node:fs"; readFileSync("hook-input.txt","utf8");');write("hook-input.txt","owned hook bytes");
+  const activation={config:"config.ts",selected:[{project:"browser",file:"spec.ts"}],candidates:[{owner:"command.ts",name:"heavy"}]};
+  const unknown=discoverInputClosure(root,["config.ts"],[],activation);
+  expect(unknown.files).toContain("setup.ts");expect(unknown.unresolved).toContain('Undeclared input setup.ts: readFileSync("hook-input.txt","utf8")');
+  const closed=discoverInputClosure(root,["config.ts"],[{owner:"setup.ts",inputs:[{expression:'readFileSync("hook-input.txt","utf8")',targets:["hook-input.txt"]}]}],activation);
+  expect(closed.unresolved).toEqual([]);expect(closed.files).toContain("hook-input.txt");
 });
 test("activating dormant command through selected project, spec or inherited setup rejects nonactivation", () => {
   for(const activation of ["project","spec","setup"]) {

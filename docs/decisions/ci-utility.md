@@ -297,6 +297,9 @@ static imports still execute and retain ordinary input checks, including any
 top-level initializer or side effect. Dormant declared targets and their static
 imports remain fingerprinted source bytes. This bounded support does not close
 unrelated generated assets or provenance inputs.
+The audited configuration, selected specs and inherited setup/global hooks are
+also ordinary runtime closure roots; inspecting their command calls cannot
+substitute for hashing their sources and resolving their executed input reads.
 
 Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
 `dist/styles.css` output and byte-copied theme/token exports to their source stylesheets, recursive CSS inputs and
@@ -347,6 +350,28 @@ theme, tokens and explicit source scan. Its precise `promisify` and
 `createRequire` uses do not permit other aliases. The runner registration and
 complete importer inventory seal the command's caller; source or input drift
 requires a new audit. This support does not admit arbitrary subprocess outputs.
+
+One interpolated HTML fixture is separately bound to its exact producer and
+complete selected command-call inventory. The destination-press spec supplies
+only the source-owned paragraph document plus an explicit reporting/scroll
+script; its other call removes the route. Exact configuration, command owner
+and caller bytes seal the argument origins. Additional direct, renamed or
+await-import command callers, escaping command aliases or direct owner imports
+require fresh execution. This is a producer binding, not an assertion that
+HTML containing a script is inert.
+
+The argument-free ghost replay has a distinct self-contained-document binding.
+Its sole exact caller first renders the literal Performance story, then copies
+that scene's DOM and the loaded CSS rules. The preview, inherited font setup,
+checksum-verifying font producer, lock/CSS/head inputs and replay guard are
+source-audited; all imported component and CSS dependencies retain their normal
+closure traversal. Verified font bytes are inline data URLs. The replay page
+aborts and records every HTTP/websocket attempt, also records request events
+that could bypass routing, and asserts no attempts after document/font loading
+and before/after tracing. Loopback resources receive no exemption. A resource
+attempt fails the actual proof; source, caller, guard or producer drift requires
+a new audit. The scene, visual assertions and trace remain unchanged. The
+configurable PDF worker URL still requires its own validated runtime origin.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and

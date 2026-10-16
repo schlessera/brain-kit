@@ -10,6 +10,7 @@ export interface CommandCandidate { owner: string; name: string; }
 export interface CommandActivationAudit {
   candidates: (CommandCandidate & { projects: string[] })[];
   files: string[];
+  roots: string[];
   unresolved: string[];
   /** Registration is necessary but does not prove module initialization safe. */
   executionExcluded: false;
@@ -200,7 +201,7 @@ export function auditCommandActivation(root: string, config: string, selected: r
     walk(source);
   };
   for (const file of roots) visit(file);
-  return { candidates: inactive, files: [...files].sort(), unresolved: [...unresolved].sort(), executionExcluded: false };
+  return { candidates: inactive, files: [...files].sort(), roots: [...roots].sort(), unresolved: [...unresolved].sort(), executionExcluded: false };
 }
 
 // This is a bounded audit of one actual runner/configuration and its eight
