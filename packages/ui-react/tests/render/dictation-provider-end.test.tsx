@@ -189,7 +189,7 @@ function voiceRoot(provider: Provider) {
     capabilities,
   };
   const root = createBrainUiRoot({ storage: null, request: async input => {
-    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "http://localhost").pathname;
+    const path = new URL(input, "http://localhost").pathname;
     if (path === "/api/voice/session") return Response.json(session);
     if (path === "/api/voice/overrides") return Response.json({ overrides: [] });
     if (path === "/api/status") return Response.json({ contentRenderers: [] });
