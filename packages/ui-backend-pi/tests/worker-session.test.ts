@@ -1,6 +1,6 @@
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough, Readable, Writable } from "node:stream";
@@ -275,4 +275,32 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
     expect(native).toHaveBeenCalledTimes(profile === "strict" ? 1 : 0);
     expect(receivedInit, "PI_WORKER_START_FAILURE_INITIALIZES_NO_PROVIDER").toBeUndefined();
   } finally { process?.kill("SIGKILL"); await exited; await result; native.mockRestore(); }
+});
+
+test("resuming a canonical transcript does not scan the session archive", async () => {
+  save(1024);
+  const sdk = await import("@earendil-works/pi-coding-agent");
+  const list = spyOn(sdk.SessionManager, "list");
+  try {
+    expect(terminal(await turn())).toMatchObject({ outcome: "success" });
+    expect(list, "PI_RESUME_READS_ONLY_SELECTED_TRANSCRIPT").not.toHaveBeenCalled();
+  } finally { list.mockRestore(); }
+});
+
+test("legacy SDK transcript filenames remain resumable", async () => {
+  save(1024);
+  renameSync(join(sessionDir, `${ID}.jsonl`), join(sessionDir, `2026-07-12_${ID}.jsonl`));
+  expect(terminal(await turn())).toMatchObject({ outcome: "success" });
+  expect(receivedInit.entries[0]).toMatchObject({ type: "session", id: ID, cwd: brain });
+});
+
+test.each(["id", "cwd"])("canonical transcript refuses a mismatched %s before worker launch", async field => {
+  save(1024);
+  const path = join(sessionDir, `${ID}.jsonl`);
+  const entries = readFileSync(path, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  entries[0][field] = "unrelated";
+  writeFileSync(path, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false } }, undefined, ID))
+    .rejects.toThrow("Cannot resume unknown session");
+  expect(launch).not.toHaveBeenCalled();
 });

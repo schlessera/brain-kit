@@ -33,16 +33,33 @@ function grantedReadBasePath(granted: string): string | undefined {
 }
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
+  const startupStarted = performance.now();
   env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
-  const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
-  const info = infos.find(i => i.id === resumeId);
-  if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
+  let entries: import("@earendil-works/pi-coding-agent").FileEntry[] | undefined;
+  if (resumeId) {
+    // Current server-owned transcripts have fixed UUID names. Opening one must
+    // not parse every unrelated conversation just to discover that known path.
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(resumeId)) {
+      throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
+    }
+    try { entries = readPiSession(join(sessionDir, `${resumeId}.jsonl`)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Older SDK-managed filenames remain resumable; after the first turn the
+      // existing persistence path writes the canonical server-owned filename.
+      const info = (await SessionManager.list(backend.brainPath, sessionDir)).find(i => i.id === resumeId);
+      if (info) entries = readPiSession(info.path);
+    }
+    const header = entries?.[0];
+    if (header?.type !== "session" || header.id !== resumeId || header.cwd !== backend.brainPath) {
+      throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
+    }
+  }
   const sessionId = resumeId ?? randomUUID();
   const nativeVersions = nativeSessions.get(sessionId) ?? new NativeFileVersions();
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
-  const entries = info ? readPiSession(info.path) : undefined;
   /** Entries saved before this turn: their answers were promoted, if at all, by their own turn. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
   const turnContext = createTurnContext();
@@ -146,12 +163,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), signal: workerSignal });
     }
     workerSignal?.throwIfAborted();
+    const spawning = performance.now();
+    backend.log?.("debug", "Pi startup phase", { phase: "preparation", durationMs: spawning - startupStarted, elapsedMs: spawning - startupStarted });
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
     });
     launchedChild = child;
+    backend.log?.("debug", "Pi startup phase", { phase: "spawn", durationMs: performance.now() - spawning, elapsedMs: performance.now() - startupStarted });
     turnTemp = child.turnTemp;
     turnContext.configurationRoot = child.configurationRoot;
     workerStarted?.(child);
@@ -443,7 +463,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     for await (const raw of pipeMessages(child.stdout)) {
       const msg = piWorkerMessage.parse(raw);
       if (ended) throw new Error("Pi worker sent a message after turn completion");
-      if (msg.type === "ready") {
+      if (msg.type === "startup_timing") {
+        backend.log?.("debug", "Pi startup phase", { phase: msg.phase, durationMs: msg.durationMs, elapsedMs: performance.now() - startupStarted });
+      } else if (msg.type === "ready") {
+        backend.log?.("debug", "Pi startup ready", { elapsedMs: performance.now() - startupStarted });
         if (msg.sessionId !== sessionId || initialized || active) throw new Error("Pi worker changed its server session identity");
         initialized = true;
         model = msg.model as Model<any> | undefined;

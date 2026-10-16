@@ -32,6 +32,7 @@ interface Init {
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
 }
+sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: 0 });
 let session: PiSessionLike | undefined;
 let manager: SessionManager | undefined;
 let turn: SessionToolkit;
@@ -85,6 +86,8 @@ function turnTempPressure(env: SessionEnv): (() => string | undefined) | undefin
 }
 
 async function initialize(init: Init): Promise<void> {
+  const started = performance.now();
+  const timing = (phase: string, durationMs: number) => send({ type: "startup_timing", phase, durationMs });
   const state = PI_WORKER_STATE;
   mkdirSync(state, { recursive: true });
   authPath = join(state, "auth.json"); originalAuth = init.agentFiles["auth.json"];
@@ -144,6 +147,11 @@ async function initialize(init: Init): Promise<void> {
       void holder;
     } }),
   });
+  const buildResources = resources.build;
+  resources.build = async (...args) => {
+    const start = performance.now();
+    try { return await buildResources(...args); } finally { timing("resources", performance.now() - start); }
+  };
   const buildToolkit = resources.buildToolkit;
   resources.buildToolkit = caps => {
     turn = buildToolkit(caps);
@@ -177,7 +185,10 @@ async function initialize(init: Init): Promise<void> {
     sessionId: init.sessionId, entries: init.entries, observeManager: sm => { manager = sm; },
     modelRuntimeOptions: { authPath: join(state, "auth.json"), modelsPath: join(state, "models.json"), modelsStorePath: join(state, "models-cache.json") },
   });
+  const opening = performance.now();
   const opened = init.resume ? await runtime.openSession(init.sessionId, init.env) : await runtime.newSession(init.profileId, init.env);
+  timing("session", performance.now() - opening);
+  timing("initialize", performance.now() - started);
   session = opened.session;
   session.subscribe(event => {
     if (snapshotFailed) return;
