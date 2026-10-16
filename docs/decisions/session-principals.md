@@ -102,7 +102,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:134-142` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:950` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:955` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:740` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:540` | inserts a credential; calls **neither** helper |
@@ -178,7 +178,7 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:206`; `const billing = host.activity`,
+(`resolveTurnTarget`, `ws/run-session.ts:206`; `const billing = await resolveRunBilling`,
 `ws/run-session.ts:397`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
@@ -204,7 +204,7 @@ credentials, not people.
 (`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
 pruning, so cost-by-actor dies at prune time without it. The precedent is
 profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
-`activity/recorder.ts:193-208`). Nullable for cron (`origin: "cron"`,
+`activity/recorder.ts:195-210`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
 

@@ -394,9 +394,7 @@ async function runRetainedSession(
       // carries any session_info re-pin forward between queued turns — plus
       // its billing mode, so the run's root span classifies what actually ran,
       // never what was requested.
-      const billing = host.activity
-        ? await resolveRunBilling(host.registry, backend.id, profileId)
-        : undefined;
+      const billing = await resolveRunBilling(host.registry, backend.id, profileId);
       const failureRecording = await host.failureReplay.begin(backend, resumeId, turn.turnId, abortController.signal);
       // Revocation can land while routing or billing is in flight. This is the
       // final await boundary before startTurn, so an invalid principal never
@@ -445,6 +443,8 @@ async function runRetainedSession(
             }
           )
         : undefined;
+      let mainModel: string | null = billing?.model ?? null;
+      if (mainModel) recorder?.setMainModel(mainModel);
       turn.recorder = recorder;
       for (const principalId of turn.pendingCancellationPrincipalIds) {
         recorder?.recordCancellation(principalId);
@@ -513,7 +513,7 @@ async function runRetainedSession(
         }
         if (governedHold && host.budgets) lifecycle?.mark("budgetAdmittedAt");
         try { if(governedHold && host.budgets) for(const item of host.budgets.warnings(turn.turnId)) host.activity?.governance?.({
-          kind:"budget_warning",turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:null,profile:governedHold.sandbox.profile ?? "strict",
+          kind:"budget_warning",turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,profile:governedHold.sandbox.profile ?? "strict",
           payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
             limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
             observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,source:governedHold.policy.hash ? "policy":"default"}}); } catch {throw new BudgetUnavailable();}
@@ -521,7 +521,7 @@ async function runRetainedSession(
         if (governedHold && host.journal) {
           lifecycle?.mark("journalStartedAt");
           await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
-            actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policyHash: governedHold.policy.hash },
           error => {
             // A real timeout/cancel already won; never relabel that terminal.
@@ -535,7 +535,7 @@ async function runRetainedSession(
         abortController.signal.throwIfAborted();
         const scopeTurnId = turn.turnId;
         if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
-          origin, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
+          origin, model: () => mainModel, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
           source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
           current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),
           stop: reason => {
@@ -598,7 +598,7 @@ async function runRetainedSession(
               const saved = backstop ? host.budgets!.backstop(turn.turnId) : undefined;
               const result = saved ? {receipt:saved,warnings:[],blocked:{...saved.scopes[0]!,blocked:true}} : host.budgets!.observe(turn.turnId,usage);
               if (!result) return;
-              const attribution = {turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:null,
+              const attribution = {turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,
                 profile:governedHold!.sandbox.profile ?? "strict"} as const;
               for (const item of result.warnings) host.activity?.governance?.({kind:"budget_warning",...attribution,
                 payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
@@ -630,14 +630,18 @@ async function runRetainedSession(
               abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
             }
           } : undefined,
-          billing
+          billing,
+          { current: () => mainModel, bind: model => {
+            if (host.journal && governedHold && !host.journal.bindModel(scopeTurnId, turn.sessionId, model)) return;
+            mainModel = model; recorder?.setMainModel(model);
+          } }
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
           const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);
           if (match || fallback.includes("another mount")) host.activity?.governance?.({
             kind: "strict_fallback", payload: { path: match?.[1] ?? ".", reason: match?.[2] === "symlink" ? "symlink" : match ? "hardlink" : "mount_point" },
-            turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: "strict",
+            turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel, profile: "strict",
           });
         }
         enteredBackend = true;
@@ -718,7 +722,7 @@ async function runRetainedSession(
           recorder?.recordBudgetStop(terminal.message);
           const item=terminal.observation;
           host.activity?.governance?.({kind:"budget_block",turnId:turn.turnId,sessionId:turn.sessionId,
-            actor:work?.posture === "voice" ? "voice":"interactive",model:null,profile:governedHold?.sandbox.profile ?? "strict",
+            actor:work?.posture === "voice" ? "voice":"interactive",model:mainModel,profile:governedHold?.sandbox.profile ?? "strict",
             payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.blockUsd ? "usd":"tokens",
               limit:item.costUsd !== null && item.costUsd >= item.blockUsd ? item.blockUsd:item.blockTokens,
               observed:item.costUsd !== null && item.costUsd >= item.blockUsd ? item.costUsd:item.tokens!,
@@ -752,7 +756,7 @@ async function runRetainedSession(
               tier: isEnvName(item.path) || PROTECTED_TIER_A.includes(item.path as never) ? "A" : "B",
               entry: info.isFile() ? "file" : info.isDirectory() ? "directory" : info.isSymbolicLink() ? "symlink" : "other",
               bytes: info.isFile() ? info.size : null, trigger: "turn_end", objectId: createHash("sha256").update(item.to).digest("hex") },
-              turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: null,
+              turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel,
               profile: governedHold?.sandbox.profile ?? "strict" });
           }
         }
@@ -836,7 +840,7 @@ export async function resolveRunBilling(
   backendId: string,
   profileId: string | undefined
 ): Promise<
-  { profileId: string; billingMode?: BillingMode; pricingRoute?: PricingRoute } | undefined
+  { profileId: string; model?: string; billingMode?: BillingMode; pricingRoute?: PricingRoute } | undefined
 > {
   try {
     const providers = await registry.listAllProviders({ includeHidden: true });
@@ -846,6 +850,7 @@ export async function resolveRunBilling(
     if (!resolved) return undefined;
     return {
       profileId: resolved.id,
+      ...(resolved.model ? { model: resolved.model } : {}),
       ...(resolved.billingMode ? { billingMode: resolved.billingMode } : {}),
       ...(resolved.pricingRoute ? { pricingRoute: resolved.pricingRoute } : {}),
     };

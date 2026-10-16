@@ -273,6 +273,13 @@ export function createTurnJournal(db: Database, options: {
       }
     }, true); },
     bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
+    bindModel(turnId: string, sessionId: string | null, model: string): boolean {
+      if (!model || !active.has(turnId)) return false;
+      const row = db.query("SELECT session_id,ended_at FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null; ended_at: number | null } | null;
+      if (!row || row.ended_at !== null || row.session_id !== sessionId) return false;
+      accounting.write(() => db.query("UPDATE turn_journal_turns SET model=? WHERE turn_id=? AND ended_at IS NULL").run(model, turnId));
+      publish(turnId); return true;
+    },
     observe(): Promise<void> { return held(() => observe()); },
     isHeld(): boolean { return holds > 0; },
     async idle(): Promise<void> { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); },

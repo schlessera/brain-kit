@@ -274,6 +274,7 @@ export class StreamAdapter {
 
       case "system": {
         if (msg.subtype === "init") {
+          if (!parentToolUseId && msg.model) this.report({ kind: "main_model", model: msg.model, sessionId: msg.session_id });
           if (!this.options.autonomousUsage && !this.options.freshRuntimeUsage) this.report({ kind: "claude_session_usage" });
           messages.push({
             type: "status",

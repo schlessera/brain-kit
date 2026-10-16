@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:548`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:572`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:554`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:578`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:280-373`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:281-374`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:618`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:621`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)

@@ -60,6 +60,7 @@ export interface TurnRecorderDeps {
 }
 
 export interface TurnRecorder {
+  setMainModel(model: string): void;
   setWorkerProfile(profile: GovernanceProfile): void;
   /** The run id (one run per turn). */
   readonly runId: string;
@@ -136,6 +137,7 @@ export function createTurnRecorder(
   let resultOutcome: SpanOutcome | null = null;
   let resultFailureReason: string | undefined;
   let resultUsage: SpanUsage | undefined;
+  let mainModel: string | null = null;
   let resultAttrs: Record<string, unknown> | undefined;
   let completedUsage: TurnUsage | undefined;
   let atToolBoundary = false;
@@ -226,6 +228,7 @@ export function createTurnRecorder(
   }
 
   return {
+    setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
     runId,
 
@@ -435,7 +438,7 @@ export function createTurnRecorder(
               deps.governance?.({ kind: event.kind, payload: event.payload,
                 sessionId: sessionId ?? null, turnId: runId,
                 actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
-                model: resultUsage?.model ?? null, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
+                model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
             } catch (error) {
               log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
             }
@@ -633,7 +636,7 @@ export function createTurnRecorder(
             turnId: runId,
             sessionId: sessionId ?? null,
             actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
-            model: resultUsage?.model ?? null,
+            model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel,
             profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null),
           }, {
             startedAt,

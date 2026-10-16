@@ -1390,6 +1390,8 @@ export interface ServerSessionInfo {
 
 /** Safe profile metadata exposed to the client (never keys/env). */
 export interface ProviderInfo {
+  /** Explicit configured main-model id; absent when the runtime chooses it. */
+  model?: string;
   id: string;
   label: string;
   /**
