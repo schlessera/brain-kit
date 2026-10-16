@@ -107,3 +107,25 @@ test("required endurance proof cannot be absent even when every other job passes
   delete needs.endurance;
   expect(proofProblems(needs)).toContain("endurance: selected proof did not pass (missing)");
 });
+
+
+test("root consumer unit proof executes exactly selected consumers and tooling once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "consumer-unit-proof-")); directories.push(dir);
+  const files = ["tests/owned.test.ts", "tests/tooling.test.ts", "packages/core/tests/consumer.test.ts"];
+  for (const file of [...files, "tests/unrelated.test.ts"]) {
+    mkdirSync(join(dir, file, ".."), { recursive: true });
+    writeFileSync(join(dir, file), `import { test, expect } from "bun:test"; test(${JSON.stringify(file)}, () => expect(1).toBe(1));`);
+  }
+  const plan = { ...planChecks(["README.md"], []), unitTests: files, local: {
+    fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false } };
+  expect(unitFiles(plan, dir), "SELECTED_UNIT_EXACT_EXECUTION").toEqual([...files].sort());
+  const command = categoryCommands("unit", plan, dir)[0]!;
+  // Drive Bun itself, preserving explicit paths, rather than inspecting argv alone.
+  const child = Bun.spawn([process.execPath, "test", ...unitFiles(plan, dir).map(file => join(dir, file))], {
+    cwd: dir, stdout: "pipe", stderr: "pipe" });
+  const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code, err).toBe(0); expect(err).toContain("3 pass"); expect(err).not.toContain("unrelated.test.ts");
+  expect(command.argv.filter(arg => arg.endsWith(".test.ts"))).toHaveLength(3);
+  expect(() => unitFiles({ ...plan, unitTests: [...files, files[0]!] }, dir)).toThrow("Invalid selected unit inventory");
+  expect(() => unitFiles({ ...plan, unitTests: ["tests/missing.test.ts"] }, dir)).toThrow("Invalid selected unit inventory");
+});
