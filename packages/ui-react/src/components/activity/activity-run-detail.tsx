@@ -1,3 +1,4 @@
+import { TurnTiming } from "./turn-timing.js";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -56,6 +57,7 @@ export function RunDetail({
   const api = useBrainApi();
   const activitySupported = useRootStore("activity", s => s.supported);
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
+  const lifecycle = useActivityStore(s => s.lifecycles[runId]);
   const events = useActivityStore(useShallow((s) => runEvents(s, runId)));
   const uiRoot = useBrainUiRoot();
   const agents = useOrbitAgents(streamed);
@@ -80,6 +82,7 @@ export function RunDetail({
       .then((detail) => {
         if (!active) return;
         if (detail.rollup) setRollup(detail.rollup);
+        if (detail.lifecycle) applySnapshot({ type:"activity_snapshot",view:"run",runId,spans:[],events:[],lifecycles:[detail.lifecycle],highWaterSeq:{[detail.lifecycle.lifecycleId]:detail.lifecycleSeq ?? 0} });
         if (detail.detailPruned) {
           setPruned(detail.rollup ?? {});
         } else if (detail.spans) {
@@ -88,8 +91,9 @@ export function RunDetail({
             view: "run",
             runId,
             spans: detail.spans,
+            lifecycles: detail.lifecycle ? [detail.lifecycle] : [],
             events: detail.events ?? [],
-            highWaterSeq: { [runId]: detail.highWaterSeq ?? 0 },
+            highWaterSeq: { [runId]: detail.highWaterSeq ?? 0, ...(detail.lifecycle ? {[detail.lifecycle.lifecycleId]: detail.lifecycleSeq ?? 0} : {}) },
           });
         }
       })
@@ -176,12 +180,13 @@ export function RunDetail({
       </div>
       <div className="mx-auto w-full max-w-3xl space-y-1 p-4">
         {missing && <p className="text-xs text-muted-foreground">Unknown run.</p>}
+        <TurnTiming lifecycle={lifecycle} />
         {rollup && (
           <RunRollupReceipt
             origin={rollup.origin}
             outcome={rollup.outcome}
             when={formatRelativeTime(rollup.startedAt)}
-            duration={rollup.durationMs !== null ? formatDuration(rollup.durationMs) : null}
+            duration={rollup.durationMs !== null ? `Backend: ${formatDuration(rollup.durationMs)}` : null}
             listCost={formatEffectiveCost(rollup.costUsd)}
             effectiveCost={formatEffectiveCost(rollup.effectiveCostUsd, rollup.pricingEstimate, rollup.billingMode)}
             billing={rollup.billingMode ? (rollup.billingMode === "api" ? "API billed" : "subscription billed") : null}

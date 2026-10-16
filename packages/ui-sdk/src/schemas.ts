@@ -1443,8 +1443,35 @@ const activitySpanEventSchema = z.looseObject({
   truncated: z.boolean().optional(),
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
+const activityTurnLifecycleSchema = z.looseObject({
+  hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
+  skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
+  lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
+  acceptedAt: z.number(),
+  dequeuedAt: z.number().nullable(),
+  governedStartedAt: z.number().nullable(),
+  governedAcquiredAt: z.number().nullable(),
+  budgetStartedAt: z.number().nullable(),
+  budgetAdmittedAt: z.number().nullable(),
+  journalStartedAt: z.number().nullable(),
+  journalBeganAt: z.number().nullable(),
+  backendInvokedAt: z.number().nullable(),
+  firstFrameAt: z.number().nullable(),
+  failureObservedAt: z.number().nullable(),
+  endedAt: z.number().nullable(),
+  totalElapsedMs: z.number().nullable(),
+  timeToFirstFrameMs: z.number().nullable(),
+  queueWaitMs: z.number().nullable(),
+  governedAdmissionMs: z.number().nullable(),
+  budgetAdmissionMs: z.number().nullable(),
+  journalBeginMs: z.number().nullable(),
+  backendStartupMs: z.number().nullable(),
+  outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
+});
+
 export const serverActivitySnapshotSchema = z.looseObject({
   type: z.literal("activity_snapshot"),
+  lifecycles: z.array(activityTurnLifecycleSchema).optional(),
   view: activityView,
   sessionId: id.optional(),
   runId: id.optional(),
@@ -1456,6 +1483,7 @@ export const serverActivitySnapshotSchema = z.looseObject({
 
 export const serverActivityDeltaSchema = z.looseObject({
   type: z.literal("activity_delta"),
+  lifecycle: activityTurnLifecycleSchema.optional(),
   runId: id,
   seq: z.number(),
   span: activitySpanSchema.optional(),
