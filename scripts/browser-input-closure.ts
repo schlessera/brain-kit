@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync 
 import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
 import { cssInputs } from "./css-inputs";
 import { normalizeInventory, type Spec } from "./proof-inputs";
 
@@ -27,10 +28,19 @@ function inside(root: string, file: string): string | undefined {
   return !path.startsWith("../") && !isAbsolute(path) ? path : undefined;
 }
 /** No declaration can suppress an unresolved call: every declaration names real inputs. */
-export function discoverInputClosure(root: string, entrypoints: readonly string[], declarations: readonly InputDeclaration[] = []): InputClosure {
+export function discoverInputClosure(root: string, entrypoints: readonly string[], declarations: readonly InputDeclaration[] = [], activation?: { config: string; selected: readonly Spec[]; candidates: readonly CommandCandidate[] }): InputClosure {
   root = realpathSync(root);
   const unresolved = new Set<string>(), files = new Set<string>(), directories = new Set<string>();
   const declared = new Map<string, Map<string, IndirectInput>>();
+  const inactive = new Map<string, Set<string>>();
+  if (activation) {
+    const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
+    for (const failure of audit.unresolved) unresolved.add(failure);
+    if (!audit.unresolved.length) for (const candidate of audit.candidates) {
+      const names = inactive.get(candidate.owner) ?? new Set<string>();
+      names.add(candidate.name); inactive.set(candidate.owner, names);
+    }
+  }
   const inputKey = (input: IndirectInput) => input.scope ? `${input.scope}\0${input.expression}` : input.expression;
   for (const declaration of declarations) {
     if (!declaration || typeof declaration.owner !== "string" || !/\.(?:[cm]?[jt]sx?|css)$/.test(declaration.owner) || !Array.isArray(declaration.inputs) || declared.has(declaration.owner) || !inside(root, resolve(root, declaration.owner)) || !existsSync(join(root, declaration.owner))) {
@@ -46,10 +56,10 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   const options: ts.CompilerOptions = { moduleResolution: ts.ModuleResolutionKind.Bundler,
     module: ts.ModuleKind.ESNext, customConditions: ["bun"], resolveJsonModule: true, allowImportingTsExtensions: true, jsx: ts.JsxEmit.ReactJSX };
   const visited = new Set<string>();
-  const visit = (file: string, scanOnly = false) => {
+  const visit = (file: string, scanOnly = false, sourceOnly = false) => {
     const absolute = resolve(root, file), normalized = inside(root, absolute);
     if (normalized === undefined || normalized.startsWith("node_modules/") || normalized === "node_modules") { unresolved.add(`Input escapes repository: ${file}`); return; }
-    const key = `${scanOnly}:${normalized}`;
+    const key = `${scanOnly}:${sourceOnly}:${normalized}`;
     if (visited.has(key)) return;
     visited.add(key);
     if (!existsSync(absolute)) { unresolved.add(`Missing input: ${normalized}`); return; }
@@ -59,7 +69,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     const stat = ts.sys.directoryExists(absolute);
     if (stat) {
       directories.add(normalized || ".");
-      for (const entry of readdirSync(absolute).sort()) visit(normalized ? `${normalized}/${entry}` : entry, scanOnly);
+      for (const entry of readdirSync(absolute).sort()) visit(normalized ? `${normalized}/${entry}` : entry, scanOnly, sourceOnly);
       return;
     }
     if (scanOnly) return; // Tailwind scans bytes; it does not execute/import scanned source.
@@ -85,7 +95,6 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     }
     if (!sourceExtension.test(file)) return;
     const source = readFileSync(absolute, "utf8"), ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
-    if (/\bGITHUB_[A-Z_]+\b/.test(source)) unresolved.add(`Git-dependent execution input: ${normalized}`);
     if ((ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) unresolved.add(`Invalid source: ${normalized}`);
     const uses = new Set<string>(), sites = new Set<string>();
     const aliases = new Map<string, string>(), namespaces = new Set<string>(), filesystemAliases = new Set<string>(), shadowedBindings = new Set<string>();
@@ -107,13 +116,13 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       if (!result) {
         // Bundler-owned assets are still repository inputs, even when TypeScript has no declaration.
         const asset = specifier.startsWith(".") ? resolve(dirname(absolute), specifier.split("?")[0]!) : "";
-        if (asset && existsSync(asset)) { visit(relative(root, asset), typeOnly); return; }
+        if (asset && existsSync(asset)) { visit(relative(root, asset), typeOnly, sourceOnly); return; }
         unresolved.add(`Unresolved import ${normalized}: ${specifier}`); return;
       }
       const target = inside(root, result.resolvedFileName);
       if (target?.startsWith("node_modules/") || result.isExternalLibraryImport && !specifier.startsWith("@schlessera/")) return;
       if (!target) { unresolved.add(`External workspace input ${normalized}: ${specifier}`); return; }
-      visit(target, typeOnly);
+      visit(target, typeOnly, sourceOnly);
     };
     const lexicalScope = (node: ts.Node): string => {
       const names: string[] = [];
@@ -160,7 +169,15 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       }
       return matches;
     };
-    const walk = (node: ts.Node) => {
+    const walk = (node: ts.Node, dormant = sourceOnly) => {
+      if (!dormant && ts.isPropertyAccessExpression(node) && /^(?:process|Bun)\.env$/.test(node.getText(ast)) &&
+          !((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.expression === node))
+        unresolved.add(`Git-dependent execution input: ${normalized}`);
+      if (!dormant && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && /^(?:process|Bun)\.env$/.test(node.expression.getText(ast))) {
+        const name = ts.isPropertyAccessExpression(node) ? node.name.text : node.argumentExpression && ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : undefined;
+        if (!name || name.startsWith("GITHUB_")) unresolved.add(`Git-dependent execution input: ${normalized}`);
+      }
+      if (ts.isArrowFunction(node) && ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name) && inactive.get(normalized)?.has(node.parent.name.text)) dormant = true;
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
         const expression = node.getText(ast);
         const matching = declarationAt(node);
@@ -170,18 +187,33 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           sites.add(key);
         }
       }
-      if (ts.isIdentifier(node) && aliases.has(node.text) && readOperations.has(aliases.get(node.text)!)) {
+      if (!dormant && ts.isIdentifier(node) && aliases.has(node.text) && readOperations.has(aliases.get(node.text)!)) {
         const parent = node.parent;
         if (!ts.isImportSpecifier(parent) && !(ts.isCallExpression(parent) && parent.expression === node)) unresolved.add(`Unsupported input alias ${normalized}: ${node.text}`);
       }
-      if (ts.isIdentifier(node) && namespaces.has(node.text)) {
+      if (!dormant && ts.isIdentifier(node) && namespaces.has(node.text)) {
         const parent = node.parent;
         if (!ts.isImportClause(parent) && !ts.isNamespaceImport(parent) && !(ts.isPropertyAccessExpression(parent) && parent.expression === node) && !(ts.isElementAccessExpression(parent) && parent.expression === node)) unresolved.add(`Unsupported input namespace alias ${normalized}: ${node.text}`);
       }
-      if (ts.isIdentifier(node) && node.text === "require" && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) unresolved.add(`Unsupported require alias ${normalized}`);
+      if (!dormant && ts.isIdentifier(node) && node.text === "require" && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) unresolved.add(`Unsupported require alias ${normalized}`);
       if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
         edge(node.moduleSpecifier.text, ts.isImportDeclaration(node) ? node.importClause?.isTypeOnly === true : node.isTypeOnly);
-      if (ts.isCallExpression(node)) {
+      if (dormant && (ts.isCallExpression(node) || ts.isNewExpression(node))) {
+        for (const declaration of inputDeclarations(node)) {
+          uses.add(inputKey(declaration));
+          for (const target of declaration.targets) visit(target, false, true);
+        }
+        if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+            node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0]!)) {
+          // Imported modules execute only when the inactive callback executes.
+          const specifier = node.arguments[0]!.text;
+          const result = ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule;
+          if (builtins.has(specifier) || specifier.startsWith("bun:")) { /* Runtime-provided builtin; already in runner identity. */ }
+          else if (result && !result.isExternalLibraryImport) visit(relative(root, result.resolvedFileName), false, true);
+          else if (!result) unresolved.add(`Unresolved dormant import ${normalized}: ${specifier}`);
+        }
+      }
+      if (!dormant && ts.isCallExpression(node)) {
         const originalCallee = node.expression.getText(ast), callee = aliases.get(originalCallee) ?? originalCallee, expression = node.getText(ast);
         if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
           if (node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0]!)) edge(node.arguments[0]!.text);
@@ -200,13 +232,13 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
-      if (ts.isNewExpression(node) && /^(?:Worker|SharedWorker|Bun\.Glob)$/.test(node.expression.getText(ast))) {
+      if (!dormant && ts.isNewExpression(node) && /^(?:Worker|SharedWorker|Bun\.Glob)$/.test(node.expression.getText(ast))) {
         const expression = node.getText(ast), declaration = declared.get(normalized)?.get(expression);
         if (declaration?.observation) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
         if (!declaration) unresolved.add(`Undeclared constructed input ${normalized}: ${expression}`);
         else { uses.add(expression); for (const target of declaration.targets) visit(target); }
       }
-      ts.forEachChild(node, walk);
+      ts.forEachChild(node, child => walk(child, dormant));
     };
     walk(ast);
     for (const [key, declaration] of declared.get(normalized) ?? []) if (!uses.has(key)) unresolved.add(`Stale declaration ${normalized}: ${declaration.expression}`);

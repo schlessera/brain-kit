@@ -1,5 +1,6 @@
 /** Immutable inclusion fingerprints. Unknown runtime ownership always executes fresh. */
 import ts from "typescript";
+import { auditedInactiveCommands } from "./browser-command-activation";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,7 +79,8 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     if (!Array.isArray(declarations)) throw new Error("Invalid immutable input declarations");
     const selected = selectedSpecs(category, inventory);
     const inputs = [...required.filter(path => path.startsWith("packages/ui-kit/") || path === "packages/ui-react/src/styles.css"), ...selected.map(spec => spec.file)];
-    const closure = discoverInputClosure(snapshot, inputs, declarations);
+    const activation = category === "browser" ? auditedInactiveCommands(snapshot, selected) : undefined;
+    const closure = discoverInputClosure(snapshot, inputs, declarations, activation);
     if (closure.unresolved.length) throw new Error(`Unresolved immutable ${category} inputs require fresh proof: ${closure.unresolved.slice(0, 3).join("; ")}`);
     const included = new Set([...closure.files, ...entries.filter(entry => harness(entry.path)).map(entry => entry.path)]);
     // Builds compile their expanded source inventories; compilation hashes

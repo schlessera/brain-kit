@@ -285,6 +285,19 @@ checked when making fresh receipts and revalidating current/source evidence.
 A verified literal producer in an owned temporary root alone does not bind a
 consumer reached through CLI arguments, cwd or configuration redirection.
 
+A bounded command-activation audit covers the four server fixture callbacks
+registered exclusively in the layout and endurance projects. It checks the
+complete selected spec inventory, inherited setup/global hooks and their static
+imports; active registrations, callback escapes, dynamic loaders and aliased
+command invocation retain fresh execution. Admission additionally requires exact
+audited runner, configuration, callback and imported-helper source identities.
+An edit requires a new audit rather than general TypeScript partial evaluation.
+Only a proven inactive arrow body defers its runtime inputs. Its module and
+static imports still execute and retain ordinary input checks, including any
+top-level initializer or side effect. Dormant declared targets and their static
+imports remain fingerprinted source bytes. This bounded support does not close
+unrelated generated assets or provenance inputs.
+
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
 runner identity. It also includes every proof/tooling script and workflow,

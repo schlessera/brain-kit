@@ -356,3 +356,11 @@ source. An edited or duplicate statement invalidates its declaration. Missing
 inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
 build directives remain unresolved and require fresh proof. This discovery
 support does not itself establish a complete retainable browser domain.
+
+
+Retention's bounded browser-command audit must preserve imported top-level
+execution. Its tests import a real config in a Bun child and observe a transitive
+module input even while the registered callback remains dormant. Activating a
+command through a selected project, spec or inherited setup must force fresh
+execution; a mutation of that registration guard must fail the named assertion.
+The exact audited configuration/source guard makes unsupported edits fresh.

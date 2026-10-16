@@ -258,3 +258,10 @@ test("shadowed or non-filesystem reader aliases cannot claim a kernel observatio
     expect(discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression, observation: "linux-proc-self-identity", targets: [] }] }]).unresolved.some(item => item.startsWith("Invalid runner observation"))).toBe(true);
   }
 });
+
+test("Git environment reads stay unknown while literal UI copy and local GitHub names are source bytes", () => {
+  const root=fixture({"entry.ts":`const GITHUB_ITEM=/path/; const message="GITHUB_TOKEN"; console.log(GITHUB_ITEM,message);`});
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved).toEqual([]);
+  writeFileSync(join(root,"entry.ts"),`console.log(process.env.GITHUB_SHA,process.env["GITHUB_RUN_ID"]);`);
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved).toContain("Git-dependent execution input: entry.ts");
+});
