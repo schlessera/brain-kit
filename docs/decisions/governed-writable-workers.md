@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-112`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-109`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -270,8 +270,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:88-120`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-112`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-109`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits

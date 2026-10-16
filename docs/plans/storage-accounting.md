@@ -60,8 +60,8 @@ ownership, not permission to delete.
 Source anchors, checked against the reviewed commit:
 
 - A: root and index resolution (`initContext`, `packages/core/src/lib/context.ts:36-50`);
-  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:158-209`),
-  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:213-224`).
+  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:161-212`),
+  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:216-227`).
 - B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:55-64`)
   and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:76-84`).
   The completed #94 and #398 provide existing stats/maintenance foundations.

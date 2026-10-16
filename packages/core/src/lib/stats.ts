@@ -9,13 +9,16 @@
  * `brain audit` lists.
  */
 import type { Database } from "bun:sqlite";
+import { checkGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { geminiEmbeddingRecipient } from "../providers/embeddings/gemini.js";
+import { resolveEmbeddingProvider } from "./registry.js";
 import { readdirSync, statSync, statfsSync } from "fs";
 import { join, relative } from "path";
 
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
 import { loadVecSupport, vecTableExists } from "./db.js";
-import { embeddingEligibilitySql } from "./embedding-policy.js";
+import { embeddingEligibilitySql, providerExcludedDocuments } from "./embedding-policy.js";
 import { gitIgnoredMatcher, isAssetPath } from "./git-ignore.js";
 import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -239,7 +242,16 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   const linkCount = count(db, "SELECT COUNT(*) as count FROM links");
   const brokenLinks = count(db, "SELECT COUNT(*) as count FROM links WHERE target_id IS NULL");
   const chunkCount = count(db, "SELECT COUNT(*) as count FROM chunks");
-  const eligible = embeddingEligibilitySql(taxonomy);
+  const checkedPolicy = checkGovernancePolicy(root);
+  const rules = checkedPolicy.effective.providers;
+  let excluded: number[] = [];
+  if (!checkedPolicy.ok) excluded = (db.query("SELECT id FROM documents").all() as Array<{id:number}>).map(doc => doc.id);
+  else if (rules.length) {
+    let recipient: string | undefined;
+    try { recipient = await geminiEmbeddingRecipient(resolveEmbeddingProvider(opts.config?.embeddings)); } catch { /* Unknown configured transport cannot authorize data. */ }
+    excluded = providerExcludedDocuments(db, root, rules, recipient);
+  }
+  const eligible = embeddingEligibilitySql(taxonomy, excluded);
   const eligibleChunkCount = (db.prepare(`SELECT COUNT(*) AS count FROM chunks c
     JOIN documents d ON d.id = c.document_id WHERE ${eligible.sql}`)
     .get(...eligible.params) as { count: number }).count;
