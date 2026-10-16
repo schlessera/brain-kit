@@ -396,6 +396,10 @@ def worker(record, request=None):
 
 def mounts(connection, request, token, record):
     value = worker(record, request)
+    # Preserve authenticated termination authority before any inspector IO.
+    # Namespace/root validation below still gates descriptor publication.
+    record["worker"] = {"pid": value["pid"], "start": value["start"]}
+    save(token, record)
     roots = request.get("roots")
     if not isinstance(roots, list) or len(roots) > 2 or len(roots) != len(record.get("roots", [])):
         refuse("substituted_root_count")
@@ -454,8 +458,6 @@ def mounts(connection, request, token, record):
             info = os.fstat(fd)
             if (info.st_dev, info.st_ino) != (receipt["dev"], receipt["ino"]):
                 refuse("inspector_substituted_handle")
-        record["worker"] = request["worker"]
-        save(token, record)
         send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)
     finally:
         parent.close()
