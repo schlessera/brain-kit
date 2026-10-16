@@ -96,15 +96,15 @@ function assembleClaudeSdkTurn(
   envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined
 ): ClaudeSdkTurn {
   const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
-  // Only wire ask-user / location tools when the host bridge offers them.
+  // Bind current handlers; interactive schema presence never grants authority.
   const askUser = req.bridge.askUser;
   const getLocation = req.bridge.getLocation;
   // The mask editor is the one bridge tool that needs EYES: it opens an editor
   // and then blocks on a region someone has to paint. A turn that declared it
-  // has no grant surface has nobody to paint it, so the capability is withheld
-  // rather than offered and blocked on — and withheld at the append, because
-  // the append is what puts it inside the turn's allowlist whatever the
-  // posture declared (docs/decisions/voice-permission.md). Location, activity,
+  // has no grant surface has nobody to paint it, so its handler is withheld.
+  // The full interactive schema stays registered; mandatory call-time hooks
+  // refuse it before permission cards, including settings auto-allows. See
+  // docs/decisions/voice-permission.md. Location, activity,
   // show_block and ask_user ask nothing of a viewer, so they are unaffected.
   const requestMask = req.noGrantSurface === true ? undefined : req.bridge.requestMask;
   // The list card needs eyes for the same reason: up to thirty rows of chips
@@ -119,7 +119,7 @@ function assembleClaudeSdkTurn(
   // it by the server's held descriptor, so it needs no approval. Not in the
   // restricted envelope, whose roster is exact server authority.
   const turnTempTool = !req.autonomous;
-  const hosted = Boolean(req.bridge.applyBrain);
+  const hosted = (!req.autonomous && req.applicationAuthority === "server") || Boolean(req.bridge.applyBrain);
   const migrations: Record<string, string> = {
     mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
     mcp__brain__brain_archive: "mcp__brain-ui__brain_archive", Write: "mcp__brain-ui__write_file", Edit: "mcp__brain-ui__edit_file",
@@ -147,8 +147,8 @@ function assembleClaudeSdkTurn(
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
     if (turnTempTool) allowed.push(TURN_TEMP_TOOL_NAME);
-    if (req.bridge.inboxList) allowed.push(visibleToolName("inbox_list", "claude"), visibleToolName("inbox_get", "claude"));
-    if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"), visibleToolName("complete_share", "claude"));
+    for (const [name, handler] of [["inbox_list", "inboxList"], ["inbox_get", "inboxGet"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
+    if (!req.noGrantSurface && req.posture !== "voice") for (const [name, handler] of [["inbox_add", "inboxAdd"], ["resolve_action", "resolveAction"], ["complete_share", "completeShare"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -223,11 +223,10 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
-      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
-    ] : []), ...(hosted && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
+    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ?
+      ["mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"] : [])],
     ...createPermissionWiring({
-      req,
+      req: { ...req, workerSandbox: sandbox },
       allowedTools: allowed,
       confirmPatterns,
       brainPath: backend.brainPath,
@@ -307,11 +306,12 @@ function assembleClaudeSdkTurn(
     };
   }
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
-  // The bridge tools are registered only when the bridge provides their
-  // handler, each together with its allowlist entry; `show_block` needs no
-  // handler, so the server itself is always present.
+  // Interactive schema membership is deployment-stable, even without a live
+  // handler. The mandatory hook refuses unavailable calls; fallback tool
+  // bodies also return model-readable errors instead of acquiring authority.
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      stableRoster: !req.autonomous,
       proposePolicyChange,
       application: req.bridge,
       askUser,
@@ -322,7 +322,7 @@ function assembleClaudeSdkTurn(
       getLocation,
       requestMask,
       queryActivity,
-      ...(req.bridge.inboxList ? { inbox: req.bridge } : {}),
+      ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
       ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
         try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
       }) } : {}),

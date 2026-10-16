@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:85-262`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:85-261`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-113`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records

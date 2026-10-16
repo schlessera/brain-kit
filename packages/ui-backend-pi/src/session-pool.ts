@@ -1,7 +1,7 @@
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 
-import { capsOf, type PiSessionLike, type SessionEnv } from "./backend-options.js";
+import { INTERACTIVE_SESSION_CAPS, capsOf, type PiSessionLike, type SessionEnv } from "./backend-options.js";
 import type { SessionRuntime } from "./session-runtime.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -53,7 +53,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      caps: { ...capsOf(req.bridge), policyChange: !req.autonomous && !req.noGrantSurface && req.posture !== "voice" && Boolean(req.bridge.proposePolicyChange), turnTemp: !req.autonomous },
+      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false } : { ...INTERACTIVE_SESSION_CAPS },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

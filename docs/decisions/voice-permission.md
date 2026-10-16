@@ -311,7 +311,7 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:272-282`) and is not
+`permission-hooks.ts:281-291`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:53-63`)
 lets a deployment supply its own patterns, which have no phrase when given as
@@ -517,7 +517,23 @@ section. What the record requires is narrower and mechanism-agnostic:
 > expressible in it as a second named membership. A voice turn and an unattended
 > turn must differ in *which set they name*, not in *how the set is enforced*.
 
-On the merits, availability control is the better mechanism and the voice
+**Superseded for interactive/voice sessions, 2026-10-16 (#2048 A).** The
+following availability-control preference records the original rationale. The
+selected implementation now keeps the full deployment-configured roster fixed,
+including on a voice-first session, to preserve provider prompt-cache prefixes
+when a later typed turn has more capabilities. Schema presence is never a grant:
+mandatory call-time hooks deny strict/voice native writes and unavailable bridge
+calls before handlers or permission cards; remembered/settings allows cannot
+remove those denies. The same per-tool negative runtime and mutation evidence
+required below remains mandatory. Missing handlers and no-grant surfaces also
+refuse at call time. This supersedes the visual-tool withholding mechanism
+(including the mask discussion below), while preserving its reason: nobody may
+be left waiting on a card they cannot operate. Autonomous restricted membership
+is unchanged. #2022 coordinates native auto-allow on governed typed turns without
+weakening stale-read, protected-path or write-lock checks; #2053 records the
+broader append-only provider-history rule.
+
+Historically, availability control was preferred and the voice
 posture should follow U15 there if U15 lands first. It removes three problems
 this record otherwise has to legislate around: the runtime bypasses below stop
 being reachable, the bridge-tool append stops being an exclusion nobody can
@@ -574,7 +590,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:529`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:535`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -582,7 +598,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:18-32`;
   `!mayGrant`, `:71-79`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:497-516`).
+  `const agentHook`, `permission-hooks.ts:508-527`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -599,7 +615,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:182-205`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:183-212`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -619,7 +635,7 @@ with a `BackendRequestError` (`assertTurnPosture`,
 codebase's own shortcuts was never sufficient: the runtime has permission
 opinions of its own that also land before `canUseTool`
 (the block above `enforcementHook`, `DO NOT WEAKEN THIS INTO A FALLTHROUGH`,
-`permission-hooks.ts:149-180`, with the measurements in #154) — a safe-command
+`permission-hooks.ts:150-181`, with the measurements in #154) — a safe-command
 classifier (`echo hi` runs with an **empty** `allowedTools` and the callback is
 never consulted), a built-in tool's own check (`ToolSearch` executed twice under
 the same conditions), and a `PreToolUse` hook in the project settings this
@@ -672,8 +688,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:217-219`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:281-288`). So a
+`permission-hooks.ts:224-226`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:290-297`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about

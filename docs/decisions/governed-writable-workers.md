@@ -969,8 +969,8 @@ classification:
   indexing. `write_file` and `edit_file` remain the way to write under
   `strict`.
 - **Native tools return under `governed`.** In Claude the
-  `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
+  `Write`/`Edit`/`NotebookEdit` stay registered under #2048 A; strict/voice
+  refusal moves to call time (`toolAvailabilityRefusal`, `packages/ui-backend-claude/src/tool-availability.ts:16-27`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -991,7 +991,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+`packages/ui-backend-claude/src/permission-hooks.ts:90`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,

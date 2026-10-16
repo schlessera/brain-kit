@@ -503,6 +503,12 @@ export interface StartTurnRequest {
   maxBudgetUsd?: number;
   bridge: BackendBridge;
   /**
+   * Trusted deployment fact, stable across a hosted session even when a turn
+   * temporarily lacks applyBrain. Never supplied by a client/model, and never
+   * a grant. Omitted direct consumers retain their project MCP writer roster.
+   */
+  applicationAuthority?: "server";
+  /**
    * What the reader is on, as the browser measured it at send time. Absent
    * when the client is older or headless. Backends that can vary their system
    * prompt per turn should feed it to `buildSystemPromptAppend()`; it is
