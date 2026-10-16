@@ -28,8 +28,8 @@ export interface InferenceRelayOptions {
   upstream: string;
   /** Exact paths below the upstream base path that carry inference. */
   routes: readonly string[];
-  /** Server-held credential headers, set after every inbound one is removed. */
-  credentials: Readonly<Record<string, string>>;
+  /** Server-held headers, resolved for each dispatch after inbound credentials are removed. */
+  credentials: Readonly<Record<string, string>> | ((signal: AbortSignal) => Promise<Readonly<Record<string, string>>>);
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
 }
@@ -68,9 +68,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   }
   const base = upstream.pathname.replace(/\/+$/, "");
   const routes = new Set(options.routes.map(route => `${base}${route}`));
-  for (const [name, value] of Object.entries(options.credentials)) {
-    if (!value || /[\r\n]/.test(value) || !/^[a-z0-9-]+$/i.test(name)) throw new Error(`Invalid relay credential header ${name}`);
-  }
+  const validateCredentials = (credentials: Readonly<Record<string, string>>): void => {
+    for (const [name, value] of Object.entries(credentials)) {
+      if (!value || /[\r\n]/.test(value) || !/^[a-z0-9-]+$/i.test(name)) throw new Error("Invalid relay credential header");
+    }
+  };
+  if (typeof options.credentials !== "function") validateCredentials(options.credentials);
   // Private to this server user; the worker sees only the bind-mounted socket.
   const dir = mkdtempSync(join(tmpdir(), "brain-inference-"));
   const separateIdentity = Boolean(workerIdentityHelper());
@@ -97,7 +100,17 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (body.byteLength > MAX_INFERENCE_REQUEST_BYTES) return refuse(request.method, path, 413, "Inference request too large");
         const headers = new Headers();
         for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
-        for (const [name, value] of Object.entries(options.credentials)) headers.set(name, value);
+        let credentials: Readonly<Record<string, string>>;
+        try {
+          credentials = typeof options.credentials === "function" ? await options.credentials(request.signal) : options.credentials;
+          validateCredentials(credentials);
+          if (request.signal.aborted) return refuse(request.method, path, 499, "Inference request cancelled");
+          for (const [name, value] of Object.entries(credentials)) headers.set(name, value);
+        } catch {
+          // A resolver error may carry a provider reply, credential or host path.
+          return refuse(request.method, path, request.signal.aborted ? 499 : 503,
+            request.signal.aborted ? "Inference request cancelled" : "Inference credentials unavailable");
+        }
         const target = new URL(upstream.origin);
         target.pathname = path;
         target.search = url.search;

@@ -6,6 +6,7 @@
 import { constants, closeSync, fstatSync, fsyncSync, openSync, readSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { acquireHostCredentialExclusion, HostCredentialExclusionError, type HostCredentialDomain } from "@schlessera/brain-ui-sdk/internal";
 
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -65,14 +66,15 @@ function credential(value: Login): ClaudeHostOAuth {
 
 /**
  * Reads current bytes on every request; neither startup tokens nor refresh results
- * are cached. The on-disk lock serializes these resolvers across server processes.
+ * are cached. Kernel-backed exclusion serializes host credential operations.
  * Observed native login/logout changes refuse publication. Native commands must
  * share the caller's credential-maintenance exclusion: this private lock cannot
- * serialize an independently launched native CLI. No lock recovery
- * guesses at ownership after a crash: an abandoned lock requires host maintenance.
+ * serialize an independently launched native CLI. The kernel releases the
+ * held descriptor on process exit; no stale owner is inferred or removed.
  */
 export async function resolveClaudeHostOAuth(configDirectory: string,
-  environment: Readonly<Record<string, string | undefined>>, signal?: AbortSignal): Promise<ClaudeHostOAuth> {
+  environment: Readonly<Record<string, string | undefined>>, signal?: AbortSignal,
+  credentialDomain?: HostCredentialDomain): Promise<ClaudeHostOAuth> {
   cancelled(signal);
   // This measured protocol is production Claude OAuth only. Never send a
   // configured alternate authority's refresh token to the production endpoint.
@@ -85,10 +87,11 @@ export async function resolveClaudeHostOAuth(configDirectory: string,
     return { authorization: `Bearer ${supplied}`, source: "environment" };
   }
   let directory: number | undefined;
-  let lock: number | undefined;
+  let exclusion: Awaited<ReturnType<typeof acquireHostCredentialExclusion>> | undefined;
   let staged: string | undefined;
   let base = "";
   try {
+    exclusion = await acquireHostCredentialExclusion({ domain: credentialDomain, signal });
     const canonical = resolve(configDirectory);
     if (realpathSync(canonical) !== canonical) throw new ClaudeHostAuthError("invalid");
     directory = openSync(canonical, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
@@ -122,11 +125,6 @@ export async function resolveClaudeHostOAuth(configDirectory: string,
     const initial = read();
     if (initial.auth.expiresAt > Date.now() + MARGIN) return credential(initial.auth);
     cancelled(signal);
-    try { lock = openSync(`${base}/.brain-oauth-refresh.lock`, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new ClaudeHostAuthError("busy");
-      throw error;
-    }
     // Re-read under the lock: another resolver may have finished meanwhile.
     const current = read();
     const auth = current.auth;
@@ -187,10 +185,11 @@ export async function resolveClaudeHostOAuth(configDirectory: string,
     }
   } catch (error) {
     if (error instanceof ClaudeHostAuthError) throw error;
+    if (error instanceof HostCredentialExclusionError) throw new ClaudeHostAuthError(error.reason);
     throw new ClaudeHostAuthError("unavailable");
   } finally {
     if (staged) { try { unlinkSync(staged); } catch { /* Never expose a private path. */ } }
-    if (lock !== undefined) { closeSync(lock); try { unlinkSync(`${base}/.brain-oauth-refresh.lock`); } catch { /* Host maintenance may be required. */ } }
     if (directory !== undefined) closeSync(directory);
+    exclusion?.release();
   }
 }
