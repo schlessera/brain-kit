@@ -271,6 +271,35 @@ judged against the brain-kit skin before anything is adopted. Upstream's
 example HTML is never vendored: examples are re-authored in the Odysseus world
 ([the corpus decision](example-corpus.md)).
 
+### 8. Upstream attribution lives in the module's licence
+
+**Maintainer ruling, 2026-10-16, on [#2109](https://github.com/schlessera/brain-kit/issues/2109).**
+
+Upstream's MIT licence requires its copyright notice, which names a person,
+in every copy of a substantial portion. The tree forbids real names. The
+module therefore carries the notice in
+`packages/module-diagrams/LICENSE`, under a "Portions adapted from
+diagram-design" section after brain-kit's own MIT text. This adds nothing to the
+leakage gate: it already skips files named `LICENSE`
+(`const EXCLUDED_FILES`, `scripts/check-leakage.ts:53`), and every package's
+`LICENSE` already holds a real copyright line.
+
+Links to a public open-source project may contain its owner's handle,
+including in docs, issues and the module's `upstream.json`. Such a link is how
+the work is attributed and how the sync procedure finds upstream. It is not
+personal data about anyone in the maintainer's life.
+
+AGENTS.md states both exceptions beside the hard rule, so that an agent
+neither strips a required notice, which would breach the licence, nor widens
+the gate.
+
+Rejected:
+- **A separate `NOTICE` or `THIRD_PARTY_LICENSES.md` file.** It would need a new
+  file exemption in the gate for no gain over the licence file.
+- **No notice, by authoring every rule and grammar independently.** That is
+  hard to defend for grammars that track upstream's structure closely, and it
+  would lose the "adapted under MIT" provenance the sync procedure relies on.
+
 ## Consequences
 
 - The module manifest gains a `renderers` key, and the integration contract
