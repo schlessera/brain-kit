@@ -253,6 +253,9 @@ export function useShareIntake(): {
           trackFiles.length ? trackFiles : undefined
         );
         chat.startAssistantMessage(null, undefined, requestId);
+        // A delayed share announcement must follow this transcript even when
+        // the reader starts another chat before the host names the session.
+        const draftId = chat.startDraftTurn();
 
         // A websocket send is not durable admission. Keep the confirmed
         // account review until the host names its bound filing session.
@@ -272,6 +275,7 @@ export function useShareIntake(): {
           type: "chat_message",
           shareId: outcome.result.id,
           requestId,
+          draftId,
           text: prompt,
           ...(trackFiles.length ? { files: trackFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
           ...(attachments.length
@@ -292,7 +296,11 @@ export function useShareIntake(): {
           return;
         }
         await retireReview();
-        if (!signal.aborted && acceptedSession && root.stores.chat.getState().activeSessionId !== acceptedSession) openSession(acceptedSession);
+        // Normal announcements bind the current or detached draft themselves.
+        // A recovered existing binding has no new-draft announcement: open it
+        // only while this share still owns the view, never after navigation.
+        const current = root.stores.chat.getState();
+        if (!signal.aborted && acceptedSession && current.activeSessionId === null && current.pendingDraftId === draftId) openSession(acceptedSession);
 
       } catch (err) {
         if (!signal.aborted) setError(err instanceof Error ? err.message : "Could not complete shared content intake");
