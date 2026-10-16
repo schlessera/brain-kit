@@ -4,6 +4,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -436,6 +441,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -776,6 +786,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -1114,6 +1129,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -1455,6 +1475,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -1833,6 +1858,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -2171,6 +2201,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {
@@ -2769,6 +2804,11 @@
     {
       "type": "object",
       "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "layouts": {
           "type": "object",
           "properties": {

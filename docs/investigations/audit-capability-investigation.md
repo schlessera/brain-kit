@@ -43,10 +43,10 @@ tag-noise instructions must not become evidence of an implemented repair API.
 
 ## Category-to-handler inventory
 
-Core detection is in (`audit`, `packages/core/src/lib/auditor.ts:657-1039`).
+Core detection is in (`audit`, `packages/core/src/lib/auditor.ts:658-1040`).
 Module checks contribute arbitrary categories and a failed check yields
 `module-hygiene` (`auditWithModules`,
-`packages/core/src/lib/auditor.ts:1051-1079`). These are detection callbacks,
+`packages/core/src/lib/auditor.ts:1052-1107`). These are detection callbacks,
 not registered repair callbacks.
 
 | Finding | Existing bounded operation | Required reading and disposition |
@@ -142,7 +142,7 @@ these controls.
 
 Preserve ordinary audit severities, grouped marker counts and must-fix versus
 informational totals (`auditTotals`,
-`packages/core/src/lib/auditor.ts:641-647`), and preserve `--fix` as suggestions
+`packages/core/src/lib/auditor.ts:642-648`), and preserve `--fix` as suggestions
 unless an explicit behavior/contract change is approved. Future availability
 metadata must name the handler, affected scope, required input, current premise,
 preview and actual post-check separately from authorization and successful repair.
