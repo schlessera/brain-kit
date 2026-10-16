@@ -1740,7 +1740,7 @@ configuration, dependency manifests and retained local import/resource inputs.
 The journal follows only data-only references with a supported input role;
 quoted strings and file extensions do not establish consumption. Seed selection
 is separate from reference classification (#2028). The finite mapping is in
-(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-126`):
+(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
 
 | Consumer | Followed input role | Resolution and limits |
 | --- | --- | --- |
@@ -1761,7 +1761,7 @@ Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Both retained-object and sealed-root readers share classification and the
 1 MiB input bound (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:86-95`). Ignored, unreadable,
+`packages/ui-server/src/brain/journal-steering.ts:91-100`). Ignored, unreadable,
 oversized, unsupported or ambiguous inputs are named as coverage limitations;
 unknown never fabricates a consumed path or a claim of complete runtime coverage.
 
@@ -1773,7 +1773,7 @@ field. Internal callers may supply an already resolved identity without
 executing configuration. This excludes no unrelated same-basename resource.
 The inventory preserves scope boundaries, policy exclusions and bounded
 readers (`steeringInventory`,
-`packages/ui-server/src/brain/journal-steering.ts:20-71`).
+`packages/ui-server/src/brain/journal-steering.ts:20-77`).
 
 The maintainer selected role classification over an index-only exception,
 script-extension whitelist or their combination (#2026): none of those

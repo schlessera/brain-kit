@@ -39,9 +39,14 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
     if (!value || value.startsWith("/") || value.includes(":") || value.includes("\\") || value.includes("\0")) { unavailable.add(from.path); return; }
     const base = reference.base === "file" ? posix.dirname(from.path) : from.scope;
     const candidate = posix.normalize(posix.join(base, value));
-    const suffixes = reference.manifest ? [".ts", ".js"] : reference.module ? ["", ".ts", ".tsx", ".js", ".mjs", ".json", "/index.ts", "/index.js"] : [""];
-    for (const suffix of suffixes) {
-      const resolved = `${candidate}${suffix}`;
+    // Bun's documented relative module order, verified with a keyless resolver
+    // fixture. This runs only after an input role is established, never as a
+    // filename/extension classifier. Package/directory config stays unknown.
+    const extensions = [".tsx", ".jsx", ".mts", ".ts", ".mjs", ".js", ".cts", ".cjs", ".json"];
+    const candidates = reference.manifest ? [`${candidate}.ts`, `${candidate}.js`] : reference.module
+      ? [candidate, ...(/\.jsx?$/.test(candidate) ? [candidate.replace(/\.jsx?$/, ".ts"), candidate.replace(/\.jsx?$/, ".tsx")] : /\.mjs$/.test(candidate) ? [candidate.replace(/\.mjs$/, ".mts")] : []),
+        ...(!posix.extname(candidate) ? [...extensions.map(suffix => `${candidate}${suffix}`), ...extensions.map(suffix => `${candidate}/index${suffix}`)] : [])] : [candidate];
+    for (const resolved of candidates) {
       // Scope checks precede lookup, including the canonical root/workspaces
       // distinction. Readers never receive a traversal/out-of-scope candidate.
       if (resolved.startsWith("../") || resolved === ".." || (from.scope ? !resolved.startsWith(`${from.scope}/`) : resolved.startsWith("workspaces/"))) continue;

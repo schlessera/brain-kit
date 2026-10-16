@@ -27,8 +27,9 @@ for (const reader of ["retained", "native"] as const) test(`${reader} steering c
     ["guide", "Athena advises the voyage."],
     ["brain.config.ts", 'import "./resources/brain.db" with { type: "text" }; export default { db: "./cache/index.sqlite", output: "./output", script: "./data" };'],
     ["bunfig.toml", 'preload = ["./startup.ts", "./cache/index.sqlite", "./cache/index.sqlite-wal", "./cache/index.sqlite-shm", "./cache/index.sqlite-journal"]\n[install]\ncache = "./output"'],
-    ["startup.ts", 'import text from "./instructions" with {type:"text"}; const output = "./data";'],
+    ["startup.ts", 'import "./helper.js"; import text from "./instructions" with {type:"text"}; const output = "./data";'],
     ["package.json", JSON.stringify({scripts:{start:"bun ./entry.ts ./data", export:"cat ./output"}, output:"./output"})],
+    ["helper.ts", 'export {};'],
     ["entry.ts", 'export {};'],
     [".claude/settings.json", JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun",args:["./hook.ts","./data"]}]}]}})],
     ["hook.ts", 'export {};'],
@@ -48,7 +49,7 @@ for (const reader of ["retained", "native"] as const) test(`${reader} steering c
     ? await nativeJournalSteeringInputs([snapshot], async entry => Buffer.from(inputs.get(entry.path)!), undefined, options)
     : journalSteeringInputs([snapshot], hash => Buffer.from(inputs.get(hash)!), options);
   expect([...result.paths].sort(), "STEERING_INPUT_ROLES_ONLY").toEqual([
-    ".claude/settings.json", ".mcp.json", ".pi/settings.json", "CLAUDE.md", "brain.config.json", "brain.config.ts", "bunfig.toml", "entry.ts", "extension.ts", "guide", "hook.ts", "instructions", "mcp.js", "package.json", "resources/brain.db", "startup.ts", "voyage/module.ts",
+    ".claude/settings.json", ".mcp.json", ".pi/settings.json", "CLAUDE.md", "brain.config.json", "brain.config.ts", "bunfig.toml", "entry.ts", "extension.ts", "guide", "helper.ts", "hook.ts", "instructions", "mcp.js", "package.json", "resources/brain.db", "startup.ts", "voyage/module.ts",
   ]);
   expect(result.unavailable).toEqual([".pi/settings.json", "brain.config.ts", "package.json"]);
 });

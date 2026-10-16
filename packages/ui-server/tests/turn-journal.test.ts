@@ -279,7 +279,7 @@ test("opaque configuration input limitations survive replay without executing co
 
 
 for (const index of ["brain.db", "cache/voyage.sqlite"]) test(`native journal excludes resolved index ${index} and sidecars while preserving input-role events`, async () => {
-  const f = fixture(undefined, [index]);
+  const f = fixture(undefined, index === "brain.db" ? undefined : [index]);
   try {
     mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
     const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
