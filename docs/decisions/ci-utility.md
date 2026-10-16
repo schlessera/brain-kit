@@ -31,6 +31,18 @@ process cleanup. Native probes run against loopback fixtures without live keys.
 The Linux runner setup retains the existing ephemeral namespace prerequisite;
 the test/preload and offline namespace guards remain enabled.
 
+
+Root `tests/**`, `scripts/**`, `experiments/**` and `website/**` now use a
+conservative reverse reference closure to select root and package test consumers,
+plus the reviewed category table in `scripts/ci-plan.ts`. Root test leaves select
+themselves. Narrow unit inventories include the tooling fast invariants exactly
+once: when complete unit proof is selected, verify does not repeat the fast
+subset. Package changes still discover all root tests alongside affected packages.
+Unreadable inputs, outside symlinks, conflicting mappings and inputs without a
+recognised test/category consumer remain global. Lockfiles, root manifests,
+changeset configuration, workflows and unknown roots remain global. Exhaustive
+and event/candidate/aggregate requirements are unchanged.
+
 Complete local commands remain available: `check:pr --full` runs the affected
 full inventory and `check:pr --all` runs every category for releases or diagnosis.
 Neither is mandatory for an ordinary contribution with complete passing hosted

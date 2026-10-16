@@ -211,11 +211,16 @@ export function createTurnJournal(db: Database, options: {
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
         }));
         publish(turnId);
-        const facts = db.query(`SELECT count(DISTINCT path) AS changedPaths,
-        coalesce(sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND
-          (json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash') OR json_extract(after_json,'$.ignored')=1)
-          THEN json_extract(after_json,'$.bytes') ELSE 0 END),0) AS observedBytes
-        FROM turn_journal_changes WHERE turn_id=?`).get(turnId) as { changedPaths: number; observedBytes: number };
+        // Ignored versions have metadata but no content hash: count their largest
+        // observed size once per path, independently of hashed changed versions.
+        const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes FROM (
+          SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1
+            AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
+            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
+          max(CASE WHEN json_extract(after_json,'$.kind')='file' AND json_extract(after_json,'$.ignored')=1
+            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS ignoredBytes
+          FROM turn_journal_changes WHERE turn_id=? GROUP BY path
+        )`).get(turnId) as { changedPaths: number; observedBytes: number };
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
       }
       await observation.commit();

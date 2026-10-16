@@ -698,9 +698,10 @@ against its own budget, and a turn that cannot reserve it is refused as
 reports usage and purges paths through the same descriptor
 (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
-After the worker exits, the backend
-rewrites the answer text the turn appended to its saved transcript, and only
-that text. It looks at Markdown link and image destinations and reference
+After the worker exits, the backend observes the answer text the turn
+appended and retains promoted-link display mappings in host-owned storage.
+The runtime transcript stays byte-identical; #2049 supersedes the original
+transcript rewrite described by #1655. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
 (`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
@@ -709,8 +710,9 @@ file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
 `promotion_refused` activity event, which it stores as the governance event of
 the same name. `scratch_unavailable` is the refusal for a turn whose
-`.brain/scratch/` was not usable. The stored answer is rewritten before the
-turn's history boundary is read. A reader still watching the live stream
+`.brain/scratch/` was not usable. History readers apply the retained mapping
+by native session/message/part identity and the original text's digest before
+normalization. It survives reload and archival without entering runtime input. A reader still watching the live stream
 holds the text as it streamed, so the server also sends the turn's clients
 a `message_links` frame for each promoted file, and the client rewrites the
 same destinations with the function the backend used. The link changes in
@@ -1042,7 +1044,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:440`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,
@@ -1190,7 +1192,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:273`).
 
 **What changes:**
 
@@ -1737,11 +1739,51 @@ Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
 files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 `context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
 configuration, dependency manifests and retained local import/resource inputs.
-The journal follows retained literal local references as data. It never imports
-or evaluates configuration to classify it. Ignored, oversized or opaque inputs
-are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:81-90`).
+The journal follows only data-only references with a supported input role;
+quoted strings and file extensions do not establish consumption. Seed selection
+is separate from reference classification (#2028). The finite mapping is in
+(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
+
+| Consumer | Followed input role | Resolution and limits |
+| --- | --- | --- |
+| Claude instruction imports | Standalone unquoted `@path` lines outside code, recursively to four hops | File-relative literal input, including extensionless text. Inline/escaped/ambiguous forms remain unknown. See the [consumer documentation](https://code.claude.com/docs/en/memory#import-additional-files). |
+| Bun [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig#preload) | Root and `[test]` `preload` arrays | Local module references relative to the config file; other properties such as install caches are not inputs. |
+| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv relative to the manifest directory. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
+| Claude settings | `hooks.<event>[].hooks[]` with `type: command`, `command` and optional `args` | Executable roles relative to the scope root; the installed SDK settings schema supplies these fields. Prompt-hook text and arbitrary properties are not file references. Plugins remain unknown. |
+| `.mcp.json` | `mcpServers.<name>.command` and `args` | Same literal executable/interpreter roles; network server URLs and ordinary arguments are not local steering dependencies. |
+| Pi settings | `extensions`, `skills`, `prompts`, `themes` arrays | Relative to the settings directory, matching the installed `DefaultPackageManager.resolve` consumer. Computed/glob/package/directory discovery stays unknown. |
+| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, relative to the config, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
+| Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
+
+This mapping was checked against core's (`loadModules`,
+`packages/core/src/lib/module-loader.ts:93-101`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:187-219`), Pi's (`build`,
+`packages/ui-backend-pi/src/session-resources.ts:82-126`) and the installed
+Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
+schema. Nothing imports or evaluates repository configuration on the host.
+Followed JSON resources do not acquire configuration-consumer semantics merely
+from a basename; configuration roles belong to known seeds. Both retained-object
+and sealed-root readers share classification and the
+1 MiB input bound (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:91-100`). Ignored, unreadable,
+oversized, unsupported or ambiguous inputs are named as coverage limitations;
+unknown never fabricates a consumed path or a claim of complete runtime coverage.
+
+The resolved disposable index and its `-wal`, `-shm`, `-journal` sidecars are
+excluded by exact journal-relative identity before reference lookup. Core's
+current identity is `<root>/brain.db`, established by (`initContext`,
+`packages/core/src/lib/context.ts:36-52`); core has no configurable index-location
+field. Internal callers may supply an already resolved identity without
+executing configuration. This excludes no unrelated same-basename resource.
+The inventory preserves scope boundaries, policy exclusions and bounded
+readers (`steeringInventory`,
+`packages/ui-server/src/brain/journal-steering.ts:20-77`).
+
+The maintainer selected role classification over an index-only exception,
+script-extension whitelist or their combination (#2026): none of those
+alternatives distinguishes a genuine extensionless instruction input from an
+ordinary output or data argument. This changes classification only; operational
+file presentation and observed-path accounting remain separate.
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1755,7 +1797,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-234`).
 
 Claude auto-memory currently persists outside the authoritative brain through
 its backend state service. That service supplies no journal version receipt;
@@ -1906,7 +1948,7 @@ rules and no model call:
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:427`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
@@ -1925,6 +1967,12 @@ The choices that shape the report:
   writes that line after its output clip, so a long failing output still ends
   with it. `EROFS`, `EACCES` and `EPERM` text makes a failure `fs_denied`, and
   resolver or connection errors make it `network_refused`.
+- **Cancellation is not a failed step.** The recorder retains when Stop arrived
+  and which calls were still in flight. Those calls produce neither failures
+  nor successful resolutions, regardless of their eventual error text or exit
+  status. Earlier completed failures and independent nonzero exits remain
+  roadblocks. Pi throws an abort error with its stopped shell output so Activity
+  can distinguish a cancelled execution from an ordinary nonzero result.
 - **Governance events outrank the text.** A `policy_block`,
   `read_only_refusal`, declined `policy_confirm` or `outward_action`, or
   `egress_denial` written while a failed call ran sets that call's category
