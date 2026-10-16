@@ -27,6 +27,17 @@ const inputs: Record<string, Record<string, unknown>> = {
   Edit: { file_path: join(brain, "notes/raft.md"), old_string: "Odysseus", new_string: "MUTATION" },
   NotebookEdit: { notebook_path: join(brain, "notes/loom.ipynb"), cell_id: "loom", new_source: "MUTATION", edit_mode: "replace" },
 };
+const missingInputs: typeof inputs = {
+  ask_user: { questions: [{ question: "Which route?", header: "Route", multiSelect: false, options: [{ label: "Raft", description: "Repair raft" }, { label: "Ship", description: "Wait for ship" }] }] },
+  get_current_location: {}, query_activity: { scope: "running" },
+  brain_read_base: { path: "notes/raft.md" },
+  brain_add: { content: "Odysseus plans the voyage." },
+  brain_update: { path: "notes/raft.md", expectedBaseHash: null, append_content: "Repair mast" },
+  brain_archive: { path: "notes/raft.md", expectedBaseHash: null },
+  write_file: { path: "notes/raft.md", expectedBaseHash: null, content: "MUTATION" },
+  edit_file: { path: "notes/raft.md", expectedBaseHash: null, old_string: "Odysseus", new_string: "MUTATION" },
+  apply_staged_changes: { files: [{ path: "notes/raft.md", expectedBaseHash: null, content: "MUTATION" }] },
+};
 const captures: { mode: string; tools: unknown; results: unknown[]; denials: string[]; calls: string[]; cards: number }[] = [];
 let active: typeof captures[number], pending = true, pendingRead = true;
 const names = Object.keys(inputs);
@@ -39,8 +50,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (!pending) return response([]);
   pending = false;
   const selected = active.mode === "typed" ? ["ask_user_list"] : active.mode === "strict" ? names.filter(n => !n.startsWith("mcp") && /^[A-Z]/.test(n)) : active.mode === "voice" ? names : names.filter(n => !/^[A-Z]/.test(n));
+  if (active.mode === "missing") selected.push(...Object.keys(missingInputs));
   return response(selected.map((name, index) => ({ type: "tool_use", id: `toolu_raft_${captures.length}_${index}`,
-    name: /^[A-Z]/.test(name) ? name : `mcp__brain-ui__${name}`, input: inputs[name] })));
+    name: /^[A-Z]/.test(name) ? name : `mcp__brain-ui__${name}`, input: inputs[name] ?? missingInputs[name] })));
 } });
 function response(calls: unknown[]) {
   const content: any[] = calls.length ? calls : [{ type: "text", text: "Odysseus checks the mast." }];

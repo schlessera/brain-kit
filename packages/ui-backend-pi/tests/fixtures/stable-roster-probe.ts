@@ -17,13 +17,15 @@ const inputs: Record<string, unknown> = {
   resolve_action: { sessionId: "voyage", itemId: "raft", optionId: "keep", expectedVersion: 1 },
   complete_share: { receiptIds: ["raft"], files: [] },
 };
+const missingInputs = { brain_archive: { path: "notes/raft.md", expectedBaseHash: null }, brain_add: { content: "Odysseus plans the voyage." }, brain_update: { path: "notes/raft.md", expectedBaseHash: null, append_content: "Repair mast" }, apply_staged_changes: { files: [{ path: "notes/raft.md", expectedBaseHash: null, content: "MUTATION" }] } };
 const captures: any[] = []; let active: any, next = 0;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (new URL(request.url).pathname !== "/v1/responses") throw new Error("Unexpected endpoint");
   const body = await request.json() as any; active.tools ??= body.tools;
-  const name = active.mode === "typed" ? (next === 0 ? "ask_user_list" : undefined) : Object.keys(inputs)[next];
+  const selected = active.mode === "missing" ? { ...inputs, ...missingInputs } : inputs;
+  const name = active.mode === "typed" ? (next === 0 ? "ask_user_list" : undefined) : Object.keys(selected)[next];
   next++;
-  const id = `raft_${next}`, answer: any = name ? { type: "function_call", id: `fc_${id}`, call_id: `call_${id}`, name, arguments: JSON.stringify(inputs[name]) }
+  const id = `raft_${next}`, answer: any = name ? { type: "function_call", id: `fc_${id}`, call_id: `call_${id}`, name, arguments: JSON.stringify(selected[name]) }
     : { type: "message", role: "assistant", content: [{ type: "output_text", text: "Odysseus checks the mast.", annotations: [] }], status: "completed", id };
   const response = { id: `resp_${id}`, object: "response", status: "completed", model: "gpt-4o-mini", output: [answer], usage: { input_tokens: 3, output_tokens: 5, total_tokens: 8, input_tokens_details: { cached_tokens: 0 } } };
   const events = [{ type: "response.created", response: { ...response, status: "in_progress", output: [] } },

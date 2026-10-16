@@ -223,8 +223,8 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion",
-      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"],
+    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ?
+      ["mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"] : [])],
     ...createPermissionWiring({
       req: { ...req, workerSandbox: sandbox },
       allowedTools: allowed,

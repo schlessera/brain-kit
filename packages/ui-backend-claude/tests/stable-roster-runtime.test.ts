@@ -15,6 +15,7 @@ test("installed Claude keeps request tools fixed and refuses every unavailable t
     const { captures, raft, loom } = JSON.parse(readFileSync(join(scratch, "requests.json"), "utf8"));
     const bridgeNames = ["request_image_mask", "ask_user_list", "ask_user_rank", "ask_user_form", "propose_policy_change", "inbox_add", "resolve_action", "complete_share"].map(name => `mcp__brain-ui__${name}`);
     const natives = ["Write", "Edit", "NotebookEdit"];
+    const missing = ["ask_user", "get_current_location", "query_activity", "brain_read_base", "brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].map(name => `mcp__brain-ui__${name}`);
     expect(captures).toHaveLength(7);
     expect(new Set(captures.slice(0, 3).map((c: any) => c.sessionId)).size).toBe(1);
     expect(new Set(captures.slice(3).map((c: any) => c.sessionId)).size).toBe(1);
@@ -23,10 +24,10 @@ test("installed Claude keeps request tools fixed and refuses every unavailable t
       expect(JSON.stringify(capture.tools), `BYTE_IDENTICAL_PROVIDER_TOOLS_${capture.mode}`).toBe(JSON.stringify(captures[0].tools));
       expect(capture.cards, `NO_PERMISSION_CARDS_${capture.mode}`).toBe(0);
       if (capture.mode === "typed") { expect(capture.calls).toEqual(["askUserList"]); expect(capture.results[0].is_error).not.toBe(true); continue; }
-      const expected = capture.mode === "strict" ? natives : capture.mode === "voice" ? [...bridgeNames, ...natives] : bridgeNames;
+      const expected = capture.mode === "strict" ? natives : capture.mode === "voice" ? [...bridgeNames, ...natives] : capture.mode === "missing" ? [...bridgeNames, ...missing] : bridgeNames;
       for (const name of expected) expect(capture.denials, `RUNTIME_HOOK_REFUSAL_${capture.mode}_${name}: ${JSON.stringify(capture.results)}`).toContain(name);
       expect(capture.calls, `NO_PRIVILEGED_HANDLER_${capture.mode}`).toEqual([]);
-      expect(capture.results.length).toBe(capture.mode === "strict" ? 3 : capture.mode === "voice" ? 11 : 8);
+      expect(capture.results.length).toBe(capture.mode === "strict" ? 3 : capture.mode === "voice" ? 11 : capture.mode === "missing" ? 18 : 8);
       expect(capture.results.every((r: any) => r.is_error === true), `MODEL_READABLE_REFUSALS_${capture.mode}`).toBe(true);
     }
     expect(raft).toBe("Odysseus repairs the raft.\n"); expect(loom).not.toContain("MUTATION");

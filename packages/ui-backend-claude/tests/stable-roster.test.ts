@@ -30,9 +30,11 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
         await (turn.options.mcpServers!["brain-ui"] as any).instance.connect(st);
         await client.connect(ct);
         const tools = (await client.listTools()).tools;
+        for (const legacy of ["brain_add", "brain_update", "brain_archive"])
+          expect(turn.options.disallowedTools?.includes(`mcp__brain__${legacy}`), `LEGACY_DEPLOYMENT_MEMBERSHIP_${mode}_${legacy}`).toBe(mode !== "missing");
         for (const name of [...refused, "brain_read_base", "brain_add", "show_block", "turn_temp"])
           expect(tools.some(tool => tool.name === name), `FULL_ROSTER_${mode}_${name}`).toBe(true);
-        rosters.push(JSON.stringify(tools)); exclusions.push(JSON.stringify(turn.options.disallowedTools));
+        rosters.push(JSON.stringify(tools)); exclusions.push(JSON.stringify(turn.options.disallowedTools?.filter(name => ["Write", "Edit", "NotebookEdit"].includes(name))));
       } finally { await client.close(); await turn.finishWorker(); }
     }
     for (const roster of rosters.slice(1)) expect(roster, "BYTE_IDENTICAL_TOOL_SCHEMAS").toBe(rosters[0]);
@@ -54,9 +56,9 @@ for (const mode of ["voice", "no-grant", "missing"] as const) for (const name of
   expect(await wiring.canUseTool!(`mcp__brain-ui__${name}`, {}, { toolUseID: "loom" } as never)).toMatchObject({ behavior: "deny" });
   expect(cards).toBe(0);
 });
-for (const mode of ["voice", "strict"] as const) for (const name of ["Write", "Edit", "NotebookEdit"]) test(`Claude ${mode} denies registered native ${name}`, async () => {
+for (const mode of ["voice", "strict", "unknown"] as const) for (const name of ["Write", "Edit", "NotebookEdit"]) test(`Claude ${mode} denies registered native ${name}`, async () => {
   const req = { signal: new AbortController().signal, bridge: { requestPermission: async () => { throw new Error("CARD_OPENED"); } },
-    workerSandbox: { profile: mode === "strict" ? "strict" : "governed" }, ...(mode === "voice" ? { posture: "voice" } : {}) };
+    workerSandbox: { profile: mode === "unknown" ? undefined : mode === "strict" ? "strict" : "governed" }, ...(mode === "voice" ? { posture: "voice" } : {}) };
   const wiring = createPermissionWiring({ req: req as never, allowedTools: [name], brainPath: "/tmp/odysseus", confirmPatterns: [],
     turnLock: { releaseForTool() {} } as never, childEnv: {}, log() {} });
   const hook = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;

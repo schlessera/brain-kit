@@ -17,7 +17,7 @@ test("Pi native workers retain full schemas across no-grant, typed and missing-h
       expect(capture.cards).toBe(0);
       const results = capture.frames.filter((frame: any) => frame.type === "tool_result");
       if (capture.mode === "typed") { expect(capture.calls).toEqual(["askUserList"]); expect(results[0].isError).not.toBe(true); continue; }
-      expect(capture.calls).toEqual([]); expect(results.length).toBe(names.length);
+      expect(capture.calls).toEqual([]); expect(results.length).toBe(names.length + (capture.mode === "missing" ? 4 : 0));
       for (const result of results) expect(result.isError, `PI_MODEL_READABLE_REFUSAL_${capture.mode}_${result.toolUseId}`).toBe(true);
     }
     expect(voiceRefused).toBe(true); expect(unchanged).toBe(true);

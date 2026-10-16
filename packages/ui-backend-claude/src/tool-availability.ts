@@ -17,8 +17,8 @@ export function toolAvailabilityRefusal(req: StartTurnRequest, toolName: string)
   if (req.autonomous) return undefined;
   const name = toolName.replace(/^mcp__brain-ui__/, "");
   if (["Write", "Edit", "NotebookEdit"].includes(name)
-    && (req.posture === "voice" || req.workerSandbox?.profile === "strict"))
-    return "Native writes are unavailable on strict or voice turns.";
+    && (req.posture === "voice" || req.workerSandbox?.profile !== "governed"))
+    return "Native writes require a governed typed turn.";
   if ((visual.has(name) || interactive.has(name)) && (req.noGrantSurface || req.posture === "voice"))
     return `Tool "${name}" requires an interactive typed grant surface.`;
   const handler = handlers[name];
