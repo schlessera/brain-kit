@@ -33,7 +33,9 @@ export function StorageCapacities({
         const title =
           row.kind === "tmpfs"
             ? "Memory · temporary volume"
-            : "Disk · data volume";
+            : row.kind === "filesystem"
+            ? "Disk · data volume"
+            : "Volume · backing unknown";
         return (
           <div
             key={row.id}

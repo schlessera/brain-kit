@@ -76,18 +76,16 @@ export const RemovalAndUndo = meta.story({
     await overview({ args, globals });
     const screen = within(document.body);
     await userEvent.click(
-      screen.getByRole("button", { name: "Find large files", exact: true })
+      screen.getByRole("button", { name: "Find large files" })
     );
     for (const name of ["Ithaca-harbor.pdf", "Troy-charts.PDF"]) {
       await userEvent.click(
         await screen.findByRole("button", {
           name: `Inspect ${name}`,
-          exact: true,
         })
       );
       const select = await screen.findByRole("button", {
         name: "Select file",
-        exact: true,
       });
       await waitFor(() =>
         expect(select).not.toHaveAttribute("aria-disabled", "true")
@@ -95,21 +93,20 @@ export const RemovalAndUndo = meta.story({
       await userEvent.click(select);
     }
     await userEvent.click(
-      screen.getByRole("button", { name: "Review selected files", exact: true })
+      screen.getByRole("button", { name: "Review selected files" })
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Remove 2 files", exact: true })
+      await screen.findByRole("button", { name: "Remove 2 files" })
     );
     await screen.findByText("1 removed · 0 restored · 1 other outcomes");
     await accessible(screen.getByRole("dialog"));
     await userEvent.click(
       screen.getByRole("button", {
         name: "Undo removal of attachments/Ithaca-harbor.pdf",
-        exact: true,
       })
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Restore 1 file", exact: true })
+      await screen.findByRole("button", { name: "Restore 1 file" })
     );
     await screen.findByText("0 removed · 1 restored · 0 other outcomes");
     await accessible(screen.getByRole("dialog"));

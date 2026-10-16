@@ -70,6 +70,13 @@ export function StorageDialogs({
               {file.path ?? file.entry.path} · {bytes(file.entry.logical)} file
               size ({exactBytes(file.entry.logical)})
             </p>
+            {file.facts && (
+              <p>
+                Current inspected version: {exactBytes(file.facts.bytes)};
+                observed {file.observedAt ? time(file.observedAt) : "Unknown"}.
+                Selection and review use this version.
+              </p>
+            )}
             <p>
               On disk: {bytes(file.entry.allocated)} estimate (
               {exactBytes(file.entry.allocated)}).{" "}

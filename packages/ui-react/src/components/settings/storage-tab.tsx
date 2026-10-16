@@ -145,7 +145,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
         ariaLabel={`Inspect ${entry.name}`}
         block={false}
         style={touch}
-        disabled={view.busy}
+        disabled={view.busy || view.loading}
         onClick={() => open(entry)}
       />
     );
@@ -213,6 +213,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
           {snapshot && view.newest && view.newest.id !== snapshot.id && (
             <Button
               label="Show new measurement"
+              ariaLabel="Show new measurement"
               subtitle="Clears selections from the previous observation"
               style={touch}
               onClick={view.adopt}

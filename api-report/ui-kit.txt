@@ -291,7 +291,6 @@ export "." (./src/index.ts)
   effectLineCount
   followUpLabel
   font
-  storageRectangles
   z
 
 export "./brand" (./src/brand.ts)
@@ -2090,7 +2089,7 @@ signatures (every public export and the types it is made of)
   StepState (packages/ui-kit/src/types.ts)
     export type StepState = "done" | "current" | "todo";
   StorageMap (packages/ui-kit/src/storage/StorageMap.tsx)
-    export function StorageMap({ items, width, height, label, descriptionId, onOpen, onUp }: StorageMapProps): import("react").JSX.Element;
+    export function StorageMap({ items, width, height, label, descriptionId, onOpen, onUp, }: StorageMapProps): import("react").JSX.Element;
   StorageMapItem (packages/ui-kit/src/storage/StorageMap.tsx)
     export interface StorageMapItem {
         id: string;
@@ -2413,14 +2412,6 @@ signatures (every public export and the types it is made of)
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
-  storageRectangles (packages/ui-kit/src/storage/StorageMap.tsx)
-    export function storageRectangles(items: readonly StorageMapItem[], width: number, height: number): {
-        height: number;
-        item: StorageMapItem;
-        width: number;
-        x: number;
-        y: number;
-    }[];
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";
