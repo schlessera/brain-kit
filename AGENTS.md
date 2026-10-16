@@ -49,6 +49,10 @@ on, links to or describes them.
 
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
+  Two scoped exceptions: a file named `LICENSE` may carry the copyright
+  lines its licence requires, including a third party's notice reproduced
+  verbatim, and a link to a public open-source project may contain its
+  owner's handle ([ruling 8](docs/decisions/module-renderers.md#8-upstream-attribution-lives-in-the-modules-licence)).
   Odysseus is the sole fictional example world for fixtures, CLI/MCP
   demonstrations, renderer examples, docs, skills, onboarding, UI stories,
   screenshots and website assets: ancient problems with modern organisational
