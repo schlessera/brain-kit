@@ -95,7 +95,11 @@ frame, authenticated history and HTTP journal summary. Its facts are
 `policySource`, `limits` (`files_changed`, `minutes`, `tool_calls`, `turn_bytes`),
 `hardTimeoutMs`, `calls`, `minutes`, nullable `changedPaths`/`observedBytes`,
 `coverage` (`observed_versions` or `partial`), `observedAt` and `receipts`.
-The byte count is a sum of captured changed regular-file versions, not a
+The byte count sums captured changed hashed regular-file versions. Ignored
+regular files have no content hash and contribute their largest observed after-size
+once per turn per path, rather than their full size on every observation (#2027).
+This corrects repeated metadata observations inflating the existing observed-write
+counter; field shapes and scope decisions are unchanged. The counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.

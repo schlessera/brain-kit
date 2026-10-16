@@ -367,7 +367,7 @@ Stated before the requirements because five of them derive from it.
 - R45. Snooze timing is rule-derived (backoff plus calendar-aware defaults); model overrides
   require a stated reason in v2 and are unavailable in v1. Times stored UTC, resolved against one configured timezone.
 - R46. **T2 dominance is a measured claim, not a design assertion.** Most v1 shares are
-  read-store-process requests (`export function buildSharePrompt(`, `packages/ui-react/src/lib/share-intake.ts:128-157`) that need
+  read-store-process requests (`export function buildSharePrompt(`, `packages/ui-react/src/lib/share-intake.ts:128-167`) that need
   a read plus a write tool, i.e. T2. Ship telemetry with acceptance targets — T2 rate, T1
   false-routing rate, cost per completed item — measured against a direct-to-T2 baseline. If
   T1 does not divert a meaningful fraction or materially shrink T2 context, it is theatre and

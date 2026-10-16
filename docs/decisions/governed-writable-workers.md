@@ -698,10 +698,9 @@ against its own budget, and a turn that cannot reserve it is refused as
 reports usage and purges paths through the same descriptor
 (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
-After the worker exits, the backend observes the answer text the turn
-appended and retains promoted-link display mappings in host-owned storage.
-The runtime transcript stays byte-identical; #2049 supersedes the original
-transcript rewrite described by #1655. It looks at Markdown link and image destinations and reference
+After the worker exits, the backend
+rewrites the answer text the turn appended to its saved transcript, and only
+that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
 (`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
@@ -710,9 +709,8 @@ file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
 `promotion_refused` activity event, which it stores as the governance event of
 the same name. `scratch_unavailable` is the refusal for a turn whose
-`.brain/scratch/` was not usable. History readers apply the retained mapping
-by native session/message/part identity and the original text's digest before
-normalization. It survives reload and archival without entering runtime input. A reader still watching the live stream
+`.brain/scratch/` was not usable. The stored answer is rewritten before the
+turn's history boundary is read. A reader still watching the live stream
 holds the text as it streamed, so the server also sends the turn's clients
 a `message_links` frame for each promoted file, and the client rewrites the
 same destinations with the function the backend used. The link changes in
@@ -971,8 +969,8 @@ classification:
   indexing. `write_file` and `edit_file` remain the way to write under
   `strict`.
 - **Native tools return under `governed`.** In Claude the
-  `Write`/`Edit`/`NotebookEdit` stay registered under #2048 A; strict/voice
-  refusal moves to call time (`toolAvailabilityRefusal`, `packages/ui-backend-claude/src/tool-availability.ts:16-27`). In
+  `Write`/`Edit`/`NotebookEdit` disallow is lifted
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:249`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1044,7 +1042,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:440`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,
@@ -1948,14 +1946,18 @@ rules and no model call:
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:427`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:461`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
 
 - **Families are narrow enough to mean "the same intent".** A shell call's
   family is its program, plus the subcommand for multi-command programs such
-  as `git push`. Otherwise any later `ls` would resolve a failed `git push`.
+  as `git push`. Compound-command headers and reserved words are structure:
+  `for …; do git push …; done` shares the plain `git push` family. Conditions,
+  iteration lists and case patterns do not become the body program. This
+  remains a segment-based heuristic rather than a full shell parser.
+  Otherwise any later `ls` would resolve a failed `git push`.
   File tools from both backends share `file_write` and `file_read`, so Claude's
   `Write` and pi's `write_file` group together.
 - **Failure causes are read from what each backend reports.** Claude Code
@@ -1967,12 +1969,6 @@ The choices that shape the report:
   writes that line after its output clip, so a long failing output still ends
   with it. `EROFS`, `EACCES` and `EPERM` text makes a failure `fs_denied`, and
   resolver or connection errors make it `network_refused`.
-- **Cancellation is not a failed step.** The recorder retains when Stop arrived
-  and which calls were still in flight. Those calls produce neither failures
-  nor successful resolutions, regardless of their eventual error text or exit
-  status. Earlier completed failures and independent nonzero exits remain
-  roadblocks. Pi throws an abort error with its stopped shell output so Activity
-  can distinguish a cancelled execution from an ordinary nonzero result.
 - **Governance events outrank the text.** A `policy_block`,
   `read_only_refusal`, declined `policy_confirm` or `outward_action`, or
   `egress_denial` written while a failed call ran sets that call's category
