@@ -93,6 +93,7 @@ export const PACK_TABLE: Record<string, PackRow> = {
     node: "bun-only",
     nodeProbes: ["core-testing-suites"],
     bins: ["brain-version"],
+    react18: true,
   },
   "ui-sdk": {
     files: ["dist/index.js", "dist/bin/brain-native-store.js"],
@@ -124,6 +125,7 @@ export const PACK_TABLE: Record<string, PackRow> = {
     files: ["dist/index.js"],
     bun: ["@schlessera/brain-render-puppeteer"],
     node: ["@schlessera/brain-render-puppeteer"],
+    react18: true,
   },
   "render-template": {
     files: ["dist/index.js"],
@@ -150,14 +152,14 @@ export const PACK_TABLE: Record<string, PackRow> = {
     react18: true,
   },
   "ui-react": {
-    files: ["dist/index.js"],
-    bun: ["@schlessera/brain-ui-react"],
-    node: ["@schlessera/brain-ui-react"],
+    files: ["dist/index.js", "dist/content-figures.js"],
+    bun: ["@schlessera/brain-ui-react", "@schlessera/brain-ui-react/content-figures"],
+    node: ["@schlessera/brain-ui-react", "@schlessera/brain-ui-react/content-figures"],
     react18: true,
   },
   "module-finance": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-finance"], node: "bun-only" },
   "module-images": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-images"], node: "bun-only" },
-  "module-diagrams": { files: ["dist/index.js", "dist/module.js", "dist/ui.js", "dist/render.js", "LICENSE", "UPSTREAM.md", "upstream.json", "scripts/upstream-report.ts", "skills/README.md"], bun: ["@schlessera/brain-module-diagrams", "@schlessera/brain-module-diagrams/module", "@schlessera/brain-module-diagrams/ui", "@schlessera/brain-module-diagrams/render"], node: "bun-only" },
+  "module-diagrams": { files: ["dist/index.js", "dist/module.js", "dist/ui.js", "dist/render.js", "LICENSE", "UPSTREAM.md", "upstream.json", "scripts/upstream-report.ts", "skills/README.md"], react18: true, bun: ["@schlessera/brain-module-diagrams", "@schlessera/brain-module-diagrams/module", "@schlessera/brain-module-diagrams/ui", "@schlessera/brain-module-diagrams/render"], node: "bun-only" },
   "module-video": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-video"], node: "bun-only" },
   "module-jobs": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-jobs"], node: "bun-only" },
   "module-speaking": {
@@ -455,9 +457,9 @@ export async function ciPack(root: string, work: string): Promise<void> {
     fail("The React 18 consumer did not install the packed packages on React 18", problems);
     cpSync(join(root, "scripts/ci-pack-probe.mjs"), join(react18, PROBE));
     for (const runtime of ["bun", "node"] as const) {
-      await probe(react18, runtime, { label: "ui-react on React 18", imports: ["@schlessera/brain-ui-react"] });
+      await probe(react18, runtime, { label: "ui-react on React 18", imports: ["@schlessera/brain-ui-react", "@schlessera/brain-ui-react/content-figures", "@schlessera/brain-module-diagrams/ui"] });
     }
-    writeFileSync(join(react18, "index.ts"), `import * as ui from "@schlessera/brain-ui-react";\nui;\n`);
+    writeFileSync(join(react18, "index.ts"), `import * as ui from "@schlessera/brain-ui-react";\nimport * as diagram from "@schlessera/brain-module-diagrams/ui";\nui; diagram;\n`);
     writeFileSync(join(react18, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "ESNext", module: "ESNext", moduleResolution: "bundler", strict: true, skipLibCheck: false,

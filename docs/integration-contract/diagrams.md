@@ -55,7 +55,7 @@ The discriminator `type` selects one common family grammar:
 | Ordered axes | `sequence`, `swimlane`, `timeline`, `gantt` | `at` and `size` forbidden; order supplies position |
 | Fixed layout | `quadrant`, `layer-stack`, `pyramid`, `funnel`, `loop`, `flywheel`, `venn` | `at` and `size` forbidden; the type supplies geometry |
 
-This is the common grammar for those families. It does not claim a renderer or
+This is the common grammar for those families. The free-layout client/static renderer is available; it does not claim
 specialized participants/messages, lanes/steps, dated-event or type-specific
 content fields. Those are separate additive family work. Other type names are
 refused. After common semantic checks pass, free-layout validation also runs
@@ -200,3 +200,20 @@ text/sub colors, widths, dashes, radii and redundant role tags.
 dash, line cap and arrowhead shape; callers retain original edge kind through
 geometry. `return` reserves the approved dashed treatment for axis families.
 `diagramInkRamp` returns solid color-mix steps, without alpha ink.
+
+## Renderer entries
+
+The configured module declares fence `diagram`, extension `.diagram.yaml`,
+client entry `@schlessera/brain-module-diagrams/ui` and static entry
+`@schlessera/brain-module-diagrams/render`. These remain trusted, build-bundled
+entries under the content-renderer contract. `diagramsContentPack` and
+`diagramsStaticPack` share the same geometry and generated light/dark/print
+tokens; static `toStatic(source, { theme, path? })` needs no browser and returns
+scriptless, resource-free SVG. Invalid sources throw for the seam's code fallback.
+
+Static figures carry ID-free accessible names/descriptions so multiple and
+repeated figures can safely share a document. Client linked nodes use the app's
+wiki-link resolver and focusable SVG groups; static output does not navigate.
+Authored narrow placement is selected only when its native frame fits the
+container. Missing or non-fitting placement uses the semantic summary and Open
+diagram control, with a readable dedicated viewer, rather than inline scaling.
