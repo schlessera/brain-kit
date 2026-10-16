@@ -44,4 +44,36 @@ describe.skipIf(!chromePath)("native asynchronous rejection", () => {
     }
     expect(browser.connected).toBe(true);
   });
+
+  test("pending native replies and a rejection keep the following page connected", async () => {
+    for (let iteration = 0; iteration < 30; iteration++) {
+      const first = page.evaluate(() => 41);
+      // Ordinary concurrent commands leave replies at the receive boundary.
+      // Observe both outcomes immediately so a broken connection cannot leak
+      // an unhandled peer rejection into teardown and obscure the page failure.
+      const peers = Array.from({ length: 4 }, (_, value) =>
+        page.evaluate(value => value, value).then(
+          value => ({ value }), error => ({ error: String(error) }),
+        ),
+      );
+      expect(await first).toBe(41);
+      const sentinel = new Error("Odysseus native command sentinel");
+      await expectAsyncRejection((async () => {
+        const opened = await browser.newPage();
+        try {
+          expect(await opened.evaluate(() => 43)).toBe(43);
+        } finally {
+          await opened.close();
+        }
+        throw sentinel;
+      })(), sentinel.message);
+
+      // The synchronous matcher can appear to pass, then the next page loses
+      // Target.createTarget when native receive parsing resumes (#1978).
+      const next = await browser.newPage();
+      await next.close();
+      expect(await Promise.all(peers)).toEqual([0, 1, 2, 3].map(value => ({ value })));
+      expect(browser.connected).toBe(true);
+    }
+  });
 });
