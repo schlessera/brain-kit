@@ -31,3 +31,9 @@ seven relationships and exact desktop/authored 320×1088 placements converted
 from the approved #2091 `composition.json` at `ce92ea1d4142481fadf6cef08bfef7eecf02543b`.
 It covers the DELIVER mask beside fanned rounded elbows. Reflections exercise
 every directed quarter-arc orientation without changing the source fixture.
+
+The four axis examples mirror the canonical shipped YAML under
+`../../skills/diagram/references/examples/`. `axis.test.ts` checks those files
+against the browser fixture objects, validates real CLI envelopes and exercises
+calendar-proportional timeline/Gantt geometry. The sequence is the approved
+#2092 Release from Ogygia brief; the other figures reuse that corpus and skin.

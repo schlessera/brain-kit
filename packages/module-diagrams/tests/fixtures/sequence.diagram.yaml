@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "title": "Release from Ogygia",
+  "desc": "The release order reaches Odysseus on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "zeus",
+      "label": "Zeus"
+    },
+    {
+      "id": "hermes",
+      "label": "Hermes"
+    },
+    {
+      "id": "calypso",
+      "label": "Calypso"
+    },
+    {
+      "id": "odysseus",
+      "label": "Odysseus"
+    }
+  ],
+  "edges": [],
+  "type": "sequence",
+  "axis": {
+    "kind": "sequence",
+    "messages": [
+      {
+        "id": "release",
+        "from": "zeus",
+        "to": "hermes",
+        "label": "RELEASE ORDER",
+        "focal": true
+      },
+      {
+        "id": "deliver",
+        "from": "hermes",
+        "to": "calypso",
+        "label": "DELIVER ORDER"
+      },
+      {
+        "id": "raft",
+        "from": "calypso",
+        "to": "odysseus",
+        "label": "BUILD A RAFT"
+      },
+      {
+        "id": "promise",
+        "from": "odysseus",
+        "to": "calypso",
+        "label": "SWEAR NO TRICK"
+      },
+      {
+        "id": "tools",
+        "from": "calypso",
+        "to": "odysseus",
+        "label": "TOOLS · 4 DAYS",
+        "kind": "return"
+      },
+      {
+        "id": "sail",
+        "from": "odysseus",
+        "to": "odysseus",
+        "label": "SAIL 17 DAYS",
+        "kind": "async",
+        "note": "Scheria by July 29"
+      }
+    ]
+  }
+}

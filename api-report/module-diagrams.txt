@@ -127,7 +127,7 @@ signatures (every public export and the types it is made of)
         head: "open" | "filled" | "hollow";
     }
   DiagramElement (packages/module-diagrams/src/geometry.ts)
-    export type DiagramElement = DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
+    export type DiagramElement = DiagramShape | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
   DiagramFinding (packages/module-diagrams/src/check.ts)
     export interface DiagramFinding {
         path: string;
@@ -203,6 +203,63 @@ signatures (every public export and the types it is made of)
         node: string;
         side: DiagramSide;
     }
+  DiagramShape (packages/module-diagrams/src/shape.ts)
+    export type DiagramShape = DiagramShapeBase & ({
+        shape: "line";
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+    } | {
+        shape: "rect";
+        radius?: number;
+    } | {
+        shape: "circle";
+        cx: number;
+        cy: number;
+        radius: number;
+    } | {
+        shape: "polygon";
+        points: Array<{
+            x: number;
+            y: number;
+        }>;
+    } | {
+        shape: "path";
+        d: string;
+    } | {
+        shape: "text";
+        text: string;
+        textRole: DiagramTypeRole | "note";
+        align?: "start" | "middle" | "end";
+        fontSize?: number;
+        fontWeight?: 400 | 500 | 600;
+    });
+  DiagramShapeBase (packages/module-diagrams/src/shape.ts)
+    export interface DiagramShapeBase {
+        kind: "shape";
+        id: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        nodeId?: string;
+        from?: string;
+        to?: string;
+        paint: DiagramShapePaint;
+        strokeWidth?: number;
+        family?: "axis" | "positional";
+        name?: string;
+        arrow?: {
+            x: number;
+            y: number;
+            dx: number;
+            dy: number;
+            head: "open" | "filled" | "hollow";
+        };
+    }
+  DiagramShapePaint (packages/module-diagrams/src/shape.ts)
+    export type DiagramShapePaint = "line" | "primary" | "link" | "async" | "return" | "node" | "focal" | "cluster" | "text" | "muted" | "accent" | "ink" | "on-ink" | "none" | "lifeline" | "bar" | "zone" | "mask" | "focal-mask" | "message" | "cluster-mask";
   DiagramSide (packages/module-diagrams/src/geometry.ts)
     export type DiagramSide = "left" | "right" | "top" | "bottom";
   DiagramSkinFinding (packages/module-diagrams/src/skin.ts)
@@ -332,6 +389,63 @@ signatures (every public export and the types it is made of)
         title: z.ZodString;
         type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
     }, z.core.$strict>, z.ZodObject<{
+        axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elseAt: z.ZodOptional<z.ZodNumber>;
+                elseGuard: z.ZodOptional<z.ZodString>;
+                from: z.ZodNumber;
+                guard: z.ZodString;
+                kind: z.ZodEnum<{
+                    alt: "alt";
+                    loop: "loop";
+                    opt: "opt";
+                }>;
+                to: z.ZodNumber;
+            }, z.core.$strict>>>;
+            kind: z.ZodLiteral<"sequence">;
+            messages: z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                from: z.ZodString;
+                id: z.ZodString;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    async: "async";
+                    message: "message";
+                    return: "return";
+                }>>;
+                label: z.ZodString;
+                note: z.ZodOptional<z.ZodString>;
+                to: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"swimlane">;
+            lanes: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>;
+            steps: z.ZodArray<z.ZodObject<{
+                lane: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                date: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"timeline">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"gantt">;
+            marker: z.ZodOptional<z.ZodString>;
+            phases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>>;
+            tasks: z.ZodArray<z.ZodObject<{
+                end: z.ZodString;
+                node: z.ZodString;
+                phase: z.ZodOptional<z.ZodString>;
+                start: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
             target: z.ZodString;
             text: z.ZodString;
@@ -537,6 +651,63 @@ signatures (every public export and the types it is made of)
         title: z.ZodString;
         type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
     }, z.core.$strict>, z.ZodObject<{
+        axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elseAt: z.ZodOptional<z.ZodNumber>;
+                elseGuard: z.ZodOptional<z.ZodString>;
+                from: z.ZodNumber;
+                guard: z.ZodString;
+                kind: z.ZodEnum<{
+                    alt: "alt";
+                    loop: "loop";
+                    opt: "opt";
+                }>;
+                to: z.ZodNumber;
+            }, z.core.$strict>>>;
+            kind: z.ZodLiteral<"sequence">;
+            messages: z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                from: z.ZodString;
+                id: z.ZodString;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    async: "async";
+                    message: "message";
+                    return: "return";
+                }>>;
+                label: z.ZodString;
+                note: z.ZodOptional<z.ZodString>;
+                to: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"swimlane">;
+            lanes: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>;
+            steps: z.ZodArray<z.ZodObject<{
+                lane: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                date: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"timeline">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"gantt">;
+            marker: z.ZodOptional<z.ZodString>;
+            phases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>>;
+            tasks: z.ZodArray<z.ZodObject<{
+                end: z.ZodString;
+                node: z.ZodString;
+                phase: z.ZodOptional<z.ZodString>;
+                start: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
             target: z.ZodString;
             text: z.ZodString;

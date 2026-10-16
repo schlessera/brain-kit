@@ -1,5 +1,6 @@
 import { checkDiagramSkin } from "./skin.js";
 import { checkDiagramLayouts } from "./layout.js";
+import { checkAxis } from "./axis-check.js";
 import { buildDiagram, DiagramGeometryError } from "./geometry.js";
 import { isMap, parseDocument } from "yaml";
 import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
@@ -85,7 +86,7 @@ export function checkDiagram(source: string): DiagramCheckResult {
   warn("$.nodes", 9, spec.nodes.length, "nodes"); warn("$.edges", 12, spec.edges.length, "edges"); warn("$.callouts", 2, spec.callouts?.length ?? 0, "callouts");
   const typeLimits: Partial<Record<DiagramSpec["type"], number>> = { sequence: 5, swimlane: 5, er: 8, "layer-stack": 6, pyramid: 6, venn: 3 };
   const limit = typeLimits[spec.type];
-  if (limit !== undefined) warn("$.nodes", limit, spec.nodes.length, `${spec.type} items`);
+  if (limit !== undefined && !(spec.type === "swimlane" && "axis" in spec && spec.axis)) warn("$.nodes", limit, spec.nodes.length, `${spec.type} items`);
   if (spec.type === "tree") {
     const children = new Map<string, string[]>(), incoming = new Map(spec.nodes.map(node => [node.id, 0]));
     for (const edge of spec.edges) {
@@ -122,6 +123,7 @@ export function checkDiagram(source: string): DiagramCheckResult {
     }
   }
   output.errors.push(...checkDiagramSkin(spec), ...checkDiagramLayouts(spec));
+  const axisFindings = checkAxis(spec); output.errors.push(...axisFindings.errors); output.warnings.push(...axisFindings.warnings);
   output.valid = output.errors.length === 0;
   return output;
 }

@@ -6,9 +6,9 @@ fence, with strict fields, reference checks, editorial budget warnings and
 free-layout grid/overlap and connector routing checks. The [v1 contract](../../docs/integration-contract/diagrams.md)
 lists the common type families and envelope. The pure `buildDiagram(spec, options)` export constructs a neutral free-layout
 `DiagramTree` with rounded orthogonal paths, crossing hops and measured label
-masks. The `ui` entry exports `diagramsContentPack` for trusted app builds;
+masks. Axis types derive their geometry from order and authored dates. The `ui` entry exports `diagramsContentPack` for trusted app builds;
 `render` exports `diagramsStaticPack` and browser-free `toStatic`. The authoring
-skill and specialized family grammars remain separate work.
+skill and the other specialized family grammars remain separate work.
 
 Enable the module in a brain configuration:
 
@@ -62,3 +62,20 @@ Inline figures retain native coordinates so displayed text never shrinks below
 otherwise it shows the caption, semantic summary and a 44px Open diagram button.
 The dedicated viewer starts at readable 100% with explicit pan/zoom controls.
 Browser print uses a white, non-interactive drawing without the screen frame.
+
+## Ordered axis diagrams
+
+Sequence, swimlane, timeline and Gantt specs add a strict optional `axis` block
+with type-specific messages, lane ownership or dates. Existing v1 nodes/edges
+remain accepted. [Sequence](skills/diagram/references/type-sequence.md),
+[swimlane](skills/diagram/references/type-swimlane.md),
+[timeline](skills/diagram/references/type-timeline.md) and
+[Gantt](skills/diagram/references/type-gantt.md) references include shipped
+Odysseus examples. All four share the same light/dark/white-print painter.
+
+Sequences preserve normal text sizes and reflow at 320px only when participant
+names, optional authored tags, message labels, notes and self-messages fit. A
+64px participant pitch alone is insufficient. Unsafe inline layouts use the
+semantic summary and Open diagram viewer. Swimlane handoffs use the shared
+connector router; timeline distances and Gantt durations use honest date
+intervals. Per-type editorial overruns warn and suggest overview/detail.

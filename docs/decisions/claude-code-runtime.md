@@ -1239,3 +1239,42 @@ concurrent refresh and cancellation, and prove that worker environment, files,
 logs and reachable sockets contain no provider credential. The broader network,
 policy, socket masking and first-party tool qualification in #1665 also remains
 required. No acceptance criterion is waived by delivering this resolver first.
+
+
+### First-party host-relay native protocol qualification (2026-10-16)
+
+The installed SDK `0.3.293` / selected CLI `2.1.293` can use the existing Unix
+relay with a placeholder in its environment while the host resolves stored OAuth
+for each dispatch. The offline control composes the existing resolver and relay
+directly; it adds no production factory or ordinary-worker activation
+(`const relay = startInferenceRelay`,
+`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:76-77`).
+The test verifies the selected binary's checksum and every actual native
+process's executable, and runs the entire fixture with an empty ambient
+environment in fresh network and PID namespaces. Native inference and refresh
+reach real loopback HTTP through the Unix relay. Only the host's lowest fetch
+method maps the asserted production inference/token authorities to that
+fictional server; no live-provider or TLS interception claim is involved.
+
+Three new/resumed native turns preserve prior message counts of one, three
+and five and select Haiku, Sonnet and Haiku respectively. Their upstream
+requests receive the initial, changed and refreshed host login, with no API-key
+header (`expect(result.requests,`,
+`packages/ui-backend-claude/tests/host-relay-native.test.ts:29-33`). A fourth
+native query is cancelled while its host refresh is pending: the real upstream
+request closes, exact host bytes remain and credential exclusion becomes
+available again. Native process environments, worker-owned files and stderr
+contain no fictional host access/refresh token; the native environments contain
+the placeholder. Mutations which cache the first credential, forward the
+placeholder upstream, or discard the native request's cancellation signal each
+fail their corresponding native control.
+
+The unaugmented native initialize observations report
+`tokenSource: CLAUDE_CODE_OAUTH_TOKEN` and `apiProvider: firstParty`. They do not
+report the stored account's email, organization or subscription tier under this
+Unix transport. The proof does not invent those fields, validate a real
+subscription, establish live billing or show provider cache hits. It qualifies
+this protocol composition, not the ordinary launcher, credential-free startup
+projection, managed/project endpoint precedence, host-file or socket isolation,
+or command-sourced credential compatibility. Those remain prerequisites for
+ordinary activation and completion of #1665/#1666.
