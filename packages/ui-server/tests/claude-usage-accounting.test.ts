@@ -33,6 +33,17 @@ import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 
+test("unavailable usage pricing cannot interrupt session persistence", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const pricing = { resolve: () => { throw new Error("Odysseus pricing unavailable"); } };
+    const store = createActivityStore(db);
+    const catalog = createSessionCatalog(() => db, undefined, undefined, { pricing, store });
+    expect(() => catalog.accountClaudeUsage!("odysseus-session", "claude", "turn-pricing-failure",
+      { completed: usage(10), cumulative: usage(11) }, false), "ACCOUNTING_FAILURE_CANNOT_INTERRUPT_TURN").not.toThrow();
+  } finally { db.close(); }
+});
+
 test("persisted session and Activity sum own turns and once-only unstreamed spend across restart", () => {
   const db = createUiDb(":memory:");
   try {

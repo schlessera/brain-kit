@@ -183,9 +183,10 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   };
   return {
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
-      const { pricing, store } = getAccounting();
-      const mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
+      let mainCost: number | undefined;
       try {
+        const { pricing, store } = getAccounting();
+        mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
         db().transaction(() => {
           if (db().query("SELECT 1 FROM claude_usage_turns WHERE turn_id=?").get(turnId)) return;
           const row = db().query("SELECT state_json FROM claude_session_usage WHERE session_id=? AND backend_id=?")
