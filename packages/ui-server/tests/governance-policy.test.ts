@@ -11,7 +11,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
+import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
@@ -266,4 +266,48 @@ test("unsupported policy edits never dispatch engines in the reader or actual ad
     const fresh = createGovernancePolicyReader(f.brain).load();
     expect(fresh.source).toBe("default"); expect(fresh.hash).toBeNull(); expect(fresh.errors.length).toBeGreaterThan(0);
   } finally { sentinel.restore(); }
+});
+
+
+test("admitted literal provider folders reach real governed mounts without claiming provider authority", async () => {
+  const f = fixture(); f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+  mkdirSync(join(f.brain, "group/private"), { recursive: true });
+  writeFileSync(join(f.brain, "group/private/identity.md"), "Odysseus private identity.\n");
+  const hold = await f.turns.begin("provider-folder-topology", new AbortController().signal);
+  try {
+    expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
+    expect(hold.sandbox.retainedFolders).toEqual(["group/private"]);
+    const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
+      if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi
+      if mv group group-moved 2>/dev/null; then echo ANCESTOR_RENAMED; exit 42; fi
+      printf Athena > group/private/new.md || exit 43
+      printf Odysseus > group/public.md || exit 44
+      cat group/private/identity.md
+    `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode, `ADMITTED_PROVIDER_FOLDER_PLAN_REACHES_NATIVE_MOUNTS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
+    expect(child.stdout.toString(), "TOPOLOGY_RETENTION_ALONE_DOES_NOT_MASK_OR_AUTHORIZE_PROVIDER_DATA").toBe("Odysseus private identity.\n");
+  } finally { await hold.end(); }
+});
+
+
+test("an invalid admission retains provider folders from the turn reader's last-valid policy", async () => {
+  const f = fixture(); f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
+  mkdirSync(join(f.brain, "group/private"), { recursive: true });
+  expect(f.turns.facts().policy.source).toBe("policy");
+  f.write("unknown: true");
+  const hold = await f.turns.begin("last-valid-provider-folder", new AbortController().signal);
+  try {
+    expect(hold.policy.source).toBe("last_valid");
+    const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+      'if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi; printf Athena > group/private/new.md'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode, `LAST_VALID_ADMITTED_POLICY_REACHES_NATIVE_FOLDER_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
+    const peer = await f.execution.gate()!.acquire("shared", "turn:athena-inherits-last-valid-plan");
+    try {
+      const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [], folderPaths: peer.folderPaths });
+      const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+        'if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      expect(child.exitCode, `LAST_VALID_FOLDER_PLAN_REACHES_NEW_PEER_NATIVE_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
+    }
+    finally { peer.release(); }
+  } finally { await hold.end(); }
 });

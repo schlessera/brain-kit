@@ -34,7 +34,7 @@ laptop, an agent — holds a session:
    only instrument. Cutting off one agent signs out every device. The only finer
    tool is rotating `COOKIE_SECRET`, which is a deploy.
 2. **Nothing is attributable.** The request log records method, path, status and
-   duration (`app.ts:279-293`); the activity record stamps sessions, jobs, models
+   duration (`app.ts:280-294`); the activity record stamps sessions, jobs, models
    and cost (`activity_spans`, `migrations/007_activity.sql:12-35`) — but no
    actor. Every action an agent takes reads exactly like the owner taking it.
 
@@ -96,9 +96,9 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:733` | mounted **before** the guard at `authGuard(authMode`, `app.ts:747`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:757` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:874-891` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:734` | mounted **before** the guard at `authGuard(authMode`, `app.ts:748`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:758` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:875-892` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:134-142` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
