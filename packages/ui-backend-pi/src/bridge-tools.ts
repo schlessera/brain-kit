@@ -304,7 +304,7 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   if (capabilities?.policyChange) tools.push({ name: PROPOSE_POLICY_CHANGE_CONTRACT.name, label: "Propose policy change",
     description: PROPOSE_POLICY_CHANGE_CONTRACT.description, parameters: toPiParameters(PROPOSE_POLICY_CHANGE_INPUT_SCHEMA),
     async execute(id, raw) {
-      if (turn.noGrantSurface || turn.autonomous || !turn.bridge?.proposePolicyChange) throw new Error("Policy proposals are unavailable in this turn.");
+      if (turn.noGrantSurface || turn.posture === "voice" || turn.autonomous || !turn.bridge?.proposePolicyChange) throw new Error("Policy proposals are unavailable in this turn.");
       const result = await turn.bridge.proposePolicyChange(id, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(raw));
       return textResult(JSON.stringify(result), result);
     },

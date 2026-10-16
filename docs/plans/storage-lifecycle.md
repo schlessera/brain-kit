@@ -23,7 +23,7 @@ through its owners. Offer selected canonical attachment removal only after a
 dedicated, stale-safe, journaled application operation exists. The current
 file routes read files; they have no deletion endpoint. The curated application
 route accepts ordinary Markdown, not arbitrary binaries
-(`function validatePath`, `packages/ui-server/src/brain/application.ts:34-45`).
+(`function validatePath`, `packages/ui-server/src/brain/application.ts:34-52`).
 Document archive changes visibility/relevance and may move Markdown; it does
 not remove an attachment or reclaim its history. Do not present it as Delete.
 
@@ -86,7 +86,7 @@ Source foundations for the matrix:
 - Journal collection requires no refs/reservations and only expires ended
   turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:115-139`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:236-264`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:241-269`).
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:66-118`).
 - Turn-temp purge has its own scope and measured result

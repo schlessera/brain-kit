@@ -152,7 +152,11 @@ results through its existing tool-error path.
 
 CLI commands encountering `EROFS` exit 2. On Linux, known write forms also
 refuse a read-only brain mount before entering handlers which collect per-file
-errors; dry-run forms and read-only commands remain available. Machine mode emits
+errors; dry-run forms and read-only commands remain available. Since #2038,
+`brain render` checks that its input is inside the brain and exists before this
+refusal: an outside or missing input is a usage error (exit 1), even on a
+read-only brain. Stdin (`-`) and reference forms have no input path to check.
+Other commands retain their existing error precedence. Machine mode emits
 `{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
 tool: string } }`. The message states that the brain is read-only here and names
 `brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
@@ -163,7 +167,9 @@ directory a command writes: `brain scratch` and a `brain render` sent to
 which a hosted worker binds writable, so they run there. For `brain render`
 and `brain image` into the read-only brain the message names `--scratch` as
 the route and says to link the printed path; when `.brain/scratch/` is
-read-only as well it says nothing written now is kept. For `brain scratch` it
+read-only as well it states that condition, points to the sandbox note for the
+reason, and says nothing written now is kept; it does not guess the host's
+mount reason. For `brain scratch` it
 says the scratch area is read-only and nothing was removed. Nothing is staged or replayed;
 read-only commands continue to work. Writable index connections retain SQLite WAL
 sidecars after clean close, so a read-only mount can read the checkpointed index
@@ -208,6 +214,25 @@ The Markdown byte cap and supported file kinds above remain unchanged.
 <a id="chat-ui-in-process-tools-mcp__brain-ui__"></a>
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
+
+**Interactive roster stability (#2048).** Each backend offers its complete
+first-party deployment tool roster in deterministic order on every interactive
+turn, including voice-first sessions. A temporary missing handler, no-grant
+surface or strict sandbox fallback does not remove tools, schemas or descriptions.
+Registration grants no authority. Unavailable bridge calls return a model-readable
+refusal before opening a permission card or invoking the privileged handler;
+voice and no-grant turns refuse visual pickers, image masks, policy proposals and
+inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
+and refuses them at call time on strict/voice turns, including settings or
+remembered allows. Governed typed calls retain their stale-read and write-lock
+checks. Pi still rejects voice dispatch before a provider request: the stable
+roster does not add a voice posture. Restricted autonomous rosters remain exact
+server authority and are outside this interactive stability rule. Existing tool
+names, inputs and result shapes are unchanged. Hosted legacy project-MCP
+shadowing uses the session-stable trusted
+`StartTurnRequest.applicationAuthority: "server"` declaration even when its
+route handler is absent; direct unhosted consumers retain their legacy tools.
+See [the package API](package-api.md#stable-hosted-application-roster-2048).
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive

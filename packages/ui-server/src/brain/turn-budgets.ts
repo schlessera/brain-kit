@@ -196,3 +196,13 @@ export type TurnBudgets = ReturnType<typeof createTurnBudgets>;
 export function inferenceBudgetNote(receipt: TurnBudgetReceipt): string {
   return `[Host inference capabilities: ${receipt.coverage}. These are list-price usage limits, not subscription invoices. ${receipt.scopes.map(item => `${item.scope}: ${item.costUsd === null ? "price unknown" : `$${item.costUsd} known lower bound`}; warn $${item.warnUsd}; stop $${item.blockUsd}; unpriced token stop ${item.blockTokens}${item.resetAt ? `; resets ${new Date(item.resetAt).toISOString()}` : ""}${item.warning ? "; WARNING threshold reached" : ""}`).join(". ")}. Warnings are visual only in voice posture; do not speak them. Stops preserve partial work for review.]`;
 }
+
+/** Configured limits only: no observation timestamp, reset time or running usage. */
+export function inferenceBudgetLimits(receipt: TurnBudgetReceipt): string {
+  return `Host inference limits (list-price limits, not subscription invoices; ${receipt.coverage}): ${receipt.scopes.map(item => `${item.scope}: warn $${item.warnUsd}; stop $${item.blockUsd}; unpriced token warn ${item.warnTokens ?? "unconfigured"}; stop ${item.blockTokens}`).join(". ")}. Stops preserve partial work for review.`;
+}
+/** Actionable state only; a stable warning does not become a routine usage ticker. */
+export function inferenceBudgetContext(receipt: TurnBudgetReceipt): string | undefined {
+  const warnings = receipt.scopes.filter(item => item.warning).map(item => `${item.scope} warning threshold reached${item.scope === "day" && item.resetAt ? ` until ${new Date(item.resetAt).toISOString()}` : ""}; finish the current result within the remaining limit and preserve partial work. Warnings are visual only in voice posture; do not speak them.`);
+  return warnings.length ? warnings.join("\n") : undefined;
+}
