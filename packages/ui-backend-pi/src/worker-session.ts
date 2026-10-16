@@ -1,3 +1,4 @@
+import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { sessionPromptContext, describeClient } from "@schlessera/brain-ui-sdk/internal";
 import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -132,6 +133,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // runtime as the explicit read envelope, and the relay as the one route out.
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
+  if (!envelope) workerEnv.PATH = brainWorkerPath(backend.brainPath, workerEnv.PATH);
   workerEnv.PI_CODING_AGENT_DIR = PI_WORKER_STATE;
   // SDK offline mode silently skips missing sources. Validate prepared packages
   // explicitly in the child; the parent's environment remains unchanged.
