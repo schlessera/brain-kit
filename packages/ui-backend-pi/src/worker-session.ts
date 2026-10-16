@@ -172,7 +172,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
     for (const warning of workerSandboxWarnings(sandbox)) backend.log?.("warn", warning);
     if (workerStartupView && sandbox.profile !== "governed" && sandbox.areas.some(area => area.mount.writable)) {
-      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), signal: workerSignal });
+      preparedOutput = await prepareNativeWorkerOutput(backend.brainPath, { startupView: workerStartupView, areas: sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), folderPaths: sandbox.retainedFolders, signal: workerSignal });
     }
     workerSignal?.throwIfAborted();
     const spawning = performance.now();

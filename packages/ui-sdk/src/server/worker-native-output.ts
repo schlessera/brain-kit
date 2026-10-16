@@ -105,8 +105,12 @@ function currentVersion(root: string, rel: string): string | undefined {
 }
 function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => t.replace(/^.*\) /s, "").split(" ")[19]); }
 /** Acquisition completes before any synchronous SDK spawn callback. No copy/userxattr fallback. */
-export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
+export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
   options.signal?.throwIfAborted();
+  const retainedFolders = Object.freeze([...(options.folderPaths ?? [])]);
+  if (retainedFolders.some(rel => !rel || rel.startsWith("/") || rel.startsWith("~") || /^[A-Za-z]:/.test(rel) || rel.includes("\\")
+    || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..")))
+    throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
   const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
@@ -224,6 +228,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         for (const rel of changed) {
           const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
           if (previous && next && (previous.type === "directory") !== (next.type === "directory")) throw Error(`maintenance cannot replace a directory with a non-directory or vice versa: ${rel}`);
+          if (next?.type !== "directory" && retainedFolders.some(root => root === rel || root.startsWith(`${rel}/`)))
+            throw Error(`maintenance output cannot remove or replace retained provider folder topology ${rel}`);
           const removesProtectedAncestor = previous?.type === "directory" && !next
             && PROTECTED_TIER_A.some(p => p.startsWith(`${rel}/`));
           if (removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => rel === p || rel.startsWith(`${p}/`))) throw Error(`maintenance output cannot change protected input ${rel}`);

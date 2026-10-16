@@ -139,7 +139,30 @@ async function travelCli() {
   if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed geo CLI changed its source");
 }
 
+async function diagramsStatic() {
+  const { spawnSync } = await import("node:child_process");
+  const code = `
+    const assert = require("node:assert/strict");
+    if (typeof Bun === "undefined") {
+      const { registerHooks } = require("node:module");
+      registerHooks({ resolve(specifier, context, next) {
+        if (["react","react-dom","@schlessera/brain-ui-react","@schlessera/brain-ui-kit","@schlessera/brain-ui-sdk"].some(root=>specifier===root||specifier.startsWith(root+"/"))) throw Error("Static diagram imported a UI runtime: " + specifier);
+        return next(specifier, context);
+      }});
+    }
+    assert.equal(typeof document,"undefined"); assert.equal(typeof window,"undefined");
+    import("@schlessera/brain-module-diagrams/render").then(async renderer => {
+      const source=JSON.stringify({schema_version:1,type:"architecture",title:"Raft",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"Raft",role:"input",at:[32,32],size:[128,64]}],edges:[]});
+      const svg=await renderer.toStatic(source,{theme:"print"});
+      assert(svg.startsWith("<svg "));assert(svg.includes('data-theme="print"'));assert(svg.includes("Odysseus prepares the raft."));assert.equal(renderer.diagramsStaticPack.renderers[0].needsBrowser,false);
+    }).catch(error=>{console.error(error);process.exitCode=1;});
+  `;
+  const child=spawnSync(process.execPath,["-e",code],{encoding:"utf8"});
+  if(child.status!==0 || child.signal) throw Error(`Packed ${runtime} static diagram failed: ${child.stderr}`);
+}
+
 const PROBES = {
+  "diagrams-static": diagramsStatic,
   "geo-static-map": staticMap,
   "claude-backend-export": claudeBackendExport,
   "core-testing-suites": coreTestingSuites,

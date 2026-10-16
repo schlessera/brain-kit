@@ -31,7 +31,7 @@ export function treeEntries(root: string, ref: string): { mode: string; oid: str
 export function normalizeInventory(value: unknown, root?: string): Spec[] {
   if (!Array.isArray(value) || !value.length || value.length > 5000) throw new Error("Missing or unbounded browser discovery");
   const specs = value.map((item: { project?: unknown; projectName?: unknown; file?: unknown }) => {
-    const project = String(item.project ?? item.projectName ?? "").replace(/ \(chromium\)$/, "");
+    const project = String(item.project ?? item.projectName ?? "").replace(/ \((?:chromium|webkit)\)$/, "");
     const file = root ? relative(root, String(item.file)).replaceAll("\\", "/") : String(item.file);
     if (!project || !file.startsWith("packages/") || file.includes("..") || /[\r\n\0]/.test(file + project)) throw new Error("Invalid browser discovery identity");
     return { project, file };

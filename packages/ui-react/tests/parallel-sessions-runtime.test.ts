@@ -469,6 +469,12 @@ async function newChat(run: Run, page: Page) {
 /** Sends what the composer holds, with the keyboard's Enter (or the send button on a phone). */
 async function send(run: Run, page: Page, text: string) {
   await composer(page).fill(text);
+  await page.waitForFunction(() => {
+    const send = document.querySelector('[role="button"][aria-label="Send"]');
+    // An admitted streaming session still accepts Enter while showing Stop.
+    return (send !== null && send.getAttribute("aria-disabled") !== "true")
+      || document.querySelector('[role="button"][aria-label="Stop generating"]') !== null;
+  });
   if (phone(run)) await press(run, button(page, "Send"));
   else await composer(page).press("Enter");
 }

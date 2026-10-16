@@ -228,3 +228,7 @@ test("root-redirect environment overrides refuse retention before generated fixt
     expect(runnerIdentity({ ...env, [name]: "" })).toBe("");
   }
 });
+
+test("distinct Chromium and WebKit projects keep separate normalized proof identities",()=>{
+ expect(normalizeInventory([{projectName:"diagrams-chromium (chromium)",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"},{projectName:"diagrams-webkit (webkit)",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"}])).toEqual([{project:"diagrams-chromium",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"},{project:"diagrams-webkit",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"}]);
+});

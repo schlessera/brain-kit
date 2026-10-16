@@ -9,8 +9,15 @@ import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_
 const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
 
+/** Only this concrete resolver can mint folder mounts; public layout facts are not authority. */
+const qualifiedFolders = new WeakMap<WorkerProtection, {
+  readonly brain: string; readonly device: string; readonly inode: string;
+  readonly roots: readonly string[];
+  readonly pins: readonly { readonly rel: string; readonly device: string; readonly inode: string }[];
+}>();
+
 /** Inspect subtrees without following links, including aliases below directories. */
-function checkTree(fd: number, rel: string, count: { value: number }, brain: string, depth = 0): void {
+function checkTree(fd: number, rel: string, count: { value: number }, brain: string, depth = 0, allowPackageBins = true): void {
   if (depth > 256) throw new Error(`${rel} is nested too deeply to verify`);
   for (const name of readdirSync(at(fd, "."))) {
     if (++count.value > WORKER_MOUNT_SCAN_LIMIT) throw new Error(`${rel} has too many entries to verify`);
@@ -20,7 +27,7 @@ function checkTree(fd: number, rel: string, count: { value: number }, brain: str
       // Package bins link to other files inside the same read-only mount.
       // Such a link cannot provide a writable alias. Cross-boundary links
       // still select strict, and a linked protected root is always refused.
-      if (rel.startsWith("node_modules") && realpathSync(path).startsWith(`${brain}/node_modules/`)) continue;
+      if (allowPackageBins && rel.startsWith("node_modules") && realpathSync(path).startsWith(`${brain}/node_modules/`)) continue;
       throw new Error(`${rel}/${name} is a symlink`);
     }
     if (info.isFile() && info.nlink > 1) throw new Error(`${rel}/${name} is hardlinked`);
@@ -30,7 +37,7 @@ function checkTree(fd: number, rel: string, count: { value: number }, brain: str
       try {
         const opened = fstatSync(child);
         if (opened.dev !== info.dev || opened.ino !== info.ino) throw new Error(`${rel}/${name} changed during inspection`);
-        checkTree(child, `${rel}/${name}`, count, brain, depth + 1);
+        checkTree(child, `${rel}/${name}`, count, brain, depth + 1, allowPackageBins);
       } finally { closeSync(child); }
     }
   }
@@ -38,7 +45,7 @@ function checkTree(fd: number, rel: string, count: { value: number }, brain: str
 
 /** Prepare missing directories through descriptors; never create placeholder files. */
 export function resolveWorkerProtection(brain: string, options: {
-  paths?: readonly string[]; appeared?: readonly string[];
+  paths?: readonly string[]; appeared?: readonly string[]; folderPaths?: readonly string[];
 } = {}): { protection: WorkerProtection; reason?: string } {
   const paths: ProtectedWorkerPath[] = [];
   const ancestors = new Set<string>();
@@ -91,15 +98,62 @@ export function resolveWorkerProtection(brain: string, options: {
           : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)" : "added by governance policy" });
       } finally { closeSync(fd); }
     }
-    return { protection: { paths, ancestors: [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length) } };
+    const folderPins = new Map<string, { rel: string; device: string; inode: string }>();
+    const folderPaths = [...new Set(options.folderPaths ?? [])], folderCount = { value: 0 };
+    for (const rel of folderPaths) {
+      if (!rel || rel.startsWith("/") || rel.startsWith("~") || /^[A-Za-z]:/.test(rel) || rel.includes("\\") || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel)
+        || rel.split("/").some(part => !part || part === "." || part === "..")) throw new Error("invalid provider folder path");
+      const segments = rel.split("/");
+      let fd = openDirectory(at(root, "."));
+      try {
+        for (let i = 0; i < segments.length; i++) {
+          const path = at(fd, segments[i]!), info = lstatSync(path, { bigint: true });
+          if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`${rel} is not an unaliased existing directory`);
+          const next = openDirectory(path), opened = fstatSync(next, { bigint: true });
+          if (opened.dev !== info.dev || opened.ino !== info.ino) { closeSync(next); throw new Error(`${rel} changed during inspection`); }
+          closeSync(fd); fd = next;
+          const part = segments.slice(0, i + 1).join("/");
+          folderPins.set(part, { rel: part, device: String(opened.dev), inode: String(opened.ino) });
+        }
+        if (!folderPaths.some(other => rel.startsWith(`${other}/`))) checkTree(fd, rel, folderCount, brain, 0, false);
+      } finally { closeSync(fd); }
+    }
+    const orderedAncestors = [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length);
+    if (!folderPaths.length) return { protection: { paths, ancestors: orderedAncestors } };
+    const identity = fstatSync(root, { bigint: true }), visible = lstatSync(brain, { bigint: true });
+    if (identity.dev !== visible.dev || identity.ino !== visible.ino) throw new Error("the brain changed during folder inspection");
+    // Deep freeze the resolver-owned protection. A caller cannot reuse its
+    // private qualification with substituted protected paths or ancestors.
+    const protection: WorkerProtection = Object.freeze({ paths: Object.freeze(paths.map(path => Object.freeze({ ...path }))),
+      ancestors: Object.freeze(orderedAncestors) });
+    qualifiedFolders.set(protection, { brain: realpathSync(brain), device: String(identity.dev), inode: String(identity.ino),
+      roots: Object.freeze(folderPaths), pins: Object.freeze([...folderPins.values()].map(pin => Object.freeze({ ...pin }))) });
+    return { protection };
   } catch (error) {
     return { protection: { paths: [], ancestors: [] }, reason: `protected paths could not be verified: ${code(error)}` };
   } finally { if (root !== undefined) closeSync(root); }
 }
 
 /** Fixed order: ancestor mount points first, then the protected names. */
-export function protectedWorkerMounts(brain: string, protection: WorkerProtection): string[] {
-  const argv = protection.ancestors.flatMap(rel => ["--bind", join(brain, rel), join(brain, rel)]);
+export function protectedWorkerMounts(brain: string, protection: WorkerProtection, retainedFolders: readonly string[] = []): string[] {
+  const qualified = qualifiedFolders.get(protection);
+  if (retainedFolders.some(root => !qualified?.roots.includes(root)))
+    throw new Error("provider folder topology was not qualified by the resolver");
+  if (qualified) {
+    const identity = lstatSync(brain, { bigint: true });
+    if (brain !== qualified.brain || !identity.isDirectory() || identity.isSymbolicLink()
+      || String(identity.dev) !== qualified.device || String(identity.ino) !== qualified.inode)
+      throw new Error("provider folder topology belongs to a different brain identity");
+  }
+  const folderPins = qualified?.pins ?? [];
+  for (const pin of folderPins) {
+    const info = lstatSync(join(brain, pin.rel), { bigint: true });
+    if (!info.isDirectory() || info.isSymbolicLink() || String(info.dev) !== pin.device || String(info.ino) !== pin.inode)
+      throw new Error(`provider folder topology changed before launch: ${pin.rel}`);
+  }
+  const pins = [...new Set([...protection.ancestors, ...folderPins.map(pin => pin.rel)])]
+    .sort((a,b) => a.split("/").length - b.split("/").length);
+  const argv = pins.flatMap(rel => ["--bind", join(brain, rel), join(brain, rel)]);
   for (const { rel, mode } of protection.paths) {
     const path = join(brain, rel);
     if (mode === "read_only") argv.push("--ro-bind", path, path);

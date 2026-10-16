@@ -348,12 +348,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     if (options.requireGate) throw new Error(`${purpose} needs the brain's writer gate, and the UI database that holds it is unavailable`);
     return null;
   }
-  async function withGate<T>(mode: GateMode, purpose: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async function withGate<T>(mode: GateMode, purpose: string, fn: (hold: GateHold | null) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const hold = await holdGate(mode, purpose, signal);
-    try { return await fn(); } finally { hold?.release(); }
+    try { return await fn(hold); } finally { hold?.release(); }
   }
-  const gated = <T>(execution: BrainExecution, fn: () => Promise<T>) =>
-    execution.gate === "none" ? fn() : withGate(execution.gate, execution.purpose, fn, execution.signal);
+  const gated = <T>(execution: BrainExecution, fn: (hold: GateHold | null) => Promise<T>) =>
+    execution.gate === "none" ? fn(null) : withGate(execution.gate, execution.purpose, fn, execution.signal);
 
   /** The pre-boundary path: a host process with the brain as its working directory. */
   function hostSpawn(execution: BrainExecution) {
@@ -437,15 +437,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           throw error;
         }
       }
-      return gated(execution, async () => {
-        if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+      return gated(execution, async hold => {
+        if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
           ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
         const run = async () => {
           const view = await prepareInput(execution.signal);
           let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
           try {
             execution.signal?.throwIfAborted();
-            outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
+            outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
             const launch = command(execution);
             const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
@@ -485,7 +485,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           let signalCode: string | null = null;
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
-          const exited = runMirrorSync({ nativeManager: options.nativeManager, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
+          const exited = runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
             ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
@@ -507,7 +507,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
         const launch = command(execution);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
         execution.signal?.throwIfAborted();

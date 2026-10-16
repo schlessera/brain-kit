@@ -113,13 +113,23 @@
       },
       "devDependencies": {
         "@types/bun": "^1.3.14",
+        "@types/react": "^19",
+        "react": "^19",
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
+        "@schlessera/brain-ui-kit": "*",
+        "@schlessera/brain-ui-react": "*",
+        "@schlessera/brain-ui-sdk": "*",
         "@types/bun": ">=1.3.0",
+        "react": ">=18",
       },
       "optionalPeers": [
+        "@schlessera/brain-ui-kit",
+        "@schlessera/brain-ui-react",
+        "@schlessera/brain-ui-sdk",
         "@types/bun",
+        "react",
       ],
     },
     "packages/module-finance": {
