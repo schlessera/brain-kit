@@ -591,6 +591,10 @@ module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
 through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
+Publication also refuses deletion of a tier A ancestor directory, including an
+empty `context` or `.git` whose protected descendants are currently absent.
+This host-side check applies before any changed output is installed; worker
+namespace mount points alone do not constrain the host publisher.
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -1244,7 +1248,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:286`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:287`).
 
 **What changes:**
 
@@ -2287,3 +2291,16 @@ adapters and bounded offline worker evidence. The
 reserves the executor choice until that comparison is reviewed. Neither this
 amendment nor a successful plain-search prototype selects an executor or grants
 additional host model, UI, browser, shell or credential-command authority.
+
+
+#### Approved host OAuth refresh placement (2026-10-16)
+
+The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to
+the host, replacing the earlier native-worker ownership of that operation.
+The [runtime amendment](claude-code-runtime.md#host-owned-stored-login-refresh-2026-10-16-amendment)
+binds the bounded protocol, credential-maintenance serialization, offline
+qualification and activation gate. Native login acquisition, Pi's supported
+native auth runtime, per-request provider identity and billing, and the ban on
+provider credentials in governed worker files/environment remain binding.
+Delivering the internal resolver does not activate the ordinary worker relay or
+qualify the remaining egress paths and socket isolation.

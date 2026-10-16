@@ -3391,3 +3391,12 @@ private pending receipt before invoking the closure, then publishes a steering
 change only after the save succeeds. Failed or interrupted finalization remains
 partial/unconfirmed. Other backends need not implement Claude native-memory
 persistence; this adds no agent history authority or new public request route.
+
+### Late Activity session association
+
+`ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
+active span when the backend reports its session after the first frame. Repeating
+the same identity is allowed; changing an established identity or patching a
+terminal span returns false without modifying the row. The recorder persists
+this identity in both the queryable session column and the existing attributes.
+This additive API ships in a minor release.
