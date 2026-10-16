@@ -168,13 +168,14 @@ test("the actual compiler input inventory includes test leaves used by a build",
 test("native discovery consumes the JSON file, preserving colored console diagnostics as diagnostics", async () => {
   const root = fixture();
   write(root, "scripts/visual.mjs", 'const projects = projectArgs.length ? [] : ["visual", "rail-fine"];\n');
+  const discovered = [...inventory, { project: "ui-react-endurance", file: "packages/ui-react/tests/browser/recordings.endurance.tsx" }].sort((a, b) => a.project.localeCompare(b.project) || a.file.localeCompare(b.file));
   const original = Bun.spawn;
   const spawn = spyOn(Bun, "spawn").mockImplementationOnce(((argv: string[], options: Parameters<typeof Bun.spawn>[1]) => {
     const output = argv.find((arg: string) => arg.startsWith("--json="))?.slice("--json=".length);
-    if (output) writeFileSync(output, JSON.stringify(inventory.map(s => ({ file: join(root, s.file), projectName: `${s.project} (chromium)` }))));
+    if (output) writeFileSync(output, JSON.stringify(discovered.map(s => ({ file: join(root, s.file), projectName: `${s.project} (chromium)` }))));
     return original([process.execPath, "-e", 'console.log("\\u001b[31mconsole diagnostic\\u001b[0m");'], options);
   }) as typeof Bun.spawn);
-  try { expect(await browserInventory(root)).toEqual(inventory); }
+  try { expect(await browserInventory(root)).toEqual(discovered); }
   finally { spawn.mockRestore(); }
 });
 test("Git-derived, unknown dynamic module selection and exported foreign helpers refuse retention", () => {
