@@ -1,5 +1,4 @@
 import { buildPositionalDiagram } from "./positional-layout.js";
-import type { DiagramShape } from "./shape.js";
 import { typeWidthBudget } from "./skin.js";
 import { buildAxisDiagram } from "./axis-layout.js";
 import type { DiagramShape } from "./shape.js";
