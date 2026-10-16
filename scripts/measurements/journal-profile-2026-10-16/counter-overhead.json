@@ -1,0 +1,28 @@
+{
+  "runtime": "1.4.2",
+  "kind": "counter-only diagnostic; excludes spy dispatch and storage effects",
+  "rows": [
+    {
+      "sample": 0,
+      "calls": 100000,
+      "bareLoopMs": 0.8917920000000001,
+      "timedLoopMs": 6.216075,
+      "observedInnerMs": 2.8083550000000037
+    },
+    {
+      "sample": 1,
+      "calls": 100000,
+      "bareLoopMs": 0.5950600000000001,
+      "timedLoopMs": 5.398137,
+      "observedInnerMs": 2.586305999999965
+    },
+    {
+      "sample": 2,
+      "calls": 100000,
+      "bareLoopMs": 0.06628299999999854,
+      "timedLoopMs": 4.936400999999998,
+      "observedInnerMs": 2.347023999999532
+    }
+  ],
+  "c": 600000
+}

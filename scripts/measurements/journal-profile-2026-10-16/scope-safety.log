@@ -1,0 +1,13 @@
+$ bun scripts/test.ts --timeout 30000 packages/ui-server/tests/turn-scope.test.ts --test-name-pattern "one long single Bash loop"
+Acquiring exclusive workspace output access; overlapping commands wait.
+bun test v1.4.2 (744846f84)
+
+packages/ui-server/tests/turn-scope.test.ts:
+SCOPE_EXTERNAL_TIMING {"crossingAt":1792176363180,"frozenAt":1792176363286,"captureAt":1792176363286,"receiptAt":1792176365261,"finalCount":22,"logicalElapsedMs":15000}
+(pass) one long single Bash loop is frozen by the registered 15-second observation before finishing [4097.93ms]
+
+ 1 pass
+ 13 filtered out
+ 0 fail
+ 34 expect() calls
+Ran 1 test across 1 file. [4.41s]

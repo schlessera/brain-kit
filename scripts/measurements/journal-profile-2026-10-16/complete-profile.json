@@ -1,0 +1,788 @@
+{
+  "schemaVersion": 1,
+  "runtime": "1.4.2",
+  "kernel": "6.18.33.2-microsoft-standard-WSL2",
+  "ready": {
+    "brainPath": "/brain-fixture/brain",
+    "brainUuid": "0ed50c352cc3e441ab18670d6e9cd843",
+    "brainRootId": "256",
+    "privatePaths": [
+      "/brain-fixture/.brain-native",
+      "/native-runtime",
+      "/dev/brain-native-proof-loop",
+      "/native-backing/fixture.img"
+    ],
+    "fsid": "8c9e35de-e49f-4493-99de-c316e34e8306",
+    "capacityBytes": 4294967296,
+    "availableBytes": 3723493376,
+    "recoveryReserveBytes": 16777216,
+    "reserveAllocatedBytes": 16777216
+  },
+  "samples": [
+    {
+      "workload": {
+        "name": "small",
+        "count": 300,
+        "size": 1024
+      },
+      "sample": 0,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 741.6829440000001,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 438.8963540000002
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 37.51736699999992
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 157.78017499999987
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 57.712774999999965
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 112325.66791399999,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 209.16172000000006
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 49.66395499999999
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 29568.645024999856
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 30621.056714000097
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 80352.81885700006
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 31090.818007999915
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 93.23126599998795
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 2238.3288699999976,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 8,
+              "ms": 1049.1375640000042
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 8,
+              "ms": 275.4140679999982
+            },
+            "accountingWrite": {
+              "calls": 8,
+              "ms": 16.014624000017648
+            },
+            "nativeRelease": {
+              "calls": 8,
+              "ms": 889.5207919999812
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 94674.96208799999,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 205.27982900000643
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 40.24472899999819
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 23355.75773899931
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 30717.454792999473
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 72849.98100900014
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 20953.933475999787
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 151.61334999999963
+            }
+          },
+          "objects": {
+            "count": 900,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 900
+          }
+        }
+      ],
+      "usageBytes": 2166368,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    },
+    {
+      "workload": {
+        "name": "small",
+        "count": 300,
+        "size": 1024
+      },
+      "sample": 1,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 839.3346010000096,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 584.8239149999863
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 29.91465099999914
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 155.28057899998385
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 52.52745199998026
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 115359.24496100002,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 192.556282000005
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 38.9591289999953
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 31128.01417200017
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 31079.812846000073
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 82347.08929699933
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 32073.142451000283
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 176.3714780000155
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 2847.3413070000242,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 8,
+              "ms": 1342.3459520000615
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 8,
+              "ms": 252.37742800009437
+            },
+            "accountingWrite": {
+              "calls": 8,
+              "ms": 28.11572200007504
+            },
+            "nativeRelease": {
+              "calls": 8,
+              "ms": 1216.8642169999075
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 84946.90842699999,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 191.95095100003527
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 41.60746799997287
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 21346.948336000787
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 26850.012932999758
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 65352.427255000104
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 18746.34834900085
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 166.46850100002484
+            }
+          },
+          "objects": {
+            "count": 900,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 900
+          }
+        }
+      ],
+      "usageBytes": 2166368,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    },
+    {
+      "workload": {
+        "name": "large",
+        "count": 3,
+        "size": 102400
+      },
+      "sample": 0,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 467.58067900000606,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 309.18002300005173
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 33.757321000040974
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 90.61284000001615
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 31.868445999978576
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 940.6979759999667,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 137.14125699998112
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 33.702579999982845
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 146.62957699992694
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 249.7387610001024
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 494.6199150001048
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 173.67112299992004
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 93.40477399999509
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 295.55350699997507,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 152.11263299995335
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 38.31441399996402
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 12.031966999988072
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 92.43681199999992
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 1049.031140999985,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 126.29829900001641
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 31.201736000017263
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 161.92718600004446
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 207.55973399995128
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 521.5807710000081
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 205.5988579999539
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 155.52269299997715
+            }
+          },
+          "objects": {
+            "count": 9,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 9
+          }
+        }
+      ],
+      "usageBytes": 1106504,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    },
+    {
+      "workload": {
+        "name": "large",
+        "count": 3,
+        "size": 102400
+      },
+      "sample": 1,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 539.324907000002,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 319.1458040000289
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 44.07841899996856
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 119.04062399995746
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 54.54907800001092
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 946.8666250000242,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 133.02735500002746
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 38.370859000016935
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 172.85034900001483
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 177.78404899995076
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 477.5348749999539
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 172.0644280000124
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 115.82098800002132
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 302.19101000000956,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 153.73196999996435
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 36.932726999977604
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 10.383841999981087
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 100.38490100001218
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 927.7325999999885,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 149.7695309999981
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 43.90494800003944
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 234.90094499994302
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 156.89425900008064
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 507.1893479998689
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 117.33627999993041
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 103.8575149999815
+            }
+          },
+          "objects": {
+            "count": 9,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 9
+          }
+        }
+      ],
+      "usageBytes": 1106504,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    },
+    {
+      "workload": {
+        "name": "large",
+        "count": 3,
+        "size": 102400
+      },
+      "sample": 2,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 460.4462000000058,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 286.0245180000784
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 41.83798399998341
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 104.63127200002782
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 25.78734399995301
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 1182.3784449999803,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 150.00314899999648
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 35.0099990000017
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 222.38493599998765
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 240.77506400004495
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 603.7982469999697
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 252.8211129999836
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 131.30022199999075
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 338.3976799999946,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 159.3005729999859
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 35.37716699996963
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 15.608265999995638
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 127.54927499999758
+            }
+          },
+          "objects": {
+            "count": 6,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 6
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 1123.836771000002,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 161.0608759999741
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 33.399297999974806
+            },
+            "accountingReserve": {
+              "calls": 6,
+              "ms": 174.84110199980205
+            },
+            "accountingFinish": {
+              "calls": 6,
+              "ms": 238.63160599995172
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 6,
+              "ms": 566.2000409999746
+            },
+            "accountingWrite": {
+              "calls": 7,
+              "ms": 205.13670999999158
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 152.85275399999227
+            }
+          },
+          "objects": {
+            "count": 9,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 9
+          }
+        }
+      ],
+      "usageBytes": 1106504,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    }
+  ]
+}

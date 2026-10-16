@@ -1,0 +1,28 @@
+$ bun scripts/test.ts --timeout 30000 packages/ui-server/tests/turn-journal.test.ts packages/ui-server/tests/journal-storage.test.ts
+Acquiring exclusive workspace output access; overlapping commands wait.
+bun test v1.4.2 (744846f84)
+
+packages/ui-server/tests/turn-journal.test.ts:
+(pass) the retained journal reads exact before/after versions and ignored listings after the turn ends [2027.33ms]
+(pass) inline preview enforces the approved raw byte and line boundaries and never coerces binary content [2134.59ms]
+(pass) native admission refuses unavailable storage and changed-version capacity stops work without copying the baseline [1165.60ms]
+(pass) failed policy admission ends its journal row and leaves no raw baseline pins before the next turn [1436.50ms]
+(pass) a delayed observation holds authority synchronously until its complete serialized barrier [1402.85ms]
+(pass) cancellation while native admission awaits cannot create an active late turn [1206.84ms]
+(pass) cancelling an overlapping admission resumes a healthy peer after its shared observation [1654.04ms]
+(pass) a retained raw stream pins its object until the reader ends [1849.28ms]
+(pass) overlapping writable windows both preserve observed shared and disjoint versions with shared attribution [1741.14ms]
+(pass) a complete no-change turn has a known zero change count and unknown price; missing history remains unknown [657.84ms]
+(pass) approved policy writes retain user attribution in the original active windows and cannot revive a completed turn [1493.16ms]
+(pass) actual journal classifies steering and local transitive configuration separately from content and policy [3166.85ms]
+(pass) steering retains only taint recorded before observation, including sticky session evidence and overlap [1520.58ms]
+(pass) opaque configuration input limitations survive replay without executing code or fabricating a steering dependency [1179.20ms]
+(pass) runtime main-model binding only updates the correlated active journal [1192.38ms]
+(pass) native capture journals consumed nested configuration and ordinary excluded project edits [3102.05ms]
+(pass) native journal excludes the resolved index and sidecars while preserving input-role events [3600.88ms]
+(pass) native capture excludes an alternate trusted index identity without a public configuration option [1176.93ms]
+
+ 18 pass
+ 0 fail
+ 112 expect() calls
+Ran 18 tests across 1 file. [32.09s]

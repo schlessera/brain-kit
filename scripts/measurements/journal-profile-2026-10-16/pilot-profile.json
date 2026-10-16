@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "runtime": "1.4.2",
+  "kernel": "6.18.33.2-microsoft-standard-WSL2",
+  "ready": {
+    "brainPath": "/brain-fixture/brain",
+    "brainUuid": "e1d898ecbf84bb4cb3062b49939c8953",
+    "brainRootId": "256",
+    "privatePaths": [
+      "/brain-fixture/.brain-native",
+      "/native-runtime",
+      "/dev/brain-native-proof-loop",
+      "/native-backing/fixture.img"
+    ],
+    "fsid": "ae5b83e1-309a-4862-ac7c-11fe6dcf620c",
+    "capacityBytes": 4294967296,
+    "availableBytes": 3723493376,
+    "recoveryReserveBytes": 16777216,
+    "reserveAllocatedBytes": 16777216
+  },
+  "samples": [
+    {
+      "workload": {
+        "name": "small",
+        "count": 300,
+        "size": 1024
+      },
+      "sample": 0,
+      "phases": [
+        {
+          "name": "coldAdmission",
+          "elapsedMs": 412.8147590000001,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 2,
+              "ms": 244.2657240000001
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 34.236009999999965
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 76.3076309999999
+            },
+            "accountingWrite": {
+              "calls": 1,
+              "ms": 24.62365099999988
+            }
+          },
+          "objects": {
+            "count": 0,
+            "bytes": 0
+          },
+          "pins": {
+            "count": 0
+          }
+        },
+        {
+          "name": "firstChanged",
+          "elapsedMs": 55802.70723,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 125.35485900000003
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 40.08276000000001
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 14894.883063000023
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 15327.295152000053
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 39939.42507699999
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 15062.190092000035
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 84.03501999999571
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmUnchanged",
+          "elapsedMs": 1048.36636,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 4,
+              "ms": 510.77049400000396
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 4,
+              "ms": 151.55967800000508
+            },
+            "accountingWrite": {
+              "calls": 4,
+              "ms": 17.139681000000564
+            },
+            "nativeRelease": {
+              "calls": 4,
+              "ms": 363.75992500000575
+            }
+          },
+          "objects": {
+            "count": 600,
+            "bytes": 614400
+          },
+          "pins": {
+            "count": 600
+          }
+        },
+        {
+          "name": "warmChanged",
+          "elapsedMs": 94072.10305099998,
+          "counters": {
+            "nativeCheckpoint": {
+              "calls": 1,
+              "ms": 132.83380900000338
+            },
+            "nativeDeltaThroughConsumption": {
+              "calls": 1,
+              "ms": 47.38704900000448
+            },
+            "accountingReserve": {
+              "calls": 600,
+              "ms": 25179.433412000202
+            },
+            "accountingFinish": {
+              "calls": 600,
+              "ms": 29098.46226199966
+            },
+            "objectRetainIncludingAccounting": {
+              "calls": 600,
+              "ms": 72970.4205920002
+            },
+            "accountingWrite": {
+              "calls": 601,
+              "ms": 20221.149879999815
+            },
+            "nativeRelease": {
+              "calls": 1,
+              "ms": 169.79964499999187
+            }
+          },
+          "objects": {
+            "count": 900,
+            "bytes": 921600
+          },
+          "pins": {
+            "count": 900
+          }
+        }
+      ],
+      "usageBytes": 2166368,
+      "capBytes": 10737418240,
+      "exactVersionsAndPinsVerified": true
+    }
+  ]
+}

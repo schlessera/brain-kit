@@ -1,0 +1,44 @@
+{
+  "measuredSource": "ff70ec1c2eda22e5e84593a5467fc85d0c385600",
+  "productionPatch": false,
+  "diagnosticOverlay": "archived scripts/profiling; factory spies call the original methods",
+  "image": "sha256:6a7534cc6ddfd192da8006544170aa8660844d536846addaa5f8c645e599944a",
+  "network": "Docker --network=none plus repository Bun network preload; Unix manager only",
+  "apparmor": false,
+  "uid": 0,
+  "gid": 0,
+  "runtime": "Bun1.4.2",
+  "arch": "x64",
+  "cpuCountVisible": 32,
+  "brainFilesystem": "btrfs, 4096-byte block, owned fully allocated4GiB loop1752",
+  "journalFilesystem": "bind-backed ext2/ext3 family, 4096-byte block; durable SQLite and CAS",
+  "hostCoTenancy": "not controlled; concurrent repository tasks may run",
+  "cacheConditions": "cold means fresh journal/SQLite/CAS metadata, not dropped OS page cache",
+  "periodicObserver": "normal15-second observer remains enabled; warmUnchanged drains queued observations",
+  "samplePlan": {
+    "pilot": {
+      "small": 3,
+      "large": 3,
+      "deadlineMs": 300000,
+      "completedSmall": 1,
+      "completedLarge": 0,
+      "secondSmall": "incomplete at deadline"
+    },
+    "followOn": {
+      "small": 2,
+      "large": 3,
+      "deadlineMs": 900000,
+      "correction": "direct read-only exact revision/hash checks against active-pinned immutable objects, outside timed phases; remaining samples only"
+    }
+  },
+  "counterOverhead": "separate100000-call loop control; spy dispatch/storage perturbation not isolated; do not treat as total profiling overhead",
+  "followOnOutcome": "profiling PASS; initial standalone witness fixture failures preserved; corrected witness PASS in separate native invocation",
+  "finalSuspension": {
+    "thresholdToKernelStoppedMs": 14139,
+    "stoppedToRetainedReceiptMs": 4431,
+    "samplePeriodMs": 20,
+    "fixturePaths": 50,
+    "scopeCap": 20,
+    "overshoot": 30
+  }
+}

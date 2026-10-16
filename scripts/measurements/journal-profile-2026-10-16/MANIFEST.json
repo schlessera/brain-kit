@@ -1,0 +1,196 @@
+{
+  "schema": "brain-kit-journal-profile-archive/1",
+  "issue": "https://github.com/schlessera/brain-kit/issues/1752",
+  "measuredSource": "ff70ec1c2eda22e5e84593a5467fc85d0c385600",
+  "archiveBase": "48227b09076b350d70d9d20b8492ffcfb5b95771",
+  "sourceIdentity": "production packages unchanged; new diagnostic producers are archived by their exact bytes here, not falsely attributed to the measured main commit",
+  "units": {
+    "profileElapsed": "milliseconds",
+    "summaryElapsed": "seconds",
+    "storage": "bytes",
+    "paths": "count"
+  },
+  "sampleLimits": "pilot one complete small/one incomplete; finite follow-on two small/three large complete; original failures retained",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 10204,
+      "sha256": "717426ae9d95b46af23a35f904037c0d82ee34e2f042b8d6a167e2e7dd1dfca6",
+      "gitBlob": "55e1518f07d02b81242b5a93078177fb96687543"
+    },
+    {
+      "path": "scripts/profiling/journal-capture-complete.test.ts",
+      "bytes": 8763,
+      "sha256": "28273cf05010cc1b5750fab4764fb05afaa09baea70333dacbac15a8bf9c3d09",
+      "gitBlob": "ed14bd8a336f4ccf57c8f35336a104131d3a384c"
+    },
+    {
+      "path": "scripts/profiling/journal-capture.test.ts",
+      "bytes": 8351,
+      "sha256": "c19a163979522243e03f3378ad410b0fdd067ccce30fab26e03722f12e0b4073",
+      "gitBlob": "d156d295eb19934b59d7458ee9babf07633f2e90"
+    },
+    {
+      "path": "scripts/profiling/journal-suspension.test.ts",
+      "bytes": 6344,
+      "sha256": "4cad2898e62a3fca34da9ed48e1496d258f78a0fdd7cb7697ab7ffe0d2066a79",
+      "gitBlob": "ebe68aa1941b4fd7084698e45a7fb571361dacb4"
+    },
+    {
+      "path": "scripts/profiling/run-journal-profile.py",
+      "bytes": 3438,
+      "sha256": "cd56638afe0b788baa83272f1ac9ff885cb8ef8d306f828391f5446566e8aa0f",
+      "gitBlob": "2d0c8307a6dbbbc66df6d5f12a5fac01cdecfa60"
+    },
+    {
+      "path": "scripts/profiling/summarize-journal-profile.py",
+      "bytes": 1637,
+      "sha256": "b53a9b32d931ae54e346e1826cc88e8a3f1f505a05f1687226259a42da9c6a7f",
+      "gitBlob": "974222b0d1278b30778137a110ee6af16ba18170"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/REPORT.md",
+      "bytes": 10304,
+      "sha256": "9cb19ba8e5736f211c5af7d80b99c239a7e0f8219142b3c722caa4a3de1b735e",
+      "gitBlob": "a3de318f56964b64bd84aa3a2edf97fce08620b9"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/bootstrap-readonly-lease-failure.log",
+      "bytes": 4589,
+      "sha256": "f33533399d5c800c4b21df49bd507cc8bdcd0b57c8fcc9692f3774e763466a9b",
+      "gitBlob": "4babb5b739fa8588b7b7f5485f4c588a56da786c"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/complete-fixture.json",
+      "bytes": 5845,
+      "sha256": "d2dab9acb369f3112abf5ce19e9830b64e81e4ee66209af28ea660b4d2f022a5",
+      "gitBlob": "71975f2b7d5d97750a96c83027dbafc8eb078384"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/complete-fixture.py",
+      "bytes": 6764,
+      "sha256": "4f20c607ac8e8b14028dc14c505da7502f157f762e313dd6f9eaafd872903934",
+      "gitBlob": "aa288f9c07499e4e01198890ec3bcf290dc03152"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/complete-profile.json",
+      "bytes": 20295,
+      "sha256": "86978818738cd98df90969924b63368e3443a2e605e8db503a98fa4ba3a5839a",
+      "gitBlob": "1d35a67c33feaf50b2ea67d1f3f80233242f8569"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/complete-run.log",
+      "bytes": 6005,
+      "sha256": "4cdfbcd0ad4df4b7c16514ac1cdd411a3af5616c384c72ca6716cd287d6f43ea",
+      "gitBlob": "f0806c4e9e78045774b1e2724be3bd3e04e94f78"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/counter-overhead.json",
+      "bytes": 654,
+      "sha256": "086dc43f3446df5eacf7aaf39ebd34107cea887834e04d97c51fc7863c3b3a78",
+      "gitBlob": "d1783ffada88dac95fc1769c2634a5ba26da2df7"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/environment.json",
+      "bytes": 1880,
+      "sha256": "f0c21be53c3ce2ffe72b185cb0a31d710780206d2ab9e154853bd789cbca1714",
+      "gitBlob": "fef18a522be04274b9954ba5d6f7c63fc30f9d13"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/journal-safety.log",
+      "bytes": 2415,
+      "sha256": "00b6a983e4409641ada3c2a98f700176051acf6a3f01d9a41188136b9e346436",
+      "gitBlob": "88787903976eb7814b92b27d340300d54428b5a7"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/pilot-fixture.json",
+      "bytes": 4218,
+      "sha256": "f33e7c43ff19b63099ff7aa42650bfabb7eb101dc75bfcfaaf212d8f5e9357e0",
+      "gitBlob": "6915fec1fa178c994836766283593aaaa0318710"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/pilot-fixture.py",
+      "bytes": 6700,
+      "sha256": "87136b6a47e179c7d7c1106e2e09ccd4e5d924d098139f169848efd442f317c5",
+      "gitBlob": "c3ea192cf950a2a358ba332f758d6773fbf99d26"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/pilot-profile.json",
+      "bytes": 4551,
+      "sha256": "09d51fae56336c1a045d40cf66fbdc46e3952c2781dd14385839b0ba7d665fc2",
+      "gitBlob": "5e8501699bb55ac71fa58260da810a95f2c97467"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/pilot-run.log",
+      "bytes": 4257,
+      "sha256": "144a988c39e53064081001a6813c1ea771eea224da2302cb1e93b4edd38e6372",
+      "gitBlob": "9f8468ecb5264cd86632fc17d810a63886ef5be6"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/scope-safety.log",
+      "bytes": 644,
+      "sha256": "108c257754df8ea761ba9ea68bac9d5474d45ab50059c4720419fde4d1778714",
+      "gitBlob": "781cd12f421cf1434b1eb795dfd60af1057d2db7"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/summary.jsonl",
+      "bytes": 3441,
+      "sha256": "94faabee7af388352e2096f6b7915abc208d41729aa4c1d22fb085232762fc47",
+      "gitBlob": "497685690a4005e7e3ed39c6a03ee596cd580edc"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-before-runtime-fix.ts",
+      "bytes": 6278,
+      "sha256": "88c323242f068be0dffa0aa6aa365f8f41c9efe0e981867dbae45f2ca3f4e1fd",
+      "gitBlob": "1cc11eb886bc7e8d64fd3fa89b5f316723e988fe"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-before-session-fix.ts",
+      "bytes": 6169,
+      "sha256": "e2b214cdcd0c6842c0cd2393f7d6e0d9f9848ed775920e4095bf4ce775e65f7c",
+      "gitBlob": "b71df23aa41cd662a0901b2fb1c945c4d1071fcf"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-fixture.json",
+      "bytes": 4004,
+      "sha256": "744ca0074b6a4b670e334b49b7cf2f257fee465a1ff7ecef43a9bed73a023a6f",
+      "gitBlob": "3bf2376472764e85fded1f0113f52adf5fce8c78"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-fixture.py",
+      "bytes": 6704,
+      "sha256": "ace424e9f62aebb48e5ad34657f9b92eb899041002ff84cc13429c29cbed8332",
+      "gitBlob": "a5432caf0d53fd30c8ca63dd7c7769d70c00dbd8"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-missing-runtime-failure.log",
+      "bytes": 5189,
+      "sha256": "bf153ad6fd78fb44fee15f006b06c64f3cb6e278201b7fb0cac021d23ea41aec",
+      "gitBlob": "081909725972a6f2eb3dc9a42cef4693495cc5af"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-missing-runtime-fixture.json",
+      "bytes": 5143,
+      "sha256": "4fbcdc88c8e481c2b2637d79dcf979380df4683e5f1d9d30ffd2fe161d902f1b",
+      "gitBlob": "73bbd3ae242359d98c817d32ae1b19a6e50b323d"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension-run.log",
+      "bytes": 3484,
+      "sha256": "1acb05e70371f1f1e080f24dcd801d40f6acb8f0ad1fc5b2d07cc63b859fac4c",
+      "gitBlob": "55d132062aac05558093409acf40346e5c5b609d"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/suspension.json",
+      "bytes": 475,
+      "sha256": "ee06c12e8e68fed5a877f9a803e8497339e991d41ad69f899dcb40d2cb7c0d7a",
+      "gitBlob": "7682470739fcb517efba2e3ff1086ed45613389a"
+    },
+    {
+      "path": "scripts/measurements/journal-profile-2026-10-16/typecheck.log",
+      "bytes": 15,
+      "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+      "gitBlob": "f5b99e8a88f3351bff2d974f340241915d097a47"
+    }
+  ]
+}

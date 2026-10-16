@@ -1,0 +1,20 @@
+{
+  "crossingAt": 1792176452451,
+  "frozenAt": 1792176466590,
+  "retainedAt": 1792176471021,
+  "suspensionAfterCrossingMs": 14139,
+  "retentionAfterSuspensionMs": 4431,
+  "receipt": {
+    "eventId": "ab88abca-acb9-4f79-b20d-dd4df6c37e39",
+    "dimension": "files_changed",
+    "count": 50,
+    "cap": 20,
+    "overshoot": 30,
+    "frozen": true,
+    "observedAt": 1792176471002,
+    "state": "paused",
+    "newCap": 40
+  },
+  "sampleIntervalMs": 20,
+  "kernelWitness": true
+}

@@ -1,0 +1,116 @@
+[
+  {
+    "kind": "environment",
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "capabilities": "CapEff:\t00000000882000eb",
+    "network": "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0\n",
+    "usernsQuota": "192635\n",
+    "apparmor": "kernel\u0000",
+    "bwrapVersion": "bubblewrap 0.9.0",
+    "bwrapSha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+  },
+  {
+    "kind": "owned-loop",
+    "identity": [
+      222,
+      329695,
+      0,
+      0,
+      0,
+      1752,
+      0,
+      0,
+      4
+    ],
+    "bytes": 4294967296,
+    "allocated": 4294971392
+  },
+  {
+    "kind": "command",
+    "argv": [
+      "mkfs.btrfs",
+      "-K",
+      "-f",
+      "/dev/brain-native-proof-loop"
+    ],
+    "code": 0,
+    "ms": 93.85631699842634,
+    "stdout": "btrfs-progs v6.6.3\nSee https://btrfs.readthedocs.io for more information.\n\nNOTE: several default settings have changed in version 5.15, please make sure\n      this does not affect your deployments:\n      - DUP for metadata (-m dup)\n      - enabled no-holes (-O no-holes)\n      - enabled free-space-tree (-R free-space-tree)\n\nLabel:              (null)\nUUID:               2ff60a20-60d9-4a17-977e-a216af29ac65\nNode size:          16384\nSector size:        4096\nFilesystem size:    4.00GiB\nBlock group profiles:\n  Data:             single            8.00MiB\n  Metadata:         DUP             256.00MiB\n  System:           DUP               8.00MiB\nSSD detected:       yes\nZoned device:       no\nIncompat features:  extref, skinny-metadata, no-holes, free-space-tree\nRuntime features:   free-space-tree\nChecksum:           crc32c\nNumber of devices:  1\nDevices:\n   ID        SIZE  PATH                        \n    1     4.00GiB  /dev/brain-native-proof-loop\n\n",
+    "stderr": "WARNING: failed to open /dev/btrfs-control, skipping device registration: No such file or directory\n"
+  },
+  {
+    "kind": "alternate-backing",
+    "path": "/native-backing/fixture.img",
+    "uid": 0,
+    "mode": "0o644",
+    "parentMode": "0o755",
+    "marker": "Odysseus fictional native backing marker."
+  },
+  {
+    "kind": "command",
+    "argv": [
+      "mount",
+      "-t",
+      "btrfs",
+      "-o",
+      "nosuid,nodev,nodiscard",
+      "/dev/brain-native-proof-loop",
+      "/brain-fixture"
+    ],
+    "code": 0,
+    "ms": 6.479373994807247,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "kind": "command",
+    "argv": [
+      "btrfs",
+      "subvolume",
+      "create",
+      "/brain-fixture/brain"
+    ],
+    "code": 0,
+    "ms": 1.337943998805713,
+    "stdout": "Create subvolume '/brain-fixture/brain'\n",
+    "stderr": ""
+  },
+  {
+    "kind": "command",
+    "argv": [
+      "/usr/local/bin/bun",
+      "run",
+      "test",
+      "/repo/scripts/profiling/journal-suspension.test.ts"
+    ],
+    "code": 0,
+    "ms": 21025.373165997735,
+    "stdout": "bun test v1.4.2 (744846f84)\n",
+    "stderr": "$ bun scripts/test.ts --timeout 30000 /repo/scripts/profiling/journal-suspension.test.ts\nAcquiring exclusive workspace output access; overlapping commands wait.\n\nscripts/profiling/journal-suspension.test.ts:\n(pass) independent kernel witness separates suspension from durable observation [20807.58ms]\n\n 1 pass\n 0 fail\n 7 expect() calls\nRan 1 test across 1 file. [21.12s]\n"
+  },
+  {
+    "kind": "command",
+    "argv": [
+      "umount",
+      "/brain-fixture"
+    ],
+    "code": 0,
+    "ms": 17.209422003361396,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "kind": "parent-userns-quota",
+    "before": "192635\n",
+    "after": "192635\n",
+    "unchanged": true
+  },
+  {
+    "kind": "cleanup",
+    "mounted": false,
+    "attached": false,
+    "loopCreated": false,
+    "backingExists": false,
+    "errors": []
+  }
+]

@@ -181,3 +181,20 @@ they record. They make no claim about the current product:
   replace an original live receipt here.
 - The runtime receipts describe the Claude Code, Agent SDK, pi and Bun versions
   they record, and no others.
+
+## Journal capture profiling — 2026-10-16 (#1752)
+
+This later bundle is separate from the original copied main-tree snapshot and
+94-file manifest above. The new spike was run against production source
+`ff70ec1c2eda22e5e84593a5467fc85d0c385600` with the explicitly archived
+diagnostic overlay, not a product performance patch. Its source is under
+`scripts/profiling/`; its original pilot failure, follow-on measurements,
+conditions, limitations and per-bundle manifest/checksums are under
+`scripts/measurements/journal-profile-2026-10-16/`. Its durable investigation
+outcome is recorded on https://github.com/schlessera/brain-kit/issues/1752.
+
+Use the bundle's full containing commit when citing it. Verify its
+`SHA256SUMS` separately; the historical top-level manifest/checksums retain
+the original snapshot and do not claim these newly measured bytes came
+from the old main-tree commit. The report selects no product optimization,
+latency SLA or change to retained-history, cap or freeze semantics.
