@@ -1868,13 +1868,31 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:184-252`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
 
-Claude auto-memory currently persists outside the authoritative brain through
-its backend state service. That service supplies no journal version receipt;
-the canonical brain/workspace journal does not invent a memory path or user
-restore authority. Its external memory integration remains a separate source
-limitation, not a claim of delivered raw-memory review/revert.
+Claude auto-memory persists outside the authoritative brain. Its validated
+native copy-out wraps each changed direct `.md` note in host journal retention:
+exact before/after objects and the private destination are staged and pinned
+before saving; only a successful save publishes the attributed steering change.
+The logical `claude-memory://<note.md>` path and `claude_memory` scope cannot
+collide with a canonical brain-relative path. Host directories, credentials,
+transcripts and settings never become journal change entries. Taint is captured
+from existing session/turn evidence at save time, not inferred on replay.
+
+The existing reader and authenticated per-file/whole-turn recovery use the
+private saved destination. Current bytes and saved-directory identity must match
+before restoration, preserving later memory. Revert is user-attributed and
+journaled for Undo; voice/agent/autonomous actors gain no recovery authority.
+Ordinary persistence never deletes notes. Refused or interrupted saves retain
+truthful partial/unconfirmed history, including the window between file commit
+and receipt finalization. Staged raw versions remain under the same aggregate
+cap, active pins and completed-turn retention/collection. This is the external
+memory completion of the earlier 0.42.0 steering slice, not a widening of memory
+providers or a claim of capturing intervening external writes. The copy-out
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:201-215`;
+retention/finalization is `persistClaudeMemory`,
+`packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
 
@@ -1907,7 +1925,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

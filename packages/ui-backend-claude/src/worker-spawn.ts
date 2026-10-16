@@ -87,7 +87,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
-  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView) {
+  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
+  persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"]) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -200,12 +201,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const promoter = turnTemp && promotion && sandbox && !restricted ? createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root,
           turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
+        let persistenceAttempted = false;
         try {
           const recovered = await prepareRecoveredWorkerFiles(handle.root, signal);
           if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
           if (recovered) signal.throwIfAborted();
-          state.persist(handle.root, promoter?.rewrite);
+          persistenceAttempted = true;
+          state.persist(handle.root, promoter?.rewrite, persistMemory);
         } catch (error) {
+          if (!persistenceAttempted) persistMemory?.(null, () => {});
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);

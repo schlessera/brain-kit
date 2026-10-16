@@ -12,6 +12,8 @@ import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/nat
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createWriterGate } from "../../ui-server/src/brain/writer-gate.js";
 import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
+import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
+import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
@@ -58,19 +60,28 @@ beforeAll(async () => {
   await app.wsHost.journal!.begin(conflictId,metadata,error=>{throw error;});await app.wsHost.journal!.begin("athena-conflict",metadata,error=>{throw error;});
   for(const owner of ["Odysseus","Athena"]){await child(["bash","-c",'printf "%s" "$2" > "$1"',"odysseus-fixture",conflictPath,`---\ntype: note\ntitle: Crossing\nupdated: 2026-07-12\n---\n${owner} charts the crossing.\n`]);await app.wsHost.journal!.observe();}
   await app.wsHost.journal!.finish(conflictId);await app.wsHost.journal!.finish("athena-conflict");
+  const memoryId = "odysseus-external-memory", saved = resolve(root, "claude-config"), project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`, memory = resolve(saved, project, "memory");
+  await mkdir(memory, { recursive: true }); await writeFile(resolve(memory, "voyage.md"), "Ithaca memory\r\n", {mode:0o600});
+  const memoryState = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ledger: createStateLedger() });
+  const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
+  await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
+  await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
+  memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
+  await app.wsHost.journal!.finish(memoryId);
+  const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
   const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
-  await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed}</script><script type="module" src="/client.js"></script></body></html>`);
+  await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed};window.__memorySeed=${memorySeed}</script><script type="module" src="/client.js"></script></body></html>`);
   for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket }); origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 }, 180_000);
 afterAll(async () => { await browser?.close(); server?.stop(true); await app?.close(); if (root) await rm(root, { recursive: true, force: true }); });
-async function scene(width = 1280, theme = "dark", replay = false, conflict = false) {
+async function scene(width = 1280, theme = "dark", replay = false, conflict = false, memory = false) {
   const context = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" }), outside: string[] = [];
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : (outside.push(route.request().url()), route.abort()));
   expect((await context.request.post(`${origin}/api/auth/login`, { data: { password } })).status()).toBe(200);
   const page = await context.newPage(), errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
-  await page.goto(`${origin}/?${new URLSearchParams({ theme, ...(replay ? { replay: "1" } : {}), ...(conflict ? {conflict:"1"} : {}) })}`);
+  await page.goto(`${origin}/?${new URLSearchParams({ theme, ...(replay ? { replay: "1" } : {}), ...(conflict ? {conflict:"1"} : {}), ...(memory ? {memory:"1"} : {}) })}`);
   try { await page.getByRole("button", { name: /changed file/ }).waitFor({ timeout: 5000 }); }
   catch { const body = await page.locator("body").innerText(); await context.close(); throw new Error(`Journal scene failed: ${body}; ${errors.join("; ")}`); }
   return { context, page, outside };
@@ -113,7 +124,8 @@ for (const [width, theme] of journalRuntimeCells) for (const replay of [false, t
     expect(await download.evaluate(async element => { const response = await fetch((element as HTMLAnchorElement).href); return { status: response.status, text: await response.text() }; })).toEqual({ status: 200, text: "Ithaca\r\n" });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "JOURNAL_RESPONSIVE_BOUNDS").toBe(true);
     await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "JOURNAL_ZOOM_BOUNDS").toBe(true);
+    const geometry = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, overflowing: [...document.querySelectorAll("body *")].map(element => ({ tag:element.tagName,class:String(element.className),width:element.getBoundingClientRect().width,right:element.getBoundingClientRect().right })).filter(element => element.right > innerWidth + 1).slice(0,15) }));
+    expect(geometry.scroll <= geometry.width, `JOURNAL_ZOOM_BOUNDS ${JSON.stringify(geometry)}`).toBe(true);
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Review notes/voyage.md");
     expect(await disclosure.getAttribute("aria-expanded"), "JOURNAL_ESCAPE_ONLY_CLOSES_READER").toBe("true");
@@ -286,4 +298,35 @@ test("conflict facts stay readable for voice while keep controls and expired act
     await page.evaluate(()=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:(window as any).__conflictSeed.turnId,journal:{...(window as any).__conflictSeed.summary,state:"expired"}}));
     expect(await page.getByRole("dialog").count(),"CONFLICT_EXPIRED_READER_HAS_NO_EFFECT_SURFACE").toBe(0);
   }finally{await context.close();}
+});
+
+
+for (const [width, theme] of journalRuntimeCells) test(`persisted external memory uses the existing reader and authenticated recovery ${theme} ${width}`, async () => {
+  const {context,page,outside} = await scene(width, theme, true, false, true);
+  try {
+    const disclosure = page.getByRole("button", {name:/changed file/});
+    expect(await disclosure.innerText()).toContain("1 steering");
+    await disclosure.click();
+    const review = page.getByRole("button", {name:"Review claude-memory://voyage.md",exact:true});
+    await review.click();
+    const heading = page.getByRole("heading", {name:"claude-memory://voyage.md",exact:true});
+    await heading.waitFor();
+    expect(await heading.evaluate(element=>document.activeElement===element), "MEMORY_READER_READING_FOCUS").toBe(true);
+    await page.getByText("Athena remembers the crossing.",{exact:true}).waitFor();
+    expect(await page.getByRole("link",{name:/Download before/}).evaluate(async element=>(await fetch((element as HTMLAnchorElement).href)).text()), "MEMORY_BROWSER_RETAINED_RAW_BYTES").toBe("Ithaca memory\r\n");
+    await page.evaluate(()=>{document.documentElement.style.zoom="2";});
+    const geometry = await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,overflow:[...document.querySelectorAll("body *")].filter(element=>element.getBoundingClientRect().right>innerWidth+1).map(element=>({tag:element.tagName,class:element.className,right:element.getBoundingClientRect().right,width:element.getBoundingClientRect().width})).slice(0,12)}));
+    expect(geometry.scroll<=geometry.width,`MEMORY_READER_ZOOM_BOUNDS ${JSON.stringify(geometry)}`).toBe(true);
+    await page.getByRole("button",{name:"Revert claude-memory://voyage.md",exact:true}).click();
+    await page.getByRole("button",{name:"Close",exact:true}).click();
+    await page.locator("[data-revert-receipt='complete']").waitFor();
+    const brain=resolve(root,"brain"), project=`projects/${brain.replace(/[^a-zA-Z0-9]/g,"-")}`, note=resolve(root,"claude-config",project,"memory/voyage.md");
+    expect(await readFile(note,"utf8"),"MEMORY_BROWSER_REAL_REVERT_EFFECT").toBe("Ithaca memory\r\n");
+    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("button",{name:"Revert 1 file",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await readFile(note,"utf8")).toBe("Athena remembers the crossing.\r\n");
+    await review.click();await heading.waitFor();
+    await page.evaluate(()=>(window as any).__journalFixture.switchSession());
+    expect(await page.getByRole("dialog").count(),"MEMORY_CROSS_SESSION_READER_CLOSED").toBe(0);
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
 });
