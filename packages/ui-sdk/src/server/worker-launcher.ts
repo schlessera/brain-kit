@@ -656,13 +656,39 @@ function validateRuntimePlacement(requested: string, reserved: readonly string[]
 }
 function temporaryRuntimeMounts(paths: readonly string[], existing: readonly string[], explicitAliases: boolean): string[] {
   const bindings = new Map<string, string>();
-  const bound = new Set<string>();
-  for (let index = 0; index < existing.length - 2; index++) if (["--bind", "--ro-bind"].includes(existing[index]!)) { bound.add(existing[index + 2]!); index += 2; }
+  const restored: Array<{ source: string; target: string }> = [];
+  const aliases: Array<{ source: string; target: string }> = [];
+  for (let index = 0; index < existing.length - 2; index++) {
+    const option = existing[index]!;
+    if (!["--bind", "--ro-bind", "--symlink"].includes(option)) continue;
+    const source = existing[index + 1]!, target = existing[index + 2]!;
+    if (option === "--symlink") aliases.push({ source: isAbsolute(source) ? source : join(dirname(target), source), target });
+    else restored.push({ source, target });
+    index += 2;
+  }
+  const supplied = (requested: string, real: string): boolean => {
+    let path = requested;
+    // Follow only aliases installed in this view, not arbitrary host aliases.
+    for (let depth = 0; depth <= aliases.length; depth++) {
+      const alias = aliases.find(({ target }) => within(target, path));
+      if (!alias) break;
+      path = alias.source + path.slice(alias.target.length);
+      if (depth === aliases.length) return false;
+    }
+    return restored.some(({ source, target }) => {
+      if (!within(target, path)) return false;
+      try { return realpathSync(source + path.slice(target.length)) === real; }
+      catch { return false; }
+    });
+  };
   for (const requested of paths) {
     let real: string;
     try { real = realpathSync(requested); } catch { continue; }
     for (const path of new Set([real, normalize(requested)])) {
-      if (!bound.has(path) && (within(TURN_TEMP_ROOT, path) || explicitAliases && path !== real)) bindings.set(path, real);
+      if ((within(TURN_TEMP_ROOT, path) || explicitAliases && path !== real) && !supplied(path, real)) {
+        bindings.set(path, real);
+        restored.push({ source: real, target: path });
+      }
     }
   }
   return [...bindings].flatMap(([path, real]) => ["--ro-bind", real, path]);

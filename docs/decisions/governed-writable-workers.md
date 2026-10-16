@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:959-987`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:985-1013`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1319,7 +1319,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1565`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1591`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1350,8 +1350,12 @@ host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
 `packages/ui-sdk/src/server/worker-launcher.ts:650-656`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-670`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:671-689`).
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-696`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:697-715`).
+Alias restoration recognizes names already supplied by a read-only bind or an
+explicit system-view symlink. It does not mount a canonical executable over an
+existing alias such as `/bin/sh`; missing owned temporary paths still receive
+only their narrow read-only binds.
 
 Broad host-temp binding would reveal other workers and operator state; blanket
 relocation would reject the selected supported placement. Neither is the
@@ -1600,11 +1604,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:926-954`;
+`packages/ui-sdk/src/server/worker-launcher.ts:952-980`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:959-985`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:985-1011`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1118-1177`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1144-1203`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1915,6 +1919,22 @@ first. Review uses the existing raw diff reader and user per-file/whole-turn
 revert controls. No extra collapsed banner or steering-group action is added.
 Policy is separate, class `policy`, excluded from the steering count, and only
 the approved user route writes it.
+
+The [approved review hierarchy](https://github.com/schlessera/brain-kit/issues/1846#issuecomment-6197338526)
+keeps retained changes ahead of configuration-identification inventory. Stored
+class, scope, ignored flags and kind group each change once; filenames never
+suppress observations or infer a writer. Ignored paths retain their metadata
+explanation separately from other nonregular entries, and genuine missing
+versions retain their own reasons. The optional authoritative configuration
+coverage summary supplies a compact incomplete glyph outside label truncation;
+omitted and unknown evidence never claims completeness. Turn facts collapse
+without hiding retention, shared-writer, partial or budget warnings. Every
+configuration path remains in the filterable, bounded-height list; filtering
+announces once 500 ms after the last input. Same-turn reads retain the prior
+details, filter, scroll, focus and open disclosures until replacement, including
+read errors. Session/turn changes and unavailable retained states cannot reuse
+another window's details. This changes review hierarchy, not capture, changed
+path counts, retention, budgets, attribution or recovery authority.
 
 Each steering observation retains a governance event and shared-window
 attribution. If an existing same-session/turn taint event precedes an agent
