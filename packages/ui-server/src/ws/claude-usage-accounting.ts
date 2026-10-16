@@ -3,6 +3,10 @@ import { sumModelUsage } from "@schlessera/brain-ui-sdk/protocol";
 
 const classes = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"] as const;
 type Counts = Record<string, ModelUsage>;
+const emptyCounts = (): Counts => Object.create(null);
+// structuredClone/JSON restore ordinary objects. Rebuild the dictionary after
+// cloning so arbitrary model ids cannot resolve inherited properties/setters.
+const cloneCounts = (counts: Counts): Counts => Object.assign(emptyCounts(), structuredClone(counts));
 export interface ClaudeUsageState {
   completed: Counts;
   auxiliary: Counts;
@@ -13,7 +17,7 @@ function valid(usage: Counts): boolean {
   return Object.values(usage).every(model => classes.every(key => Number.isSafeInteger(model[key]) && model[key]! >= 0));
 }
 function add(left: Counts, right: Counts): Counts {
-  const result = structuredClone(left);
+  const result = cloneCounts(left);
   for (const [model, counts] of Object.entries(right)) {
     const target = result[model] ??= {};
     for (const key of classes) target[key] = (target[key] ?? 0) + counts[key]!;
@@ -28,10 +32,12 @@ function add(left: Counts, right: Counts): Counts {
  */
 export function reconcileClaudeUsage(previous: ClaudeUsageState | undefined, own: TurnUsage | undefined,
   cumulative: TurnUsage | undefined, resumed: boolean, snapshotOwn?: TurnUsage): { state: ClaudeUsageState; auxiliary?: TurnUsage } {
-  const completed = own?.perModel ?? {};
-  const totals = cumulative?.perModel;
-  const snapshot = snapshotOwn?.perModel ?? completed;
-  let state: ClaudeUsageState = previous ? structuredClone(previous) : { completed: {}, auxiliary: {}, partial: resumed, baselinePending: resumed };
+  const completed = cloneCounts(own?.perModel ?? emptyCounts());
+  const totals = cumulative?.perModel ? cloneCounts(cumulative.perModel) : undefined;
+  const snapshot = snapshotOwn?.perModel ? cloneCounts(snapshotOwn.perModel) : completed;
+  const state: ClaudeUsageState = previous
+    ? { ...previous, completed: cloneCounts(previous.completed), auxiliary: cloneCounts(previous.auxiliary) }
+    : { completed: emptyCounts(), auxiliary: emptyCounts(), partial: resumed, baselinePending: resumed };
   if (!valid(completed) || !valid(snapshot) || totals && !valid(totals)) {
     state.partial = true;
     return { state };
@@ -47,7 +53,7 @@ export function reconcileClaudeUsage(previous: ClaudeUsageState | undefined, own
       if ((totals[model]?.[key] ?? 0) < counts[key]!) return { state };
     }
     // Keep responses completed after an intermediate SDK result as well.
-    const baseline = structuredClone(totals);
+    const baseline = cloneCounts(totals);
     for (const [model, counts] of Object.entries(state.completed)) {
       const target = baseline[model] ??= {};
       for (const key of classes) target[key] = (target[key] ?? 0) + counts[key]! - (comparison[model]?.[key] ?? 0);
@@ -56,7 +62,7 @@ export function reconcileClaudeUsage(previous: ClaudeUsageState | undefined, own
     state.baselinePending = false;
     return { state };
   }
-  const remainder: Counts = {};
+  const remainder = emptyCounts();
   for (const model of new Set([...Object.keys(totals), ...Object.keys(comparison)])) {
     remainder[model] = {};
     for (const key of classes) {
@@ -67,7 +73,7 @@ export function reconcileClaudeUsage(previous: ClaudeUsageState | undefined, own
       remainder[model]![key] = n;
     }
   }
-  const delta: Counts = {};
+  const delta = emptyCounts();
   for (const [model, counts] of Object.entries(remainder)) {
     const accounted = state.auxiliary[model] ??= {};
     const added: ModelUsage = {};

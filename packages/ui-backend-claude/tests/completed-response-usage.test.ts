@@ -2,7 +2,7 @@ import { StreamAdapter } from "../src/stream-adapter.js";
 import type { BackendActivityEvent } from "@schlessera/brain-ui-sdk/server";
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { CompletedResponseUsage } from "../src/usage.js";
+import { CompletedResponseUsage, usageFromResult } from "../src/usage.js";
 
 type Event = Extract<SDKMessage, { type: "stream_event" }>["event"];
 const start = (id: string, input = 10): Event => ({ type: "message_start", message: {
@@ -79,4 +79,43 @@ test("resumed result keeps only this turn including child receipts and no cumula
   expect(result, "RESUMED_RESULT_OWN_TOKENS").toMatchObject({ usage: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 40, cacheCreationTokens: 6 } });
   expect(result?.costUsd, "CUMULATIVE_COST_IS_NOT_A_TURN_COST").toBeUndefined();
   expect(events.at(-1)).toMatchObject({ kind: "claude_session_usage", cumulative: { inputTokens: 1200 }, completed: { inputTokens: 12 } });
+});
+
+
+import { withPrototypeGuard } from "./helpers/prototype-guard.js";
+for (const model of ["__proto__", "constructor", "toString"]) {
+  test(`completed receipts preserve arbitrary model key ${model}`, async () => withPrototypeGuard(() => {
+    const descriptors = Object.getOwnPropertyDescriptors(Object.prototype);
+    const collector = new CompletedResponseUsage();
+    const event = start("model-key-response") as Extract<Event, { type: "message_start" }>;
+    event.message.model = model;
+    collector.observe(event); collector.observe(delta(5));
+    let receipt: ReturnType<CompletedResponseUsage["observe"]>;
+    expect(() => { receipt = collector.observe(stop); }, "MODEL_KEY_COMPLETED_RECEIPT").not.toThrow();
+    expect(Object.hasOwn(receipt?.usage.perModel ?? {}, model), "MODEL_KEY_COMPLETED_OWN_ENTRY").toBe(true);
+    expect(receipt?.usage).toMatchObject({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 });
+    expect(collector.snapshot()?.perModel?.[model]?.inputTokens).toBe(10);
+    expect(Object.getOwnPropertyDescriptors(Object.prototype), "MODEL_KEY_CANNOT_MUTATE_PROTOTYPE").toEqual(descriptors);
+  }));
+  test(`result normalization preserves arbitrary model key ${model}`, async () => withPrototypeGuard(() => {
+    const normalized = usageFromResult({ modelUsage: Object.fromEntries([[model, {
+      inputTokens: 2, outputTokens: 3, cacheReadInputTokens: 4, cacheCreationInputTokens: 5,
+    }]]) });
+    expect(Object.hasOwn(normalized?.perModel ?? {}, model), "RESULT_MODEL_KEY_OWN_ENTRY").toBe(true);
+    expect(normalized).toMatchObject({ inputTokens: 2, outputTokens: 3, cacheReadTokens: 4, cacheCreationTokens: 5 });
+  }));
+}
+
+
+test("completed snapshots and terminal normalization treat absent inherited model names as absent", () => {
+  const collector = new CompletedResponseUsage();
+  collector.observe(start("ordinary-model")); collector.observe(delta(5)); collector.observe(stop);
+  const completed = collector.snapshot();
+  const normalized = usageFromResult({ modelUsage: { "claude-sonnet-4-6": {
+    inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 20, cacheCreationInputTokens: 3,
+  } } });
+  for (const model of ["__proto__", "constructor", "toString"]) {
+    expect(completed?.perModel?.[model], "COMPLETED_MODEL_MAP_ABSENCE").toBeUndefined();
+    expect(normalized?.perModel?.[model], "TERMINAL_MODEL_MAP_ABSENCE").toBeUndefined();
+  }
 });

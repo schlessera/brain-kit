@@ -81,7 +81,8 @@ import { handleClientMessage } from "../src/ws/dispatch.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testAuthorization, testPrincipal } from "./helpers/principal.js";
 
-test("real turn dispatch records resumed root/child usage, prices main runs and retains auxiliary once", async () => {
+for (const accountingModel of ["claude-sonnet-4-6", "__proto__", "constructor", "toString"]) {
+  test(`real turn dispatch records resumed root/child usage and once-only auxiliary for ${accountingModel}`, async () => withPrototypeGuard(async () => {
   const db = createUiDb(":memory:");
   const pricing = { resolve: () => ({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, estimate: false, source: "snapshot" as const }) };
   const store = createActivityStore(db, { pricing }), stream = createActivityStream(store);
@@ -93,11 +94,11 @@ test("real turn dispatch records resumed root/child usage, prices main runs and 
     req.bridge.emit({ type: "session_info", sessionId, isNew: turn === 1, providerId: "claude" });
     const adapter = new StreamAdapter(event => req.bridge.activity?.(event));
     for (const msg of [
-      ...usageEvents(sessionId, "claude-sonnet-4-6", turn * 6, turn * 6, turn * 6, turn * 6),
-      ...usageEvents(sessionId, "claude-sonnet-4-6", turn * 4, turn * 4, turn * 4, turn * 4)
+      ...usageEvents(sessionId, accountingModel, turn * 6, turn * 6, turn * 6, turn * 6),
+      ...usageEvents(sessionId, accountingModel, turn * 4, turn * 4, turn * 4, turn * 4)
         .map(message => ({ ...message, parent_tool_use_id: "loom" }) as SDKMessage),
       { type: "result", subtype: "success", is_error: false, session_id: sessionId, total_cost_usd: turn === 1 ? 44 : 124,
-        duration_ms: 1, num_turns: 1, modelUsage: { "claude-sonnet-4-6": {
+        duration_ms: 1, num_turns: 1, modelUsage: { [accountingModel]: {
           inputTokens: turn === 1 ? 11 : 31, outputTokens: turn === 1 ? 11 : 31,
           cacheReadInputTokens: turn === 1 ? 11 : 31, cacheCreationInputTokens: turn === 1 ? 11 : 31,
         } } } as unknown as SDKMessage,
@@ -128,7 +129,8 @@ test("real turn dispatch records resumed root/child usage, prices main runs and 
     expect(db.query("SELECT SUM(cost_usd) AS cost FROM activity_run_rollups").get(), "OVERALL_MEASURED_SPEND_ONCE").toEqual({ cost: 124 });
     expect(db.query("SELECT total_cost_usd FROM sessions WHERE id=?").get("odysseus-accounting")).toEqual({ total_cost_usd: 124 });
   } finally { host.close(); stream.close(); db.close(); }
-});
+}));
+}
 
 
 test("an imported session waits for its first terminal baseline after a cancellation", () => {
@@ -149,3 +151,40 @@ test("an intermediate total retains measured auxiliary usage when a continuation
   const resumed = reconcileClaudeUsage(cancelled.state, usage(5), usage(36), true);
   expect(resumed.auxiliary).toBeUndefined();
 });
+
+
+import { withPrototypeGuard } from "../../ui-backend-claude/tests/helpers/prototype-guard.js";
+for (const model of ["__proto__", "constructor", "toString"]) {
+  const modelUsage = (n: number) => sumModelUsage(JSON.parse(JSON.stringify({ [model]: {
+    inputTokens: n, outputTokens: n, cacheReadTokens: n, cacheCreationTokens: n,
+  } })));
+  test(`reconciliation owns model keys across clones, JSON restart and imported baseline: ${model}`, async () => withPrototypeGuard(() => {
+    const descriptors = Object.getOwnPropertyDescriptors(Object.prototype);
+    const first = reconcileClaudeUsage(undefined, modelUsage(1), modelUsage(2), false);
+    expect(Object.hasOwn(first.state.completed, model), "RECONCILED_MODEL_KEY_OWN_ENTRY").toBe(true);
+    expect(first.state.completed[model]).toEqual(modelUsage(1).perModel![model]!);
+    expect(first.auxiliary, "MODEL_KEY_AUXILIARY_SPEND_RETAINED").toEqual(modelUsage(1));
+    const resumed = reconcileClaudeUsage(JSON.parse(JSON.stringify(first.state)), modelUsage(1), modelUsage(3), true);
+    expect(resumed.auxiliary, "MODEL_KEY_AUXILIARY_NOT_RECHARGED").toBeUndefined();
+    expect(resumed.state.completed[model]!.inputTokens).toBe(2);
+    const later = reconcileClaudeUsage(resumed.state, modelUsage(1), modelUsage(5), true);
+    expect(later.auxiliary).toEqual(modelUsage(1));
+    const imported = reconcileClaudeUsage(undefined, modelUsage(1), modelUsage(20), true);
+    expect(Object.hasOwn(imported.state.completed, model), "IMPORTED_MODEL_KEY_OWN_ENTRY").toBe(true);
+    const zeroBaseline = reconcileClaudeUsage(undefined, modelUsage(0), usage(1), true);
+    expect(Object.hasOwn(zeroBaseline.state.completed, model), "IMPORTED_ZERO_MODEL_OWN_ENTRY").toBe(true);
+    expect(zeroBaseline.state.completed[model]!.inputTokens).toBe(0);
+    const next = reconcileClaudeUsage(JSON.parse(JSON.stringify(imported.state)), modelUsage(1), modelUsage(22), true);
+    expect(next.auxiliary).toEqual(modelUsage(1));
+    // A missing prototype-named model is absence, including when only the
+    // cumulative side contains it. Inherited properties cannot be counters.
+    const ordinary = reconcileClaudeUsage(undefined, usage(1), usage(1), false);
+    const introduced = reconcileClaudeUsage(JSON.parse(JSON.stringify(ordinary.state)), modelUsage(1),
+      sumModelUsage({ ...usage(1).perModel, ...modelUsage(2).perModel }), true);
+    expect(Object.hasOwn(introduced.state.auxiliary, model), "RESTART_NEW_MODEL_AUXILIARY_OWN_ENTRY").toBe(true);
+    expect(introduced.auxiliary).toEqual(modelUsage(1));
+    const absent = reconcileClaudeUsage(undefined, undefined, modelUsage(2), false);
+    expect(absent.auxiliary).toEqual(modelUsage(2));
+    expect(Object.getOwnPropertyDescriptors(Object.prototype), "RECONCILIATION_CANNOT_MUTATE_PROTOTYPE").toEqual(descriptors);
+  }));
+}

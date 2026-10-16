@@ -9,11 +9,11 @@ type StreamEvent = Extract<SDKMessage, { type: "stream_event" }>["event"];
  * A new message_start clears the tool boundary before any partial output.
  */
 export class CompletedResponseUsage {
-  private readonly models: Record<string, ModelUsage> = {};
+  private readonly models: Record<string, ModelUsage> = Object.create(null);
   private readonly seen = new Set<string>();
   private readonly current = new Map<string, { id: string; model: string; usage: ModelUsage; tool: boolean }>();
   private receipt(atToolBoundary: boolean) {
-    return Object.keys(this.models).length ? { usage: sumModelUsage(structuredClone(this.models)), atToolBoundary } : undefined;
+    return Object.keys(this.models).length ? { usage: sumModelUsage(Object.assign(Object.create(null), structuredClone(this.models))), atToolBoundary } : undefined;
   }
   snapshot(): TurnUsage | undefined { return this.receipt(false)?.usage; }
   observe(event: StreamEvent, channel = "root"): { usage: TurnUsage; atToolBoundary: boolean } | undefined {
@@ -69,7 +69,7 @@ export function usageFromResult(msg: {
 }): TurnUsage | undefined {
   const models = msg.modelUsage;
   if (!models || Object.keys(models).length === 0) return undefined;
-  const perModel: Record<string, ModelUsage> = {};
+  const perModel: Record<string, ModelUsage> = Object.create(null);
   for (const [model, u] of Object.entries(models)) {
     perModel[model] = {
       inputTokens: u.inputTokens,
