@@ -159,7 +159,7 @@ export const PACK_TABLE: Record<string, PackRow> = {
   },
   "module-finance": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-finance"], node: "bun-only" },
   "module-images": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-images"], node: "bun-only" },
-  "module-diagrams": { files: ["dist/index.js", "dist/module.js", "dist/ui.js", "dist/render.js", "LICENSE", "UPSTREAM.md", "upstream.json", "scripts/upstream-report.ts", "skills/README.md"], react18: true, bunProbes: ["diagrams-static"], nodeProbes: ["diagrams-static"], bun: ["@schlessera/brain-module-diagrams", "@schlessera/brain-module-diagrams/module", "@schlessera/brain-module-diagrams/ui", "@schlessera/brain-module-diagrams/render"], node: "bun-only" },
+  "module-diagrams": { files: ["dist/index.js", "dist/module.js", "dist/ui.js", "dist/render.js", "LICENSE", "UPSTREAM.md", "upstream.json", "scripts/upstream-report.ts", "skills/README.md", ...["architecture","flowchart","state-machine","tree","er","dependency"].flatMap(name=>[`skills/diagram/references/type-${name}.md`,`skills/diagram/references/examples/${name}.diagram.yaml`]), "skills/diagram/references/examples/architecture-containment.diagram.yaml"], react18: true, bunProbes: ["diagrams-static"], nodeProbes: ["diagrams-static"], bun: ["@schlessera/brain-module-diagrams", "@schlessera/brain-module-diagrams/module", "@schlessera/brain-module-diagrams/ui", "@schlessera/brain-module-diagrams/render"], node: "bun-only" },
   "module-video": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-video"], node: "bun-only" },
   "module-jobs": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-jobs"], node: "bun-only" },
   "module-speaking": {

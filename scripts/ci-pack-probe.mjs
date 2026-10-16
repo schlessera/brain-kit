@@ -155,6 +155,11 @@ async function diagramsStatic() {
       const source=JSON.stringify({schema_version:1,type:"architecture",title:"Raft",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"Raft",role:"input",at:[32,32],size:[128,64]}],edges:[]});
       const svg=await renderer.toStatic(source,{theme:"print"});
       assert(svg.startsWith("<svg "));assert(svg.includes('data-theme="print"'));assert(svg.includes("Odysseus prepares the raft."));assert.equal(renderer.diagramsStaticPack.renderers[0].needsBrowser,false);
+      const { readFileSync }=require("node:fs"),{dirname,join}=require("node:path"),packageRoot=dirname(require.resolve("@schlessera/brain-module-diagrams/package.json"));
+      for(const name of ["architecture","flowchart","state-machine","tree","er","dependency","architecture-containment"]){
+        const example=readFileSync(join(packageRoot,"skills/diagram/references/examples/"+name+".diagram.yaml"),"utf8");
+        for(const theme of ["light","dark","print"]){const drawn=await renderer.toStatic(example,{theme});assert(drawn.includes('data-theme="'+theme+'"'));assert(drawn.includes(JSON.parse(example).title));}
+      }
     }).catch(error=>{console.error(error);process.exitCode=1;});
   `;
   const child=spawnSync(process.execPath,["-e",code],{encoding:"utf8"});

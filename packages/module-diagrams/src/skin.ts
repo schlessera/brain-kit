@@ -59,12 +59,13 @@ export function checkDiagramSkin(spec: DiagramSpec): DiagramSkinFinding[] {
  spec.nodes.forEach((node, index) => {
   if (!("size" in node)) return;
   const size = node.size as [number, number];
-  for (const [key, role] of [["label", "name"], ["sub", "sub"], ["tag", "label"]] as const) {
-   const text = key === "tag" ? node.tag ?? diagramNodePaint(node.role).tag : node[key]; if (!text) continue;
-   if (typeWidthBudget(text, role, 9) > size[0] - 16) findings.push({ path: `$.nodes[${index}].${key}`, code: "text_floor", message: `${key} cannot fit its per-character width budget at the 9px floor; enlarge the node or shorten the text` });
-  }
-  const lines = 2 + Number(Boolean(node.sub));
-  if (size[1] < lines * 12 + 16) findings.push({ path: `$.nodes[${index}].size[1]`, code: "text_floor", message: "Node height cannot fit its text lines at the 9px floor" });
+  const shape = "shape" in node ? node.shape : undefined;
+  if (shape === "merge" || shape === "initial" || shape === "final") return;
+  const lines = diagramNodeLines({...node,fanIn:spec.type === "dependency" ? spec.edges.filter(edge=>edge.to===node.id).length : undefined}, spec.type);
+  const available = shape === "decision" ? size[0] / 2 - 16 : size[0] - 16;
+  for (const line of lines) if (typeWidthBudget(line.value, line.role, 9) > available) findings.push({ path: `$.nodes[${index}]`, code: "text_floor", message: "Node text cannot fit its per-character width budget at the 9px floor; enlarge the node or shorten the text" });
+  const height = shape === "decision" ? size[1] / 2 : size[1];
+  if (height < lines.length * 12 + 16) findings.push({ path: `$.nodes[${index}].size[1]`, code: "text_floor", message: "Node height cannot fit its text lines at the 9px floor" });
  });
  spec.groups?.forEach((group, index) => {
   const members = spec.nodes.flatMap(node => group.members.includes(node.id) && "at" in node && "size" in node ? [{ at: node.at as [number, number], size: node.size as [number, number] }] : []);
@@ -76,3 +77,9 @@ export function checkDiagramSkin(spec: DiagramSpec): DiagramSkinFinding[] {
 }
 /** Opaque ink ramps replace alpha ink. */
 export function diagramInkRamp(step: 25 | 50 | 75 | 100, ground: string = "diagram-bg"): string { return `color-mix(in srgb, var(--bk-diagram-text) ${step}%, var(--bk-${ground}))`; }
+
+/** Shared type-specific text contents keep validation and both painters in agreement. */
+export function diagramNodeLines(node: { label: string; sub?: string; tag?: string; role?: string; nodeKind?: string; kind?: string; fields?: Array<{name:string;type?:string;key?:"PK"|"FK"}>; fanIn?:number }, type: DiagramSpec["type"]): Array<{value:string;role:DiagramTypeRole}> {
+ const tag=node.tag ?? (type === "architecture" ? !node.role && ["compute","endpoint","managed"].includes(node.nodeKind ?? node.kind ?? "") ? (node.nodeKind ?? node.kind)!.toUpperCase() : diagramNodePaint(node.role).tag : type === "er" ? "ENTITY" : undefined);
+ return [...(type === "dependency" ? [{value:`${node.fanIn} IN`,role:"label" as const}] : []), ...(tag ? [{value:tag,role:"label" as const}] : []), {value:node.label,role:"name" as const}, ...(node.sub ? [{value:node.sub,role:"sub" as const}] : []), ...(node.fields ?? []).map(field=>({value:`${field.key === "PK" ? "# " : field.key === "FK" ? "→ " : ""}${field.name}${field.type ? `: ${field.type}` : ""}`,role:"sub" as const}))];
+}

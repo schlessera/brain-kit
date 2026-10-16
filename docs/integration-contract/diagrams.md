@@ -322,3 +322,46 @@ the sources for the type reference pages and browser visual baselines.
 The [shipped axis examples](../../packages/module-diagrams/skills/diagram/references/examples/)
 are the canonical sequence, swimlane, timeline and Gantt specs used by the
 family references, real CLI tests and browser visual fixtures.
+
+## Node-link family additions (v1, additive minor)
+
+Existing common v1 figures remain accepted. Architecture optionally adds
+`containment.scopes` with strict `{id,label,kind: admin|traffic,parent?,at,size}`
+bounds; its nodes optionally add `kind: compute|endpoint|managed`, `parent`,
+`target`, and edges `peering`. With containment present these fields describe the
+actual innermost geometry and provider-neutral hierarchy; invalid parents,
+placement, endpoint targets or peering fail with `containment`.
+
+Flowchart nodes add optional `shape: start|end|step|decision|merge`; state-machine
+nodes add `shape: state|initial|final`. A decision's exits require labels
+(`decision_label`); initial/final direction errors use `initial_incoming` and
+`final_outgoing`; mismatched dot boundary boxes use `marker_size`. A tree with optional `hierarchy: true` cannot have multiple parents (`tree_parent`);
+legacy generic shared-parent sources remain valid with that advisory warning.
+Optional `direction: down|right` selects hierarchical bottom/top or right/left
+attachments; children must be authored beyond parents (`tree_direction`).
+ER nodes add optional `fields: [{name,type?,key?: PK|FK}]`; relationships add
+paired `fromCardinality` / `toCardinality`, each one of `1`, `N`, `0..1`, `1..*`
+(`cardinality_pair`). Dependency nodes add optional integer `rank` (0–1024),
+edges add optional `cycle`; backward rank edges require a named highlighted cycle
+(`dependency_rank`, `cycle_label`). Unknown keys remain errors per concrete type.
+
+Additional editorial warnings use `budget` for 3 flat architecture zones,
+2 containment admin bands / 4 traffic scopes / 8 nodes, 3 decision exits,
+twice-state-box-count transitions (excluding markers), 5 tree items across a whole level, 4 dependency ranks and
+1 highlighted dependency cycle. `state_label`, `prefer_tree`, `rank_missing`, and `accent_budget`
+are actionable advisory findings. All warnings preserve content and validity in
+the absence of another error; focal hard maximum remains two.
+
+Neutral node metadata gains shape/fields/rank/computed fan-in and containment
+kind/parent/target. Groups may carry authored scope kind/parent bounds. Trees
+optionally carry `grammar: architecture-containment`; the new `cardinality`
+element carries edge/end/text and its box. These generated primitives paint
+identically in client/static entries. Scope bounds render directly as rects
+with metadata; admin bands use 4px corners, a dashed outline and a 24px header,
+traffic boxes use 8px corners and a solid outline. No transform or automatic placement is introduced. Nonrectangular
+terminals/diamonds/dots use distinct cardinal ports at their true boundary.
+Circular dots have no rectangle corners; their exact diameter bounds and centred
+cardinal attachment replace rectangle corner-clearance checks.
+ER relationships and tree branches omit arrow heads. The `diagramNodeLines` skin helper is internal
+to validation/painters and is not an additional public entry export. Type references and shared
+standalone examples ship under `skills/diagram/references/`.

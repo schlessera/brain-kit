@@ -1,5 +1,8 @@
 import { buildAxisDiagram } from "./axis-layout.js";
 import { AXIS_TYPES } from "./spec.js";
+
+import { checkNodeLink } from "./node-link-check.js";
+import { checkContainment } from "./containment.js";
 import { buildDiagram, DiagramGeometryError, type DiagramTree } from "./geometry.js";
 import { checkDiagramSkin } from "./skin.js";
 import { FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
@@ -38,6 +41,8 @@ export function checkDiagramLayouts(spec: DiagramSpec): DiagramLayoutFinding[] {
  for (const id of expected) if (!seen.has(id)) error("$.layouts.narrow.nodes", `Missing authored placement for '${id}'`);
  if (findings.length) return findings;
  const placed = diagramLayout(spec, "narrow");
+ const semantic=[...checkNodeLink(placed).errors,...(placed.type==="architecture"?checkContainment(placed).errors:[])];
+ semantic.forEach(item=>error(item.path.replace("$.nodes","$.layouts.narrow.nodes"),item.message));
  findings.push(...checkDiagramSkin(placed).map(item => ({ ...item, path: item.path.replace("$.nodes", "$.layouts.narrow.nodes") })));
  if (!findings.length) try {
   const tree = buildDiagram(placed);
