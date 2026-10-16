@@ -1325,7 +1325,8 @@ inventory and retained governance events remain required by #1665/#1666.
 
 The existing ordinary spawn adapter can explicitly consume the turn proxy's
 private directory. It passes that transport to the actual worker launcher and
-selects state projection without `.credentials.json`. It retains exact native
+selects state projection without `.credentials.json` (`const settings =`,
+`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
 settings, account metadata, shared auto-memory and the resumed transcript;
 copy-out still publishes only the existing transcript/memory domains. The host
 resolver reads and refreshes the original credential store instead of placing
@@ -1333,11 +1334,14 @@ it in the worker. Default ordinary callers do not select this input yet.
 
 The offline qualification calls the production spawn adapter directly in both
 strict and governed profiles, with the installed SDK/CLI and the real proxy,
-relay and host resolver. It checks actual native executable/environment,
+relay and host resolver (`const spawner = createWorkerSpawn`,
+`packages/ui-backend-claude/tests/fixtures/ordinary-host-relay-probe.ts:132-138`).
+It checks actual native executable/environment,
 three-turn history/model/current-login continuity, a fourth-query refresh
 cancellation, shared charged destination records, native-store absence and
 reservation cleanup. Removing the adapter's projection selection fails the
-named native credential-file assertion. Its strict startup input is the
+named native credential-file assertion (`expect(result.workerCredentialFile`,
+`packages/ui-backend-claude/tests/ordinary-host-relay.test.ts:51`). Its strict startup input is the
 explicit copied-storage test fixture; this is not native managed/Btrfs storage
 qualification.
 
