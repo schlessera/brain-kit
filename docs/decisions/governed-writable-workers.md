@@ -798,6 +798,10 @@ automatic revert or claim of recovering writes between observations is made.
 
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The live receipt's polite accessibility status follows authoritative cost and
+completion-state updates for its own session and turn. Repeated equal text and
+unrelated updates do not mutate the live region; expired or inactive-session
+receipts clear it. Known subscription zero remains distinct from unknown cost.
 The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
@@ -1915,6 +1919,22 @@ first. Review uses the existing raw diff reader and user per-file/whole-turn
 revert controls. No extra collapsed banner or steering-group action is added.
 Policy is separate, class `policy`, excluded from the steering count, and only
 the approved user route writes it.
+
+The [approved review hierarchy](https://github.com/schlessera/brain-kit/issues/1846#issuecomment-6197338526)
+keeps retained changes ahead of configuration-identification inventory. Stored
+class, scope, ignored flags and kind group each change once; filenames never
+suppress observations or infer a writer. Ignored paths retain their metadata
+explanation separately from other nonregular entries, and genuine missing
+versions retain their own reasons. The optional authoritative configuration
+coverage summary supplies a compact incomplete glyph outside label truncation;
+omitted and unknown evidence never claims completeness. Turn facts collapse
+without hiding retention, shared-writer, partial or budget warnings. Every
+configuration path remains in the filterable, bounded-height list; filtering
+announces once 500 ms after the last input. Same-turn reads retain the prior
+details, filter, scroll, focus and open disclosures until replacement, including
+read errors. Session/turn changes and unavailable retained states cannot reuse
+another window's details. This changes review hierarchy, not capture, changed
+path counts, retention, budgets, attribution or recovery authority.
 
 Each steering observation retains a governance event and shared-window
 attribution. If an existing same-session/turn taint event precedes an agent

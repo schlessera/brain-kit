@@ -90,6 +90,144 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
 // Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
 // real Revert/Undo file effects here with deterministic theme selection.
 const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
+for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
+  const { context, page, outside } = await scene(width, theme);
+  let release: (() => void) | undefined, hold = false, fail = false, reads = 0;
+  let started: (() => void) | undefined;
+  const details = app.wsHost.journal!.details("ithaca", turnId)!;
+  // UI-only response shape; the server capture control separately proves a
+  // genuinely written similarly named file retains its bytes and class.
+  const shown = { ...details, changes: [...details.changes, { ...details.changes.find(change => change.path === "notes/voyage.md")!, path: "notes/brain.db-shm", sequence: 999 }] };
+  const missing = Array.from({ length: 733 }, (_, i) => ({ path: `workspaces/${i}/brain.config.ts`, reason: "configuration_inputs_not_fully_identified" }));
+  try {
+    await page.route(`**/api/sessions/ithaca/turns/${turnId}/journal`, async route => {
+      const read = ++reads;
+      if (hold) await new Promise<void>(resolve => { release = resolve; started?.(); });
+      if (fail) return route.fulfill({ status: 503, json: { error: "Fixture retained read unavailable" } });
+      await route.fulfill({ json: { ...shown, missing: [...missing, { path: read > 1 ? "notes/refetched.md" : "notes/unavailable.md", reason: "journal_capacity" }] } });
+    });
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, configurationCoverage: "incomplete" } }), turnId);
+    const disclosure = page.getByRole("button", { name: /changed file/ });
+    expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(await disclosure.getAttribute("aria-label") ?? await disclosure.innerText(), "COVERAGE_BADGE_HAS_ACCESSIBLE_DESCRIPTION").toContain("configuration coverage incomplete");
+    const badge = await disclosure.locator("[data-disclosure-badge]").boundingBox(), trigger = await disclosure.boundingBox();
+    expect(badge!.width, "COVERAGE_BADGE_REMAINS_VISIBLE").toBeGreaterThanOrEqual(13);
+    expect(badge!.x + badge!.width, "COVERAGE_BADGE_OUTSIDE_TRUNCATION").toBeLessThanOrEqual(trigger!.x + trigger!.width);
+    expect(await disclosure.locator("[data-disclosure-badge]").evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        if (["hidden", "clip", "auto", "scroll"].includes(getComputedStyle(parent).overflowX)) {
+          const clip = parent.getBoundingClientRect();
+          if (rect.left < clip.left || rect.right > clip.right) return false;
+        }
+      }
+      return true;
+    }), "COVERAGE_BADGE_IS_NOT_CLIPPED").toBe(true);
+    await disclosure.click();
+    const note = page.getByRole("button", { name: "Review notes/voyage.md", exact: true }); await page.getByRole("heading", { name: "What changed", exact: true }).waitFor();
+    expect(await page.locator("[data-journal-change]").count(), "EVERY_RETAINED_CHANGE_HAS_ONE_ROW").toBe(shown.changes.length);
+    expect(await page.locator("[data-journal-change]").evaluateAll(nodes => nodes.every(node => node.checkVisibility() && node.getBoundingClientRect().height > 0)), "EVERY_RETAINED_ROW_IS_VISIBLE").toBe(true);
+    expect(await page.getByRole("button", { name: "Review notes/brain.db-shm", exact: true }).count(), "SIMILAR_OPERATIONAL_NAME_IS_REVIEWABLE").toBe(1);
+    expect((await note.boundingBox())!.y, "SMALL_CHANGE_BEFORE_COVERAGE_INVENTORY").toBeLessThan(800);
+    const facts = page.getByRole("button", { name: "Turn facts", exact: true });
+    const factsBox = (await facts.boundingBox())!;
+    expect(factsBox.width).toBeGreaterThanOrEqual(44); expect(factsBox.height).toBeGreaterThanOrEqual(44);
+    expect(await facts.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.getByText("Model: unknown.", { exact: true }).count()).toBe(0);
+    await facts.click(); expect(await facts.getAttribute("aria-expanded")).toBe("true");
+    expect(await facts.evaluate(node => node === document.activeElement)).toBe(true);
+    const coverage = page.getByRole("button", { name: "Configuration coverage incomplete · 733 inputs not fully identified", exact: true });
+    expect(await note.evaluate(node => Boolean(node.compareDocumentPosition(Array.from(document.querySelectorAll('[role="button"]')).find(element => element.textContent?.startsWith("Configuration coverage incomplete"))!) & Node.DOCUMENT_POSITION_FOLLOWING)), "WHAT_CHANGED_PRECEDES_COVERAGE").toBe(true);
+    expect(await coverage.getAttribute("aria-expanded")).toBe("false");
+    expect((await coverage.boundingBox())!.height, "COVERAGE_DISCLOSURE_HAS_44PX_TARGET").toBeGreaterThanOrEqual(44);
+    await coverage.click();
+    const region = page.getByRole("region", { name: "Configuration inputs not fully identified, 733", exact: true });
+    expect(await region.locator("li").count(), "COVERAGE_INVENTORY_IS_COMPLETE").toBe(733);
+    expect(await page.getByRole("heading", { name: "Retained versions unavailable", exact: true }).count()).toBe(1);
+    expect(await page.getByRole("heading", { name: "Retained versions unavailable", exact: true }).locator("..").innerText(), "GENUINE_MISSING_VERSION_HAS_OWN_REASON").toContain("notes/unavailable.md · Journal storage was full");
+    expect(await region.getByText("notes/unavailable.md", { exact: true }).count(), "MISSING_VERSIONS_ARE_NOT_COVERAGE").toBe(0);
+    const filter = page.getByRole("searchbox", { name: "Find a path", exact: true });
+    expect((await filter.boundingBox())!.height, "COVERAGE_SEARCH_HAS_44PX_TARGET").toBeGreaterThanOrEqual(44);
+    expect((await region.boundingBox())!.height, "COVERAGE_LIST_IS_HEIGHT_BOUNDED").toBeLessThanOrEqual(400);
+    await filter.fill("WORKSPACES/412/");
+    expect(await region.locator("li").allTextContents()).toEqual(["workspaces/412/brain.config.ts"]);
+    await filter.press("Escape"); expect(await filter.inputValue()).toBe("");
+    expect(await region.locator("li").count()).toBe(733);
+    await filter.fill("no-such-input");
+    expect(await region.locator("li").count()).toBe(0);
+    expect(await page.locator("p").filter({ hasText: '0 of 733 shown. No path contains "no-such-input".' }).count(), "EMPTY_FILTER_RESULT_IS_TRUTHFUL").toBe(1);
+    expect(await page.getByText("notes/unavailable.md · Journal storage was full", { exact: true }).isVisible(), "FILTER_NEVER_HIDES_GENUINE_MISSING_VERSIONS").toBe(true);
+    await filter.press("Escape");
+    await page.locator("[data-coverage-announcement]").evaluate(node => {
+      const evidence = (window as any).__coverageDebounce = { inputAt: 0, events: [] as { at: number; text: string }[] };
+      document.querySelector('input[type="search"]')!.addEventListener("input", () => { evidence.inputAt = performance.now(); });
+      new MutationObserver(() => evidence.events.push({ at: performance.now(), text: node.textContent ?? "" })).observe(node, { childList: true, characterData: true, subtree: true });
+    });
+    await filter.pressSequentially("workspaces/4", { delay: 25 });
+    await page.waitForFunction(() => document.querySelector("[data-coverage-announcement]")?.textContent === "111 of 733 shown");
+    const settled = await page.locator("[data-coverage-announcement]").innerText();
+    expect(settled).toBe("111 of 733 shown");
+    const debounce = await page.evaluate(() => (window as any).__coverageDebounce as { inputAt: number; events: { at: number; text: string }[] });
+    expect(debounce.events, "FILTER_ANNOUNCES_ONCE_AFTER_SETTLING").toHaveLength(1);
+    expect(debounce.events[0]!.at - debounce.inputAt, "FILTER_WAITS_500MS_AFTER_LAST_KEYSTROKE").toBeGreaterThanOrEqual(495);
+    await region.evaluate(node => { node.scrollTop = 100; });
+    const scroll = await region.evaluate(node => node.scrollTop); await filter.focus();
+    await page.locator("[data-coverage-announcement]").evaluate(node => { (window as any).__coverageMutations = 0; new MutationObserver(records => { (window as any).__coverageMutations += records.length; }).observe(node, { childList: true, characterData: true, subtree: true }); });
+    hold = true;
+    const requestStarted = new Promise<void>(resolve => { started = resolve; });
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalFixture.state().summary, observedAt: Date.now() } }), turnId);
+    await requestStarted;
+    expect(await region.count(), "SAME_TURN_REFETCH_RETAINS_COVERAGE_REGION").toBe(1);
+    release?.(); hold = false;
+    await page.getByText("notes/refetched.md · Journal storage was full", { exact: true }).waitFor();
+    expect(await filter.inputValue(), "SAME_TURN_REFETCH_RETAINS_FILTER").toBe("workspaces/4");
+    expect(await filter.evaluate(node => node === document.activeElement)).toBe(true);
+    expect(await region.evaluate(node => node.scrollTop)).toBe(scroll);
+    expect(await facts.getAttribute("aria-expanded")).toBe("true");
+    expect(await page.evaluate(() => (window as any).__coverageMutations), "REFETCH_DOES_NOT_ANNOUNCE_COVERAGE").toBe(0);
+    fail = true;
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalFixture.state().summary, observedAt: Date.now() + 1 } }), turnId);
+    await page.getByText("Couldn't load retained changes. Close and reopen to try again.", { exact: true }).waitFor();
+    expect(await region.count(), "REFETCH_ERROR_RETAINS_PRIOR_DETAILS").toBe(1);
+    expect(await filter.inputValue()).toBe("workspaces/4");
+    expect(await filter.evaluate(node => node === document.activeElement)).toBe(true);
+    expect(await region.evaluate(node => node.scrollTop)).toBe(scroll);
+    expect(await page.evaluate(() => (window as any).__coverageMutations)).toBe(0);
+    expect(outside).toEqual([]);
+  } finally { release?.(); await context.close(); }
+});
+test("journal coverage preserves unknown and legacy states while warnings remain outside Turn facts", async () => {
+  const { context, page } = await scene(320);
+  try {
+    const details = app.wsHost.journal!.details("ithaca", turnId)!;
+    await page.route(`**/api/sessions/ithaca/turns/${turnId}/journal`, route => route.fulfill({ json: { ...details, missing: [{ path: "scripts/config.ts", reason: "configuration_inputs_not_fully_identified" }] } }));
+    await page.evaluate(id => { const journal = { ...(window as any).__journalSeed.summary }; delete journal.configurationCoverage; (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal }); }, turnId);
+    const disclosure = page.getByRole("button", { name: /changed file/ });
+    expect(await disclosure.locator("[data-disclosure-badge]").count(), "OMITTED_COVERAGE_HAS_NO_COMPLETENESS_CUE").toBe(0);
+    await disclosure.click();
+    await page.getByRole("button", { name: "Configuration coverage incomplete · 1 inputs not fully identified", exact: true }).waitFor();
+    for (const coverage of ["unknown", "complete"] as const) {
+      await page.evaluate(({ id, coverage }) => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, configurationCoverage: coverage } }), { id: turnId, coverage });
+      await page.waitForTimeout(50);
+      expect(await disclosure.locator("[data-disclosure-badge]").count()).toBe(0);
+      expect(await page.getByRole("button", { name: /Configuration coverage incomplete/ }).count()).toBe(0);
+      expect(await page.getByText("Configuration coverage: unknown. Observation did not complete.", { exact: true }).count()).toBe(coverage === "unknown" ? 1 : 0);
+    }
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: {
+      ...(window as any).__journalSeed.summary, state: "partial", configurationCoverage: "unknown", sharedAttribution: true,
+      budget: { listPriceCostUsd: null, tokens: null, observedAt: 0, coverage: "Built-in inference only; provider and tool spend is not metered", scopes: [{ scope: "turn", costUsd: null, tokens: null, unknownRuns: 1, warnUsd: 1, blockUsd: 2, blockTokens: 100, warning: true, blocked: false }] },
+    } }), turnId);
+    await page.getByText("Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.", { exact: true }).waitFor();
+    expect(await page.getByText("Budget warning: a warning threshold was reached. Details in Turn facts.", { exact: true }).isVisible(), "BUDGET_WARNING_STAYS_OUTSIDE_COLLAPSED_FACTS").toBe(true);
+    expect(await page.getByRole("button", { name: "Turn facts", exact: true }).getAttribute("aria-expanded")).toBe("false");
+    expect(await page.getByText("Model: unknown.", { exact: true }).count(), "EXPLANATORY_FACTS_ARE_COLLAPSED").toBe(0);
+    expect(await page.getByText("Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.", { exact: true }).isVisible(), "PARTIAL_WARNING_REMAINS_PROMINENT").toBe(true);
+    expect(await page.getByText("Overlapping turns shared this writable window. These observations do not identify an exclusive writer.", { exact: true }).isVisible()).toBe(true);
+    await page.evaluate(id => { const journal = (window as any).__journalFixture.state().summary; (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...journal, budget: { ...journal.budget, scopes: journal.budget.scopes.map((scope: any) => ({ ...scope, blocked: true })) } } }); }, turnId);
+    await page.getByText("Budget stop reached. Details in Turn facts.", { exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Turn facts", exact: true }).getAttribute("aria-expanded")).toBe("false");
+  } finally { await context.close(); }
+});
 for (const [width, theme] of journalRuntimeCells) for (const replay of [false, true]) test(`journal ${replay ? "replay" : "live"} ${theme} ${width} starts collapsed and reviews raw versions with stable keyboard focus`, async () => {
   const { context, page, outside } = await scene(width, theme, replay);
   try {
@@ -132,6 +270,40 @@ for (const [width, theme] of journalRuntimeCells) for (const replay of [false, t
     expect(outside).toEqual([]);
   } finally { await context.close(); }
 });
+for (const state of ["complete", "partial"] as const) test(`late authoritative cost reconciles the polite ${state} journal announcement`, async () => {
+  const { context, page, outside } = await scene();
+  try {
+    const status = page.locator(`[data-turn-journal="${turnId}"] > span[role=status]`).first();
+    const disclosure = page.getByRole("button", { name: /changed file/ });
+    await page.getByRole("textbox", { name: "Message" }).focus();
+    for (const [costUsd, costIsEstimate, expected] of [[null, false, "Cost unknown"], [0, false, "$0.0000"], [0.125, false, "$0.1250"], [0.25, true, "Estimated $0.2500"], [null, false, "Cost unknown"]] as const) {
+      await page.evaluate(({ id, state, costUsd, costIsEstimate }) => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, state, costUsd, costIsEstimate } }), { id: turnId, state, costUsd, costIsEstimate });
+      await disclosure.filter({ hasText: expected }).waitFor();
+      expect(await status.innerText(), "LATE_AUTHORITATIVE_COST_RECONCILES_STATUS").toContain(expected);
+      expect(await status.getAttribute("aria-live")).toBe("polite");
+      expect((await status.innerText()).includes("Incomplete.")).toBe(state === "partial");
+      expect(await page.getByRole("textbox", { name: "Message" }).evaluate(element => document.activeElement === element)).toBe(true);
+    }
+    await status.evaluate(element => { (window as any).__statusMutations = 0; new MutationObserver(records => { (window as any).__statusMutations += records.length; }).observe(element, { childList: true, characterData: true, subtree: true }); });
+    await page.evaluate(id => {
+      const f = (window as any).__journalFixture, summary = f.state().summary;
+      f.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...summary, observedAt: summary.observedAt + 1 } });
+      f.frame({ type: "turn_journal", sessionId: "ithaca", turnId: "another-turn", journal: { ...summary, costUsd: 9 } });
+    }, turnId);
+    await page.waitForTimeout(50);
+    expect(await page.evaluate(() => (window as any).__statusMutations), "UNRELATED_JOURNAL_UPDATES_DO_NOT_REANNOUNCE").toBe(0);
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalFixture.state().summary, state: "expired" } }), turnId);
+    await disclosure.filter({ hasText: "Details expired" }).waitFor();
+    expect(await status.innerText(), "EXPIRED_JOURNAL_CLEARS_LIVE_ANNOUNCEMENT").toBe("");
+    await page.evaluate(id => (window as any).__journalFixture.frame({ type: "turn_journal", sessionId: "ithaca", turnId: id, journal: { ...(window as any).__journalSeed.summary, costUsd: 0 } }), turnId);
+    await status.filter({ hasText: "$0.0000" }).waitFor({ state: "attached" });
+    await page.evaluate(() => (window as any).__journalFixture.switchSession());
+    await page.waitForTimeout(50);
+    expect(await status.innerText(), "SESSION_SWITCH_CLEARS_PREVIOUS_JOURNAL_ANNOUNCEMENT").toBe("");
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});
+
 test("journal stale-session responses and expired receipts expose no retained reader actions", async () => {
   const { context, page } = await scene();
   try {

@@ -974,6 +974,10 @@ signatures (every public export and the types it is made of)
         label?: string;
         meta?: string;
         icon?: IconName;
+        badge?: {
+            icon: IconName;
+            label: string;
+        };
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         children?: ReactNode;
