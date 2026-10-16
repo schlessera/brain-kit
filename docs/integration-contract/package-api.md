@@ -3283,3 +3283,19 @@ and bounds are defined by the [removal HTTP contract](../http-api.md#recoverable
 `StorageRemovalReview`, `StorageRemovalItem`, `StorageRemovalReceipt` and
 `StorageRemovalCapability`. They contain relative paths and opaque identities,
 never private recovery roots, executable choices or credentials.
+
+### Storage presentation (additive, #2013)
+
+`@schlessera/brain-ui-kit` exports `StorageMap`, `StorageMapItem` and
+`StorageMapProps`. Items supply opaque identities, names, ownership
+(`brain`, `app`, `operator`), known disjoint bytes, a size/share label and optional
+`smaller`/`interactive` flags. Props supply those items, CSS-pixel width/height,
+an accessible group label and description ID, and `onOpen(id)`/`onUp()` callbacks.
+The component performs no I/O; callers own the bounded, deduplicated inventory
+and equivalent complete list. Unknown and nonpositive sizes have no tile area;
+small tiles have no activation target. It preserves one roving tab stop.
+
+The ui-react Settings selection accepts `storage`. `openSettings("storage")`
+and the existing palette open the same lazy pane after Modules; Models remains
+the default. This adds no main destination or keyboard shortcut. Requests and
+local selections remain scoped to the current root and authentication lifetime.

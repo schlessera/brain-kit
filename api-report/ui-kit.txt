@@ -239,6 +239,9 @@ export "." (./src/index.ts)
   type StepListProps
   type StepListVariant
   type StepState
+  StorageMap
+  type StorageMapItem
+  type StorageMapProps
   type StreamPhase
   StreamingAnswer
   type StreamingAnswerProps
@@ -2085,6 +2088,28 @@ signatures (every public export and the types it is made of)
     export type StepListVariant = "numbered" | "checklist" | "progress";
   StepState (packages/ui-kit/src/types.ts)
     export type StepState = "done" | "current" | "todo";
+  StorageMap (packages/ui-kit/src/storage/StorageMap.tsx)
+    export function StorageMap({ items, width, height, label, descriptionId, onOpen, onUp, }: StorageMapProps): import("react").JSX.Element;
+  StorageMapItem (packages/ui-kit/src/storage/StorageMap.tsx)
+    export interface StorageMapItem {
+        id: string;
+        name: string;
+        owner: "brain" | "app" | "operator";
+        bytes: number;
+        label: string;
+        smaller?: boolean;
+        interactive?: boolean;
+    }
+  StorageMapProps (packages/ui-kit/src/storage/StorageMap.tsx)
+    export interface StorageMapProps {
+        items: readonly StorageMapItem[];
+        width: number;
+        height: number;
+        label: string;
+        descriptionId: string;
+        onOpen: (id: string) => void;
+        onUp: () => void;
+    }
   StreamPhase (packages/ui-kit/src/types.ts)
     export type StreamPhase = "thinking" | "searching" | "reading" | "fetching" | "writing";
   StreamingAnswer (packages/ui-kit/src/conversation/StreamingAnswer.tsx)
