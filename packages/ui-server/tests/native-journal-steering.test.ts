@@ -79,4 +79,5 @@ test("configuration consumers and imported data retain distinct roles and comman
   const settings = JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]}});
   expect(steeringReferences(".claude/settings.json",settings,undefined,true)).toEqual({references:[{path:"./hook.ts",base:"scope",module:true}],unknown:false});
   expect(steeringReferences(".claude/settings.json",settings)).toEqual({references:[],unknown:false});
+  expect(steeringReferences(".pi/settings.json",JSON.stringify({prompts:["!../ordinary"]}),undefined,true)).toEqual({references:[],unknown:true});
 });

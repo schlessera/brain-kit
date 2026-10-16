@@ -21,7 +21,7 @@ export function steeringReferences(path: string, text: string, instructionDepth?
   const references: SteeringReference[] = [];
   let unknown = false;
   const add = (value: unknown, base: SteeringReference["base"], module = false) => {
-    if (typeof value !== "string" || !value || /[\u0000-\u001f\\$`*?{}~]/.test(value)) { unknown = true; return; }
+    if (typeof value !== "string" || !value || /^[!+-]/.test(value) || /[\u0000-\u001f\\$`*?{}~]/.test(value)) { unknown = true; return; }
     references.push({ path: value, base, module });
   };
   const command = (value: unknown, args?: unknown, base: SteeringReference["base"] = "scope") => {

@@ -44,7 +44,7 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
     // filename/extension classifier. Package/directory config stays unknown.
     const extensions = [".tsx", ".jsx", ".mts", ".ts", ".mjs", ".js", ".cts", ".cjs", ".json"];
     const candidates = reference.manifest ? [`${candidate}.ts`, `${candidate}.js`] : reference.module
-      ? [candidate, ...(/\.jsx?$/.test(candidate) ? [candidate.replace(/\.jsx?$/, ".ts"), candidate.replace(/\.jsx?$/, ".tsx")] : /\.mjs$/.test(candidate) ? [candidate.replace(/\.mjs$/, ".mts")] : []),
+      ? [candidate, ...(/\.jsx?$/.test(candidate) ? [candidate.replace(/\.jsx?$/, ".ts"), candidate.replace(/\.jsx?$/, ".tsx")] : candidate.endsWith(".mjs") ? [candidate.replace(/\.mjs$/, ".mts")] : []),
         ...(!posix.extname(candidate) ? [...extensions.map(suffix => `${candidate}${suffix}`), ...extensions.map(suffix => `${candidate}/index${suffix}`)] : [])] : [candidate];
     for (const resolved of candidates) {
       // Scope checks precede lookup, including the canonical root/workspaces
