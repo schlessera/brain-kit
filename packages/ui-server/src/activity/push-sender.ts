@@ -20,6 +20,7 @@ import webpush from "web-push";
 
 import type { ActivityNotifier } from "./notify.js";
 import type { ActionAttemptOutcome, ActionNotifier } from "../inbox/notify.js";
+import type { StorageNotifier, StorageNoticeOutcome } from "../storage/notify.js";
 
 export interface PushSubscriptionRow {
   endpoint: string;
@@ -52,6 +53,8 @@ export interface PushSender {
    * frozen by the notifier before sending. Returns sends attempted.
    */
   deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
+  /** One durable Critical Storage submission per episode and subscription. */
+  deliverStorage(notices: StorageNotifier, now?: number): Promise<number>;
 }
 
 export interface CreatePushSenderOptions {
@@ -280,6 +283,36 @@ export function createPushSender(
             attributes: { subscriptions: subs.length },
           });
         }
+      }
+      return attempts;
+    },
+
+    async deliverStorage(notices, at) {
+      let attempts = 0;
+      // Resolve credentials first, then acquire each durable intent immediately
+      // before its transport call. Authority/zone/time are rechecked per device.
+      const subs = deliverableRows(at ?? Date.now());
+      if (!subs.length) return 0;
+      const keys = vapid();
+      for (const sub of subs) {
+        const attempt = notices.begin(sub.endpoint, at ?? Date.now());
+        if (!attempt) continue;
+        let outcome: StorageNoticeOutcome;
+        attempts++;
+        try {
+          await send(attempt.subscription, JSON.stringify(attempt.payload), {
+            vapidDetails: { subject, publicKey: keys.publicKey, privateKey: keys.privateKey }, timeout: SEND_TIMEOUT_MS,
+          });
+          outcome = "accepted";
+        } catch (error) {
+          const status = (error as { statusCode?: number } | null)?.statusCode;
+          outcome = status === 404 || status === 410 ? "gone" : typeof status === "number" && status >= 400 && status <= 599 ? "failed" : "unknown";
+        }
+        // A database failure after transport leaves the durable sending intent;
+        // recovery makes it unknown and never retries a possible acceptance.
+        notices.finish(attempt.id, outcome, at ?? Date.now());
+        if (outcome === "gone") db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(sub.endpoint);
+        else if (outcome === "accepted") db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ? AND principal_id = ?").run(at ?? Date.now(), sub.endpoint, attempt.principalId);
       }
       return attempts;
     },
