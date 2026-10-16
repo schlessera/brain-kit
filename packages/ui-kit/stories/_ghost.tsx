@@ -108,6 +108,39 @@ export async function playHandoff({
       // earlier style read can start pending animations and hide the boundary.
       // Diagnostic failures must never replace the original assertion error.
       try {
+        const captureDocument = (view: Window) => ({
+          visibilityState: view.document.visibilityState, hasFocus: view.document.hasFocus(),
+          viewport: { width: view.innerWidth, height: view.innerHeight, scrollX: view.scrollX, scrollY: view.scrollY },
+        });
+        const captureAncestor = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          const style = element.ownerDocument.defaultView!.getComputedStyle(element);
+          return {
+            tag: element.tagName, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            display: style.display, visibility: style.visibility, contentVisibility: style.contentVisibility,
+            opacity: style.opacity, transform: style.transform.slice(0, 128), transformTruncated: style.transform.length > 128,
+          };
+        };
+        // A hidden embedding iframe can suppress animations while the child
+        // document still reports visible. Keep these reads failure-only too.
+        const captureEmbedding = () => {
+          const embedded = window.parent !== window;
+          const ancestors: ReturnType<typeof captureAncestor>[] = [];
+          try {
+            let element = window.frameElement;
+            const accessible = !embedded || element !== null;
+            const view = element?.ownerDocument.defaultView;
+            const document = view ? captureDocument(view) : null;
+            while (element && ancestors.length < 8) {
+              ancestors.push(captureAncestor(element));
+              element = element.parentElement;
+            }
+            return { embedded, accessible, document, ancestors, truncated: element !== null, captureFailed: false };
+          } catch {
+            // An inaccessible embedding must not suppress the layer receipt.
+            return { embedded, ancestors, captureFailed: true };
+          }
+        };
         const allFrames = frames(canvasElement);
         console.error("Ghost handoff failure: " + JSON.stringify({
           sampledAt, sampled: { out, incoming },
@@ -140,6 +173,8 @@ export async function playHandoff({
               }),
             };
           }),
+          // Read embedding layout after retaining the existing layer snapshot.
+          document: captureDocument(window), embedding: captureEmbedding(),
         }));
       } catch { /* Keep the original assertion authoritative if capture fails. */ }
       throw error;
