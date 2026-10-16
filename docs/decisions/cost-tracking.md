@@ -197,7 +197,7 @@ no measured-usage attribution.
 The documented [OTLP API-request log](https://code.claude.com/docs/en/monitoring-usage#api-request-event)
 supplies request-purpose provenance, usage and estimated cost. The measured
 source is `generate_session_title`; main uses `sdk`. A local authenticated
-collector can observe the helper without prompt/body logging or beta tracing.
+collector observes the helper without prompt/body logging or beta tracing.
 This is a local-runtime observation, not a first-party invoice/cache claim.
 A classifier must consume that supported identity, never infer it from model
 names or a fixture-only split. Export loss and disabled/unavailable telemetry
@@ -208,7 +208,13 @@ unknown auxiliary remainders without recharging resumed high-water marks.
 Its transaction is the accounting allocation boundary: a measured helper
 claims its portion of newly reconciled auxiliary usage, leaving unmatched
 usage unattributed. Recording it again outside that boundary would double-count
-spend. A collector alone does not implement this allocation. #2050 owns
-first-main-request cache diagnostics, and #2053 owns the broader provider-history
-record. This investigation introduces no public attribution field or silently
-redefined total; any eventual additive public event follows contract policy.
+spend. The production collector publishes supported
+`claude_title_usage` receipts after worker/exporter shutdown and before the
+held result. The transaction creates a separate `Claude session title` Activity
+run and remembers receipt identities across restarts; unmatched or unjoinable
+usage retains unattributed/partial coverage. It neither adds helper spend twice
+nor rewrites the main root/child receipt. Existing operator telemetry env and
+opt-outs are preserved; without local receipts attribution stays unknown.
+#2050 owns first-main-request cache diagnostics, and #2053 owns the broader
+provider-history record. The additive server-only evidence event is recorded
+in the package API contract; no WebSocket field or total meaning changes.

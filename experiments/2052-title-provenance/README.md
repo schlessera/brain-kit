@@ -1,8 +1,8 @@
 # Claude title-helper provenance at an offline origin
 
-This measurement implements #2052's installed-runtime investigation and tests
-an internal OTLP collector. It does not install that collector in production
-turns or implement server ledger allocation. The selected policy retains
+This measurement exercises #2052's automatic production OTLP collector
+through the real interactive SDK options. Host dispatch tests exercise its
+separate Activity allocation inside the cumulative accounting transaction. The selected policy retains
 CLI-generated titles; [the cost decision](../../docs/decisions/cost-tracking.md#claude-generated-titles-and-helper-provenance-2052)
 records the boundary.
 
@@ -63,22 +63,37 @@ savings. The measured costs are runtime estimates over synthetic usage.
 
 ## Accounting integration boundary
 
-The collector proves production-accessible request provenance, but it is not
-installed in ordinary turns by this change. Production integration must not
-silently replace an operator's configured telemetry destination or enable
-content logging. Export loss, disabled telemetry and malformed receipts must
-retain unknown/partial coverage.
+Ordinary interactive/voice turns create the authenticated collector lazily at
+native worker spawn. Existing operator telemetry environment and opt-outs are
+preserved; the collector is not installed for those launches or autonomous
+turns. Export loss, disabled telemetry and malformed receipts retain
+unknown/partial coverage. Worker/exporter shutdown settles before a
+`claude_title_usage` evidence event and the held terminal result are released.
+The collector never logs prompts, responses, tool details or raw API bodies.
 
-#2025 owns completed root/child pricing and source-qualified cumulative
-reconciliation. Its `accountClaudeUsage` transaction is the allocation point:
-identified title receipts must claim their matching portion of newly measured
-auxiliary usage, leaving unmatched remainder explicitly unattributed. Adding
-helper spend outside that transaction would count the same cumulative
-remainder twice. Imported histories and rollback/high-water handling retain
-#2025's semantics. A same-model main/title/subagent accounting fixture and
-resumed helper double-charge mutation remain required at that integration.
-Parser controls here use the same model for `sdk`, `agent:general-purpose` and
-`generate_session_title`; they do not claim to be server accounting proof.
+The host allocates supported title receipts inside #2025's existing
+`accountClaudeUsage` transaction, from their matching portion of newly measured
+auxiliary usage. A `Claude session title` Activity run retains that usage and
+measured cost once; unmatched remainder stays unattributed. Receipt IDs survive
+catalog restart, so stale exports cannot claim later unrelated auxiliary work.
+Incomplete joins cannot invent allocation; the raw title evidence remains on a
+partial/unpriced unattributed run. Imported histories, cancellation and counter
+high-water handling retain #2025's semantics. Main root/child usage and
+first-main-request stream diagnostics never include the hidden title request.
+
+The server dispatch control uses the same model for main, child, title and
+unattributed calls, then resumes twice with duplicate/stale helper evidence.
+Main/cache usage remains 10/20/5, title usage is 1 once, unknown usage is 2+2,
+and overall/session spend is 160 under the fixture's four unit token rates.
+Mutating title cost into main, dropping title spend or charging stale helper
+receipts again fails the corresponding Activity/overall assertions. Restoring
+the implementation passes. Before integration, restoring main's bridge and
+catalog sources makes `TITLE_ACTIVITY_MEASURED_ONCE` fail with no title run.
+
+`capture-sdk-0.3.293.json` and `capture-disabled-sdk-0.3.293.json` preserve the
+original investigation receipts (head `583f3cfbb`). The integrated capture
+exercises the automatic production collector; the operator-exporter runtime
+control proves configured telemetry is retained and attribution stays unknown.
 
 Collector mutations make the same-model test fail: accepting all sources
 produces three helper receipts instead of one; dropping measured cost makes
@@ -86,5 +101,6 @@ produces three helper receipts instead of one; dropping measured cost makes
 two receipts instead of one. All were restored. Adding a placeholder `title`
 to production SDK options makes the real-runtime test fail at
 `TITLE_GENERATION_NOT_SUPPRESSED` after successful results; restoring passes.
-These receipts prove collector classification/cost/deduplication and title
-preservation, not completed server accounting or C5 metrics.
+The original collector receipts retain their original source identity; the
+new dispatch and integrated-runtime receipts prove the production allocation.
+No fake-origin receipt establishes a provider invoice or cache savings.

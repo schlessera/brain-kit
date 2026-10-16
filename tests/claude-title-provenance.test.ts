@@ -38,3 +38,14 @@ test("the nonessential-traffic control explains an absent helper without assigni
     expect(turn.titleUsage.coverage, "NO_RECEIPT_IS_UNKNOWN_NOT_FREE").toBe("unknown");
   }
 }, 180_000);
+
+
+test("configured operator telemetry is preserved and missing helper attribution stays unknown", async () => {
+  const report = await captureTitleProvenance(false, true);
+  expect(report.requests).toHaveLength(3);
+  for (const turn of report.turns) {
+    expect(turn.logsExporter, "OPERATOR_TELEMETRY_NOT_REPLACED").toBe("none");
+    expect(turn.titleUsage.receipts).toHaveLength(0);
+    expect(turn.titleUsage.coverage, "OPERATOR_EXPORTER_NO_LOCAL_RECEIPT_IS_UNKNOWN").toBe("unknown");
+  }
+}, 180_000);

@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeSdkTurn } from "../../packages/ui-backend-claude/src/sdk-options.js";
-import { createClaudeTitleUsageCollector } from "../../packages/ui-backend-claude/src/title-usage.js";
 import { createFixtureWorkerStartupView } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 
 const scratch = process.argv[2]!;
@@ -21,7 +20,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   const id = `msg_odysseus_${requests.length + 1}`;
   requests.push({ turn: turnIndex, path, responseId: id, model: body.model, stream: body.stream === true,
     bodyFields: Object.keys(body).sort(), toolNames: body.tools?.map((t: any) => t.name) ?? [],
-    outputConfig: (body.output_config?.format || body.output_config?.type === "json_schema") ?? null,
+    outputConfig: body.output_config ?? null,
     // Record only explicit provenance fields; neither tool count nor model identifies a helper.
     querySource: body.query_source ?? null, requestSource: body.request_source ?? null,
     provenanceHeaders: Object.fromEntries([...request.headers].filter(([key]) => /query.source|request.source/.test(key))),
@@ -41,14 +40,14 @@ try {
   for (turnIndex = 1; turnIndex <= 2; turnIndex++) {
     const controller = new AbortController();
     const view = createFixtureWorkerStartupView(brainPath, { omitGit: true });
-    const collector = createClaudeTitleUsageCollector();
+    let titleUsage: unknown = { receipts: [], coverage: "unknown" };
     const turn = createClaudeSdkTurn({ backend: { brainPath }, req: {
       prompt: "Odysseus plans the voyage. Reply briefly.", sessionId, signal: controller.signal, workerStartupView: view,
-      bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "deny" as const, message: "Offline probe" }; } },
+      bridge: { emit() {}, activity(event) { if (event.kind === "claude_title_usage") { const { kind: _kind, ...evidence } = event; titleUsage = evidence; } }, checkpointPermission() {}, async requestPermission() { return { behavior: "deny" as const, message: "Offline probe" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
       HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin,
       ANTHROPIC_API_KEY: "offline-odysseus",
-      ...collector.env, OTEL_METRICS_EXPORTER: "none", OTEL_TRACES_EXPORTER: "none",
+      ...(process.argv.includes("--operator-telemetry") ? { OTEL_LOGS_EXPORTER: "none" } : {}),
       ...(process.argv.includes("--disable-nonessential-traffic") ? { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } : {}),
     }) }, abortController: controller, allowedTools: ["Read"], confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
@@ -74,8 +73,10 @@ try {
       }
       if (!succeeded || !sessionId) throw new Error("Missing successful result");
       if (!firstSessionId) firstSessionId = sessionId;
-      turns.push({ turn: turnIndex, resumed: turnIndex > 1, sameSession: sessionId === firstSessionId, titleUsage: collector.snapshot(), titleOptionPresent: Object.hasOwn(turn.options, "title"), messages });
-    } finally { clearTimeout(timer); await turn.finishWorker(); collector.stop(); view.cleanup(); }
+
+    } finally { clearTimeout(timer); await turn.finishWorker(); view.cleanup(); }
+    turns.push({ turn: turnIndex, resumed: turnIndex > 1, sameSession: sessionId === firstSessionId,
+      titleUsage, logsExporter: turn.options.env?.OTEL_LOGS_EXPORTER ?? null, titleOptionPresent: Object.hasOwn(turn.options, "title"), messages });
   }
   const transcriptTypes: Record<string, number> = {};
   for await (const file of new Bun.Glob("**/*.jsonl").scan({ cwd: home, absolute: true, dot: true })) {
@@ -90,7 +91,7 @@ try {
   writeFileSync(join(scratch, "report.json"), JSON.stringify({ sdkVersion, cliVersion,
     origin: "scripted loopback in offline namespace; not first-party/provider evidence",
     requests, turns, transcriptTypes,
-    productionAccounting: "collector proven; host ledger integration is not implemented by this measurement",
+    productionAccounting: "automatic production SDK options emit supported helper receipts after worker exit",
     nonessentialTrafficDisabled: process.argv.includes("--disable-nonessential-traffic"),
   }, null, 2) + "\n");
 } finally { server.stop(true); }

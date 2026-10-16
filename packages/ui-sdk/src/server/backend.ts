@@ -258,6 +258,14 @@ export type BackendActivityEvent =
       sessionId: string;
     }
     | {
+      /** Supported per-request title provenance, separate from root/child receipts.
+       * Reported after worker/exporter shutdown, before the terminal result. */
+      kind: "claude_title_usage";
+      coverage: "observed" | "partial" | "unknown";
+      receipts: Array<{ receiptId: string; source: "generate_session_title";
+        usage: import("../protocol.js").TurnUsage; costUsd?: number }>;
+    }
+  | {
       /** Claude session-cumulative evidence, never a turn receipt or helper classifier. */
       kind: "claude_session_usage";
       completed?: import("../protocol.js").TurnUsage;

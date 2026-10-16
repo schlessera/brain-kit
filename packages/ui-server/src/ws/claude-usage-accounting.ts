@@ -12,6 +12,8 @@ export interface ClaudeUsageState {
   auxiliary: Counts;
   partial: boolean;
   baselinePending: boolean;
+  /** Request identities already considered for title allocation. */
+  titleReceiptIds?: string[];
 }
 function valid(usage: Counts): boolean {
   return Object.values(usage).every(model => classes.every(key => Number.isSafeInteger(model[key]) && model[key]! >= 0));
@@ -87,7 +89,36 @@ export function reconcileClaudeUsage(previous: ClaudeUsageState | undefined, own
   return { state, ...(Object.keys(delta).length ? { auxiliary: sumModelUsage(delta) } : {}) };
 }
 
+type TitleEvidence = Omit<Extract<import("@schlessera/brain-ui-sdk/server").BackendActivityEvent, { kind: "claude_title_usage" }>, "kind">;
+
+/** Allocate complete supported receipts only within the newly measured
+ * auxiliary delta. Never infer purpose from model names, clip a receipt, or
+ * add it again beside the same cumulative remainder. Unjoinable evidence is
+ * partial and stays unallocated; its raw receipt is retained by the caller.
+ */
+export function allocateClaudeTitleUsage(auxiliary: TurnUsage | undefined, evidence: TitleEvidence | undefined, seenIds: readonly string[] = []) {
+  const remaining = cloneCounts(auxiliary?.perModel ?? emptyCounts());
+  const seen = new Set(seenIds);
+  const title: TitleEvidence["receipts"] = [];
+  let partial = evidence?.coverage === "partial";
+  for (const receipt of evidence?.receipts ?? []) {
+    if (seen.has(receipt.receiptId)) continue;
+    seen.add(receipt.receiptId);
+    const counts = receipt.usage.perModel;
+    if (!auxiliary || receipt.source !== "generate_session_title" || !receipt.receiptId || !counts || !Object.keys(counts).length || !valid(counts)
+      || receipt.costUsd !== undefined && (!Number.isFinite(receipt.costUsd) || receipt.costUsd < 0)
+      || Object.entries(counts).some(([model, usage]) => classes.some(key => usage[key]! > (remaining[model]?.[key] ?? 0)))) {
+      partial = true; continue;
+    }
+    title.push(receipt);
+    for (const [model, usage] of Object.entries(counts)) for (const key of classes) remaining[model]![key] = (remaining[model]![key] ?? 0) - usage[key]!;
+  }
+  for (const [model, counts] of Object.entries(remaining)) if (classes.every(key => !counts[key])) delete remaining[model];
+  return { title, unattributed: Object.keys(remaining).length ? sumModelUsage(remaining) : undefined, seenIds: [...seen], partial };
+}
+
 export interface ClaudeUsageEvidence {
+  title?: TitleEvidence;
   completed?: TurnUsage;
   cumulative?: TurnUsage;
   reportedCostUsd?: number;

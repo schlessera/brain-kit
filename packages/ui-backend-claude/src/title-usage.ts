@@ -84,7 +84,7 @@ export function createClaudeTitleUsageCollector() {
     catch { return new Response(null, { status: 400 }); }
   } });
   return {
-    env: { CLAUDE_CODE_ENABLE_TELEMETRY: "1", OTEL_LOGS_EXPORTER: "otlp", OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/json",
+    env: { OTEL_METRICS_EXPORTER: "none", OTEL_TRACES_EXPORTER: "none", CLAUDE_CODE_ENABLE_TELEMETRY: "1", OTEL_LOGS_EXPORTER: "otlp", OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/json",
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: `${server.url.origin}/v1/logs`, OTEL_EXPORTER_OTLP_LOGS_HEADERS: `Authorization=Bearer ${token}`,
       OTEL_LOG_USER_PROMPTS: "0", OTEL_LOG_ASSISTANT_RESPONSES: "0", OTEL_LOG_TOOL_DETAILS: "0", OTEL_LOG_RAW_API_BODIES: "0" },
     snapshot: () => evidence.snapshot(),

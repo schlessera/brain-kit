@@ -3,11 +3,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-export async function captureTitleProvenance(disableNonessentialTraffic = false) {
+export async function captureTitleProvenance(disableNonessentialTraffic = false, operatorTelemetry = false) {
   const root = resolve(import.meta.dir, "../..");
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-title-provenance-"));
   const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", process.execPath,
-    "--preload", join(root, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "probe.ts"), scratch, ...(disableNonessentialTraffic ? ["--disable-nonessential-traffic"] : [])], {
+    "--preload", join(root, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "probe.ts"), scratch, ...(disableNonessentialTraffic ? ["--disable-nonessential-traffic"] : []), ...(operatorTelemetry ? ["--operator-telemetry"] : [])], {
     cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir(), HOME: join(scratch, "home") }, stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => child.kill(), 120_000);
