@@ -7,8 +7,7 @@ free-layout grid/overlap and connector routing checks. The [v1 contract](../../d
 lists the common type families and envelope. The pure `buildDiagram(spec, options)` export constructs a neutral free-layout
 `DiagramTree` with rounded orthogonal paths, crossing hops and measured label
 masks. Axis types derive their geometry from order and authored dates. The `ui` entry exports `diagramsContentPack` for trusted app builds;
-`render` exports `diagramsStaticPack` and browser-free `toStatic`. The authoring
-skill and node-link specialized grammars remain separate work.
+`render` exports `diagramsStaticPack` and browser-free `toStatic`. The [authoring skill](skills/diagram/SKILL.md) teaches selection, taste and validation against the shipped family grammars.
 
 Enable the module in a brain configuration:
 
@@ -110,3 +109,12 @@ unnamed fences warn and skip. `brain audit` detects invalid fences, stale built
 pairs and fences whose module is absent/dormant. Unrelated prose edits preserve
 pair freshness. See the [export/build contract](../../docs/integration-contract/diagrams.md#export-derived-pairs-and-hygiene-additive-2099)
 for exact envelopes, naming, ownership and partial-write behavior.
+
+## Authoring
+
+Enable the module and synchronize its packaged skill and instruction context
+with `brain module enable diagrams`. The diagram skill selects a figure only
+when it explains more than a table or paragraph, loads the chosen type reference,
+and validates the versioned source with `brain diagram check`. Use Mermaid for
+a quick sketch; pictorial illustrations and image edits remain image-gen work.
+`brain module lint diagrams` validates the enabled contribution and skill.

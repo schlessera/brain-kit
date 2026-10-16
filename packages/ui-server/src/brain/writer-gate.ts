@@ -56,6 +56,8 @@ export interface GateHold {
   readonly folderPaths?: readonly string[];
   /** Extend this held plan to the exact admitted policy; never removes active peer roots. */
   retainFolders?(paths: readonly string[]): readonly string[];
+  /** Refuse known missing/unaccounted peer plans. Success is not mounted-worker attestation. */
+  assertPeerFolderPlans?(paths: readonly string[]): void;
   release(): void;
 }
 
@@ -132,6 +134,27 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
               return next;
             }).immediate();
             return folderPaths;
+          }, assertPeerFolderPlans(paths) {
+            if (released) throw new Error("Writer folder plan was already released");
+            const requested = mergeFolderPlans([], paths);
+            if (!requested.length) return;
+            if (requested.some(root => !folderPaths.includes(root))) throw new Error("Requested writer folder plan is not held");
+            db.transaction(() => {
+              prune();
+              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
+              if (!own) throw new Error("Writer folder plan no longer has its admitted owner");
+              const peers = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ? AND id <> ?").all(brain, id) as { folder_topology: string | null }[];
+              for (const peer of peers) {
+                if (peer.folder_topology === null) throw new Error("An active peer has an unaccounted provider folder plan; finish that peer and retry admission");
+                let roots: readonly string[];
+                try { roots = mergeFolderPlans([peer], []); }
+                catch { throw new Error("An active peer has an unverified provider folder plan; finish that peer and retry admission"); }
+                // A descendant root also pins each ancestor. An ancestor root
+                // alone does not retain an arbitrary child inside its subtree.
+                if (requested.some(path => !roots.some(root => root === path || root.startsWith(`${path}/`))))
+                  throw new Error("An active peer did not retain the requested provider folders; finish that peer and retry admission");
+              }
+            }).immediate();
           }, release() {
             if (released) return;
             released = true;

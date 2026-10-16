@@ -81,6 +81,10 @@ export function createGovernedTurns(options: {
           const missing = missingWritableRoot();
           if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
         }
+        if (workerProfile(resolved) === "governed" && folderPaths.length) {
+          if (!hold.assertPeerFolderPlans) throw new Error("Provider folder admission cannot check active peer plans with this writer gate; retry using the qualified gate");
+          hold.assertPeerFolderPlans(folderPaths);
+        }
         const commandPolicy = Object.freeze({ hash: policy.hash,
           outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),

@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-111`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-115`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-111`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-115`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1456,6 +1456,14 @@ views refuse before payload start; the existing separate-UID broker does not
 attest these folder mounts, and its state/temp authority is not repurposed into
 generic process inspection. This closes a launch-time check/mount gap without
 claiming complete active-peer or protected-reader admission.
+
+Known-unsafe active peers refuse new governed folder admission: legacy or
+missing-root plans cannot retain the requested topology. A retained descendant
+also pins its ancestors, while an ancestor alone does not pin arbitrary children.
+Unknown checking capability refuses. Existing peers continue, nested shared
+maintenance stays admissible, and strict consumers keep their existing path.
+Successful plan checks remain nonattestation and cannot authorize a protected
+reader; complete active-writer provenance remains required.
 
 These are topology primitives, not complete privacy admission or recipient
 proof. Gate root sets are plans rather than attested mounted identities; legacy
