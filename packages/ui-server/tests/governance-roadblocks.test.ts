@@ -57,6 +57,8 @@ describe("compound shell command intents", () => {
     ["if [ -f x ]; then git status; fi", "git status"],
     ["until false; do sleep 1; done", "sleep"],
     ["case $x in a) ls;; esac", "ls"],
+    ["case $x in a) ! git status;; esac", "git status"],
+    ["case $x in a) for f in a; do git push; done;; esac", "git push"],
     ["select f in a b; do git status; done", "git status"],
     ["if false; then true; elif test -f x; then cd notes; else git status; fi", "git status"],
     ["{ ! sudo -u penelope git push origin x; }", "git push"],

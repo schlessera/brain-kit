@@ -190,20 +190,29 @@ export function commandIntent(command: string): string {
     let tokens = segment.trim().split(/\s+/).filter(Boolean);
     // Only unquoted leading reserved words are structural. As with the
     // existing segment splitter, this is a heuristic, not a shell parser.
-    while (SHELL_BODY_WORDS.has(tokens[0] ?? "")) {
-      if (tokens[0] === "esac") { inCase = false; caseArm = false; }
-      tokens.shift();
-    }
-    if (SHELL_HEADERS.has(tokens[0] ?? "")) continue;
-    if (tokens[0] === "case") {
-      const inWord = tokens.indexOf("in", 2);
-      tokens = inWord < 0 ? [] : tokens.slice(inWord + 1);
-      inCase = true;
-      caseArm = true;
-    }
-    if (caseArm) {
-      const patternEnd = tokens.findIndex((token) => token.endsWith(")"));
-      if (patternEnd >= 0) { tokens = tokens.slice(patternEnd + 1); caseArm = false; }
+    while (tokens.length) {
+      const first = tokens[0]!;
+      if (SHELL_BODY_WORDS.has(first)) {
+        if (first === "esac") { inCase = false; caseArm = false; }
+        tokens.shift();
+        continue;
+      }
+      if (SHELL_HEADERS.has(first)) { tokens = []; break; }
+      if (first === "case") {
+        const inWord = tokens.indexOf("in", 2);
+        tokens = inWord < 0 ? [] : tokens.slice(inWord + 1);
+        inCase = true;
+        caseArm = true;
+        continue;
+      }
+      if (caseArm) {
+        const patternEnd = tokens.findIndex((token) => token.endsWith(")"));
+        if (patternEnd < 0) { tokens = []; break; }
+        tokens = tokens.slice(patternEnd + 1);
+        caseArm = false;
+        continue;
+      }
+      break;
     }
     let i = 0;
     let wrapper: string | null = null;
