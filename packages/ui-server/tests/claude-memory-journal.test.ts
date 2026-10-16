@@ -66,6 +66,12 @@ test("real populate/persist retains created and replaced external notes with tai
     expect(readFileSync(join(f.memory, "voyage.md"))).toEqual(after);
     const created = r.start("odysseus", "ithaca", "return", { id: "memory_create_revert", path: "claude-memory://athena.md" }); await r.idle(created.id);
     expect(existsSync(join(f.memory, "athena.md"))).toBe(false);
+    const undoCreated = r.start("odysseus", "ithaca", created.journalTurnId, { id: "memory_creation_undo" }); await r.idle(undoCreated.id);
+    const whole = r.start("odysseus", "ithaca", "return", { id: "memory_whole_turn" }); await r.idle(whole.id);
+    expect(r.receipt(whole.id, "odysseus", "ithaca", "return")?.state, "MEMORY_WHOLE_TURN_RECOVERS_CONTENT_AND_EXTERNAL_NOTES").toBe("complete");
+    expect(readFileSync(join(f.memory, "voyage.md"))).toEqual(Buffer.from([65,13,10,255]));
+    expect(existsSync(join(f.memory,"athena.md"))).toBe(false);
+    expect(existsSync(join(f.brain,"content.md"))).toBe(false);
     await r.close();
   } finally { await f.close(); }
 });
