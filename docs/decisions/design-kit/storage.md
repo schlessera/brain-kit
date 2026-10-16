@@ -208,7 +208,7 @@ Measured 09:41 · complete
 [Refresh]
 Disk · data volume
 20.0 GB available
-[measured|other|reserved|free]
+[measured|other|reserved|available]
 Brain, app and backups share
 this disk.
 [All | Brain | App]
