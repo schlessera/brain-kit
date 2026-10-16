@@ -1132,3 +1132,24 @@ limits also apply after lost response coverage or changed runtime accounting.
 Existing frozen Activity rows are not migrated or repaired. #2052 owns the
 separate request/channel classifier for title-helper attribution; this
 reconciliation does not identify a helper by model name or suppress titles.
+
+## 2026-10-16 — Interactive presets omit changing Git context (#2046)
+
+Both API and subscription interactive turns set the documented flag setting
+`includeGitInstructions: false`, after their billing settings are assembled.
+This keeps a resumed request's prefix stable across repository commits and
+working-tree changes. It also removes the CLI's built-in commit and PR
+instructions; a brain may retain its own guidance in its project `CLAUDE.md`.
+Restricted turns already use a custom prompt and keep their existing settings.
+
+The keyless real-CLI guard uses SDK 0.3.293 / bundled CLI 2.1.293, a local
+Messages endpoint and an offline network namespace. Each billing profile runs
+two turns of one session with a new commit and dirty Odysseus note between
+them. Tools and system bytes remain identical, and Git branch/commit text is
+absent from system and message bytes. Removing the setting exposes the branch
+in message context. The environment switch also suppresses Git context, but
+the documented setting avoids relying on that undocumented switch.
+`excludeDynamicSections` alone leaves Git context in the first user message
+and does not meet the absence requirement. These receipts establish assembly
+at a local origin, not first-party request bytes, subscription eligibility or
+provider cache hits. No live-provider measurement is implied.
