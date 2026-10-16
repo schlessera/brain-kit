@@ -68,6 +68,14 @@ on, links to or describes them.
 - **Markdown is the source of truth; `brain.db` is disposable.** `brain index
   --force` regenerates everything. Never design anything that writes `brain.db`
   as authoritative state.
+- **Provider history is append-only.** Within a session, the tools, the system
+  prompt and every earlier message sent to a model provider stay byte-identical
+  from turn to turn; brain-kit only adds new content at the end. Budgets,
+  journals, receipts, labels and display data stay in internal storage and
+  never enter the provider-facing conversation. Adding to the history costs
+  input tokens on every later turn; changing it disables the provider's cache
+  and multiplies the cost. Anything on a turn's path runs the keyless guard
+  ([the rule and the guard](docs/decisions/provider-history.md)).
 - **Planned work lives in the issue tracker, not in a markdown file.** Do not
   add a status field, a unit checklist or a progress log to a document in this
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
