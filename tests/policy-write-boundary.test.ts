@@ -138,9 +138,14 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     expect(cli.result.output, "brain CLI write refuses visibly; nothing is staged").toContain("read_only_brain");
     expect(r.added, "no capture was staged or written").toEqual([]);
     if (adapter === "claude") {
-      // Hosted turns retain raw file definitions and refuse execution; the subagent's shell is confined too.
-      expect(r.receipt.unavailable, "raw tools remain registered").toEqual([]);
-      for (const name of ["Write", "Edit", "NotebookEdit"]) for (const c of calls(r, name)) expect(c.result.isError).toBe(true);
+      // Strict turns retain native registration but refuse execution; the
+      // subagent's shell is confined too.
+      expect(r.receipt.unavailable).toEqual([]);
+      for (const name of ["Write", "Edit", "NotebookEdit"]) for (const c of calls(r, name)) {
+        expect(c.result.isError).toBe(true);
+        // The runtime may reject NotebookEdit's unread input before hooks.
+        if (name !== "NotebookEdit") expect(c.result.output).toContain("Native file writes are unavailable");
+      }
       const sub = shells.filter(c => c.subagent);
       expect(sub.length, "the subagent issued its own shell write").toBe(1);
       expect(sub[0]!.result.output).toContain("Read-only file system");
@@ -217,6 +222,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     for (const name of ["Write", "mcp__brain-ui__request_image_mask"]) {
       for (const c of calls(r, name)) expect(c.result.isError, `${name} is refused on voice`).toBe(true);
     }
+    expect(calls(r, "Write")[0]!.result.output).toContain("Native file writes are unavailable");
     expect(code(calls(r, route("write_file"))[0]!.result.output), "raw write is outside the voice membership").toBe("membership_denied");
     expect(code(calls(r, route("brain_update"))[0]!.result.output)).toBe("policy_denied");
     const adds = calls(r, route("brain_add"));
@@ -292,11 +298,13 @@ test("two governed Pi sessions hold the same server Git lock through commit", as
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);
 
-test("governed voice retains narrow authority and captures through the authoritative route", async () => {
+test("governed voice retains native registration, refuses its authority and captures through the authoritative route", async () => {
   const r = await probe("claude", "governed-voice");
   expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
   expect(r.receipt.unavailable).not.toContain("Write");
-  for (const c of calls(r, "Write")) expect(c.result.isError, "governed voice refuses native writes").toBe(true);
+  const native = calls(r, "Write")[0]!;
+  expect(native.result.isError).toBe(true);
+  expect(native.result.output).toContain("Native file writes are unavailable");
   expect(r.receipt.posture).toBe("voice");
   const capture = calls(r, "mcp__brain-ui__brain_add", input => input.title === "Voice raft")[0]!;
   expect(capture.result.isError, capture.result.output).toBe(false);

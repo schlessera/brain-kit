@@ -14,7 +14,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -66,7 +66,7 @@ export interface ClaudeSdkTurn {
  * filtered set rather than the server's own. The boot probe uses it too.
  */
 export function turnEnv(profile: InferenceProfile): Record<string, string | undefined> {
-  const env = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv() };
+  const env = { ...envSnapshot(profile.requiredEnvKeys), ...profile.buildEnv(), ...RTK_WORKER_ENV };
   // After the profile's own env, so nothing a profile builds can put an API
   // credential back under a turn that is not declared as API-billed.
   if (profile.billing !== "api") Object.assign(env, CLEARED_API_CREDENTIALS);
@@ -127,7 +127,15 @@ function assembleClaudeSdkTurn(
     mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
     mcp__brain__brain_archive: "mcp__brain-ui__brain_archive", Write: "mcp__brain-ui__write_file", Edit: "mcp__brain-ui__edit_file",
   };
-  const allowed = [...new Set(options.allowedTools.map(name => hosted ? (migrations[name] ?? name) : name))];
+  // Registration is stable across interactive profiles/postures (#2048 A).
+  // Native writers keep their auto-allow on governed typed turns; the hook
+  // refuses them on strict/voice turns before any settings or remembered grant.
+  // Keep server writers alongside the natives, with their existing authority.
+  const allowed = [...new Set(options.allowedTools.flatMap(name => {
+    if (!hosted) return [name];
+    const migrated = migrations[name] ?? name;
+    return !req.autonomous && (name === "Write" || name === "Edit") ? [name, migrated] : [migrated];
+  }))];
   if (req.bridge.readBrainBase) allowed.push("mcp__brain-ui__brain_read_base");
   // Application permission lives in the server. These are callable tools,
   // never authority: every executor goes through the server-owned route.
@@ -246,10 +254,12 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ?
-      ["mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"] : [])],
+    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
+      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
+    ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
       req: { ...req, workerSandbox: sandbox },
+      denyNativeWrites: hosted && !req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice"),
       allowedTools: allowed,
       confirmPatterns,
       brainPath: backend.brainPath,

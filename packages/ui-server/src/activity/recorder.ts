@@ -101,6 +101,7 @@ export interface TurnRecorder {
 export function createTurnRecorder(
   deps: TurnRecorderDeps,
   turn: {
+    lifecycle?: ReturnType<typeof import("./turn-lifecycle.js").createTurnLifecycle>;
     turnId: string;
     sessionId: string | null;
     /** The RESOLVED inference profile this turn runs on (post pin-drop fallback). */
@@ -186,6 +187,7 @@ export function createTurnRecorder(
 
   function ensureRoot() {
     if (rootStarted) return;
+    turn.lifecycle?.firstFrame(null);
     rootStarted = true;
     store.startSpan({
       spanId: rootSpanId,
@@ -208,6 +210,7 @@ export function createTurnRecorder(
         ...(turn.pricingRoute ? { "brain.pricing_route": turn.pricingRoute } : {}),
       },
     });
+    turn.lifecycle?.linkBackend(runId);
     onWrite?.();
   }
 
@@ -229,9 +232,11 @@ export function createTurnRecorder(
     observeFrame(msg) {
       guard(() => {
         if (finished) return;
+        turn.lifecycle?.firstFrame(rootStarted ? runId : null);
         switch (msg.type) {
           case "session_info": {
             sessionId = msg.sessionId;
+            turn.lifecycle?.bindSession(msg.sessionId);
             ensureRoot();
             // The root may have been opened before the session had a name.
             store.patchSpan(rootSpanId, { attrs: { "session.id": msg.sessionId } });
@@ -485,6 +490,7 @@ export function createTurnRecorder(
     recordPrincipalRevocation(principalId) {
       guard(() => {
         if (finished || principalRevocationRecorded) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("principal_revoked", principalId); principalRevocationRecorded = true; return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "principal_revoked", { principalId });
         principalRevocationRecorded = true;
@@ -495,6 +501,7 @@ export function createTurnRecorder(
     recordFollowUp(principalId) {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("follow_up", principalId); return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "follow_up", { principalId });
         onWrite?.();
@@ -504,6 +511,7 @@ export function createTurnRecorder(
     recordCancellation(principalId, kind = "turn") {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordCancellation(principalId, kind); return; }
         ensureRoot();
         if (kind === "turn" && cancelledAt === null) {
           cancelledAt = Date.now();
@@ -573,6 +581,7 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         finished = true;
+        if (turn.lifecycle && !rootStarted) return;
         ensureRoot();
         // Merged precedence: the buffered result enrichment refines the
         // host's own disposition; the host wins only where the backend said

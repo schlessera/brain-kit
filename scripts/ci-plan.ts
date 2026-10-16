@@ -1,6 +1,7 @@
 /** Repository-only check selection. Product CLI/MCP contracts are unaffected. */
 import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import ts from "typescript";
 
 export interface Workspace {
   dir: string;
@@ -73,7 +74,7 @@ export interface CheckPlan {
   typecheck: boolean;
   tests: string[];
   pack: boolean;
-  /** Root consumer-only plans execute this exact discovered unit inventory. */
+  /** Root consumer and independent-test plans execute this exact discovered inventory. */
   unitTests?: string[];
   // Complete proof categories, shared by hosted CI and opt-in full local checks.
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
@@ -198,7 +199,49 @@ export function rootConsumers(root: string, changed: readonly string[],
   } catch (error) { return { tests: [], categories, global: true, reason: String(error) }; }
 }
 
-export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), mapRoots = true): CheckPlan {
+/** Fail closed to ordinary affected discovery unless every changed input is an
+ * independent Bun test. Text references deliberately include prose and strings;
+ * basename matching catches relative imports and extensionless command names.
+ */
+export function independentTests(root: string, changed: readonly string[]): string[] | undefined {
+  const prose = (path: string) => /\.(md|mdx|txt)$/.test(path) || path === "LICENSE";
+  const candidates = changed.filter(path => !prose(path) || path.startsWith("tests/") || /^packages\/[^/]+\/(src|fixtures|tests|skills|migrations|assets)\//.test(path));
+  if (!candidates.length || candidates.some(path => !(/^(?:packages\/[^/]+\/|tests\/)/.test(path)) || path.split("/").slice(0, -1).some(part => part.startsWith(".") || part.toLowerCase() === "node_modules") ||
+    !/(?:\.test|\.spec|_test|_spec)\.(?:[cm]?[jt]s|[jt]sx)$/i.test(path))) return undefined;
+  try {
+    const tracked = git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
+    // Expanded build inventories catch glob includes/extends without literal
+    // basename references. Tests emitted as package code are not independent.
+    for (const configPath of tracked.filter(path => /^packages\/[^/]+\/tsconfig\.build\.json$/.test(path))) {
+      const path = join(root, configPath);
+      const config = ts.readConfigFile(path, ts.sys.readFile);
+      if (config.error) return undefined;
+      const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(path));
+      if (parsed.errors.length || parsed.fileNames.some(path => candidates.includes(relative(root, path).replaceAll("\\", "/")))) return undefined;
+    }
+    for (const file of candidates) {
+      if (!tracked.includes(file) || !lstatSync(join(root, file)).isFile() || /\bexport\b/.test(readFileSync(join(root, file), "utf8"))) return undefined;
+      const stem = basename(file).replace(/\.[^.]+$/, "");
+      // Any other tracked file can consume this input, including another changed
+      // test. Unreadable/deleted paths and unknown modes refuse the optimization.
+      for (const other of tracked) if (other !== file && (lstatSync(join(root, other)).isSymbolicLink() ? readlinkSync(join(root, other)) : readFileSync(join(root, other), "utf8")).includes(stem)) return undefined;
+    }
+    return candidates.sort();
+  } catch { return undefined; }
+}
+
+export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true): CheckPlan {
+  const leaves = root && enableConsumerSelection ? independentTests(root, changed) : undefined;
+  if (leaves) {
+    const affected = [...new Set(leaves.filter(file => file.startsWith("packages/")).map(file => file.split("/")[1]!))].sort();
+    if (affected.every(dir => packages.some(pkg => pkg.dir === dir))) {
+      const groups = [...affected, ...(leaves.some(file => file.startsWith("tests/")) ? ["tooling"] : [])];
+      const tests = [...new Set(groups.flatMap(dir => FAST_TESTS[dir] ?? []))].sort();
+      return { changed: [...changed].sort(), affected, global: false, typecheck: true,
+        tests, unitTests: [...new Set([...leaves, ...tests])].sort(), pack: false,
+        local: {fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false} };
+    }
+  }
   const dirs = new Set(packages.map(p => p.dir));
   const packagePaths = changed.filter(path => path.startsWith("packages/"));
   const direct = packagePaths.map(path => path.split("/")[1]!);
@@ -207,7 +250,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   const prose = (path: string) => /\.(md|mdx|txt)$/.test(path) ||
     path.startsWith(".changeset/") || path.startsWith("docs/") ||
     path.startsWith(".github/ISSUE_TEMPLATE/") || path === "LICENSE";
-  const rootPaths = mapRoots ? changed.filter(path => /^(?:scripts|tests|experiments|website)\//.test(path)) : [];
+  const rootPaths = enableConsumerSelection ? changed.filter(path => /^(?:scripts|tests|experiments|website)\//.test(path)) : [];
   const consumers = rootPaths.length ? rootConsumers(root, rootPaths) : { tests: [], categories: new Set<RootCategory>(), global: false };
   const global = consumers.global || changed.some(path =>
     path.startsWith(".github/workflows/") || path === "bun.lock" || path === "package.json" || path === ".changeset/config.json" ||
@@ -241,6 +284,13 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
       layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
       endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
       runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+}
+
+/** Narrow inventories use fewer nonempty partitions; ordinary proof keeps four. */
+export function unitShards(plan: CheckPlan): number[] {
+  const count = plan.unitTests?.length ?? 4;
+  if (!count) throw new Error("Empty selected unit inventory");
+  return Array.from({length: Math.min(4, count)}, (_, i) => i + 1);
 }
 
 export type ProofCadence = "draft" | "feedback" | "confirmation" | "integrated" | "exhaustive";
@@ -310,6 +360,7 @@ if (import.meta.main) {
     const draft = process.env.PR_DRAFT === "true";
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
+      `unit_shards=${JSON.stringify(unitShards(plan))}\n` +
       `cadence=${plan.cadence ?? "diagnostic"}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft, event: event && {
       name: process.env.GITHUB_EVENT_NAME, action: event.action,

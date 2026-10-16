@@ -126,7 +126,7 @@ What a turn can do is the intersection of the two.
 | Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
-| Claude native `Write`/`Edit`/`NotebookEdit` | Available | Disallowed. The server tools are used instead. | Not in the roster |
+| Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |
 | Server application tools | Available | Available | Proposal route only |
 | Journal | Yes | Yes. It only ever sees named-area and server-route changes. | No authoritative changes are possible |
 
@@ -167,6 +167,18 @@ no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
+
+**2026-10-16 native-tool registration amendment (#2022, #2048 A).**
+Hosted interactive Claude keeps native file-tool definitions registered across
+`governed`, `strict` and voice turns to preserve provider prompt caching.
+Governed typed `Write`/`Edit` (and configured `NotebookEdit`) retain their
+SDK auto-allow, alongside existing server writers. Strict and voice natives
+refuse in the mandatory PreToolUse hook and permission callback before any
+handler, approval card or lock acquisition; settings and remembered grants
+cannot override that refusal. Native stale-read checks, write locks, journals
+and protected mounts still apply to governed typed execution. The autonomous
+roster and authority do not change. This amends native availability language
+above; #2048 owns the broader bridge-roster amendment.
 
 ## The policy file
 
@@ -970,7 +982,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:249`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:257`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -991,7 +1003,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:90`).
+`packages/ui-backend-claude/src/permission-hooks.ts:96`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
@@ -1190,7 +1202,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:275`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:280`).
 
 **What changes:**
 
@@ -1389,7 +1401,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:84`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:85`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1735,13 +1747,82 @@ the turn may send out and how its writes are labelled.
 
 Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
 files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
-`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
-configuration, dependency manifests and retained local import/resource inputs.
-The journal follows retained literal local references as data. It never imports
-or evaluates configuration to classify it. Ignored, oversized or opaque inputs
-are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:91-100`).
+`context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
+
+- The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
+  Host commands bind that cwd to the selected brain (`function hostSpawn`,
+  `packages/ui-server/src/brain/host-boundary.ts:359-370`).
+- Bun startup uses root `bunfig.toml` and `package.json`; retained literal
+  preload/module inputs can identify a nested module's nearest package scope.
+  The inventory walks parent directories only within the originating journal
+  scope and includes that `package.json` as module-resolution metadata, without
+  activating its scripts. This follows Bun's
+  [module resolution](https://bun.sh/docs/runtime/module-resolution) and
+  [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
+- Claude's project MCP location is root `.mcp.json`; its cwd is the selected
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:224-241`).
+  Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
+  surfaces remain unchanged. Their retained module references can likewise
+  identify package metadata within that same scope.
+
+A manifest or lockfile in a dependency tree or cloned workspace does not itself
+identify a consumer. Declared projects/scripts do not establish execution.
+Root-only discovery was rejected because genuine nested module consumers need
+package metadata; any-depth basename discovery was rejected because incidental
+clones and dependencies became false seeds. No repository configuration is
+executed during discovery. Conditional package maps, computed configuration,
+unsupported commands and unobserved working directories remain coverage
+limitations; this finite mapping never claims arbitrary shell/runtime coverage.
+Ignored, oversized, unreadable and opaque genuine inputs remain named as
+classification limitations (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`).
+
+The journal follows only data-only references with a supported input role;
+quoted strings and file extensions do not establish consumption. Seed selection
+is now consumer-qualified independently of reference classification (#2028). The finite mapping is in
+(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
+
+| Consumer | Followed input role | Resolution and limits |
+| --- | --- | --- |
+| Claude instruction imports | Standalone unquoted `@path` lines outside code, recursively to four hops | File-relative literal input, including extensionless text. Inline/escaped/ambiguous forms remain unknown. See the [consumer documentation](https://code.claude.com/docs/en/memory#import-additional-files). |
+| Bun [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig#preload) | Root and `[test]` `preload` arrays | Local module references relative to the config file; other properties such as install caches are not inputs. |
+| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv relative to the manifest directory. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
+| Claude settings | `hooks.<event>[].hooks[]` with `type: command`, `command` and optional `args` | Executable roles relative to the scope root; the installed SDK settings schema supplies these fields. Prompt-hook text and arbitrary properties are not file references. Plugins remain unknown. |
+| `.mcp.json` | `mcpServers.<name>.command` and `args` | Same literal executable/interpreter roles; network server URLs and ordinary arguments are not local steering dependencies. |
+| Pi settings | `extensions`, `skills`, `prompts`, `themes` arrays | Relative to the settings directory, matching the installed `DefaultPackageManager.resolve` consumer. Computed/glob/package/directory discovery stays unknown. |
+| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, relative to the config, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
+| Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
+
+This mapping was checked against core's (`loadModules`,
+`packages/core/src/lib/module-loader.ts:93-101`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:187-219`), Pi's (`build`,
+`packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
+Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
+schema. Nothing imports or evaluates repository configuration on the host.
+Followed JSON resources do not acquire configuration-consumer semantics merely
+from a basename; configuration roles belong to known seeds. Both retained-object
+and sealed-root readers share classification and the
+1 MiB input bound (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`). Ignored, unreadable,
+oversized, unsupported or ambiguous inputs are named as coverage limitations;
+unknown never fabricates a consumed path or a claim of complete runtime coverage.
+
+The resolved disposable index and its `-wal`, `-shm`, `-journal` sidecars are
+excluded by exact journal-relative identity before reference lookup. Core's
+current identity is `<root>/brain.db`, established by (`initContext`,
+`packages/core/src/lib/context.ts:36-52`); core has no configurable index-location
+field. Internal callers may supply an already resolved identity without
+executing configuration. This excludes no unrelated same-basename resource.
+The inventory preserves scope boundaries, policy exclusions and bounded
+readers (`steeringInventory`,
+`packages/ui-server/src/brain/journal-steering.ts:20-107`).
+
+The maintainer selected role classification over an index-only exception,
+script-extension whitelist or their combination (#2026): none of those
+alternatives distinguishes a genuine extensionless instruction input from an
+ordinary output or data argument. This changes classification only; operational
+file presentation and observed-path accounting remain separate.
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1832,7 +1913,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:473-517`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:473-520`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
