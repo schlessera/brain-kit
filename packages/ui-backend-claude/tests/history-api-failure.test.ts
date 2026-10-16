@@ -19,7 +19,7 @@ import {
 } from "./fixtures/api-failures";
 
 const read = (entries: SessionMessage[]) =>
-  buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, "/brain");
+  buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, import.meta.dir);
 
 describe("an API error replays as the turn's failure", () => {
   test("the unsupported-model turn: an empty answer that failed, with the status its text states", async () => {

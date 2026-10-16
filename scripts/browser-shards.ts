@@ -45,18 +45,21 @@ export function balanceBrowserSpecs<T extends BrowserSpec>(specs: readonly T[], 
 }
 
 /** Recorded Vitest reports contain each reported project/file elapsed time. */
+export function browserTimingReports(raw: string): { key: string; seconds: number }[] {
+  const text = raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+  return [...text.matchAll(/✓\s+([^ ]+) \(chromium\)\s+(.+?) \([^\n]*?tests?[^\n]*?\)\s+(\d+)ms/g)].map(match => {
+    const file = resolve("/repo/packages/ui-kit", match[2]!);
+    if (!file.startsWith("/repo/packages/") || !file.endsWith(".tsx")) throw new Error("Invalid recorded browser path");
+    const seconds = Number(match[3]) / 1000;
+    if (!Number.isFinite(seconds) || seconds < 0) throw new Error("Invalid recorded browser cost");
+    return { key: `${match[1]}::${file.slice("/repo/".length)}`, seconds: seconds || UNKNOWN_BROWSER_SECONDS };
+  });
+}
+
 export function browserCostsFromLogs(logs: readonly string[]): Record<string, number> {
   const observations = new Map<string, number[]>();
-  for (const raw of logs) {
-    const text = raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-    for (const match of text.matchAll(/✓\s+([^ ]+) \(chromium\)\s+(.+?) \([^\n]*?tests[^\n]*?\)\s+(\d+)ms/g)) {
-      const file = resolve("/repo/packages/ui-kit", match[2]!).slice("/repo/".length);
-      const key = `${match[1]}::${file}`;
-      const cost = Number(match[3]) / 1000;
-      if (!Number.isFinite(cost) || cost < 0) throw new Error("Invalid recorded browser cost");
-      if (cost === 0) continue; // The documented positive unknown default covers sub-millisecond files.
-      observations.set(key, [...(observations.get(key) ?? []), cost]);
-    }
+  for (const raw of logs) for (const { key, seconds } of browserTimingReports(raw)) {
+    observations.set(key, [...(observations.get(key) ?? []), seconds]);
   }
   if (!observations.size) throw new Error("Recorded logs contain no nonempty browser timing evidence");
   return Object.fromEntries([...observations.entries()].sort(([a], [b]) => compare(a, b)).map(([key, values]) => {

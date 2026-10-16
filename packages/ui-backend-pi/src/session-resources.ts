@@ -42,6 +42,9 @@ export function createSessionResources(options: {
   nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
   /** The worker's sandbox note, rendered by the server from its resolved mounts (#1626). */
   sandboxNote?: string;
+  /** Host-owned session snapshot, read-only in this worker. */
+  fixedAppend?: string;
+  observeAppend?: (append: string) => void;
 }) {
   const { backend, brain, lock, allowedTools, confirmPatterns, loadExtensions } = options;
   const brainPath = backend.brainPath;
@@ -106,7 +109,12 @@ export function createSessionResources(options: {
         ? readWebSearchBrief()
         : undefined;
     const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
-    const append = [brief, options.sandboxNote].filter(Boolean).join("\n\n");
+    const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
+      : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
+        policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true,
+      } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
+    options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,
@@ -164,9 +172,8 @@ function buildAppend(
 ): string {
   // The chat-surface brief for one session: what the answer renders into
   // (diagrams, share blocks), which bridge tools exist, the reader's device.
-  // Unlike the Claude backend (whose subprocess is rebuilt every turn) this is
-  // baked at SESSION construction, from the session-opening turn's client — a
-  // later device change applies from the next new/reopened session.
+  // Production workers reopen each turn. The host retains the exact first
+  // append across workers; live device/sandbox facts are new-tail context.
   return (
     options.systemPromptAppend ??
     buildSystemPromptAppend({
