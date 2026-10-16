@@ -11,7 +11,7 @@ import { defaultContentRendererRegistry } from "@schlessera/brain-ui-sdk/client"
 import { BrainUiProvider, createBrainUiRoot, type BrainUiRoot, BrainMarkdown } from "@schlessera/brain-ui-react";
 let host:HTMLDivElement,render:Root,root:BrainUiRoot,styles:HTMLStyleElement;
 const source=JSON.stringify(rendererSpec), originalTheme=document.documentElement.dataset.theme;
-beforeAll(async()=>{styles=document.createElement("style");styles.textContent=await commands.formConsumerStyles();document.head.append(styles);});
+beforeAll(async()=>{styles=document.createElement("style");styles.dataset.diagramCaptureConsumer="";styles.textContent=await commands.formConsumerStyles();document.head.append(styles);});
 afterAll(()=>styles?.remove());
 afterEach(async()=>{await commands.mermaidMedia("screen");if(render)flushSync(()=>render.unmount());root?.dispose();host?.remove();defaultContentRendererRegistry.reset();document.documentElement.dataset.theme=originalTheme;});
 function setup(width=1000){root=createBrainUiRoot({storage:null,request:async()=>Response.json({renderers:[],enabled:[]})});root.stores.file.setState({wikilinkMap:{"raft-build":"notes/raft-build.md"},wikilinkLoaded:true});host=document.createElement("div");host.style.width=`${width}px`;document.body.append(host);render=createRoot(host);}
@@ -27,7 +27,7 @@ test("registered chat fence renders and follows live light/dark and actual print
  const production=await toStatic(source,{theme:"dark"});const parsed=new DOMParser().parseFromString(production,"image/svg+xml");
  const geometry=(element:ParentNode)=>[...element.querySelectorAll("[data-diagram-node] rect:not(.bk-diagram-node-focus),[data-diagram-edge] path")].map(item=>[item.localName,...["x","y","width","height","d"].map(name=>item.getAttribute(name))]);
  expect(geometry(screenSvg()!),"CLIENT_STATIC_IDENTICAL_GEOMETRY").toEqual(geometry(parsed));
- await commands.mermaidMedia("print");const paper=host.querySelector<SVGSVGElement>(".bk-diagram-print svg")!;expect(getComputedStyle(paper).backgroundColor,"ACTUAL_PRINT_WHITE").toBe("rgb(255, 255, 255)");expect(getComputedStyle(paper.querySelector("text")!).fill).toBe("rgb(35, 31, 26)");
+ await commands.mermaidMedia("print");const paper=host.querySelector<SVGSVGElement>(".bk-diagram-print svg")!;expect(getComputedStyle(host.querySelector(".bk-diagram-controls")!).display,"ACTUAL_PRINT_HIDES_CONTROLS").toBe("none");expect(getComputedStyle(paper).backgroundColor,"ACTUAL_PRINT_WHITE").toBe("rgb(255, 255, 255)");expect(getComputedStyle(paper.querySelector("text")!).fill).toBe("rgb(35, 31, 26)");
 });
 test("actual constrained containers select authored layout or semantic fallback, never shrink below9",async()=>{
  setup(720);mount(<DiagramContent source={source} mode="chat" theme="light"/>);await ready();expect(screenSvg()!.dataset.diagramLayout).toBe("narrow");fontFloor(screenSvg()!);
@@ -38,6 +38,7 @@ test("actual constrained containers select authored layout or semantic fallback,
 });
 test("keyboard nodes navigate like wiki links and incident edges and focus ring remain visible",async()=>{
  setup();const paths:string[]=[];root.stores.file.setState({openFile:async(path)=>{paths.push(path);}});mount(<DiagramContent source={source} theme="light" mode="chat"/>);await ready();
+ const hovered=screenSvg()!.querySelector<SVGGElement>('[data-diagram-node="raft"]')!;await userEvent.hover(hovered);expect(getComputedStyle(hovered.querySelector('.bk-diagram-node-focus')!).visibility,"VISIBLE_NODE_HOVER_RING").toBe("visible");expect(screenSvg()!.querySelector("[data-highlighted]"),"INCIDENT_EDGE_HOVER").not.toBeNull();await userEvent.unhover(hovered);
  for(const node of screenSvg()!.querySelectorAll<SVGGElement>('[data-diagram-node][role="link"]')){node.focus();await expect.poll(()=>document.activeElement).toBe(node);expect(getComputedStyle(node.querySelector('.bk-diagram-node-focus')!).visibility,"VISIBLE_NODE_FOCUS_RING").toBe("visible");expect(screenSvg()!.querySelector("[data-highlighted]"),"INCIDENT_EDGE_FOCUS").not.toBeNull();await userEvent.keyboard("{Enter}");}
  expect(paths,"REAL_WIKI_RESOLUTION_AND_PATH_NAVIGATION").toEqual(["notes/raft-build.md","notes/ithaca.md"]);
  for(const theme of ["light","dark"] as const){mount(<DiagramContent source={source} theme={theme} mode="chat"/>);await ready();expect((await axe.run(host,{rules:{region:{enabled:false}}})).violations,"DIAGRAM_AXE").toEqual([]);}
@@ -75,7 +76,7 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
  await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')).not.toBeNull();
  const node=document.querySelector<SVGGElement>('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')!;
  const stage=node.closest("svg")!.parentElement!.parentElement!;const before=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();expect(before.left<bounds.left||before.right>bounds.right,"CONTROL_NODE_STARTS_OFFSCREEN").toBe(true);
- node.focus();await expect.poll(()=>{const target=node.getBoundingClientRect(),frame=stage.getBoundingClientRect();return target.left>=frame.left&&target.right<=frame.right&&target.top>=frame.top&&target.bottom<=frame.bottom;},"KEYBOARD_TARGET_REVEALED_IN_VIEWER").toBe(true);
+ node.focus();await expect.poll(()=>{const target=node.getBoundingClientRect(),frame=stage.getBoundingClientRect();return target.left>=frame.left&&target.right<=frame.right&&target.top>=frame.top&&target.bottom<=frame.bottom;}).toBe(true);
  fontFloor(node.closest("svg")!);expect(getComputedStyle(node.querySelector('.bk-diagram-node-focus')!).visibility).toBe("visible");await userEvent.keyboard("{Enter}");expect(paths).toEqual(["notes/raft-build.md"]);await userEvent.keyboard("{Escape}");
  }finally{await commands.formViewport(previous.width,previous.height);}
 });
@@ -83,10 +84,16 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
 test("the exact adopted eight-node relay fits both authored layouts with real font bounds",async()=>{
  setup(720);const adopted=await commands.diagramFixture();
  for(const width of [720,320])for(const theme of ["light","dark","print"] as const){
- host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();const svg=screenSvg()!;
+ document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"716");const svg=screenSvg()!;
  expect(svg.querySelectorAll("[data-diagram-node]").length,"ADOPTED_EIGHT_DISTINCT_NODES").toBe(8);expect(svg.querySelectorAll("[data-diagram-edge]").length).toBe(7);fontFloor(svg);
  for(const group of svg.querySelectorAll("[data-diagram-node]")){const box=group.querySelector<SVGRectElement>("rect")!.getBBox();for(const label of group.querySelectorAll("text")){const bounds=label.getBBox();expect(bounds.x,"NODE_TEXT_LEFT_FIT").toBeGreaterThanOrEqual(box.x);expect(bounds.x+bounds.width,"NODE_TEXT_RIGHT_FIT").toBeLessThanOrEqual(box.x+box.width);expect(bounds.y,"NODE_TEXT_TOP_FIT").toBeGreaterThanOrEqual(box.y);expect(bounds.y+bounds.height,"NODE_TEXT_BOTTOM_FIT").toBeLessThanOrEqual(box.y+box.height);}}
  for(const label of svg.querySelectorAll<SVGTextElement>("[data-edge-label]")){const mask=svg.querySelector<SVGRectElement>(`[data-edge-mask="${label.dataset.edgeLabel}"]`)!.getBBox(),bounds=label.getBBox();expect(bounds.x).toBeGreaterThanOrEqual(mask.x);expect(bounds.x+bounds.width,"ACTUAL_LABEL_FITS_OPAQUE_MASK").toBeLessThanOrEqual(mask.x+mask.width);expect(bounds.y).toBeGreaterThanOrEqual(mask.y);expect(bounds.y+bounds.height).toBeLessThanOrEqual(mask.y+mask.height);}
+ const legend=svg.querySelector<SVGGElement>("[data-diagram-legend]")!;expect(Number(legend.dataset.footerTop),"LEGEND_CLEARS_CONTENT").toBeGreaterThanOrEqual(Number(legend.dataset.contentBottom)+8);expect([...svg.querySelectorAll("[data-legend-key]")].map(item=>item.textContent)).toContain("FOCAL");expect([...svg.querySelectorAll("[data-legend-key]")].map(item=>item.textContent)).toContain("STORE");
  expect(host.scrollWidth).toBeLessThanOrEqual(width);await commands.diagramCapture('[data-content-renderer="diagram"]',`relay-${width}-${theme}`);
  }
+ for(const theme of ["light","dark"] as const){const missing=JSON.parse(adopted);delete missing.layouts;document.documentElement.dataset.theme=theme;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(missing)} theme={theme} mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();expect(getComputedStyle(host.querySelector("figure")!).backgroundColor,"FALLBACK_FOLLOWS_THEME").toBe(theme==="dark"?"rgb(20, 22, 25)":"rgb(248, 245, 239)");await commands.diagramCapture('[data-content-renderer="diagram"]',`relay-320-absent-narrow-${theme}`);}
+});
+
+test("a no-link diagram exposes its focusable node groups as a figure",async()=>{
+ setup();const spec=structuredClone(rendererSpec);spec.nodes.forEach(node=>delete (node as {link?:string}).link);mount(<DiagramContent source={JSON.stringify(spec)} theme="light" mode="chat"/>);await ready();expect(screenSvg()!.getAttribute("role")).toBe("figure");expect(screenSvg()!.querySelectorAll('[role="group"][tabindex="0"]').length).toBe(2);expect((await axe.run(host,{rules:{region:{enabled:false}}})).violations).toEqual([]);
 });

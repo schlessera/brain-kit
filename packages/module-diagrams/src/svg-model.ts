@@ -2,7 +2,7 @@ import { parseDocument } from "yaml";
 import { checkDiagram, diagramSource } from "./check.js";
 import { diagramSpecSchema, type DiagramSpec } from "./spec.js";
 import { buildDiagramLayout } from "./layout.js";
-import { DIAGRAM_TYPE, diagramNodePaint, diagramEdgePaint, fitDiagramText, type DiagramTypeRole } from "./skin.js";
+import { DIAGRAM_TYPE, diagramNodePaint, diagramEdgePaint, fitDiagramText, typeWidthBudget, type DiagramTypeRole } from "./skin.js";
 import type { DiagramTree, DiagramNode } from "./geometry.js";
 
 /** Concrete internal SVG primitives shared by the two first-party entries. */
@@ -35,10 +35,17 @@ function nodeParts(node: DiagramNode, spec: DiagramSpec): SvgPrimitive[] {
 }
 /** All geometry is supplied by the builder. This maps it to paints and safe elements only. */
 export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" = "default"): DiagramSvgModel {
- const tree=buildDiagramLayout(spec,layout), elements:SvgPrimitive[]=[primitive("rect",{class:"bk-diagram-screen-frame",x:0.5,y:0.5,width:tree.viewBox.width-1,height:tree.viewBox.height-1,rx:8,fill:"none",stroke:ink("color-line"),"stroke-width":1})];
+ const tree=buildDiagramLayout(spec,layout);
+ const kinds=[...new Set(spec.edges.map(edge=>edge.kind??"default")), ...(tree.elements.some(item=>item.kind==="node"&&item.focal)?["focal"]:[]), ...(spec.nodes.some(item=>item.role==="store")?["store"]:[])], columns=Math.max(1,Math.min(kinds.length||1,tree.viewBox.width<=320?2:Infinity,Math.floor((tree.viewBox.width-16)/Math.max(1,...kinds.map(kind=>typeWidthBudget(kind,"label")+44))))), rows=Math.ceil(kinds.length/columns), footerHeight=rows?rows*20+16:0;
+ const contentBottom=Math.max(0,...tree.elements.map(element=>element.kind==="connector"?Math.max(...element.points.map(point=>point.y)):element.y+element.height));
+ if(footerHeight && contentBottom+footerHeight+8>tree.viewBox.height){
+  if(layout==="default" && spec.size==="fit") tree.viewBox={...tree.viewBox,height:Math.ceil((contentBottom+footerHeight+8)/4)*4};
+  else throw Error("The selected canvas has no room for its readable legend footer; reserve footer space or use size: fit");
+ }
+ const elements:SvgPrimitive[]=[primitive("rect",{class:"bk-diagram-screen-frame",x:0.5,y:0.5,width:tree.viewBox.width-1,height:tree.viewBox.height-1,rx:8,fill:"none",stroke:ink("color-line"),"stroke-width":1})];
  for (const element of tree.elements) {
   switch(element.kind) {
-   case "group": elements.push(primitive("g",{"data-diagram-group":element.id},undefined,[primitive("rect",{x:element.x,y:element.y,width:element.width,height:element.height,rx:8,fill:ink("diagram-cluster"),stroke:ink("diagram-cluster-border"),"stroke-width":1}),text(element.label,"label",element.x+8,element.y+12,element.width-16,ink("color-ink-mute"))])); break;
+   case "group": { const heading=text(element.label,"label",element.x+8,element.y+3,element.width-16,ink("color-ink-mute")); const headingWidth=typeWidthBudget(element.label,"label",Number(heading.attrs["font-size"])); elements.push(primitive("g",{"data-diagram-group":element.id},undefined,[primitive("rect",{x:element.x,y:element.y,width:element.width,height:element.height,rx:8,fill:ink("diagram-cluster"),stroke:ink("diagram-cluster-border"),"stroke-width":1}),primitive("rect",{"data-group-heading-mask":"",x:element.x+4,y:element.y-7,width:headingWidth+8,height:14,fill:ink("diagram-cluster")}),heading])); break; }
    case "connector": {
     const paint=diagramEdgePaint(spec.edges[element.edge]!.kind,element.transit.length>0);
     elements.push(primitive("g",{"data-diagram-edge":element.edge,"data-from":element.from.node,"data-to":element.to.node},undefined,[primitive("path",{d:element.path,fill:"none",stroke:paint.stroke,"stroke-width":paint.width,"stroke-dasharray":paint.dash,"stroke-linecap":paint.linecap,"stroke-linejoin":"round"}),arrow(element.points,paint.head,paint.stroke,paint.width)]));break;
@@ -49,10 +56,15 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
    default: { const exhaustive:never=element; throw Error(`Unknown diagram element: ${String(exhaustive)}`); }
   }
  }
- const kinds=[...new Set(spec.edges.map(edge=>edge.kind??"default"))];
- const legendY=tree.viewBox.height-12, cell=Math.min(128,(tree.viewBox.width-16)/Math.max(1,kinds.length));
- elements.push(primitive("line",{x1:8,y1:legendY-10,x2:tree.viewBox.width-8,y2:legendY-10,stroke:ink("color-line"),"stroke-width":1}));
- kinds.forEach((kind,index)=>{const paint=diagramEdgePaint(kind),x=8+index*cell;elements.push(primitive("path",{d:`M ${x} ${legendY} L ${x+20} ${legendY}`,fill:"none",stroke:paint.stroke,"stroke-width":paint.width,"stroke-dasharray":paint.dash,"stroke-linecap":paint.linecap}),arrow([{x,y:legendY},{x:x+20,y:legendY}],paint.head,paint.stroke,paint.width),text(kind,"label",x+28,legendY+3,cell-28,ink("color-ink-mute")));});
+ if(kinds.length){
+  const footerTop=tree.viewBox.height-footerHeight, cell=(tree.viewBox.width-16)/columns;
+  const legend:SvgPrimitive[]=[primitive("line",{x1:8,y1:footerTop+2,x2:tree.viewBox.width-8,y2:footerTop+2,stroke:ink("color-line"),"stroke-width":1})];
+  kinds.forEach((kind,index)=>{const paint=diagramEdgePaint(kind),x=8+(index%columns)*cell,y=footerTop+16+Math.floor(index/columns)*20;
+   if(kind==="focal"||kind==="store"){const nodePaint=diagramNodePaint(kind==="focal"?"focal":"store");legend.push(primitive("rect",{x:x+3,y:y-5,width:14,height:10,rx:3,fill:nodePaint.fill,stroke:nodePaint.stroke,"stroke-width":nodePaint.strokeWidth}));if(kind==="store")legend.push(primitive("line",{x1:x+3,y1:y-2,x2:x+17,y2:y-2,stroke:nodePaint.stroke,"stroke-width":1}));}
+   else legend.push(primitive("path",{d:`M ${x} ${y} L ${x+20} ${y}`,fill:"none",stroke:paint.stroke,"stroke-width":paint.width,"stroke-dasharray":paint.dash,"stroke-linecap":paint.linecap}),arrow([{x,y},{x:x+20,y}],paint.head,paint.stroke,paint.width));
+   legend.push(text(kind,"label",x+28,y+3,cell-28,ink("color-ink-mute"),{"data-legend-key":kind}));});
+  elements.push(primitive("g",{"data-diagram-legend":"","data-footer-top":footerTop,"data-content-bottom":contentBottom},undefined,legend));
+ }
  const fonts:number[]=[]; const collect=(items:SvgPrimitive[])=>items.forEach(item=>{if(item.tag==="text")fonts.push(Number(item.attrs["font-size"]));if(item.children)collect(item.children);});collect(elements);
  return {tree,elements,minimumFont:Math.min(...fonts,9.5)};
 }

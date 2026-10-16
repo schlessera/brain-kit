@@ -217,3 +217,10 @@ wiki-link resolver and focusable SVG groups; static output does not navigate.
 Authored narrow placement is selected only when its native frame fits the
 container. Missing or non-fitting placement uses the semantic summary and Open
 diagram control, with a readable dedicated viewer, rather than inline scaling.
+
+The shared SVG model includes boundary-heading knockouts and a legend for the
+edge encodings and applicable focal/store roles. Legend cells wrap from their
+shared type budgets. Default `size: fit` reserves presentation-only footer space
+without moving content; authored narrow dimensions stay exact. A fixed canvas
+that cannot fit the readable footer is refused with an explanation rather than
+clipping or shrinking the diagram.
