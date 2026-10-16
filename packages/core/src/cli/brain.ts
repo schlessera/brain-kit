@@ -10,6 +10,7 @@
  */
 
 import { join } from "path";
+import { validateRenderInput } from "./commands/render.js";
 import { isReadOnlyBrainMount, readOnlyBrainError, writeTarget } from "./read-only.js";
 import { Console } from "node:console";
 
@@ -219,6 +220,9 @@ async function main(): Promise<number> {
     );
     return 1;
   }
+
+  // Render source mistakes must reach the caller before a sandbox refusal.
+  if (command === "render") validateRenderInput(argv.slice(1), brain.root);
 
   // Refuse known write forms before handlers which intentionally collect
   // per-file errors; those loops cannot surface EROFS to main's catch.

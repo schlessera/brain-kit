@@ -237,6 +237,8 @@ Original fragment identities remain available at this entry point.
 
 - [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
 
+- [Interactive main-model identity (additive, #2037)](integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
+
 <a id="governance-events-additive-1651"></a>
 
 - [Governance events (additive, #1651)](integration-contract/http.md#governance-events-additive-1651).
@@ -520,3 +522,9 @@ Original fragment identities remain available at this entry point.
 <a id="human-started-hygiene-review-additive-1027"></a>
 
 - [Human-started hygiene review (additive, #1027)](integration-contract/package-api.md#human-started-hygiene-review-additive-1027) (original line 5795).
+
+## Per-turn prompt-cache diagnostics (additive, #2050)
+
+Activity run detail and runtime stats gain [cache diagnostics](integration-contract/http.md#prompt-cache-diagnostics-additive-2050).
+The backend side channel gains hash-only assembled-prefix and first-main-request
+receipts, documented in the [package API](integration-contract/package-api.md#prompt-cache-diagnostic-events-additive-2050).

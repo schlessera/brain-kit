@@ -28,6 +28,7 @@ export "." (./src/index.ts)
   type ModuleContribution
   type ModuleCronEntry
   type ModuleManifest
+  type ModuleRenderer
   type ModuleSettings
   type ModuleSettingsField
   type ModuleSettingsMigrationPlan
@@ -83,6 +84,7 @@ export "./internal" (./src/internal.ts)
   GovernancePolicySchema
   type IngestInput
   type IngestOutcome
+  type ResolvedModuleRenderer
   SCRATCH_DIR
   SEARCH_SORTS
   type SearchOptions
@@ -94,6 +96,7 @@ export "./internal" (./src/internal.ts)
   assertScratchWritable
   buildTaxonomy
   checkGovernancePolicy
+  collectModuleRenderers
   collectStats
   estimateTokens
   geminiCompletions
@@ -556,6 +559,7 @@ signatures (every public export and the types it is made of)
     }
   ModuleContribution (packages/core/src/lib/module-types.ts)
     export interface ModuleContribution<C = unknown> {
+        renderers?: Record<string, ModuleRenderer>;
         taxonomy?: {
             types?: Record<string, TypeSpec>;
             classifierHints?: Record<string, string[]>;
@@ -597,6 +601,13 @@ signatures (every public export and the types it is made of)
         };
         settings?: ModuleSettings<C>;
         setup(config: C): ModuleContribution<C>;
+    }
+  ModuleRenderer (packages/core/src/lib/module-types.ts)
+    export interface ModuleRenderer {
+        fences?: string[];
+        extensions?: string[];
+        client: string;
+        static?: string;
     }
   ModuleSettings (packages/core/src/lib/module-settings-types.ts)
     export interface ModuleSettings<C = unknown> {

@@ -722,3 +722,15 @@ attachment removal. See the [Storage guide](../../docs/storage.md) for the
 measurement basis, layered history, pressure causes, optional Critical notices,
 review flow and Undo conditions. `AppShell` includes the persistent Storage status;
 it consumes server evidence and adds no rail/bar destination or shortcut.
+
+## SVG files and printing
+
+SVG files open in the image previewer. The Raw tab reads their source as
+text from the authenticated raw-file route; SVG markup is never inserted
+into the app document. The raw route keeps its existing restrictive CSP.
+
+The app stylesheet selects the light colour scheme for browser print,
+including when the screen theme is explicitly dark. An SVG embedded as an
+image can use that scheme to choose its light palette; its own `@media print`
+rules do not run inside the image. The share document shell already selects
+light for exports.

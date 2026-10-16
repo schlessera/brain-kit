@@ -97,13 +97,14 @@ export const PACK_TABLE: Record<string, PackRow> = {
   "ui-sdk": {
     files: ["dist/index.js", "dist/bin/brain-native-store.js"],
     bins: ["brain-native-store-usage"],
-    bun: ["@schlessera/brain-ui-sdk"],
+    bun: ["@schlessera/brain-ui-sdk", "@schlessera/brain-ui-sdk/render"],
     node: [
       "@schlessera/brain-ui-sdk",
       "@schlessera/brain-ui-sdk/protocol",
       "@schlessera/brain-ui-sdk/schemas",
       "@schlessera/brain-ui-sdk/server",
       "@schlessera/brain-ui-sdk/testing",
+      "@schlessera/brain-ui-sdk/render",
       "@schlessera/brain-ui-sdk/client",
     ],
     react18: true,
@@ -156,6 +157,7 @@ export const PACK_TABLE: Record<string, PackRow> = {
   },
   "module-finance": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-finance"], node: "bun-only" },
   "module-images": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-images"], node: "bun-only" },
+  "module-diagrams": { files: ["dist/index.js", "dist/module.js", "dist/ui.js", "dist/render.js", "LICENSE", "UPSTREAM.md", "upstream.json", "scripts/upstream-report.ts", "skills/README.md"], bun: ["@schlessera/brain-module-diagrams", "@schlessera/brain-module-diagrams/module", "@schlessera/brain-module-diagrams/ui", "@schlessera/brain-module-diagrams/render"], node: "bun-only" },
   "module-video": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-video"], node: "bun-only" },
   "module-jobs": { files: ["dist/index.js"], bun: ["@schlessera/brain-module-jobs"], node: "bun-only" },
   "module-speaking": {

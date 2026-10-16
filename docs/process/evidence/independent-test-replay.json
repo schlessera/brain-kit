@@ -1,0 +1,1375 @@
+{
+  "cutoff": "2026-10-16T10:49:55Z",
+  "ordering": "descending PR number among merged-at-cutoff,100",
+  "inputNumbers": [
+    2071,
+    2060,
+    2057,
+    2044,
+    2043,
+    2020,
+    2019,
+    2018,
+    2017,
+    2015,
+    2008,
+    2007,
+    2006,
+    2005,
+    2002,
+    2001,
+    2000,
+    1998,
+    1995,
+    1994,
+    1992,
+    1991,
+    1986,
+    1985,
+    1984,
+    1983,
+    1981,
+    1979,
+    1977,
+    1972,
+    1968,
+    1966,
+    1965,
+    1964,
+    1963,
+    1962,
+    1961,
+    1960,
+    1959,
+    1958,
+    1957,
+    1955,
+    1954,
+    1953,
+    1952,
+    1951,
+    1949,
+    1941,
+    1934,
+    1932,
+    1930,
+    1928,
+    1927,
+    1926,
+    1924,
+    1923,
+    1920,
+    1916,
+    1914,
+    1911,
+    1909,
+    1908,
+    1907,
+    1906,
+    1905,
+    1900,
+    1899,
+    1896,
+    1893,
+    1892,
+    1891,
+    1888,
+    1886,
+    1882,
+    1881,
+    1880,
+    1879,
+    1878,
+    1876,
+    1875,
+    1874,
+    1864,
+    1862,
+    1861,
+    1860,
+    1848,
+    1839,
+    1832,
+    1793,
+    1789,
+    1786,
+    1785,
+    1784,
+    1776,
+    1769,
+    1761,
+    1753,
+    1748,
+    1747,
+    1741
+  ],
+  "scope": "Historical merged source replay; planning results are not runtime speedup measurements.",
+  "results": [
+    {
+      "number": 2071,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 8
+        }
+      ]
+    },
+    {
+      "number": 2060,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 2057,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 2044,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 2043,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 2020,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 2019,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 8
+        }
+      ]
+    },
+    {
+      "number": 2018,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 4
+        }
+      ]
+    },
+    {
+      "number": 2017,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 9
+        }
+      ]
+    },
+    {
+      "number": 2015,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "prose only",
+          "inputCount": 0
+        }
+      ]
+    },
+    {
+      "number": 2008,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 2007,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "prose only",
+          "inputCount": 0
+        }
+      ]
+    },
+    {
+      "number": 2006,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-renderer-phase-clock.json",
+            "packages/ui-render-puppeteer/tests/phase-budgets.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 2005,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 2002,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 2001,
+      "briefCandidate": false,
+      "qualifies": true,
+      "merge": "9cf4aa5f37a33d40f53f783ecd0e8344f920f9ec",
+      "unitTests": [
+        "tests/browser-shards.test.ts",
+        "tests/candidate-proof.test.ts",
+        "tests/changeset-gate.test.ts",
+        "tests/ci-pack.test.ts",
+        "tests/ci-plan.test.ts",
+        "tests/ci-runner.test.ts",
+        "tests/ci-workflows.test.ts",
+        "tests/contract-gate.test.ts",
+        "tests/decision-citations.test.ts",
+        "tests/dependency-edges.test.ts",
+        "tests/export-native-rejection-runtime.test.ts",
+        "tests/frontmatter-parse-gate.test.ts",
+        "tests/hosted-proof.test.ts",
+        "tests/local-checks.test.ts",
+        "tests/lockfile.test.ts",
+        "tests/measurement-fixture-lifetime.test.ts",
+        "tests/proof-inventory.test.ts",
+        "tests/proof-reuse.test.ts",
+        "tests/release-manifest.test.ts"
+      ],
+      "categories": {
+        "fullTests": true,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "runtime": false,
+        "endurance": false
+      },
+      "reasons": []
+    },
+    {
+      "number": 2000,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1998,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1995,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1994,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1992,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "prose only",
+          "inputCount": 0
+        }
+      ]
+    },
+    {
+      "number": 1991,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 4
+        }
+      ]
+    },
+    {
+      "number": 1986,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1985,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 7
+        }
+      ]
+    },
+    {
+      "number": 1984,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1983,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1981,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 5
+        }
+      ]
+    },
+    {
+      "number": 1979,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1977,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 6
+        }
+      ]
+    },
+    {
+      "number": 1972,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1968,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 11
+        }
+      ]
+    },
+    {
+      "number": 1966,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1965,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1964,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 29
+        }
+      ]
+    },
+    {
+      "number": 1963,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1962,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1961,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 7
+        }
+      ]
+    },
+    {
+      "number": 1960,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-html-download-completion.json",
+            "packages/ui-react/tests/html-preview-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1959,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1958,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-browser-pacing-completion.json",
+            "docs/process/evidence/test-wait-browser-robots-completion.json",
+            "docs/process/evidence/test-wait-search-deadlines.json",
+            "packages/core/tests/search-reliability.test.ts",
+            "packages/scrape/tests/browser-politeness.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1957,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-html-form-boundaries.json",
+            "docs/process/evidence/test-wait-html-popup-boundaries.json",
+            "docs/process/evidence/test-wait-html-top-boundary.json",
+            "packages/ui-react/tests/html-preview-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1955,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-html-navigation-boundaries.json",
+            "packages/ui-react/tests/html-preview-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1954,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-agent-runner-observations.json",
+            "docs/process/evidence/test-wait-consumed-draft-completion.json",
+            "docs/process/evidence/test-wait-consumed-draft-observations.json",
+            "docs/process/evidence/test-wait-index-observations.json",
+            "docs/process/evidence/test-wait-maintenance-gates.json",
+            "docs/process/evidence/test-wait-politeness-boundaries.json",
+            "packages/ui-react/tests/draft-client.test.ts",
+            "packages/ui-react/tests/draft-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1953,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "docs/process/evidence/test-wait-native-child-observations.json",
+            "packages/ui-react/tests/html-preview-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1952,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 45
+        }
+      ]
+    },
+    {
+      "number": 1951,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1949,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1941,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 47
+        }
+      ]
+    },
+    {
+      "number": 1934,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1932,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 20
+        }
+      ]
+    },
+    {
+      "number": 1930,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "615b97f50e7a22a011b31839f04e17c6ccd20f10",
+      "reasons": [
+        {
+          "file": "packages/ui-kit/tests/ghost-text.test.tsx",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/decisions/design-kit/loading.md",
+            "docs/process/evidence/test-wait-native-observations.json",
+            "docs/process/evidence/test-wait-operational-basis.json",
+            "docs/process/evidence/test-wait-sites.tsv",
+            "docs/process/test-waits.md",
+            "packages/ui-kit/src/tokens.css",
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json",
+            "tests/dom-global-restoration.test.ts"
+          ]
+        },
+        {
+          "file": "tests/dom-global-restoration.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1928,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1927,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1926,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1924,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1923,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 35
+        }
+      ]
+    },
+    {
+      "number": 1920,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "009e45714701844a632101a181be2d5e8d66afbb",
+      "reasons": [
+        {
+          "file": "packages/scrape/tests/client.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/decisions/experiment-tier.md",
+            "docs/decisions/runtime-requirements.md",
+            "docs/http-api-coverage.md",
+            "docs/process/evidence/test-wait-sites.tsv",
+            "docs/process/test-waits.md",
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1916,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1914,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "cf18e810c5c60a1b10f67ba0ee28f7e0cbf0502b",
+      "reasons": [
+        {
+          "file": "packages/ui-react/tests/association-signout-runtime.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/process/evidence/test-wait-observations.json",
+            "docs/process/evidence/test-wait-sites.tsv",
+            "docs/process/test-waits.md",
+            "docs/process/theme-parity.md",
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        },
+        {
+          "file": "packages/ui-react/tests/turn-journal-runtime.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/http-api-coverage.md",
+            "docs/process/evidence/test-wait-observations.json",
+            "docs/process/evidence/test-wait-sites.tsv",
+            "docs/process/theme-parity.md"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1911,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1909,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1908,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 95
+        }
+      ]
+    },
+    {
+      "number": 1907,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 42
+        }
+      ]
+    },
+    {
+      "number": 1906,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1905,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "52f85a1721910ca560fce38cf47eb3096ae97562",
+      "reasons": [
+        {
+          "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/process/evidence/test-wait-sites.tsv",
+            "docs/process/test-waits.md",
+            "docs/process/theme-parity.md",
+            "packages/ui-react/tests/reconnect-reattach.test.ts",
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1900,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 5
+        }
+      ]
+    },
+    {
+      "number": 1899,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 17
+        }
+      ]
+    },
+    {
+      "number": 1896,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 6
+        }
+      ]
+    },
+    {
+      "number": 1893,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 6
+        }
+      ]
+    },
+    {
+      "number": 1892,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 21
+        }
+      ]
+    },
+    {
+      "number": 1891,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "d08bbf8be72f4143aaa28e9a22d53524968d50f2",
+      "reasons": [
+        {
+          "file": "packages/ui-react/tests/draft-client.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1888,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 13
+        }
+      ]
+    },
+    {
+      "number": 1886,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1882,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1881,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 45
+        }
+      ]
+    },
+    {
+      "number": 1880,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1879,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 5
+        }
+      ]
+    },
+    {
+      "number": 1878,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1876,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 2
+        }
+      ]
+    },
+    {
+      "number": 1875,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 4
+        }
+      ]
+    },
+    {
+      "number": 1874,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "27a368b6ed7c8e80b33613da0c33af6776d74f75",
+      "reasons": [
+        {
+          "file": "packages/ui-react/tests/tracker-runtime.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1864,
+      "briefCandidate": true,
+      "qualifies": false,
+      "merge": "ca1facc1e7086bd2119c260150e9f091e16817f1",
+      "reasons": [
+        {
+          "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+          "reason": "export token"
+        },
+        {
+          "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+          "reason": "tracked basename references",
+          "references": [
+            "docs/plans/async-collaboration.md",
+            "scripts/test-shard-costs.json",
+            "scripts/unit-shard-observation.json"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 1862,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 24
+        }
+      ]
+    },
+    {
+      "number": 1861,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 7
+        }
+      ]
+    },
+    {
+      "number": 1860,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 4
+        }
+      ]
+    },
+    {
+      "number": 1848,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 25
+        }
+      ]
+    },
+    {
+      "number": 1839,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 22
+        }
+      ]
+    },
+    {
+      "number": 1832,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 3
+        }
+      ]
+    },
+    {
+      "number": 1793,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 70
+        }
+      ]
+    },
+    {
+      "number": 1789,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 20
+        }
+      ]
+    },
+    {
+      "number": 1786,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 14
+        }
+      ]
+    },
+    {
+      "number": 1785,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1784,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 1
+        }
+      ]
+    },
+    {
+      "number": 1776,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 100
+        }
+      ]
+    },
+    {
+      "number": 1769,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "prose only",
+          "inputCount": 0
+        }
+      ]
+    },
+    {
+      "number": 1761,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 28
+        }
+      ]
+    },
+    {
+      "number": 1753,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 53
+        }
+      ]
+    },
+    {
+      "number": 1748,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 53
+        }
+      ]
+    },
+    {
+      "number": 1747,
+      "briefCandidate": false,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputCount": 62
+        }
+      ]
+    },
+    {
+      "number": 1741,
+      "briefCandidate": true,
+      "qualifies": false,
+      "reasons": [
+        {
+          "reason": "non-test changed inputs or root test inputs",
+          "inputs": [
+            "bun.lock",
+            "packages/common/package.json",
+            "packages/common/src/governance-policy.ts",
+            "packages/common/src/protected-paths.ts",
+            "packages/core/src/cli/brain.ts",
+            "packages/core/src/cli/commands/index.ts",
+            "packages/core/src/cli/commands/policy.ts",
+            "packages/core/src/cli/core-command-names.ts",
+            "packages/core/src/internal.ts",
+            "packages/core/src/lib/config.ts",
+            "packages/core/src/lib/governance-policy.ts",
+            "packages/core/src/lib/scratch.ts",
+            "packages/core/tests/governance-policy.test.ts",
+            "packages/core/tests/policy-cli.test.ts",
+            "packages/ui-sdk/src/server/protected-paths.ts",
+            "packages/ui-sdk/src/server/worker-protection.ts",
+            "packages/ui-server/migrations/041_turn_governance_policy.sql",
+            "packages/ui-server/src/app.ts",
+            "packages/ui-server/src/brain/application.ts",
+            "packages/ui-server/src/brain/governance-policy.ts",
+            "packages/ui-server/src/brain/governed-turn.ts",
+            "packages/ui-server/src/brain/mask-application.ts",
+            "packages/ui-server/src/brain/protected-target.ts",
+            "packages/ui-server/src/ws/bridge.ts",
+            "packages/ui-server/src/ws/run-session.ts",
+            "packages/ui-server/tests/governance-policy-application.test.ts",
+            "packages/ui-server/tests/governance-policy.test.ts",
+            "scripts/check-ui-server-query-package.ts",
+            "scripts/ci-pack.ts",
+            "tests/allowed-edges.ts"
+          ]
+        }
+      ]
+    }
+  ]
+}

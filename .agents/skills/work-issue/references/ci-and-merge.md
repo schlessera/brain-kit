@@ -17,6 +17,12 @@ means CI has not started on that commit, which is not the same as green.
 
 Before opening/marking ready, execute `bun run check:pr --base origin/main`
 (`--base <parent-ref>` for an upper stack layer) for focused preflight.
+Default preflight includes offline-wrapped `--changed=<merge-base-sha>`
+import-graph feedback, including working-tree changes, in addition to fast
+invariants. An empty selection prints Bun’s no-affected-tests reason and
+succeeds. This misses spawned commands and file-read/string-named inputs;
+it does not replace complete affected hosted discovery. Full/all modes retain
+their existing suites without adding this feedback step.
 Record actual behavioral failing-first/restored mutation
 receipts and visual judgment. Complete repeatable proof runs in selected hosted
 jobs under #1326, including full affected discovery, pinned browser/layout/
@@ -41,6 +47,16 @@ job/check/checkout receipts are validated. Inspect the current retention ledger
 and independently validating aggregate. Preserve original identities; do not
 describe retained jobs as executions on the new SHA. Native/Git-dependent and
 unknown domains, main pushes and scheduled/manual coverage remain fresh.
+
+A draft-to-ready transition can retain GitHub's previous PR base and synthetic
+merge ref even after live main advances. Before requesting expensive confirmation,
+read the REST pull request's `base.sha` and fetch `refs/pull/<pr>/merge`; verify
+its immutable parents against the independently queried live base and current
+head. If those still describe the old base, keep the PR draft and refresh the
+branch onto the verified live base, preserving source receipts where their
+inputs are unchanged. Rerun focused preflight, push, and verify the refreshed
+merge parents before marking ready. A new event alone does not establish a
+fresh candidate; selected job checkout and aggregate checks remain required.
 
 ## Read the actual head
 
@@ -76,6 +92,15 @@ a push/rebase/conflict resolution, inspect the new SHA from scratch. If CI
 tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
+
+A fresh ready event can still carry GitHub's cached `pull_request.base.sha`.
+Compare the metadata job's `BASE_SHA` with the actual checkout's first parent,
+as well as the live base; checking only the checkout against live main misses
+this mismatch. If the requested base is stale, merge fetched `origin/main`
+into the issue branch, run the required preflight, push while draft and request
+confirmation again. Verify the refreshed metadata before spending the rest of
+the run. Do not weaken the candidate identity gate or call the earlier tests
+proof of a differently requested candidate.
 
 Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
 `project-sync.yml`, plus the merge requirements, for expected checks. GitHub

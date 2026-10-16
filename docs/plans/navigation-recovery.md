@@ -387,19 +387,19 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:620-674`).
 
-- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:255-294`).
+- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:335-374`).
 
-- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1565-1581`).
+- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1567-1583`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:128-129`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:132-133`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2907-2930`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2909-2932`).
 
-- Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:142-275`).
+- Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:143-281`).
 
 - API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:761`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:878-922`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:932-976`).
 
 - Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1217-1247`).
 

@@ -489,8 +489,7 @@ describe("principal revocation boundary", () => {
     const billing = deferred();
     let billingCalls = 0;
     const backend = makeFakeBackend({ id: "fake", startTurn: async () => {} });
-    const { host, registry } = activityHostFor(backend);
-    const db = databases[databases.length - 1]!;
+    const { host, registry, store } = activityHostFor(backend);
     registry.listAllProviders = async () => {
       billingCalls += 1;
       await billing.promise;
@@ -517,12 +516,10 @@ describe("principal revocation boundary", () => {
     billing.resolve();
     await running;
 
-    const events = db
-      .query(
-        "SELECT event_type AS type, payload FROM activity_events WHERE event_type = 'turn_cancelled'"
-      )
-      .all() as Array<{ type: string; payload: string }>;
-    expect(events.map((e) => JSON.parse(e.payload).v.principalId)).toEqual(["owner-b"]);
+    const lifecycle = store.lifecycles()[0]!;
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({kind:"turn_cancelled",principalId:"owner-b"}));
+    expect(lifecycle.backendRunId).toBeNull();
+    expect(store.snapshotRun(lifecycle.turnId)).toBeNull();
     host.coordinator.reset();
   });
 
@@ -757,7 +754,7 @@ describe("principal revocation boundary", () => {
     }
   );
 
-  test("a disconnected queued sender becomes the current authority when dequeued", async () => {
+  test.each(["revoked", "failure recording"] as const)("a disconnected queued sender becomes the current authority when dequeued (%s)", async (mode) => {
     const releaseFirst = deferred();
     const releaseSecondBilling = deferred();
     const prompts: string[] = [];
@@ -768,13 +765,18 @@ describe("principal revocation boundary", () => {
         if (request.prompt === "first") await releaseFirst.promise;
       },
     });
-    const { host, registry } = activityHostFor(backend);
+    const { host, registry, store } = activityHostFor(backend);
     const listProviders = registry.listAllProviders.bind(registry);
     let billingCalls = 0;
     registry.listAllProviders = async (options) => {
       billingCalls += 1;
       if (billingCalls === 2) await releaseSecondBilling.promise;
       return listProviders(options);
+    };
+    const beginFailureRecording = host.failureReplay.begin.bind(host.failureReplay);
+    host.failureReplay.begin = async (...args) => {
+      if (mode === "failure recording" && billingCalls === 2) throw new Error("Queued failure recording unavailable");
+      return beginFailureRecording(...args);
     };
     const firstHandlers = createWsHandlers(host, testPrincipal("first-principal"));
     const queuedHandlers = createWsHandlers(host, testPrincipal("queued-principal"));
@@ -783,16 +785,13 @@ describe("principal revocation boundary", () => {
     await firstHandlers.onOpen({} as Event, firstSocket.ws);
     await queuedHandlers.onOpen({} as Event, queuedSocket.ws);
 
-    firstHandlers.onMessage(
-      {
-        data: JSON.stringify({
-          type: "chat_message",
-          text: "first",
-          sessionId: "session-queue",
-        }),
-      } as MessageEvent,
-      firstSocket.ws
-    );
+    const firstAuthorization = host.coordinator.openAuthorization({
+      principalId: "first-principal", expiresAt: Number.MAX_SAFE_INTEGER, valid: true,
+    });
+    const completed = runSession(host, {
+      authorization: firstAuthorization, text: "first", sessionId: "session-queue", attachments: [],
+    }).then(() => null, error => error);
+    firstAuthorization.release();
     await until(() => prompts.length === 1);
     queuedHandlers.onMessage(
       {
@@ -813,12 +812,28 @@ describe("principal revocation boundary", () => {
     expect(dequeued.principalId).toBe("queued-principal");
     expect(dequeued.authorization.principalId).toBe("queued-principal");
 
-    host.revokePrincipals(["queued-principal"], 1008, "Sessions invalidated");
+    const queuedTurnId = dequeued.turnId;
+    if (mode === "revoked") {
+      dequeued.pendingCancellationPrincipalIds.push("first-principal");
+      host.revokePrincipals(["queued-principal"], 1008, "Sessions invalidated");
+    }
     releaseSecondBilling.resolve();
     await until(() => host.coordinator.running.size === 0);
+    const failure = await completed;
 
     expect(prompts).toEqual(["first"]);
     firstHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, firstSocket.ws);
+    if (mode === "revoked") {
+      expect(store.lifecycle(queuedTurnId)?.hostEvents, "QUEUED_CANCEL_ACTOR_SURVIVES_LEASE_RELEASE").toContainEqual(
+        expect.objectContaining({ kind: "turn_cancelled", principalId: "first-principal" })
+      );
+      expect(store.lifecycle(queuedTurnId)?.reason).toBe("Its sender was signed out.");
+    } else {
+      expect(failure?.message).toBe("Queued failure recording unavailable");
+      expect(store.lifecycle(queuedTurnId), "QUEUED_STARTUP_EXCEPTION_HAS_ERROR_OUTCOME").toMatchObject({
+        outcome: "error", reason: "Queued failure recording unavailable", backendRunId: null, firstFrameAt: null,
+      });
+    }
   });
 
   test("revocation is recorded on a running turn without changing its outcome", async () => {
@@ -852,14 +867,11 @@ describe("principal revocation boundary", () => {
     release.resolve();
     await running;
 
-    const snapshot = store.snapshotRun(turnId)!;
-    expect(snapshot.events).toContainEqual(
-      expect.objectContaining({
-        eventType: "principal_revoked",
-        payload: { principalId: "revoked" },
-      })
-    );
-    expect(snapshot.spans.find((span) => span.kind === "turn")?.outcome).toBe("success");
+    const lifecycle = store.lifecycle(turnId)!;
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({kind:"principal_revoked",principalId:"revoked"}));
+    expect(lifecycle.outcome).toBe("success");
+    expect(lifecycle.backendRunId).toBeNull();
+    expect(store.snapshotRun(turnId)).toBeNull();
   });
 
   test("a revoked principal cannot answer its pending approval", async () => {

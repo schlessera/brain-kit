@@ -7,9 +7,12 @@ import { brainApplicationInput, brainReadBaseInput, brainReadBaseResult, BRAIN_A
 export function registerBrainApplicationTools(
   server: ReturnType<typeof createSdkMcpServer>["instance"],
   bridge: Pick<BackendBridge, "applyBrain" | "readBrainBase">,
+  stableRoster = false,
+  observe?: (name: string, description: string, schema: z.ZodObject) => void,
 ): void {
   for (const schema of brainApplicationInput.options) {
     const operation = schema.shape.operation.value;
+    observe?.(BRAIN_APPLICATION_TOOLS[operation], BRAIN_APPLICATION_DESCRIPTIONS[operation], (schema as z.ZodObject).omit({ operation: true }));
     server.registerTool(BRAIN_APPLICATION_TOOLS[operation], {
       description: BRAIN_APPLICATION_DESCRIPTIONS[operation],
       inputSchema: (schema as z.ZodObject).omit({ operation: true }),
@@ -20,14 +23,18 @@ export function registerBrainApplicationTools(
       return { isError: !result.ok, content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     });
   }
-  if (bridge.readBrainBase) server.registerTool("brain_read_base", {
+  if (stableRoster || bridge.readBrainBase) {
+    observe?.("brain_read_base", BRAIN_READ_BASE_DESCRIPTION, brainReadBaseInput);
+    server.registerTool("brain_read_base", {
     description: BRAIN_READ_BASE_DESCRIPTION,
     inputSchema: brainReadBaseInput,
     _meta: { "anthropic/alwaysLoad": true },
   }, async ({ path, ...range }) => {
     // The bridge returns the whole document and its server hash; only the
     // agent-facing result is paged, so no result outgrows the MCP budget.
+    if (!bridge.readBrainBase) return { isError: true, content: [{ type: "text" as const, text: "No server document-base reader is available." }] };
     try { return { content: [{ type: "text" as const, text: JSON.stringify(brainReadBaseResult(await bridge.readBrainBase!(path), range)) }] }; }
     catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "Read failed." }] }; }
   });
+  }
 }

@@ -37,8 +37,11 @@ the same checkout does not isolate its files or index. Prepare the checkout
 after claiming and establishing readiness, as described below.
 
 Read **all pages** of open `agent-ready` issues, rather than trusting a stale
-board view. Exclude assignments, PR objects, epics, `blocked` and all `needs:`
-labels. Order a single valid priority `p0`, `p1`, `p2`, `p3`, then oldest
+board view. Exclude assignments, PR objects, epics and all `needs:` labels.
+Ordinary candidates exclude `blocked`. Keep blocked candidates only for the
+explicit [stack selection review](#stack-selection-exception) below; that
+review must succeed before they enter the eligible ordering or get claimed.
+Order a single valid priority `p0`, `p1`, `p2`, `p3`, then oldest
 creation time, then lowest issue number. Missing/multiple/unknown priorities
 are unsorted: report them without inventing a priority. If no eligible
 candidate remains, stop without tracker mutations.
@@ -57,18 +60,24 @@ rtk proxy gh api --paginate --slurp \
      | [.labels[].name] as $labels
      | select(($labels | index("agent-ready")) != null)
      | select(($labels | index("epic")) == null)
-     | select(($labels | index("blocked")) == null)
      | select(all($labels[]; startswith("needs:") | not))
      | [$labels[] | select(startswith("priority:"))] as $priorities
      | select(($priorities | length) == 1)
      | select($priorities[0] | test("^priority: p[0-3]$"))
      | {number, title, url: .html_url, created_at,
+        requires_stack_review: (($labels | index("blocked")) != null),
         priority: $priorities[0], rank: ($priorities[0][-1:] | tonumber)}]
     | sort_by(.rank, .created_at, .number)'
 SH
 ```
 
-Before claiming the first candidate, check open PRs/recent comments for
+The query returns ordinary candidates and **unqualified stack-review leads**.
+In priority order, validate each `requires_stack_review` lead under the rules
+below; reject it conservatively when evidence is unavailable. A query result
+is not authorization to claim a blocked issue. Reconcile an all-closed blocker
+list through ordinary satisfied-dependency handling instead.
+
+Before claiming the first eligible candidate, check open PRs/recent comments for
 active work, including `Refs` links and issue-number branches. An unassigned
 issue with a live implementation PR is not free work. Skip it before
 claiming; do not duplicate/resume another worker's PR without authorization.
@@ -87,6 +96,46 @@ Assignments are not an atomic lock: serialize workers sharing one GitHub
 login. A competing claim requires ownership reconciliation, not erasing
 someone else's assignment. Once claimed, a readiness rejection ends this
 invocation rather than starting another issue.
+
+## Stack selection exception
+
+A fully scoped upper layer may be selected with `blocked` still present only
+when **every remaining open blocker** qualifies as a lower layer in the stack
+declared by its epic. This is option A from #2137, not a new dependency relation.
+Before claiming, record and verify:
+
+1. The canonical `Blocked by` declarations, each blocker's live issue state,
+   and the epic's declared stack, ordered layers and immediate parent. Closed
+   dependencies use ordinary reconciliation; a closed unmerged PR is not a
+   delivered blocker. A non-stack dependency rejects the exception.
+2. An open, non-draft PR for every remaining open blocker, with unambiguous
+   membership in that declared stack. Verify its actual head/base and the
+   immediate parent branch/head, using `gh-stack` for a native stack. A branch
+   name, stale issue prose or an unrelated PR mentioning the issue is not proof.
+3. Complete passing selected proof for each current lower-layer candidate,
+   with actual parent/head/checkout identities. Missing, failed, cancelled,
+   approval-held or unexpectedly skipped selected proof rejects selection.
+   Re-read identities before checkout creation; reject a changed candidate
+   until its affected proof is qualified again.
+4. All ordinary eligibility, ownership and readiness conditions, including no
+   assignment or genuine `needs:` label. Preserve canonical dependency lines
+   and `blocked` for still-open lower layers. The board may remain Backlog;
+   `project-sync`, dependency parsing and Status derivation do not change.
+
+| Candidate evidence | Selection |
+| --- | --- |
+| Declared immediate parent and every open lower-layer blocker have current passing selected proof | Eligible for the exception; retain `blocked` and start at the verified parent head |
+| Parent is draft, missing, ambiguous or outside the declared stack | Reject |
+| Selected proof is absent, failed, cancelled, unexpectedly skipped or belongs to an older head/base | Reject |
+| Any remaining blocker is not an open lower-layer issue in that stack | Reject |
+| Any genuine `needs:` label or another owner's assignment is present | Reject |
+| All declared blockers are delivered/closed | Reconcile normally; use `main` if the parent already merged |
+
+Proof coordination or a #2111 reservation does not waive these checks. One
+reservation covers its exact candidate, not every layer in a stack. Do not
+claim a reservation exists or its unresolved lifecycle is implemented. Honor
+explicit session instructions while recording exactly which evidence they
+permit retaining; never relabel an older tested tree as the current candidate.
 
 ## Establish readiness
 
@@ -116,7 +165,8 @@ evidence, the exact next action and completion evidence needed to resume**:
 
 Remove `agent-ready` when readiness is false. A fully scoped task blocked
 solely on a declared dependency may retain it; `blocked` excludes it from
-selection. Human handoff removes `agent-ready` under the GitHub skill's rule.
+selection except after a successful stack-selection review above. Human handoff
+removes `agent-ready` under the GitHub skill's rule.
 Preserve type, area, priority and genuine release commitments. Labels describe
 gaps; workflow status lives on the board. Then **Finish or hand off** and stop.
 
@@ -125,7 +175,10 @@ gaps; workflow status lives on the board. Then **Finish or hand off** and stop.
 For a slice in an existing stack, load `gh-stack`, identify the owning layer,
 and use its clean dedicated checkout. A new upper layer starts from its
 immediate parent under the [stack rules](../../../docs/process/github.md#stacked-pull-requests),
-instead of starting again from `origin/main`. Keep the isolation and ownership
+instead of starting again from `origin/main`. Recheck the declared immediate
+parent and its actual qualified head before creating the checkout, and record
+that starting identity. If the parent has merged, reconcile its dependency and
+start from fetched `origin/main`. Keep the isolation and ownership
 requirements below when locating or creating that checkout.
 
 Reuse an environment-provided worktree only when it is dedicated to this
@@ -186,6 +239,19 @@ issue and attach genuine epic children. A required criterion cannot be
 silently moved to a follow-up and declared complete. Public tracker text
 never identifies a private-instance follow-up; sanitize the public handoff.
 
+## Parent review changes
+
+When an ancestor or parent changes, communicate the old/new identities to
+all affected layer owners. Invalidate affected candidate proof/readiness;
+`agent-ready` may remain when scope is still complete, but is not a claim of
+current merge qualification. Each owner refreshes **their own layer**, in
+dependency order: fetch and verify its current immediate parent and passing
+qualification, rebase onto it, inspect the resulting diff/conflicts, run
+`bun run check:pr --base <parent-ref>` and required hosted candidate proof.
+Retain earlier receipts with their actual identities. If an owner is absent,
+document the dependency and request an explicit ownership handoff; do not
+rewrite or push another worker's branch silently.
+
 ## PR, CI and merge
 
 Before creating a PR or marking a draft ready, run `bun run check:pr --base
@@ -241,6 +307,16 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   the end-to-end request.
 
 ## Finish or hand off
+
+For a stack, the actor merging it owns closure reconciliation for **every
+actually included layer**. Read actual membership and delivered commits/tree,
+issue acceptance and required verification, and each PR/advanced issue's
+release milestone before and after merge. GitHub closing keywords on an upper
+PR may not fire while it targets a parent branch. Verify closure individually;
+if needed, close manually only after all criteria and required verification
+are satisfied, recording delivery evidence. Keep partial deliveries and
+remaining human/verification work open with exact remaining actions. Inspect
+automatic main proof and never equate a queued stack with delivery.
 
 Reconcile fresh GitHub state. After merge, fetch main and prove the reported
 merge commit is an ancestor of `origin/main`. Check actual issue closure and

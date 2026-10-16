@@ -2,11 +2,11 @@
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata } from "./native-journal-observer.js";
 import { freezeNativeJournalPolicy, journalPathScope } from "./native-journal-policy.js";
 import { openNativeJournalFile, readNativeJournalFile } from "./native-journal-read.js";
-import { isJournalSteeringPath, nativeJournalSteeringInputs } from "./journal-steering.js";
+import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
-export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>) {
+export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {}) {
   const observer = createNativeJournalObserver(manager);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
@@ -107,7 +107,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             if (after) return classified(after, observation.afterRoot);
             const before = observer.get(path);
             return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
-          });
+          }, steeringOptions);
         return { changes, steering, stats: observation.stats, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },

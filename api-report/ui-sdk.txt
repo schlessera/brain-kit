@@ -11,6 +11,7 @@ export "." (./src/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -24,6 +25,7 @@ export "." (./src/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -137,6 +139,7 @@ export "." (./src/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
   type GovernedStatus
@@ -210,6 +213,7 @@ export "." (./src/index.ts)
   type PasskeySummary
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -423,6 +427,7 @@ export "./client" (./src/client/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -436,6 +441,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -534,6 +540,11 @@ export "./client" (./src/client/index.ts)
   type CompleteShareResult
   type ConflictVersionSelection
   type ConnectionStatus
+  type ContentRenderer
+  type ContentRendererPack
+  type ContentRendererProps
+  type ContentRendererRegistry
+  type ContentRendererTheme
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -570,6 +581,7 @@ export "./client" (./src/client/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
@@ -673,6 +685,7 @@ export "./client" (./src/client/index.ts)
   type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProtocolError
   type ProviderInfo
@@ -890,6 +903,8 @@ export "./client" (./src/client/index.ts)
   composeHandoffText
   createAsrClient
   createAsrClientRegistry
+  createContentRendererRegistry
+  defaultContentRendererRegistry
   defineToolComponentContract
   defineToolContract
   isBillingMode
@@ -901,6 +916,7 @@ export "./client" (./src/client/index.ts)
   parseToolPayload
   planPlaces
   registerAsrClient
+  registerContentRenderers
   registerToolRenderers
   stateRoomCopy
   stateRoomWarning
@@ -965,10 +981,13 @@ export "./internal" (./src/internal.ts)
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type QuestionObservation
+  RTK_WORKER_ENV
+  type ReplayReceipt
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
+  type SessionPromptFacts
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -1041,6 +1060,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   createWorkerStartupView
   denyWorkerCommand
+  describeClient
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1078,6 +1098,7 @@ export "./internal" (./src/internal.ts)
   probeNativeMaintenanceWorker
   probeWorkerHost
   processStateLedger
+  promptPrefixFingerprint
   protectedPaths
   purgeTurnTemp
   readWebSearchOverride
@@ -1094,6 +1115,8 @@ export "./internal" (./src/internal.ts)
   retainWorkerStartupView
   runMaintenanceWorker
   runMaintenanceWorkerSync
+  sessionPromptContext
+  sessionReplay
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
@@ -1147,6 +1170,7 @@ export "./protocol" (./src/protocol.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -1160,6 +1184,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -1271,6 +1296,7 @@ export "./protocol" (./src/protocol.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
   type GovernedStatus
@@ -1339,6 +1365,7 @@ export "./protocol" (./src/protocol.ts)
   type PasskeySummary
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -1528,6 +1555,15 @@ export "./push-handlers" (./src/client/push-handlers.ts)
   type PushHandlerOptions
   registerPushHandlers
 
+export "./render" (./src/render.ts)
+  type ContentRendererTheme
+  type StaticRenderer
+  type StaticRendererPack
+  type StaticRendererRegistry
+  createStaticRendererRegistry
+  registerStaticRenderers
+  staticRendererFor
+
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
   MAX_PROMPT_CHARS
@@ -1700,6 +1736,7 @@ export "./server" (./src/server/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -1715,6 +1752,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
@@ -1908,6 +1946,7 @@ export "./server" (./src/server/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type FollowUpRequest
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
@@ -2022,6 +2061,7 @@ export "./server" (./src/server/index.ts)
   type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   QUERY_ACTIVITY_CONTRACT
@@ -2371,12 +2411,15 @@ export "./testing" (./src/testing/index.ts)
   type AsrClientContractProbe
   type BackendContractHarness
   type BackendModuleContractHarness
+  type ContentRendererFixture
+  type ContentRendererFixtures
   type ContractTestPrimitives
   type PermissionProbe
   type PermissionScenario
   type SpeechProviderContractHarness
   type SpeechProviderContractProbe
   type TurnScript
+  contentRendererConformance
   runAsrClientContract
   runBackendContract
   runBackendModuleContract
@@ -2973,6 +3016,14 @@ signatures (every public export and the types it is made of)
         cacheCreationTokens: number;
         durationMs: number;
     }
+  ActivityCacheDiagnostics (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityCacheDiagnostics {
+        firstRequest: FirstRequestCacheUsage | null;
+        prefix: PromptPrefixFingerprint | null;
+        resumed: boolean | null;
+        suspectedBreak: boolean | null;
+        changed: Array<"tools" | "system" | "model" | "thinking" | "gitStatusIncluded"> | "unchanged" | "unknown";
+    }
   ActivityDigest (packages/ui-sdk/src/protocol.ts)
     export interface ActivityDigest {
         generatedAt: number;
@@ -3012,6 +3063,7 @@ signatures (every public export and the types it is made of)
     export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
   ActivityQuery (packages/ui-sdk/src/server/backend.ts)
     export interface ActivityQuery {
+        remedy?: "actionable" | "all" | "guidance" | "capability" | "abandoned";
         scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
         runId?: string;
         hoursBack?: number;
@@ -3034,6 +3086,9 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunDetail (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunDetail {
+        cacheDiagnostics?: ActivityCacheDiagnostics;
+        lifecycleSeq?: number;
+        lifecycle?: ActivityTurnLifecycle;
         runId: string;
         detailPruned: boolean;
         spans?: ActivitySpan[];
@@ -3043,6 +3098,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunRollup (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunRollup {
+        lifecycle?: ActivityTurnLifecycle;
         origin: string;
         name: string;
         sessionId: string | null;
@@ -3063,6 +3119,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunSummary (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunSummary {
+        lifecycle?: ActivityTurnLifecycle;
         runId: string;
         origin: ActivitySpanOrigin;
         name: string;
@@ -3114,6 +3171,17 @@ signatures (every public export and the types it is made of)
                 insideWindow: boolean;
             };
             detailPrunedRuns: number;
+            cacheDiagnostics?: {
+                scope: "retained_detail";
+                observedRuns: number;
+                runtimeNormalizedRuns: number;
+                unknownRuns: number;
+                inputTokens: number;
+                cacheReadTokens: number;
+                cacheCreationTokens: number;
+                suspectedBreaks: number;
+                unknownBreakRuns: number;
+            };
             runs: number;
             failures: number;
             costUsd: number;
@@ -3179,6 +3247,40 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
+  ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnLifecycle {
+        hostEvents: Array<{
+            principalId: string;
+            kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
+            observedAt: number;
+        }>;
+        skippedPhases: Array<"governed" | "budget" | "journal">;
+        lifecycleId: string;
+        turnId: string;
+        sessionId: string | null;
+        backendRunId: string | null;
+        acceptedAt: number;
+        dequeuedAt: number | null;
+        governedStartedAt: number | null;
+        governedAcquiredAt: number | null;
+        budgetStartedAt: number | null;
+        budgetAdmittedAt: number | null;
+        journalStartedAt: number | null;
+        journalBeganAt: number | null;
+        backendInvokedAt: number | null;
+        firstFrameAt: number | null;
+        failureObservedAt: number | null;
+        endedAt: number | null;
+        outcome: ActivitySpanOutcome | null;
+        reason: string | null;
+        totalElapsedMs: number | null;
+        timeToFirstFrameMs: number | null;
+        queueWaitMs: number | null;
+        governedAdmissionMs: number | null;
+        budgetAdmissionMs: number | null;
+        journalBeginMs: number | null;
+        backendStartupMs: number | null;
+    }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
   AgentBackend (packages/ui-sdk/src/server/backend.ts)
@@ -3998,6 +4100,13 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>>, import("./contract.js").ToolContract<"query_activity", z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";
@@ -4715,6 +4824,31 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "prompt_prefix";
+        prefix: import("../protocol.js").PromptPrefixFingerprint;
+        resumed: boolean;
+    } | {
+        kind: "first_request_cache";
+        usage: import("../protocol.js").FirstRequestCacheUsage;
+    } | {
+        kind: "main_model";
+        model: string;
+        sessionId: string;
+    } | {
+        kind: "claude_title_usage";
+        coverage: "observed" | "partial" | "unknown";
+        receipts: Array<{
+            receiptId: string;
+            source: "generate_session_title";
+            usage: import("../protocol.js").TurnUsage;
+            costUsd?: number;
+        }>;
+    } | {
+        kind: "claude_session_usage";
+        completed?: import("../protocol.js").TurnUsage;
+        cumulative?: import("../protocol.js").TurnUsage;
+        reportedCostUsd?: number;
+    } | {
         kind: "budget_backstop";
     } | {
         kind: "usage";
@@ -5609,6 +5743,45 @@ signatures (every public export and the types it is made of)
     }
   ConnectionStatus (packages/ui-sdk/src/client/ws-client.ts)
     export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+  ContentRenderer (packages/ui-sdk/src/client/content-renderers.ts)
+    export interface ContentRenderer extends StaticRenderer {
+        Component: ComponentType<ContentRendererProps>;
+    }
+  ContentRendererFixture (packages/ui-sdk/src/testing/content-renderers.ts)
+    export interface ContentRendererFixture {
+        renderer: number;
+        source: string;
+        path?: string;
+    }
+  ContentRendererFixtures (packages/ui-sdk/src/testing/content-renderers.ts)
+    export interface ContentRendererFixtures {
+        cases: readonly ContentRendererFixture[];
+        mount(renderer: ContentRenderer, props: ContentRendererProps): Promise<{
+            element: Element;
+            dispose(): void;
+        }>;
+    }
+  ContentRendererPack (packages/ui-sdk/src/client/content-renderers.ts)
+    export interface ContentRendererPack {
+        renderers: readonly ContentRenderer[];
+    }
+  ContentRendererProps (packages/ui-sdk/src/client/content-renderers.ts)
+    export interface ContentRendererProps {
+        source: string;
+        path?: string;
+        mode: "chat" | "file" | "share";
+        theme: ContentRendererTheme;
+    }
+  ContentRendererRegistry (packages/ui-sdk/src/client/content-renderers.ts)
+    export interface ContentRendererRegistry {
+        register(pack: ContentRendererPack): void;
+        has(pack: ContentRendererPack): boolean;
+        forLanguage(language: string): ContentRenderer | null;
+        forExtension(extension: string): ContentRenderer | null;
+        reset(): void;
+    }
+  ContentRendererTheme (packages/ui-sdk/src/render.ts)
+    export type ContentRendererTheme = "light" | "dark" | "print";
   ContractMatchers (packages/ui-sdk/src/testing/index.ts)
     interface ContractMatchers {
         toBe(expected: unknown): void;
@@ -5980,6 +6153,14 @@ signatures (every public export and the types it is made of)
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
     type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
+  FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
+    export interface FirstRequestCacheUsage {
+        inputTokens: number | null;
+        cacheReadTokens: number | null;
+        cacheCreationTokens: number | null;
+        source: "claude_root_stream" | "pi_main_message";
+        coverage: "provider_reported" | "runtime_normalized";
+    }
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;
@@ -7007,6 +7188,15 @@ signatures (every public export and the types it is made of)
     export type PricingRoute = "openrouter" | "direct";
   ProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
     export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
+  PromptPrefixFingerprint (packages/ui-sdk/src/protocol.ts)
+    export interface PromptPrefixFingerprint {
+        tools: string | null;
+        system: string | null;
+        model: string | null;
+        thinking: string | null;
+        gitStatusIncluded: boolean | null;
+        coverage: "assembled_inputs";
+    }
   PronunciationOverride (packages/ui-sdk/src/protocol.ts)
     export interface PronunciationOverride {
         match: string;
@@ -7020,6 +7210,7 @@ signatures (every public export and the types it is made of)
     }
   ProviderInfo (packages/ui-sdk/src/protocol.ts)
     export interface ProviderInfo {
+        model?: string;
         id: string;
         label: string;
         vendor?: string;
@@ -7069,6 +7260,13 @@ signatures (every public export and the types it is made of)
     const QUERY_ACTIVITY_CONTRACT: import("./contract.js").ToolContract<"query_activity", z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";
@@ -7085,6 +7283,13 @@ signatures (every public export and the types it is made of)
     const QUERY_ACTIVITY_INPUT_SCHEMA: z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";
@@ -8749,6 +8954,7 @@ signatures (every public export and the types it is made of)
     export type ScopeDimension = "files_changed" | "minutes" | "tool_calls" | "turn_bytes" | "free_space_floor";
   ServerActivityDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivityDelta {
+        lifecycle?: ActivityTurnLifecycle;
         type: "activity_delta";
         runId: string;
         seq: number;
@@ -8757,6 +8963,7 @@ signatures (every public export and the types it is made of)
     }
   ServerActivitySnapshot (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivitySnapshot {
+        lifecycles?: ActivityTurnLifecycle[];
         type: "activity_snapshot";
         view: ActivityView;
         sessionId?: string;
@@ -9323,6 +9530,7 @@ signatures (every public export and the types it is made of)
         turnBudgetMs?: number;
         maxBudgetUsd?: number;
         bridge: BackendBridge;
+        applicationAuthority?: "server";
         client?: ClientEnvironment;
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;
@@ -9334,6 +9542,28 @@ signatures (every public export and the types it is made of)
         usedBytes: number;
         allowanceBytes: number;
         observedAt: number;
+    }
+  StaticRenderer (packages/ui-sdk/src/render.ts)
+    export interface StaticRenderer {
+        languages: readonly string[];
+        extensions: readonly string[];
+        needsBrowser: boolean;
+        toStatic(source: string, options: {
+            theme: ContentRendererTheme;
+            path?: string;
+        }): Promise<string>;
+    }
+  StaticRendererPack (packages/ui-sdk/src/render.ts)
+    export interface StaticRendererPack {
+        renderers: readonly StaticRenderer[];
+    }
+  StaticRendererRegistry (packages/ui-sdk/src/render.ts)
+    export interface StaticRendererRegistry {
+        register(pack: StaticRendererPack): void;
+        has(pack: StaticRendererPack): boolean;
+        forLanguage(language: string): StaticRenderer | null;
+        forExtension(extension: string): StaticRenderer | null;
+        reset(): void;
     }
   StorageBytes (packages/ui-sdk/src/storage.ts)
     export interface StorageBytes {
@@ -11163,6 +11393,8 @@ signatures (every public export and the types it is made of)
     export function compileConfirmPatterns(sources: readonly ConfirmPatternSource[], onInvalid: (source: string, message: string) => void): CompiledConfirmPattern[];
   composeHandoffText (packages/ui-sdk/src/protocol.ts)
     export function composeHandoffText(summary: string, references: readonly string[]): string;
+  contentRendererConformance (packages/ui-sdk/src/testing/content-renderers.ts)
+    export function contentRendererConformance(pack: ContentRendererPack, fixtures: ContentRendererFixtures): Promise<void>;
   conversationAudioFormatSchema (packages/ui-sdk/src/schemas.ts)
     const conversationAudioFormatSchema: z.ZodObject<{
         channels: z.ZodLiteral<1>;
@@ -11341,12 +11573,16 @@ signatures (every public export and the types it is made of)
     const createAsrClient: (opts: AsrClientOptions) => AsrClient;
   createAsrClientRegistry (packages/ui-sdk/src/client/asr.ts)
     export function createAsrClientRegistry(): AsrClientRegistry;
+  createContentRendererRegistry (packages/ui-sdk/src/client/content-renderers.ts)
+    export function createContentRendererRegistry(): ContentRendererRegistry;
   createKeyedLock (packages/ui-sdk/src/server/keyed-lock.ts)
     export function createKeyedLock(clock?: {
         now?: () => number;
         setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
         clearTimeout?: (timer: ReturnType<typeof setTimeout>) => void;
     }): KeyedLock;
+  createStaticRendererRegistry (packages/ui-sdk/src/render.ts)
+    export function createStaticRendererRegistry(): StaticRendererRegistry;
   createToolPermissionRequest (packages/ui-sdk/src/server/permission-gate.ts)
     export function createToolPermissionRequest(options: CreateToolPermissionRequestInput): PermissionRequest;
   createTranscriptStore (packages/ui-sdk/src/server/transcript-store.ts)
@@ -11355,6 +11591,8 @@ signatures (every public export and the types it is made of)
     export function createWriteLock(): WriteLock;
   decideToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
     export function decideToolPermission(options: ToolPermissionDecisionInput): ToolPermissionApproval | null;
+  defaultContentRendererRegistry (packages/ui-sdk/src/client/content-renderers.ts)
+    const defaultContentRendererRegistry: ContentRendererRegistry;
   defineBackendModule (packages/ui-sdk/src/server/backend-module.ts)
     export function defineBackendModule(module: BackendModule): BackendModule;
   defineLiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
@@ -13648,12 +13886,16 @@ signatures (every public export and the types it is made of)
     };
   registerAsrClient (packages/ui-sdk/src/client/asr.ts)
     const registerAsrClient: (providerId: string, factory: AsrClientFactory) => void;
+  registerContentRenderers (packages/ui-sdk/src/client/content-renderers.ts)
+    export function registerContentRenderers(pack: ContentRendererPack): void;
   registerDefaultRoutes (packages/ui-sdk/src/client/sw-policy.ts)
     export function registerDefaultRoutes<NetworkOnlyInstance extends object, CacheFirstInstance extends object, ExpirationPluginInstance extends object>(deps: RegisterDefaultRoutesDeps<NetworkOnlyInstance, CacheFirstInstance, ExpirationPluginInstance>): void;
   registerPushHandlers (packages/ui-sdk/src/client/push-handlers.ts)
     export function registerPushHandlers(scope: PushCapableScope, options?: PushHandlerOptions): void;
   registerShareTarget (packages/ui-sdk/src/client/share-target.ts)
     export function registerShareTarget(options?: ShareTargetOptions, scope?: ShareTargetScope): void;
+  registerStaticRenderers (packages/ui-sdk/src/render.ts)
+    export function registerStaticRenderers(pack: StaticRendererPack): void;
   registerToolRenderers (packages/ui-sdk/src/client/renderers.ts)
     export function registerToolRenderers(pack: RendererPack): void;
   requestToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
@@ -13732,6 +13974,55 @@ signatures (every public export and the types it is made of)
             truncated: z.ZodOptional<z.ZodBoolean>;
             ts: z.ZodNumber;
         }, z.core.$loose>>;
+        lifecycle: z.ZodOptional<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
         runId: z.ZodString;
         seq: z.ZodNumber;
         span: z.ZodOptional<z.ZodObject<{
@@ -13796,6 +14087,55 @@ signatures (every public export and the types it is made of)
             ts: z.ZodNumber;
         }, z.core.$loose>>;
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
+        lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -15972,6 +16312,55 @@ signatures (every public export and the types it is made of)
             ts: z.ZodNumber;
         }, z.core.$loose>>;
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
+        lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -16036,6 +16425,55 @@ signatures (every public export and the types it is made of)
             spanId: z.ZodString;
             truncated: z.ZodOptional<z.ZodBoolean>;
             ts: z.ZodNumber;
+        }, z.core.$loose>>;
+        lifecycle: z.ZodOptional<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
         }, z.core.$loose>>;
         runId: z.ZodString;
         seq: z.ZodNumber;
@@ -18352,6 +18790,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   stateRoomWarning (packages/ui-sdk/src/state-room.ts)
     export function stateRoomWarning(observation: StateRoomObservation): boolean;
+  staticRendererFor (packages/ui-sdk/src/render.ts)
+    export function staticRendererFor(languageOrExtension: string): StaticRenderer | null;
   stitch (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   subscriptionAuthAction (packages/ui-sdk/src/protocol.ts)
     export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction;

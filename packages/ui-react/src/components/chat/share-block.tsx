@@ -2,6 +2,7 @@ import { Button } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useRef } from "react";
+import { ContentRendererSurface } from "../content-renderer.js";
 import { BrainMarkdown } from "./brain-markdown.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
@@ -56,7 +57,7 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
         </div>
       </div>
       <div ref={bodyRef} className="px-4 py-3">
-        <BrainMarkdown content={body} className="brain-prose" fileLinks />
+        <ContentRendererSurface.Provider value={{mode:"share"}}><BrainMarkdown content={body} className="brain-prose" fileLinks /></ContentRendererSurface.Provider>
       </div>
     </div>
   );

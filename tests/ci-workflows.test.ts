@@ -21,7 +21,7 @@ const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
 });
 function runs(workflow: Workflow, job: Job, context: Obj): boolean {
   return String(context.event_name) in workflow.on && (job.if === undefined || evaluate(job.if, {
-    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", browser: "true", layout: "true", captures: "true", endurance: "true", run_browser: "true", run_layout: "true" } }, pack: { result: "success" } },
+    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", runtime_host: "true", browser: "true", layout: "true", captures: "true", endurance: "true", run_browser: "true", run_layout: "true" } }, pack: { result: "success" } },
   }) === true);
 }
 function evaluate(expression: string, context: Obj): Json {
@@ -123,8 +123,8 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.name).toBe("CI");
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
-    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "browser", "layout", "captures", "endurance", "proof"]);
-    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "endurance", "cadence"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
+    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "proof"]);
+    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "cadence", "unit_shards"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
       ...Object.fromEntries(["run_browser", "run_layout", "reuse"].map(name => [name, `\${{ steps.reuse.outputs.${name} }}`])) });
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
@@ -176,16 +176,16 @@ describe("CI concurrency configuration (live scheduler proof remains separate)",
 });
 
 describe("independent hosted proof after cheap gates", () => {
-  const context = (selected = "true", result = "success", execute = "true") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, browser: selected, layout: selected, captures: selected, endurance: selected, run_browser: execute, run_layout: execute } } } });
+  const context = (selected = "true", result = "success", execute = "true") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, runtime_host: selected, browser: selected, layout: selected, captures: selected, endurance: selected, run_browser: execute, run_layout: execute } } } });
   test("all independent categories depend only on metadata", () => {
-    for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures", "endurance"]) {
+    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
       expect(ci.jobs[name]!.needs).toBe("changeset");
       expect(evaluate(ci.jobs[name]!.if!, context())).toBe(true);
       expect(evaluate(ci.jobs[name]!.if!, context("false"))).toBe(false);
     }
   });
   test("the aggregate observes every category even after an intentional skip or failed prerequisite", () => {
-    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "browser", "layout", "captures", "endurance"]);
+    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]);
     expect(ci.jobs.proof!.if).toContain("always()");
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: false })).toBe(true);
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: true })).toBe(false);
@@ -194,12 +194,12 @@ describe("independent hosted proof after cheap gates", () => {
     for (const repo of [REPO, "odysseus/brain-kit"]) {
       const c = { github: pullRequest(repo), ...context("false") };
       expect(ci.jobs.changeset!.if).toBeUndefined();
-      for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures", "endurance"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
+      for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
     }
   });
   test("retention skips only admitted browser categories; other selected proof remains fresh", () => {
     for (const name of ["browser", "layout"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(false);
-    for (const name of ["unit", "verify", "pack", "runtime", "captures"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(true);
+    for (const name of ["unit", "verify", "pack", "runtime", "runtime_host", "captures"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(true);
   });
 });
 
@@ -344,4 +344,19 @@ test("workflow cannot check out a different tree or impersonate candidate proof 
   const text = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
   expect(workflowProblems(text.replace("persist-credentials: false", "persist-credentials: false\n          ref: main"), "ci.yml").join("\n")).toContain("proof checkout must use the event candidate");
   expect(workflowProblems(text.replace("name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+});
+
+test("small exact inventories wire bounded planner partitions into actual unit execution", () => {
+  expect(ci.jobs.unit!.strategy).toEqual({"fail-fast": false, matrix: {shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}"}});
+  const step = ci.jobs.unit!.steps.find(s => s.name === "Complete unit proof")!;
+  expect(step.env?.UNIT_SHARDS).toBe("${{ strategy.job-total }}");
+  expect(step.run).toBe('bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"');
+});
+
+
+test("runtime categories have distinct complete commands and strict aggregate dependencies", () => {
+  const original = read("ci.yml");
+  expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts runtime\n", "run: bun scripts/ci-proof.ts runtime_host\n"), "ci.yml")).toContain("ci.yml: runtime: complete proof command is missing");
+  expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts runtime_host\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: runtime_host: complete proof command is missing");
+  expect(workflowProblems(original.replace("unit, runtime, runtime_host, browser", "unit, runtime, browser"), "ci.yml")).toContain("ci.yml: proof: aggregate must observe every selected category");
 });

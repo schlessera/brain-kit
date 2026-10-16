@@ -152,7 +152,15 @@ payload fields. A kind no release emits yet may still change its version 1
 payload before its emitter ships.
 
 The server emits `roadblock` from #1671 on, so its version 1 payload is now
-fixed. Its `signature` is a grouping key whose format the HTTP specification
+extended additively by #2034 with remedy `abandoned`; existing values and stored
+version-1 evidence retain their meaning and are never rewritten. Unresolved
+waste now stops at the first success starting strictly after the last failure
+was known, without inventing semantic resolution. A single such failure with
+no retry is abandoned; repeated unresolved failures remain capability.
+The report's optional `remedy` filter matches `query_activity`: `actionable`
+(default, excludes abandoned before aggregation), `all`, or one of `guidance`,
+`capability`, `abandoned`. Counts add `abandoned`. This is an approved breaking meaning/default change before 1.0, shipped in a
+minor under the recorded #2034 maintainer ruling. Its `signature` is a grouping key whose format the HTTP specification
 defines, so readers such as a roadblock report can group episodes across
 sessions by comparing signatures for equality.
 
@@ -522,3 +530,66 @@ uncertainty. Public types do not expose compact persistence tuples or host paths
 The next compatible server/SDK minor includes these endpoints; clients must
 retain an unavailable state when an older host does not provide them. No core
 CLI, MCP, frontmatter, config or content-index contract changes.
+
+### Activity host timing envelopes (additive)
+
+`GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by
+its list limit and filtered by session when supplied. Backend live/history
+summaries add optional `lifecycle`; existing list membership, filtering,
+backend durations and costs remain unchanged. Envelope-only attempts are in
+`lifecycles`, never disguised as backend runs. `GET /api/activity/runs/:runId`
+adds optional `lifecycle` plus its `lifecycleSeq` high-water, also on its rollup, and resolves an envelope-only
+turn with no spans/rollup and `detailPruned: false`. Historical records omit
+it. The agent Activity query returns the same envelope on run/recent reads.
+See [host turn lifecycle](wire.md#host-turn-lifecycle-additive) for timestamp,
+terminal, missing-phase and historical semantics. No inference aggregation
+includes envelope records.
+
+### Prompt-cache diagnostics (additive, #2050)
+
+Retained `GET /api/activity/runs/:runId` detail adds optional `cacheDiagnostics`:
+
+- `firstRequest`: nullable `{ inputTokens, cacheReadTokens, cacheCreationTokens,
+  source, coverage }`. Each counter is a nonnegative integer or `null` when unreported;
+  `source` is `claude_root_stream` or `pi_main_message`. Claude selects the first
+  root `message_start`; Pi selects the first completed non-error assistant
+  `message_end`. `coverage` is `provider_reported` for Claude and
+  `runtime_normalized` for Pi. Installed Pi normalization fills absent provider
+  cache-read/write fields with zero; a Pi zero is a normalized runtime value,
+  not evidence that the provider explicitly reported zero. Later responses, child channels and title-helper evidence
+  cannot replace it, including when helper and main use the same model.
+- `prefix`: nullable `{ tools, system, model, thinking, gitStatusIncluded,
+  coverage: "assembled_inputs" }`. Each component is a lowercase 64-character
+  SHA-256 digest or `null` when unavailable. `gitStatusIncluded` is boolean or
+  `null` when unknown. No prompt, tool description, schema or message text is
+  retained in these diagnostics.
+- `resumed`: nullable boolean; `suspectedBreak`: true only for a known resumed
+  turn with first cache-read zero and creation positive, false for a fresh
+  turn or a known nonmatching split, otherwise `null`.
+- `changed`: an array of changed component names (`tools`, `system`, `model`,
+  `thinking`, `gitStatusIncluded`), `unchanged`, or `unknown` when a comparison
+  baseline or required component is unavailable. This compares assembled
+  inputs against the preceding retained conversation turn, excluding auxiliary
+  accounting runs. A pruned baseline is unknown.
+
+Fingerprints cover backend assembly, not complete provider wire bytes. Claude's
+roster digest includes the ordered assembled brain-ui schemas and explicit SDK
+built-in selection/exclusions; CLI-owned built-in schemas and project MCP
+configuration remain opaque. Its system digest includes the preset and exact
+append passed to the SDK; runtime/model defaults are unknown when unspecified.
+Pi computes its ordered active tool schemas, system prompt, model and effort
+inside the actual worker before prompting. Subsequent runtime extensions may
+still alter provider assembly. Neither backend's digest establishes a provider
+cache key, cache eligibility, first-party request equality or savings.
+
+`GET /api/activity/stats` adds optional `window.cacheDiagnostics` with
+`scope: "retained_detail"`, `observedRuns`, `runtimeNormalizedRuns`, `unknownRuns`, sums of first-request
+`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `suspectedBreaks` and
+`unknownBreakRuns`. Token sums include only runs with all three reported
+counters; old, auxiliary, uninstrumented and pruned runs count as unknown,
+not zero cache usage. `runtimeNormalizedRuns` counts included Pi records so
+normalized zeros remain distinguishable from provider-reported evidence. Detail pruning removes these diagnostics with the root
+span; existing lifetime/window accounting and turn totals retain their meaning.
+No historical rows are backfilled, and these fields do not assert a live cache
+hit. Existing root attributes also expose the hash-only records to Activity's
+span/query consumers.

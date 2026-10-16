@@ -58,12 +58,13 @@ const desktop: ClientEnvironment = { formFactor: "desktop", viewportWidth: 750 }
 
 function backendCapturing(
   seen: Array<ClientEnvironment | undefined>,
-  opts: { sessionId: string; hold?: { until: Promise<void> } } = { sessionId: "s1" }
+  opts: { sessionId: string; hold?: { until: Promise<void> }; requests?: StartTurnRequest[] } = { sessionId: "s1" }
 ) {
   return makeFakeBackend({
     id: "claude",
     async startTurn(request: StartTurnRequest) {
       seen.push(request.client);
+      opts.requests?.push(request);
       request.bridge.emit({
         type: "session_info",
         sessionId: opts.sessionId,
@@ -84,6 +85,14 @@ function backendCapturing(
 }
 
 describe("client environment over the websocket", () => {
+  test("the host declares stable application ownership on backend requests", async () => {
+    const requests: StartTurnRequest[] = [];
+    setBackendsForTests([backendCapturing([], { sessionId: "odysseus-roster", requests })], "claude");
+    await handleClientMessage({ send() {} }, { type: "chat_message", text: "Check the voyage" });
+    await waitFor(() => requests.length === 1);
+    expect(requests[0]!.applicationAuthority, "HOST_OWNS_APPLICATION_ROSTER").toBe("server");
+  });
+
   test("reaches startTurn on a new session", async () => {
     const seen: Array<ClientEnvironment | undefined> = [];
     setBackendsForTests([backendCapturing(seen)], "claude");

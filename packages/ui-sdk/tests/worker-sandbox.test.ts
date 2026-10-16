@@ -384,7 +384,9 @@ describe("the sandbox note's wording (#1654)", () => {
       Write \`workspaces/\` through \`/tmp/brain-worker-areas/workspaces/\`, outside that view; link the repo-relative destination.
       3. **The brain: canonical and versioned.**
 
-      Anything the reader should open goes in \`.brain/scratch/\` and is linked from there: a link in your answer must point into the brain or \`.brain/scratch/\`."
+      Anything the reader should open goes in \`.brain/scratch/\` and is linked from there: a link in your answer must point into the brain or \`.brain/scratch/\`.
+      The brain's packaged CLI directory \`/srv/ithaca/brain/node_modules/.bin\` is first on PATH.
+      The packaged \`brain\` CLI is missing. Install \`@schlessera/brain\` in the brain repository and run \`bun install\` there before using \`brain\` commands."
     `);
   });
 
@@ -422,4 +424,17 @@ describe("the sandbox note's wording (#1654)", () => {
     const note = workerSandboxNote(strict, { limits: [{ name: "Runtime state", value: "64 MiB", onHit: "Past it the conversation continues in a new one." }] });
     expect(note.endsWith("Limits in this turn:\n- **Runtime state: 64 MiB.** Past it the conversation continues in a new one.")).toBe(true);
   });
+});
+
+for (const profile of ["governed", "strict"] as const) test(`${profile} sandbox note names missing packaged CLI and installation`, () => {
+  const f = fixture();
+  try {
+    const sandbox: WorkerSandbox = { brain: f.brain, profile, restricted: false, areas: [], scratchAliasesRemoved: [] };
+    expect(workerSandboxNote(sandbox), "MISSING_CLI_INSTALL_GUIDANCE").toContain("The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there");
+    expect(workerSandboxNote(sandbox)).toContain(`${f.brain}/node_modules/.bin`);
+    mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(f.brain, "node_modules/.bin/brain"), "#!/bin/sh\n", { mode: 0o755 });
+    expect(workerSandboxNote(sandbox), "INSTALLED_CLI_HAS_NO_MISSING_WARNING").not.toContain("CLI is missing");
+    expect(workerSandboxNote({ ...sandbox, restricted: true, profile: "restricted" }), "RESTRICTED_HAS_NO_CLI_ADVERTISEMENT").not.toContain("CLI");
+  } finally { f.cleanup(); }
 });
