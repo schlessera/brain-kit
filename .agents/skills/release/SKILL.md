@@ -12,7 +12,7 @@ once, and most were documented in prose before they happened again. A release
 that hits something new is not finished until that lands here or in a test — see
 [When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
-All eighteen packages move in lockstep through a changesets `fixed` group. One
+All nineteen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
 For a focused patch release, freeze a release branch at the recorded base and
