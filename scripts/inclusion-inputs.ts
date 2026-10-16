@@ -1,6 +1,7 @@
 /** Immutable inclusion fingerprints. Unknown runtime ownership always executes fresh. */
 import ts from "typescript";
 import { auditedInactiveCommands } from "./browser-command-activation";
+import {hasAuditedWorkerBoundary,pdfWorkerInput} from "./browser-worker-audit";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -81,6 +82,13 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     const inputs = [...required.filter(path => path.startsWith("packages/ui-kit/") || path === "packages/ui-react/src/styles.css"), ...selected.map(spec => spec.file)];
     const activation = category === "browser" ? auditedInactiveCommands(snapshot, selected) : undefined;
     const closure = discoverInputClosure(snapshot, inputs, declarations, activation);
+    // Mandatory for this browser capability, even when a changed source hides
+    // the recognizable constructor behind a new alias/realm. Such edits cannot
+    // turn an absent audit into a generally closed domain.
+    if(category==="browser"){
+      if(!hasAuditedWorkerBoundary(snapshot,closure,selected))throw new Error("Unresolved immutable browser inputs require fresh proof: unvalidated selected Worker capability audit");
+      closure.unresolved=closure.unresolved.filter(input=>input!==pdfWorkerInput);
+    }
     if (closure.unresolved.length) throw new Error(`Unresolved immutable ${category} inputs require fresh proof: ${closure.unresolved.slice(0, 3).join("; ")}`);
     const included = new Set([...closure.files, ...entries.filter(entry => harness(entry.path)).map(entry => entry.path)]);
     // Builds compile their expanded source inventories; compilation hashes

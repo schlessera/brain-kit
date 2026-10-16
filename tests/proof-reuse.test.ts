@@ -1,11 +1,19 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { browserInventory, checkout, git, normalizeInventory, proofInputs, runnerIdentity, type Inputs, type Spec } from "../scripts/proof-inputs";
 import { boundedLedger, contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
+import * as workerAudit from "../scripts/browser-worker-audit";
 const roots: string[] = [];
+// These are synthetic receipt/API protocol fixtures, not browser execution
+// qualification. Keep real immutable fingerprint/source recomputation while
+// modeling an admitted capability. Actual capability/refusal/native controls
+// live in the worker-audit, inclusion and real browser proof tests.
+let capability:ReturnType<typeof spyOn<typeof workerAudit,"hasAuditedWorkerBoundary">>;
+beforeEach(()=>{capability=spyOn(workerAudit,"hasAuditedWorkerBoundary").mockReturnValue(true);});
+afterEach(()=>capability.mockRestore());
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const runner = "ubuntu-24.04/fixed/Linux/X64/bun-1.4.2";
 const layout = "packages/ui-react/tests/browser/one.layout.tsx";

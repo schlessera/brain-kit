@@ -370,8 +370,31 @@ aborts and records every HTTP/websocket attempt, also records request events
 that could bypass routing, and asserts no attempts after document/font loading
 and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
-a new audit. The scene, visual assertions and trace remain unchanged. The
-configurable PDF worker URL still requires its own validated runtime origin.
+a new audit. The scene, visual assertions and trace remain unchanged.
+
+The selected browser capability additionally requires a complete audited
+input-domain identity and an enforced zero-Worker boundary. The native,
+forwarding diagnostic established no intended Worker execution in that
+selection; its observation ended at `afterAll`, so it does not claim returned
+cleanup coverage. Enforcement installs before product imports, records and
+refuses every construction attempt, checks after test hooks and checks again
+in the earliest outer `aroundAll` finally after returned/file-fixture cleanup.
+Catching a construction error in the product cannot make its proof pass. The
+original descriptor is restored completely after checking. Real PDF-worker
+runtime categories and the layout/endurance projects retain fresh unrestricted
+execution; no product constructor or configuration default changes.
+
+Admission validates exact known enforcement/configuration sources independently
+of the audit manifest, then joins every selected source/data path, blob/mode,
+directory membership, resource identity and inventory entry to that bounded
+audit. Any relevant source, caller, realm, hook, guard or data edit executes
+fresh until re-audited. A constructor hidden by a new alias cannot bypass this
+mandatory browser capability check merely by disappearing from syntax
+discovery. Unknown external resources still prevent admission. The manifest's
+own bytes are ordinary shared fingerprint inputs; it is never self-hashed.
+Its metadata cannot replace complete successful guarded fresh jobs or the
+independent retained-proof validator. This bounds the existing PDF constructor
+to no consumed Worker resource; it does not authorize an arbitrary worker URL.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
@@ -388,10 +411,10 @@ configuration, manifests and lockfiles match. Current generated/dist artifacts,
 working-tree bytes and Git archive substitutions cannot stand in for immutable
 source content. A helper or dependency identity mismatch executes fresh.
 
-The implemented fingerprint is only a necessary condition for retention. The
-actual complete browser/layout graph still has runtime-generated fixture inputs
-and runner observations that need audited supported bindings. Those unresolved
-inputs continue fresh execution; neither a synthetic closed fixture nor a graph
+The implemented fingerprint is only a necessary condition for retention. A
+bounded browser admission still needs the complete guarded fresh baseline and
+real retained-proof validation; unsupported layout/runtime inputs continue
+fresh execution. Neither a synthetic closed fixture nor a graph
 structure hash establishes a real hosted retention hit. #2126 remains open until
 its controlled same-PR hosted demonstration and independent aggregate evidence
 are complete.

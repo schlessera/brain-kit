@@ -92,7 +92,7 @@ Chromium font-cache mechanism was not established by these measurements.
 
 The subject file is excluded from the shared visual project and included exactly
 once in `subjects`, with its existing `formViewport` command
-(`name: "subjects"`, `packages/ui-kit/vitest.config.ts:226-234`). All 54 tests run,
+(`name: "subjects"`, `packages/ui-kit/vitest.config.ts:229-237`). All 54 tests run,
 including the form comparisons that need that command. The provider owns a
 separate browser for each project. Default wrapper selection includes this
 project; the `visual` and `visual:update` package scripts select both projects

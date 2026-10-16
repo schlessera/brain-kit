@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "category": "browser",
+  "identity": "f2b48c587ab0a8a7f1bd605e130dfdd8b37dbf86589ce960d7007c141785c458",
+  "diagnostic": {
+    "base": "b0b4340cd",
+    "observed": 297,
+    "workerAttempts": 0,
+    "passed": 8808,
+    "skipped": 10,
+    "scope": "setup through afterAll; returned cleanup gap retained",
+    "logSha256": "da33e71a8dc26e89f5b5a81762261a62828a660d3bb67968f853d6a8c49de88e",
+    "observerSha256": "5d1760000e759cca123066c3b38b8d23320316e6878896aec4031cd2b2e46303"
+  },
+  "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory."
+}

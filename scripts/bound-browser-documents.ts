@@ -35,7 +35,7 @@ export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}
 export function boundBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters):Map<string,Map<string,BrowserDocumentInputs>>{
   const result=new Map<string,Map<string,BrowserDocumentInputs>>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"d15a5d28ec9c4e94fedf836a6eeece71c7963b315e1fc8d51d14a6ca0aa519dc"))return result;
+  if(!matches(config,"9c92faea6e53921e05672750f7a8b5ef909b223712890078808d4b0dafe1788e"))return result;
   for(const declaration of declarations){
     if(![config,declaration.owner,declaration.caller].every(file=>files.includes(file))||!matches(declaration.owner,declaration.ownerHash)||!matches(declaration.caller,declaration.callerHash)||Object.entries(declaration.producers).some(([file,hash])=>!matches(file,hash))||[...(importers.get(declaration.owner)??[])].some(file=>file!==config))continue;
     let count=0,unsafe=false;
