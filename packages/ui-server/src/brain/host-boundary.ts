@@ -31,7 +31,7 @@ import {
   acquireHostCredentialExclusion, type HostCredentialDomain,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
+import { markUnpinnedHostWriter, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
@@ -484,6 +484,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             // Another shared turn can establish sticky worker history while
             // credential exclusion waits. Release credentials before rerouting.
             if (isolated()) return undefined;
+            if (hold) markUnpinnedHostWriter(hold);
             const proc = hostSpawn(execution);
             const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
             try {
@@ -539,6 +540,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           execution.signal?.throwIfAborted();
           if (isolated()) { credential?.release(); credential = undefined; }
           else {
+            if (hold) markUnpinnedHostWriter(hold);
             const proc = hostSpawn(execution);
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
               get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") },

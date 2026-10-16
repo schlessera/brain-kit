@@ -359,10 +359,16 @@ required missing admission refuses before process creation. A streaming host
 command retains admission through process exit and both output EOFs, including
 inherited descendant output. Credential exclusion follows writer admission.
 Optional missing gates and trusted `gate: none` readers retain their existing
-behavior. A host holder records its planned folders, without claiming physical
-folder pins; an earlier holder missing a newly required folder causes governed
-admission to refuse. No existing writer is killed or made exclusive by that
-refusal.
+behavior. Before spawning, a concrete host holder records negative provenance
+alongside its advisory folder roots. Such a holder has no physical folder pins,
+even if every requested root is named. Protected governed admission refuses an
+active unpinned host peer; the inverse ordering refuses a new host before spawn
+beside an active peer that may depend on retained folders. Those checks and the
+negative record use the same cross-process gate transaction. Known host peers
+remain concurrent, as do native shared holders; an unknown legacy peer refuses
+protected admission. No existing writer is killed or made exclusive. This
+negative accounting does not qualify a native plan as mounted-writer attestation
+or complete the all-writer proof for provider exclusions.
 
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
@@ -1280,7 +1286,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:34`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:37`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1589,7 +1595,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:61`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:64`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
