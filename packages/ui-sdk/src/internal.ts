@@ -93,3 +93,4 @@ export type { ReplayReceipt } from "./server/session-replay.js";
 export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
 
 export { rewriteWorkerRtk } from "./server/worker-rtk.js";
+export { acquireHostCredentialExclusion, HostCredentialExclusionError, type HostCredentialDomain } from "./server/credential-exclusion.js";

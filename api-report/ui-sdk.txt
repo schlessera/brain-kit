@@ -866,6 +866,8 @@ export "./internal" (./src/internal.ts)
   type EgressRecord
   GIT_LOCK_KEY
   HOST_MASKS
+  type HostCredentialDomain
+  HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
@@ -967,6 +969,7 @@ export "./internal" (./src/internal.ts)
   type WorkerStateErrorClass
   type WorkerStateHandle
   type WorkerStateLimits
+  acquireHostCredentialExclusion
   applyClassification
   archivesDocument
   assertScratchMask
