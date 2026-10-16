@@ -108,6 +108,10 @@ const SUBCOMMAND_PROGRAMS = new Set(["git", "gh", "brain", "npm", "npx", "pnpm",
 const COMMAND_PREFIXES = new Set(["sudo", "env", "time", "timeout", "nice", "nohup", "command", "exec", "builtin", "stdbuf"]);
 /** Segments that set up a command rather than being it. */
 const SETUP_COMMANDS = new Set(["cd", "export", "set", "source", ".", "pushd", "popd", "true", "unset", "umask"]);
+/** Headers describe control flow; their condition/iteration words are not body intent. */
+const SHELL_HEADERS = new Set(["for", "select", "while", "until", "if", "elif"]);
+/** Reserved words that introduce or close a compound-command body. */
+const SHELL_BODY_WORDS = new Set(["then", "else", "do", "done", "fi", "esac", "{", "}", "!"]);
 /** Wrapper options that take a value (`sudo -u <user>`), so the value is not read as the program. */
 /** Global options that take a value, before a multi-command program's subcommand. */
 const PROGRAM_VALUE_OPTIONS: Record<string, Set<string>> = {
@@ -177,9 +181,30 @@ function commandOf(input: unknown): string | null {
 
 /** The program (and its subcommand, for multi-command tools) a shell line ran first. */
 export function commandIntent(command: string): string {
-  const segments = command.split(/&&|\|\||[;|\n]/);
+  const segments = command.split(/(;;)|&&|\|\||[;|\n]/);
+  let inCase = false;
+  let caseArm = false;
   for (const segment of segments) {
-    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    if (!segment) continue;
+    if (segment === ";;") { caseArm = inCase; continue; }
+    let tokens = segment.trim().split(/\s+/).filter(Boolean);
+    // Only unquoted leading reserved words are structural. As with the
+    // existing segment splitter, this is a heuristic, not a shell parser.
+    while (SHELL_BODY_WORDS.has(tokens[0] ?? "")) {
+      if (tokens[0] === "esac") { inCase = false; caseArm = false; }
+      tokens.shift();
+    }
+    if (SHELL_HEADERS.has(tokens[0] ?? "")) continue;
+    if (tokens[0] === "case") {
+      const inWord = tokens.indexOf("in", 2);
+      tokens = inWord < 0 ? [] : tokens.slice(inWord + 1);
+      inCase = true;
+      caseArm = true;
+    }
+    if (caseArm) {
+      const patternEnd = tokens.findIndex((token) => token.endsWith(")"));
+      if (patternEnd >= 0) { tokens = tokens.slice(patternEnd + 1); caseArm = false; }
+    }
     let i = 0;
     let wrapper: string | null = null;
     let awaitingDuration = false;

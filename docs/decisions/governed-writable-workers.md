@@ -1906,14 +1906,18 @@ rules and no model call:
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:448`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
 
 - **Families are narrow enough to mean "the same intent".** A shell call's
   family is its program, plus the subcommand for multi-command programs such
-  as `git push`. Otherwise any later `ls` would resolve a failed `git push`.
+  as `git push`. Compound-command headers and reserved words are structure:
+  `for …; do git push …; done` shares the plain `git push` family. Conditions,
+  iteration lists and case patterns do not become the body program. This
+  remains a segment-based heuristic rather than a full shell parser.
+  Otherwise any later `ls` would resolve a failed `git push`.
   File tools from both backends share `file_write` and `file_read`, so Claude's
   `Write` and pi's `write_file` group together.
 - **Failure causes are read from what each backend reports.** Claude Code
