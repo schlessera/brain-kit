@@ -35,7 +35,7 @@ test("discovered Haiku 5.5 retains its ID through client persistence and product
     }) as typeof fetch });
     const profiles = defineProfiles(discovered.models), providers = listProfiles(profiles);
     expect(providers).toHaveLength(3);
-    expect(providers[1]).toEqual({ id: "claude-haiku-5-5", label: "Claude Haiku 5.5", vendor: "anthropic", contextWindow: 1_000_000, source: "discovered" });
+    expect(providers[1]).toEqual({ id: "claude-haiku-5-5", model: "claude-haiku-5-5", label: "Claude Haiku 5.5", vendor: "anthropic", contextWindow: 1_000_000, source: "discovered" });
     expect(providers[0]?.id).toBe("claude-haiku-4-5"); expect(calls).toHaveLength(2);
     const createRoot = () => { const root = createBrainUiRoot({ storage, storagePrefix: "haiku-fixture", request: async () => Response.json({ providers }) }); roots.push(root); return root; };
     const client = createRoot(); await client.stores.provider.getState().loadProviders();
@@ -64,6 +64,6 @@ test("discovered Haiku 5.5 retains its ID through client persistence and product
 
 test("declared Haiku 5.5 uses verified effort support while unknown context stays unknown", () => {
   const [profile] = defineProfiles([{ id: "haiku", label: "Claude Haiku 5.5", model: "claude-haiku-5-5" }]);
-  expect(listProfiles([profile!])).toEqual([{ id: "haiku", label: "Claude Haiku 5.5", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] }]);
+  expect(listProfiles([profile!])).toEqual([{ id: "haiku", model: "claude-haiku-5-5", label: "Claude Haiku 5.5", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] }]);
   expect(profile?.contextWindow).toBeUndefined(); expect(profile?.supportedThinkingLevels).toBeUndefined();
 });
