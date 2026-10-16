@@ -19,6 +19,7 @@ const narrow = z.object({ width: z.literal(320), height: z.number().positive().m
 const edge = z.object({ id: id.optional(), from: id, to: id, label: text.optional(), kind: z.enum(["primary", "link", "default", "async"]).optional() }).strict();
 const field = z.object({ name: text, type: text.optional(), key: z.enum(["PK", "FK"]).optional() }).strict();
 const common = {
+  id: id.optional(),
   layouts: z.object({ narrow }).strict().optional(),
   schema_version: z.literal(1), title: z.string().min(1).max(60), desc: text,
   size: z.enum(DIAGRAM_SIZES), link: link.optional(),
