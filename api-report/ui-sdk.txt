@@ -3014,6 +3014,7 @@ signatures (every public export and the types it is made of)
             cacheDiagnostics?: {
                 scope: "retained_detail";
                 observedRuns: number;
+                runtimeNormalizedRuns: number;
                 unknownRuns: number;
                 inputTokens: number;
                 cacheReadTokens: number;
@@ -5985,6 +5986,7 @@ signatures (every public export and the types it is made of)
         cacheReadTokens: number | null;
         cacheCreationTokens: number | null;
         source: "claude_root_stream" | "pi_main_message";
+        coverage: "provider_reported" | "runtime_normalized";
     }
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {

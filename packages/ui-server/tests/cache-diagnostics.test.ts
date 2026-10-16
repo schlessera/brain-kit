@@ -104,3 +104,18 @@ test("a newly identified first session remains the next turn's baseline", () => 
     expect(cacheDiagnostics(store.getSpan("resume-identity:turn")!.attrs)?.changed, "NEW_SESSION_PREFIX_BASELINE").toBe("unchanged");
   } finally { db.close(); }
 });
+
+test("Pi normalized zero counters retain their source qualifier through detail and stats", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db, { writer: "test" });
+    const recorder = createTurnRecorder({ store }, { turnId: "pi-normalized", sessionId: "odyssey" });
+    recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: 3, cacheReadTokens: 0,
+      cacheCreationTokens: 0, source: "pi_main_message", coverage: "runtime_normalized" } });
+    recorder.finish("success");
+    expect(cacheDiagnostics(store.getSpan("pi-normalized:turn")!.attrs)?.firstRequest?.coverage).toBe("runtime_normalized");
+    expect(computeRuntimeStats(db, { days: 30 }).window.cacheDiagnostics).toMatchObject({
+      observedRuns: 1, runtimeNormalizedRuns: 1, unknownRuns: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    });
+  } finally { db.close(); }
+});
