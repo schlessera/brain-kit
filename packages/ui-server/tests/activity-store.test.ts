@@ -203,7 +203,7 @@ describe("activity store: rollups and retention", () => {
       store.rollupRun("run-1");
       expect(store.runRollup!("run-1")!.failureReason).toBeNull();
       const summary = runActivityQuery(db, store, { scope: "recent" });
-      expect("finished" in summary && summary.finished[0]!.failureReason).toBeNull();
+      expect(summary).toMatchObject({ finished: [{ failureReason: null }] });
       // A pre-fix persisted rollup is repaired by the ordinary upsert, without migration.
       db.query("UPDATE activity_run_rollups SET failure_reason = ? WHERE run_id = ?")
         .run("loom ledger unavailable", "run-1");
