@@ -43,7 +43,7 @@ function validatePath(path: string): void {
   const hiddenSegment = parts.find(p => p.startsWith("."));
   if (hiddenSegment) {
     const scratchHint = parts[0] === ".brain" && parts[1] === "scratch"
-      ? " Use the scratch tools for .brain/scratch/." : "";
+      ? " Use the worker shell for scratch files when that area is writable." : "";
     refuse("unsupported_kind", `Hidden path segment "${hiddenSegment}" is not supported. Hidden files and directories are not written by this route.${scratchHint}`);
   }
   if (!path.endsWith(".md"))

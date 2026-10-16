@@ -130,7 +130,7 @@ describe("server-owned application boundary", () => {
     expect(receipts).toEqual([result]);
     expect(existsSync(join(root, target))).toBe(false);
     policyUnchanged();
-    if (target.startsWith(".brain/scratch/")) expect(result.message).toContain("scratch tools");
+    if (target.startsWith(".brain/scratch/")) expect(result.message).toContain("worker shell");
   });
   test("non-Markdown path keeps the Markdown diagnostic", async () => {
     const result = await application()(request(write("voyages/ithaca.txt", "Odysseus returns.\n", null)));
