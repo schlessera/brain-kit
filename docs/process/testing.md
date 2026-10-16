@@ -339,3 +339,16 @@ Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
+
+
+Shared browser proof discovery follows literal relative CSS imports and local
+asset URLs. Plain relative `@source` directories own their recursively scanned
+bytes and directory membership; scanned TypeScript is not executed or imported.
+The common build consumes both stylesheet entries. Their exact package-import
+ownership is recorded in `scripts/css-proof-inputs.json`: the installed
+Tailwind stylesheet is backed by the dependency manifests and lockfile, with
+`source(none)` disabling implicit scanning, and the kit token export names its
+source. An edited or duplicate statement invalidates its declaration. Missing
+inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
+build directives remain unresolved and require fresh proof. This discovery
+support does not itself establish a complete retainable browser domain.

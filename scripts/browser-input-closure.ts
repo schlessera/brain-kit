@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync 
 import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { cssInputs } from "./css-inputs";
 import { normalizeInventory, type Spec } from "./proof-inputs";
 
 export type BrowserCategory = "browser" | "layout" | "endurance" | "captures";
@@ -27,7 +28,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   const unresolved = new Set<string>(), files = new Set<string>(), directories = new Set<string>();
   const declared = new Map<string, Map<string, IndirectInput>>();
   for (const declaration of declarations) {
-    if (!declaration || typeof declaration.owner !== "string" || !sourceExtension.test(declaration.owner) || !Array.isArray(declaration.inputs) || declared.has(declaration.owner) || !inside(root, resolve(root, declaration.owner)) || !existsSync(join(root, declaration.owner))) {
+    if (!declaration || typeof declaration.owner !== "string" || !/\.(?:[cm]?[jt]sx?|css)$/.test(declaration.owner) || !Array.isArray(declaration.inputs) || declared.has(declaration.owner) || !inside(root, resolve(root, declaration.owner)) || !existsSync(join(root, declaration.owner))) {
       unresolved.add(`Invalid declaration owner: ${declaration?.owner}`); continue;
     }
     const inputs = new Map<string, IndirectInput>();
@@ -39,24 +40,41 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   }
   const options: ts.CompilerOptions = { moduleResolution: ts.ModuleResolutionKind.Bundler,
     module: ts.ModuleKind.ESNext, customConditions: ["bun"], resolveJsonModule: true, allowImportingTsExtensions: true, jsx: ts.JsxEmit.ReactJSX };
-  const visit = (file: string) => {
+  const visited = new Set<string>();
+  const visit = (file: string, scanOnly = false) => {
     const absolute = resolve(root, file), normalized = inside(root, absolute);
-    if (!normalized || normalized.startsWith("node_modules/")) { unresolved.add(`Input escapes repository: ${file}`); return; }
-    if (files.has(normalized)) return;
+    if (normalized === undefined || normalized.startsWith("node_modules/") || normalized === "node_modules") { unresolved.add(`Input escapes repository: ${file}`); return; }
+    const key = `${scanOnly}:${normalized}`;
+    if (visited.has(key)) return;
+    visited.add(key);
     if (!existsSync(absolute)) { unresolved.add(`Missing input: ${normalized}`); return; }
     const real = inside(root, realpathSync(absolute));
     if (real !== normalized) { unresolved.add(`Unsupported symbolic input: ${normalized}`); return; }
-    files.add(normalized);
+    if (normalized) files.add(normalized);
     const stat = ts.sys.directoryExists(absolute);
     if (stat) {
-      directories.add(normalized);
-      for (const entry of readdirSync(absolute).sort()) visit(`${normalized}/${entry}`);
+      directories.add(normalized || ".");
+      for (const entry of readdirSync(absolute).sort()) visit(normalized ? `${normalized}/${entry}` : entry, scanOnly);
       return;
     }
+    if (scanOnly) return; // Tailwind scans bytes; it does not execute/import scanned source.
     if (file.endsWith(".css")) {
-      const css = readFileSync(absolute, "utf8");
-      // CSS/build discovery requires declarations until a complete supported CSS resolver exists.
-      if (/@(?:import|source)|url\s*\(/.test(css)) unresolved.add(`Unsupported CSS/build inputs: ${normalized}`);
+      const css = cssInputs(readFileSync(absolute, "utf8"));
+      const uses = new Set<string>();
+      if (css.unsupported) unresolved.add(`Unsupported CSS/build inputs: ${normalized}`);
+      for (const input of css.inputs) {
+        const declaration = input.kind === "import" && !input.value?.startsWith(".") ? declared.get(normalized)?.get(input.expression) : undefined;
+        if (declaration) {
+          if (uses.has(input.expression)) unresolved.add(`Ambiguous declaration site ${normalized}: ${input.expression}`);
+          uses.add(input.expression);
+          for (const target of declaration.targets) visit(target);
+        } else if (input.value?.startsWith(".")) {
+          const target = relative(root, resolve(dirname(absolute), input.value));
+          if (input.kind === "source" && !ts.sys.directoryExists(resolve(root, target))) unresolved.add(`Missing CSS scan directory ${normalized}: ${input.value}`);
+          else visit(target, input.kind === "source");
+        } else unresolved.add(`Undeclared CSS input ${normalized}: ${input.expression}`);
+      }
+      for (const expression of declared.get(normalized)?.keys() ?? []) if (!uses.has(expression)) unresolved.add(`Stale declaration ${normalized}: ${expression}`);
       return;
     }
     if (!sourceExtension.test(file)) return;
@@ -138,7 +156,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
 }
 export function closureSelects(changed: readonly string[], closure: InputClosure, broad: boolean): boolean {
   const inputs = new Set(closure.files);
-  return changed.some(file => inputs.has(file) || closure.directories?.some(dir => file.startsWith(dir + "/"))) || (closure.unresolved.length > 0 && broad);
+  return changed.some(file => inputs.has(file) || closure.directories?.some(dir => dir === "." || file.startsWith(dir + "/"))) || (closure.unresolved.length > 0 && broad);
 }
 
 export type BrowserClosures = Record<BrowserCategory, InputClosure>;
@@ -149,8 +167,10 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
     if (!Array.isArray(data)) throw new Error("Invalid indirect-input declarations");
     return data;
   };
+  const cssConfig = ["scripts/css-proof-inputs.json", "packages/ui-kit/src/styles.css", "packages/ui-react/src/styles.css"];
+  const cssDeclarations = () => declarations("scripts/css-proof-inputs.json");
   let captures: InputClosure;
-  try { captures = discoverInputClosure(root, ["scripts/capture.ts", "scripts/captures", "docs/process/feature-captures.md"], declarations("scripts/captures/proof-inputs.json")); }
+  try { captures = discoverInputClosure(root, ["scripts/capture.ts", "scripts/captures", "docs/process/feature-captures.md", ...cssConfig], [...declarations("scripts/captures/proof-inputs.json"), ...cssDeclarations()]); }
   catch { captures = { files: [], unresolved: ["Cannot establish capture input ownership"] }; }
   const output = join(root, "tmp", `browser-selection-${process.pid}.json`);
   mkdirSync(dirname(output), { recursive: true });
@@ -172,8 +192,8 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
   } catch { return failed("Installed Vitest discovery unavailable"); }
   finally { rmSync(output, { force: true }); }
   try {
-    const visualDeclarations = declarations("packages/ui-kit/tests/proof-inputs.json");
-    const config = ["packages/ui-kit/tests/proof-inputs.json", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts"];
+    const visualDeclarations = [...declarations("packages/ui-kit/tests/proof-inputs.json"), ...cssDeclarations()];
+    const config = [...cssConfig, "packages/ui-kit/tests/proof-inputs.json", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts"];
     const entries = (category: BrowserCategory) => [...config, ...specs.filter(spec => category === "layout" ? spec.project === "ui-react-layout" : category === "endurance" ? spec.project === "ui-react-endurance" : !["ui-react-layout", "ui-react-endurance"].includes(spec.project)).map(spec => spec.file)];
     return { browser: discoverInputClosure(root, entries("browser"), visualDeclarations),
       layout: discoverInputClosure(root, entries("layout"), visualDeclarations),

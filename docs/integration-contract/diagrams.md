@@ -1,4 +1,4 @@
-# Diagram spec v1 and check (additive, 0.44.0, #2089)
+# Diagram spec v1, check and geometry (additive, 0.44.0, #2089, #2090)
 
 With `@schlessera/brain-module-diagrams` enabled, `brain diagram check
 <file|-> --json` reads one standalone YAML document or exactly one Markdown
@@ -58,7 +58,9 @@ The discriminator `type` selects one common family grammar:
 This is the common grammar for those families. It does not claim a renderer or
 specialized participants/messages, lanes/steps, dated-event or type-specific
 content fields. Those are separate additive family work. Other type names are
-refused. Geometry construction and edge routing are separate from validation.
+refused. After common semantic checks pass, free-layout validation also runs
+the pure geometry builder with its default label metrics. Ordered-axis and
+fixed-family specs retain their common checks until their family builders ship.
 
 ## Semantic checks and budgets
 
@@ -96,10 +98,66 @@ not prose or filesystem error text.
 
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
-`focal_count`, `tree_cycle`, `grid`, and `overlap`. Warnings use `budget`.
+`focal_count`, `tree_cycle`, `grid`, `overlap`, and `unroutable`. Warnings use `budget`.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
 
 Exit 0 means no errors (warnings may exist); exit 1 means invalid input, usage
 or an unreadable source. `--json` writes only the result on stdout. The core's
 normal machine-output selection applies; `--human` selects readable findings.
+
+## Pure free-layout geometry
+
+`buildDiagram(spec, options?)` accepts a structurally and semantically valid
+free-layout `DiagramSpec` and returns a `DiagramTree`, without DOM access,
+rendering, I/O or source mutation. It parses the structural schema itself;
+call `checkDiagram` for reference, grid, overlap and editorial validation.
+Other type families are refused. Repeated identical inputs and options produce
+byte-identical serialized trees.
+
+The tree contains `schema_version: 1`, `type`, `title`, `desc`, `viewBox`
+(`x`, `y`, `width`, `height`) and ordered `elements`. Discriminated element
+kinds are `group`, `connector`, `label-mask`, `edge-label` and `node`.
+Groups derive a 16px padded member bound; nodes retain supplied coordinates,
+sizes, labels and presentation metadata. Connectors identify the source edge
+index and contain actual attachment ports, an orthogonal point list, an SVG
+`M`/`L`/`A` path string, corner radius, crossing bridges, dashed state and
+explicit hidden-transit node IDs. Unnamed connectors use `edge:<index>` IDs.
+Masks carry their measured box, segment index, opaque flag and 8px gap;
+edge labels carry text, measured box and font size. This is geometry data;
+colors, strokes, markers, text rendering and accessibility belong to painters.
+Paint order is groups, connectors, masks, labels, then nodes.
+
+Routes use 8px circular elbows, perpendicular ports at least 8px from corners,
+and evenly fanned same-side ports at `length * k / (count + 1)`. Port spacing
+is at least 12px, or 8px on sides shorter than 48px. Parallel runs stay at least
+12px apart. A perpendicular crossing has one 6px semicircular hop on the less
+important edge: transit, then async, then default/link, then primary; ties put
+the hop on the later edge. Bridge metadata and actual path commands agree.
+
+Labels have opaque masks separated by 8px from their segment, beside vertical
+runs. Masks remain clear of nodes and other masks, and preserve at least 8px
+clearance from route polylines and conservative curve bounds. Optional
+`labelFontSize` and `labelLineHeight` default to 9.5px and 12px. Both must be
+finite, from 9px through 256px, with line height at least font size. Width is
+`ceil((UnicodeCodePoints * fontSize * 0.62 + 8) / 4) * 4`; height is
+`ceil((lineHeight + 4) / 4) * 4`. Painters must use compatible metrics or request
+appropriate dimensions; this conservative model does not claim font shaping.
+
+Nonendpoint boxes are routing obstacles. A direct aligned path through a box
+is allowed only after clear routing fails, is dashed, names each hidden node
+in `transit`, and places any label at its visible source end. The path still
+ends at the actual destination. Earlier connectors alone cannot justify
+hidden transit. Routing is deterministic and bounded (20,000 candidates or
+visibility vertices, 100,000 search steps); it may refuse crowded layouts
+rather than claim a complete global routing solver. A refusal throws
+`DiagramGeometryError` with `findings` (`path`, `code: unroutable`, `message`);
+edge findings name the edge. The checker includes those findings at the end
+of its errors and returns exit 1. Invalid metric options throw an error.
+
+Canvas dimensions are fixed for named presets: doc-inline 960×600, doc-wide
+and slide-16x9 1280×720, slide-4x3 1024×768, social-og 1200×632,
+social-square 1080×1080, print-a4-landscape 1120×792,
+print-a3-landscape 1584×1120 and print-letter-landscape 1056×816.
+`fit` uses node extents plus 24px, with a 96px minimum per axis. Routing never
+moves nodes or invents family-specific layout.

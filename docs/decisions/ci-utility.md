@@ -165,9 +165,33 @@ VM CPU seconds and peaked at 5.48 GB on a 16.77 GB runner (11.29 GB headroom).
 All four queued arms failed because their checkout location hid native source
 under `/tmp` and their setup umask changed test file modes. Those timings do
 not establish a speedup. Restoring caller permissions and native source
-visibility has real failing/restored runtime controls. N=2 is the implemented
-bounded candidate; complete queue throughput, same-SHA count equality and the
-two exhaustive/main passes remain verification obligations in
+visibility has real failing/restored runtime controls.
+
+The corrected N=2 queue completed all four arms of
+[run 38917533458, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38917533458)
+at actual source `9e7a178f28025648109c6e2fb23d2bf325f813ed`, tree
+`a3db5f93d51b4159bfa7e5bf4046ab3872b85331`. Their reconciled JUnit/timing
+inventories contain exactly 961 distinct files and 13,512 cases: 13,484 pass,
+28 skip, zero TODO and zero failures, matching the earlier serial totals.
+The four complete measured proof steps took 852 / 962 / 989 / 987 seconds;
+VM resource receipts record 2.31 / 2.87 / 2.43 / 2.75 average busy cores and
+5.17 / 3.57 / 6.04 / 4.22 GB sampled peaks. The highest peak leaves 10.73 GB
+of the 16.77 GB runner available. A test-only external-fetch mutation failed
+inside queue worker 2 with the offline guard assertion; the guard job restored
+the production source. The experiment run as a whole failed its separate
+workflow-policy lint because its measurement-only workflow pins another
+checkout; that is not a passing production CI run.
+
+The observed longest step is 989 seconds versus the earlier 1,402 seconds,
+about 29% shorter. The sources differ only in the owned worker harness and
+fixture corrections, and runner variation is uncontrolled: this is a measured
+comparison, not literal same-SHA count proof or a qualified throughput claim.
+N=2 remains the bounded candidate. The missing serial arms at the exact same
+`9e7a178f` source are isolated in
+[run 38933790923](https://github.com/schlessera/brain-kit/actions/runs/38933790923);
+its workflow is a measurement vehicle, not production confirmation. Actual
+checkout, inventory, count and resource reconciliation plus two consecutive
+exhaustive/main passes remain obligations in
 [#2121](https://github.com/schlessera/brain-kit/issues/2121). An earlier source's
 serial pass is never relabeled as a different source's full pass. Dependency
 copies and private builds count in proof time and sampled VM resources; job

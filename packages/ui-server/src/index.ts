@@ -131,3 +131,6 @@ export type {
   MetricPoint,
   MetricSnapshot,
 } from "./observability/index.js";
+
+// Explicit live-conversation adapter; no provider is auto-selected.
+export { createGeminiConversationProvider } from "./voice/gemini-conversation.js";

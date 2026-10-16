@@ -613,7 +613,7 @@ controls in static output and no lookup needed to draw a graph.
 Markdown fences compose the kit `CodeBlock` with a permanent 44px head Copy
 control. Copy uses source text rather than linkified DOM text. The lazy
 highlighter soft-fails to the same plain source; its chat-only token theme
-works in dark and paper. Mermaid keeps its dedicated renderer. Long lines
+works in dark and paper. Mermaid uses the built-in content-renderer pack for fences and `.mmd` / `.mermaid` files. Browser printing and shared PNG/PDF output use white print tokens; screen diagrams retain the light and dark palettes. Long lines
 wrap for narrow transcripts, and exports retain the original fence content.
 The Storybook `Conversation/Code fence theme` preview uses the actual consumer
 renderer and shipped CSS within an isolated shadow root.

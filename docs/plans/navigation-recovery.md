@@ -367,7 +367,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:1076-1092`).
 
-- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:180-235`).
+- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:182-237`).
 
 - Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2090-2099`).
 

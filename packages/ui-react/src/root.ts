@@ -17,6 +17,7 @@ import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
 import { createLocalWorkFlow } from "./lib/local-work-flow.js";
 import { shareNotificationZoneReports } from "./lib/push-registration.js";
+import { registerBuiltinContentRenderers } from "./content-renderers/index.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
 const LOCAL_PARTITIONS_DB = "brain-ui-local";
@@ -112,6 +113,7 @@ export function createRoot(
   renderers = createToolRendererRegistry(),
   asr = createAsrClientRegistry(),
 ): BrainUiRoot {
+  registerBuiltinContentRenderers();
   const transport = options.request ?? browserRequest;
   let authLock: ReturnType<typeof createAuthLock> | undefined;
   const request = async (url: string, init?: ProgressRequestInit): Promise<Response> => {

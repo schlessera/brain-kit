@@ -309,6 +309,7 @@ export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
   LIGHT_TOKENS
+  PRINT_TOKENS
   TOKENS
   type TokenName
   canvas

@@ -1,0 +1,41 @@
+[
+  {
+    "owner": "packages/ui-kit/src/styles.css",
+    "inputs": [
+      {
+        "expression": "@import \"tailwindcss\" source(none);",
+        "targets": [
+          "package.json",
+          "bun.lock",
+          "packages/ui-kit/package.json"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/src/styles.css",
+    "inputs": [
+      {
+        "expression": "@import \"tailwindcss\" source(none);",
+        "targets": [
+          "package.json",
+          "bun.lock",
+          "packages/ui-react/package.json"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/src/theme.css",
+    "inputs": [
+      {
+        "expression": "@import \"@schlessera/brain-ui-kit/tokens.css\";",
+        "targets": [
+          "packages/ui-kit/src/tokens.css",
+          "packages/ui-kit/package.json",
+          "packages/ui-react/package.json"
+        ]
+      }
+    ]
+  }
+]

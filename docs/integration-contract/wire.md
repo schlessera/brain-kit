@@ -1255,9 +1255,38 @@ is `{ outcome: "completed" | "error", facts, delivery: "quiet" | "when-idle" }`.
 Every event carries its scope and is validated by `parseLiveConversationEvent`
 before the host reads it; an event for another scope is ignored and an
 invalid one closes the epoch. `assertLiveConversationProvider` and
-`assertLiveConversationSession` are the registration checks. No shipped
-adapter, client capture/playback or provider network call is part of this
-contract.
+`assertLiveConversationSession` are the registration checks. Client
+capture/playback and live qualification remain separate from this host contract.
+
+**Gemini adapter (additive, #958).**
+`createGeminiConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`; no environment auto-selection or new
+credential discovery is added. The fixed configuration is Gemini Developer API
+v1beta BidiGenerateContent, `gemini-3.8-live`, Kore, mono PCM16 input at 16 kHz
+and output at 24 kHz. It waits for `setupComplete`, uses manual activity and
+one `NON_BLOCKING` advisory `host_task`; it never executes vendor tools.
+Host results preserve native IDs, use top-level `SILENT` or `WHEN_IDLE` and
+`willContinue: false`. Pending work does not block input or the ordinary chat
+bridge's progress, questions and permission controls. A native handle is never
+bound to the most recently captured utterance just because it arrived then.
+
+A transcription `finished` marker closes input attribution; model
+`turnComplete` does not. Without that marker, the adapter refuses a second
+utterance and ends the epoch visibly rather than attributing delayed input to
+it. This marker is not calibrated certainty or a semantic commit: input origin
+and certainty remain unknown, requiring review. Native cancellation withdraws
+publication, not completed host effects. Aborted/replaced epochs and consumed
+or withdrawn handles cannot publish later results. Reconnection opens a new
+session and sends bounded historical host outcomes as context only.
+
+Exact permission speech, acoustic echo isolation, word alignment, calibrated
+certainty and remote cancellation acknowledgement remain unproven. The local
+transport tests do not certify a live handshake or audible/device behavior;
+#961 gates activation. Provider errors and setup failures use fixed diagnostics
+that never echo credential-bearing URLs or remote error text. Events, frame
+sizes, outbound buffering and native handle ledgers are bounded; malformed
+frames, backpressure and disconnect end capture/admission visibly.
 
 <a id="interactive-answer-receipts-breaking-910"></a>
 
