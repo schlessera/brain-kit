@@ -21,7 +21,7 @@ export interface StorageCollectOptions {
   salt: string;
 }
 const validPath = (path: string) => path === "" || (!path.startsWith("/") && path.split("/").every(piece => piece !== "." && piece !== ".." && piece !== "") && !path.includes("\0"));
-export function storageTotals(entries: StorageFileEntry[], complete = true): StorageBytes {
+export function storageTotals(entries: readonly Pick<StorageFileEntry, "objectId" | "kind" | "logical" | "allocated">[], complete = true): StorageBytes {
   if (!entries.length && !complete) return { logical: null, allocated: null, coverage: "unknown" };
   const seen = new Set<string>(); let logical = 0n, allocated = 0n, hasLogical = true, hasAllocation = true;
   for (const entry of entries) {

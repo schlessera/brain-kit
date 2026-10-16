@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectMetadata } from "../src/storage/metadata";
 import { storageTotals } from "../src/storage/collect";
-import type { StorageFileEntry } from "@schlessera/brain-ui-sdk/protocol";
 
 test("server metadata stays within exact roots and does not follow descendants or sidecar redirects", async () => {
   const root = mkdtempSync(join(tmpdir(), "storage-odysseus-"));
@@ -30,7 +29,7 @@ test("server metadata records hard-link identity once in the object union and pr
     const result = await collectMetadata([{ id: "charts", path: root, recursive: true }]);
     const files = result.entries.filter(entry => entry.kind === "file");
     expect(files).toHaveLength(2); expect(files[0]!.object).toBe(files[1]!.object);
-    const entries = files.map(entry => ({ objectId: entry.object, logical: entry.logical, allocated: entry.allocated })) as StorageFileEntry[];
+    const entries = files.map(entry => ({ kind: entry.kind, objectId: entry.object, logical: entry.logical, allocated: entry.allocated }));
     expect(storageTotals(entries).logical, "STORAGE_OBJECT_UNION").toBe(5);
     const partial = await collectMetadata([{ id: "charts", path: root, recursive: true }], { entries: 1 });
     expect(partial.entries).toHaveLength(1); expect(partial.errors).toContainEqual({ rootId: "charts", reason: "entry-budget" });
