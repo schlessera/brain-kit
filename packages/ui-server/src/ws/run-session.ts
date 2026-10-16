@@ -1,5 +1,5 @@
 import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
-import { BudgetExceeded, BudgetUnavailable, inferenceBudgetNote, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
+import { BudgetExceeded, BudgetUnavailable, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
 import { withTrackFiles } from "../tracks/read.js";
 import type {
   BillingMode,
@@ -651,7 +651,7 @@ async function runRetainedSession(
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
               userRevert: Boolean(host.turnReverts && host.journal && host.journal.summary(turn.turnId).state === "recording" && work?.posture !== "voice") },
           } }, workerLock: host.workerLock } : {}),
-          prompt: host.budgets && governedHold ? `${prompt}\n\n${inferenceBudgetNote(host.budgets.receipt(turn.turnId))}` : prompt,
+          prompt,
           ...(host.budgets && governedHold ? {maxBudgetUsd:host.budgets.remaining(turn.turnId),
             sessionBudgetLimits: inferenceBudgetLimits(host.budgets.receipt(turn.turnId)),
             budgetContext: inferenceBudgetContext(host.budgets.receipt(turn.turnId)),

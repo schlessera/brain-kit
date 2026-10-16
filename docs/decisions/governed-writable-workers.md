@@ -1109,9 +1109,16 @@ second time. The concrete ledger is (`createTurnBudgets`,
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
-The same receipt drives (`inferenceBudgetNote`,
-`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
-single disclosure. Crossing keys retain once-only warning events by scope,
+The same receipt drives next-turn warning and single disclosure.
+
+> **2026-10-16 — Implementation context.** The former routine
+> [`inferenceBudgetNote`](https://github.com/schlessera/brain-kit/blob/53258a203d37ab32ae211c5f645cb32e2b3898d1/packages/ui-server/src/brain/turn-budgets.ts#L196-L198)
+> appended running totals to every governed prompt. #2051 removes that suffix
+> and strips its exact legacy shape only during UI replay, before local-command
+> and message-metadata joins; saved provider transcripts remain unchanged.
+> #2047 owns session-stable limits and actionable notices in new tail context.
+
+Crossing keys retain once-only warning events by scope,
 identity, unit and threshold. Conversation blocks offer the existing reviewed
 handoff; a new conversation does not reset the day. Day stops display the
 server's next UTC midnight. Neither stopped inference nor unavailable
