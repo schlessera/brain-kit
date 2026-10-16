@@ -20,6 +20,7 @@ const checks: Record<string, Check> = {
   "POST /api/storage/scans": { init: json("POST", {}), status: 202, body: { version: 1, state: "scanning" } },
   "DELETE /api/storage/scans/:id": { path: "/api/storage/scans/missing", init: { method: "DELETE" }, status: 409, body: { error: "That scan is no longer active." } },
   "GET /api/storage/scans/:id/entries": { path: "/api/storage/scans/missing/entries", status: 404, body: { error: "Storage observation expired or unavailable; refresh." } },
+  "GET /api/storage/scans/:id/tree": { path: "/api/storage/scans/missing/tree", status: 404, body: { error: "Storage observation expired or unavailable; refresh." } },
   "GET /api/storage/scans/:id/entries/:entryId/references": { path: "/api/storage/scans/missing/entries/missing/references", status: 404, body: { error: "Storage observation expired or unavailable; refresh." } },
   "GET /api/health": { body: { status: "healthy" } },
   "GET /api/hygiene/review": { body: { review: { version: 1, status: "idle" }, action: null } },

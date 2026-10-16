@@ -40,6 +40,7 @@ export interface StoragePage {
   matched: number; totals: StorageBytes;
 }
 export interface StorageFilter {
+  search?: string; sort?: "name" | "size"; metric?: "logical" | "allocated"; direction?: "asc" | "desc";
   rootId?: string; parentId?: string; owner?: StorageOwner | "all";
   type?: "pdf"; largerThan?: number; cursor?: string;
 }
@@ -51,4 +52,20 @@ export interface StorageReferenceEvidence {
   truncated: boolean; newestIndexedAt: string | null;
   /** Index freshness is not verified against current source bytes. */
   freshness: "unchecked"; unchecked: string[];
+}
+
+/** A cached hierarchy projection; aliases retain names while contributing area once. */
+export interface StorageTreeNode {
+  id: string; rootId: string; entry: StorageFileEntry | null; path: string; name: string;
+  kind: "root" | "metadata" | StorageFileEntry["kind"]; owner: StorageOwner;
+  totals: StorageBytes; area: StorageBytes; reason: string | null;
+}
+export interface StorageTreeFilter {
+  parentId?: string; owner?: StorageOwner | "all"; search?: string;
+  sort?: "name" | "size"; metric?: "logical" | "allocated"; direction?: "asc" | "desc"; cursor?: string;
+}
+export interface StorageTreePage {
+  scanId: string; parentId: string | null; name: string;
+  breadcrumbs: { id: string | null; name: string }[];
+  nodes: StorageTreeNode[]; totals: StorageBytes; matched: number; nextCursor: string | null; stale: boolean;
 }

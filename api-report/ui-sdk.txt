@@ -316,6 +316,9 @@ export "." (./src/index.ts)
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
+  type StorageTreeFilter
+  type StorageTreeNode
+  type StorageTreePage
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -774,6 +777,9 @@ export "./client" (./src/client/index.ts)
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
+  type StorageTreeFilter
+  type StorageTreeNode
+  type StorageTreePage
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -1387,6 +1393,9 @@ export "./protocol" (./src/protocol.ts)
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
+  type StorageTreeFilter
+  type StorageTreeNode
+  type StorageTreePage
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
@@ -2071,6 +2080,9 @@ export "./server" (./src/server/index.ts)
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
+  type StorageTreeFilter
+  type StorageTreeNode
+  type StorageTreePage
   type SubprocessEnvAudience
   type SubscriptionAuthAction
   type SurfaceTools
@@ -9267,6 +9279,10 @@ signatures (every public export and the types it is made of)
     }
   StorageFilter (packages/ui-sdk/src/storage.ts)
     export interface StorageFilter {
+        search?: string;
+        sort?: "name" | "size";
+        metric?: "logical" | "allocated";
+        direction?: "asc" | "desc";
         rootId?: string;
         parentId?: string;
         owner?: StorageOwner | "all";
@@ -9346,6 +9362,44 @@ signatures (every public export and the types it is made of)
             milliseconds: number;
             cacheBytes: number;
         };
+    }
+  StorageTreeFilter (packages/ui-sdk/src/storage.ts)
+    export interface StorageTreeFilter {
+        parentId?: string;
+        owner?: StorageOwner | "all";
+        search?: string;
+        sort?: "name" | "size";
+        metric?: "logical" | "allocated";
+        direction?: "asc" | "desc";
+        cursor?: string;
+    }
+  StorageTreeNode (packages/ui-sdk/src/storage.ts)
+    export interface StorageTreeNode {
+        id: string;
+        rootId: string;
+        entry: StorageFileEntry | null;
+        path: string;
+        name: string;
+        kind: "root" | "metadata" | StorageFileEntry["kind"];
+        owner: StorageOwner;
+        totals: StorageBytes;
+        area: StorageBytes;
+        reason: string | null;
+    }
+  StorageTreePage (packages/ui-sdk/src/storage.ts)
+    export interface StorageTreePage {
+        scanId: string;
+        parentId: string | null;
+        name: string;
+        breadcrumbs: {
+            id: string | null;
+            name: string;
+        }[];
+        nodes: StorageTreeNode[];
+        totals: StorageBytes;
+        matched: number;
+        nextCursor: string | null;
+        stale: boolean;
     }
   StoredShare (packages/ui-sdk/src/client/share-store.ts)
     export interface StoredShare {

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { requireJson } from "../middleware/origin.js";
 import type { AppEnv } from "../app-env.js";
-import type { StorageFilter } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageFilter, StorageTreeFilter } from "@schlessera/brain-ui-sdk/protocol";
 import { StorageUnavailable, type StorageCoordinator } from "../storage/coordinator.js";
 /** Ordinary content authorization does not grant access to deployment inventory. */
 export function createStorageRoutes(storage: StorageCoordinator): Hono<AppEnv> {
@@ -23,14 +23,31 @@ export function createStorageRoutes(storage: StorageCoordinator): Hono<AppEnv> {
   });
   routes.delete("/storage/scans/:id", c => c.json(storage.cancel(c.get("principal")!.id, c.req.param("id")), 202));
   routes.get("/storage/scans/:id/entries", c => {
-    const raw = c.req.query(), keys = ["rootId", "parentId", "owner", "type", "largerThan", "cursor"];
-    if (Object.keys(raw).some(key => !keys.includes(key)) || raw.owner !== undefined && !["all", "brain", "app", "operator"].includes(raw.owner)
+    const raw = c.req.query(), keys = ["rootId", "parentId", "owner", "type", "largerThan", "cursor", "search", "sort", "metric", "direction"];
+    if (Object.keys(raw).some(key => !keys.includes(key)) || !validPresentation(raw) || raw.owner !== undefined && !["all", "brain", "app", "operator"].includes(raw.owner)
       || raw.type !== undefined && raw.type !== "pdf" || [raw.rootId, raw.parentId].some(id => id !== undefined && id !== "" && !/^[a-f0-9]{32}$/.test(id))
       || raw.largerThan !== undefined && (!/^\d+$/.test(raw.largerThan) || !Number.isSafeInteger(Number(raw.largerThan)))) return c.json({ error: "Invalid Storage filters." }, 400);
     const filter: StorageFilter = { ...(raw.rootId !== undefined ? { rootId: raw.rootId } : {}), ...(raw.parentId !== undefined ? { parentId: raw.parentId } : {}),
-      ...(raw.owner ? { owner: raw.owner as StorageFilter["owner"] } : {}), ...(raw.type ? { type: "pdf" } : {}), ...(raw.largerThan !== undefined ? { largerThan: Number(raw.largerThan) } : {}), ...(raw.cursor ? { cursor: raw.cursor } : {}) };
+      ...(raw.owner ? { owner: raw.owner as StorageFilter["owner"] } : {}), ...(raw.type ? { type: "pdf" } : {}), ...(raw.largerThan !== undefined ? { largerThan: Number(raw.largerThan) } : {}), ...(raw.cursor ? { cursor: raw.cursor } : {}), ...presentation(raw) };
     return c.json(storage.page(c.get("principal")!.id, c.req.param("id"), filter));
+  });
+  routes.get("/storage/scans/:id/tree", c => {
+    const raw = c.req.query(), keys = ["parentId", "owner", "search", "sort", "metric", "direction", "cursor"];
+    if (Object.keys(raw).some(key => !keys.includes(key)) || !validPresentation(raw) || raw.owner !== undefined && !["all", "brain", "app", "operator"].includes(raw.owner)
+      || raw.parentId !== undefined && raw.parentId !== "" && !/^[a-f0-9]{32}$/.test(raw.parentId)) return c.json({ error: "Invalid Storage filters." }, 400);
+    const filter: StorageTreeFilter = { ...(raw.parentId ? { parentId: raw.parentId } : {}), ...(raw.owner ? { owner: raw.owner as StorageTreeFilter["owner"] } : {}), ...(raw.cursor ? { cursor: raw.cursor } : {}), ...presentation(raw) };
+    return c.json(storage.tree(c.get("principal")!.id, c.req.param("id"), filter));
   });
   routes.get("/storage/scans/:id/entries/:entryId/references", async c => c.json(await storage.references(c.get("principal")!.id, c.req.param("id"), c.req.param("entryId"))));
   return routes;
+}
+
+function validPresentation(raw: Record<string,string>) {
+  return (raw.search === undefined || Buffer.byteLength(raw.search) <= 128 && !/[\u0000-\u001f\u007f]/u.test(raw.search))
+    && (raw.sort === undefined || ["name", "size"].includes(raw.sort))
+    && (raw.metric === undefined || ["logical", "allocated"].includes(raw.metric))
+    && (raw.direction === undefined || ["asc", "desc"].includes(raw.direction));
+}
+function presentation(raw: Record<string,string>): Pick<StorageFilter,"search"|"sort"|"metric"|"direction"> {
+  return { ...(raw.search !== undefined ? {search:raw.search} : {}), ...(raw.sort ? {sort:raw.sort as "name"|"size"} : {}), ...(raw.metric ? {metric:raw.metric as "logical"|"allocated"} : {}), ...(raw.direction ? {direction:raw.direction as "asc"|"desc"} : {}) };
 }

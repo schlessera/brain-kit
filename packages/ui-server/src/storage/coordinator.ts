@@ -1,6 +1,7 @@
+import { projectStorageTree, sortStorageRows } from "./tree.js";
 import { storageReferences } from "./process.js";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import type { StorageFilter, StoragePage, StorageStatus, StorageReferenceEvidence } from "@schlessera/brain-ui-sdk/protocol";
+import type { StorageFilter, StoragePage, StorageStatus, StorageReferenceEvidence, StorageTreeFilter, StorageTreePage } from "@schlessera/brain-ui-sdk/protocol";
 import { collectStorage, storageTotals, STORAGE_SERVER_LIMITS, type StorageCollection, type StorageCollectOptions } from "./collect.js";
 export class StorageUnavailable extends Error {
   constructor(readonly status: 400 | 403 | 404 | 409 | 429 | 503, message: string) { super(message); }
@@ -82,7 +83,9 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
         && (criteria.parentId === undefined || entry.parentId === (criteria.parentId || null))
         && (!criteria.owner || criteria.owner === "all" || owners.get(entry.rootId) === criteria.owner)
         && (!criteria.type || entry.kind === "file" && /\.pdf$/i.test(entry.name))
+        && (!criteria.search || entry.name.toLowerCase().includes(criteria.search.toLowerCase()))
         && (criteria.largerThan === undefined || entry.kind === "file" && entry.logical !== null && entry.logical > criteria.largerThan));
+      if (criteria.sort || criteria.direction || criteria.metric) sortStorageRows(matches, criteria, entry => entry[criteria.metric ?? "allocated"]);
       const page = matches.slice(offset, offset + STORAGE_SERVER_LIMITS.page), next = offset + page.length;
       let nextCursor: string | null = null;
       if (next < matches.length) { const encoded = Buffer.from(JSON.stringify({ id, filter: filterKey, offset: next, expires: Date.now() + 60_000 })).toString("base64url"); nextCursor = `${encoded}.${digest(encoded)}`; }
@@ -90,6 +93,25 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
       const logicalSum = fileEntries.reduce((sum, entry) => sum + BigInt(entry.logical ?? 0), 0n);
       const fileLogicalTotal = fileEntries.some(entry => entry.logical === null) || logicalSum > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(logicalSum);
       return { scanId: id, fileLogicalTotal, entries: page, nextCursor, stale: Date.now() >= value.summary.staleAfter, matched: matches.length, totals: storageTotals(matches, value.summary.coverage === "complete") };
+    },
+    tree(principal: string, id: string, filter: StorageTreeFilter): StorageTreePage {
+      const value = collection(principal, id), { cursor, ...criteria } = filter, filterKey = "tree:" + JSON.stringify(criteria);
+      let offset = 0;
+      if (cursor) {
+        if (cursor.length > 2048) throw new StorageUnavailable(400, "Invalid Storage cursor.");
+        const [encoded, signature, extra] = cursor.split("."), expected = Buffer.from(digest(encoded ?? "")), actual = Buffer.from(signature ?? "");
+        if (extra || expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new StorageUnavailable(400, "Invalid Storage cursor.");
+        let token: { id: string; filter: string; offset: number; expires: number };
+        try { token = JSON.parse(Buffer.from(encoded!, "base64url").toString()); } catch { throw new StorageUnavailable(400, "Invalid Storage cursor."); }
+        if (token.id !== id || token.filter !== filterKey || token.expires < Date.now() || !Number.isSafeInteger(token.offset) || token.offset < 0) throw new StorageUnavailable(409, "Storage cursor expired or filters changed.");
+        offset = token.offset;
+      }
+      let projected: ReturnType<typeof projectStorageTree>;
+      try { projected = projectStorageTree(value, criteria); } catch { throw new StorageUnavailable(503, "Storage hierarchy unavailable; refresh this observation."); }
+      const nodes = projected.nodes.slice(offset, offset + STORAGE_SERVER_LIMITS.page), next = offset + nodes.length;
+      let nextCursor: string | null = null;
+      if (next < projected.nodes.length) { const encoded = Buffer.from(JSON.stringify({ id, filter: filterKey, offset: next, expires: Date.now() + 60_000 })).toString("base64url"); nextCursor = `${encoded}.${digest(encoded)}`; }
+      return { ...projected, nodes, scanId: id, nextCursor, matched: projected.nodes.length, stale: Date.now() >= value.summary.staleAfter };
     },
     async references(principal: string, id: string, entryId: string): Promise<StorageReferenceEvidence> {
       const value = collection(principal, id), entry = value.entries.find(item => item.id === entryId);

@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:117-150`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:118-151`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -32,6 +32,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
 | `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
 | `GET /api/storage/scans/:id/entries` | `mounted supported handler: GET /api/storage/scans/:id/entries` | ST |
+| `GET /api/storage/scans/:id/tree` | `mounted supported handler: GET /api/storage/scans/:id/tree` | ST |
 | `GET /api/storage/scans/:id/entries/:entryId/references` | `mounted supported handler: GET /api/storage/scans/:id/entries/:entryId/references` | ST |
 | `GET /api/activity/rollups` | `mounted supported handler: GET /api/activity/rollups` | R |
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
@@ -461,7 +462,8 @@ files. `revert-gate.test.ts` proves old-turn maintenance/new-turn queue order;
 The real Chrome `turn-journal-runtime.test.ts` exercises whole-turn review,
 reading focus/Escape, waiting and partial receipts, Undo and lost-response readback.
 
-ST: [Storage route authorization and mounted scans](../packages/ui-server/tests/storage-routes.test.ts),
+ST: [Cached hierarchy, union areas and query paging](../packages/ui-server/tests/storage-tree.test.ts),
+[Storage route authorization and mounted scans](../packages/ui-server/tests/storage-routes.test.ts),
 [real public-reader/store union and paging](../packages/ui-server/tests/storage-collection.test.ts),
 [exact metadata roots](../packages/ui-server/tests/storage-metadata.test.ts), and
 [bounded index evidence](../packages/core/tests/storage-references.test.ts).

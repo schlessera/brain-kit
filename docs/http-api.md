@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 140 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 141 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -30,6 +30,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
 | DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
 | GET | `/api/storage/scans/:id/entries` | S | Read a filtered bounded page | Human-owner Storage inspection; no delegated or worker access. |
+| GET | `/api/storage/scans/:id/tree` | S | Read a bounded subtree projection | Human-owner Storage inspection; no delegated or worker access. |
 | GET | `/api/storage/scans/:id/entries/:entryId/references` | S | Inspect bounded indexed reference evidence | Human-owner Storage inspection; no delegated or worker access. |
 | GET | `/api/activity/digest` | I | Read digest and record app visit | React Activity presentation state; retained public client functions do not promise independent raw transport. |
 | POST | `/api/activity/digest/dismiss` | I | Record digest dismissal | React Activity presentation state; retained public client functions do not promise independent raw transport. |
@@ -173,7 +174,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 140 declared endpoints are mounted regardless of backend, renderer or
+All 141 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1223,7 +1224,7 @@ never executes Git, the brain CLI, repository configuration, hooks or filters
 for inspection. Only fixed Git administrative location markers and approved
 host roots participate in discovery.
 
-These five operations require a current `owner` or `ambient` principal. Agent,
+These six operations require a current `owner` or `ambient` principal. Agent,
 delegated and restricted access is refused (403); unauthenticated/revoked access
 is refused (401 by normal authentication). Authorization is checked again at
 coordinator access and after asynchronous inspection. Responses are private,
@@ -1239,7 +1240,12 @@ an inactive identity returns 409. Initiator revocation cancels its scan.
 
 `GET /api/storage/scans/:id/entries` accepts optional `rootId`, `parentId`
 (empty means root rows), `owner=all|brain|app|operator`, `type=pdf`, nonnegative
-integer `largerThan` and opaque `cursor`. PDF matching is filename based and
+integer `largerThan`, `search`, `sort=name|size`, `metric=allocated|logical`,
+`direction=asc|desc` and opaque `cursor`. Search matches case-insensitive entry
+names and admits at most 128 UTF-8 bytes with no control characters. Ordering
+applies to all matches before paging; unknown byte values sort last. Explicit
+size ordering defaults descending, name ordering ascending; absent presentation
+parameters retain the original root/path order. PDF matching is filename based and
 case insensitive; byte thresholds are strictly greater than. A page has at most
 200 entries, a next cursor, stale flag, match count and object-union subtotals.
 Cursors bind the scan and filters and expire after 60 seconds; changed/expired
@@ -1248,6 +1254,22 @@ cursors return 409, malformed cursors/filters 400. Unknown/evicted scans return
 at most 48 MiB, for at most ten minutes. One scan admits at most 100,000 entries,
 32 roots and 35 seconds of collection; child cancellation is awaited. Kernel
 uninterruptible I/O cannot have a hard wall-clock completion guarantee.
+
+`GET /api/storage/scans/:id/tree` accepts `parentId` (a root or directory ID;
+absent/empty selects all roots), `owner`, `search`, `sort`, `metric`, `direction`
+and `cursor`. It projects the retained scan without filesystem reads, returning
+SDK `StorageTreePage`: parent, breadcrumb names/IDs, at most 200 immediate child
+nodes, full match count and subtotals. Search matches immediate child names;
+default ordering is descending allocated size. A node's `totals` contains its
+subtree object union; `area` assigns each object to one matching sibling in stable
+root/path order. Alias names remain visible without inflating the displayed area.
+The page's `totals` union covers all matching nodes, including later pages.
+An explicit, non-actionable `metadata` node accounts for the current directory's
+own allocation; file roots retain file identity. Partial/unknown owners remain
+partial/unknown even with no matching rows. Tree cursors also bind the operation
+and cannot be reused for flat entries. Projection has a three-second checked
+CPU deadline over the bounded cached scan; incomplete topology, an unavailable
+parent or an out-of-view parent returns 503 rather than omitting descendant bytes.
 
 The server resolves the installed host core package’s public metadata entry
 outside the brain, with explicit roots and no inherited secrets. It never
