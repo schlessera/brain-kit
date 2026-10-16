@@ -17,14 +17,14 @@ const object = (value: unknown): ObjectValue => value !== null && typeof value =
  * Unsupported commands, computed config/reads/imports and opaque discovery
  * report their source unavailable. No repository import/evaluation occurs.
  */
-export function steeringReferences(path: string, text: string, instructionDepth?: number): { references: SteeringReference[]; unknown: boolean } {
+export function steeringReferences(path: string, text: string, instructionDepth?: number, configuration = false): { references: SteeringReference[]; unknown: boolean } {
   const references: SteeringReference[] = [];
   let unknown = false;
   const add = (value: unknown, base: SteeringReference["base"], module = false) => {
     if (typeof value !== "string" || !value || /[\u0000-\u001f\\$`*?{}~]/.test(value)) { unknown = true; return; }
     references.push({ path: value, base, module });
   };
-  const command = (value: unknown, args?: unknown) => {
+  const command = (value: unknown, args?: unknown, base: SteeringReference["base"] = "scope") => {
     if (typeof value !== "string") { unknown = true; return; }
     // Only one literal argv, with no shell substitutions/operators/redirections.
     // Exec-form hooks/MCP preserve argv; shell form accepts this narrow grammar.
@@ -40,17 +40,17 @@ export function steeringReferences(path: string, text: string, instructionDepth?
     }
     const executable = words.shift();
     if (!executable) { unknown = true; return; }
-    if (executable.startsWith("./") || executable.startsWith("../")) { add(executable, "scope"); unknown = true; return; }
+    if (executable.startsWith("./") || executable.startsWith("../")) { add(executable, base); unknown = true; return; }
     if (!["bun", "node", "sh", "bash", "python", "python3"].includes(executable)) { unknown = true; return; }
     if (executable === "bun" && words[0] === "run") words.shift();
     while (words.length) {
       const word = words.shift()!;
-      if (["--preload", "--require", "-r", "--import"].includes(word)) { add(words.shift(), "scope", true); continue; }
+      if (["--preload", "--require", "-r", "--import"].includes(word)) { add(words.shift(), base, true); continue; }
       if (word === "--") continue;
       if (word.startsWith("-")) { unknown = true; return; }
       // Bare Bun script names can be package script aliases: do not guess.
       if (executable === "bun" && !word.includes("/")) { unknown = true; return; }
-      add(word, "scope", executable === "bun" || executable === "node"); return;
+      add(word, base, executable === "bun" || executable === "node"); return;
     }
   };
   try {
@@ -82,7 +82,7 @@ export function steeringReferences(path: string, text: string, instructionDepth?
       // Runtime resource reads (even literals), computed imports and config
       // evaluation have no role proof. Preserve that coverage limitation.
       if (/\b(?:import|require|readFile(?:Sync)?|file)\s*\(/.test(text) || /(?:^|\/)brain\.config\.ts$/.test(path)) unknown = true;
-    } else if (path.endsWith("bunfig.toml")) {
+    } else if (configuration && path.endsWith("bunfig.toml")) {
       const config = object(Bun.TOML.parse(text));
       for (const section of [config, object(config.test)]) if (section.preload !== undefined) {
         if (!Array.isArray(section.preload)) unknown = true;
@@ -90,9 +90,10 @@ export function steeringReferences(path: string, text: string, instructionDepth?
       }
     } else if (path.endsWith(".json")) {
       const config = object(JSON.parse(text));
-      if (/(?:^|\/)package\.json$/.test(path)) for (const script of Object.values(object(config.scripts))) command(script);
+      if (!configuration) return { references, unknown };
+      if (/(?:^|\/)package\.json$/.test(path)) for (const script of Object.values(object(config.scripts))) command(script, undefined, "file");
       if (/(?:^|\/)brain\.config\.json$/.test(path)) for (const key of Object.keys(object(config.modules))) {
-        if (key.startsWith("./")) references.push({path:`${key}/module`, base:"scope", manifest:true});
+        if (key.startsWith("./")) references.push({path:`${key}/module`, base:"file", manifest:true});
         else unknown = true;
       }
       if (/(?:^|\/)\.claude\/settings(?:\.local)?\.json$/.test(path)) {

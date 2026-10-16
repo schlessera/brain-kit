@@ -19,12 +19,12 @@ export const isJournalSteeringPath = (path: string): boolean => !policy.test(pat
 /** A classification inventory, never a claim that arbitrary code was executed. */
 function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (path: string) => JournalSnapshotEntry | undefined, options: JournalSteeringOptions = {}): Generator<JournalSnapshotEntry, { paths: Set<string>; unavailable: string[] }, Buffer | undefined> {
   const entries = new Map<string, JournalSnapshotEntry>();
-  const paths = new Set<string>(), pending: { entry: JournalSnapshotEntry; instructionDepth?: number }[] = [];
+  const paths = new Set<string>(), pending: { entry: JournalSnapshotEntry; instructionDepth?: number; configuration?: boolean }[] = [];
   const unavailable = new Set<string>();
   for (const snapshot of snapshots) for (const entry of snapshot.entries) {
     entries.set(entry.path, entry);
     if (isJournalSteeringPath(entry.path)) {
-      paths.add(entry.path); pending.push({entry, instructionDepth: /(?:^|\/)(?:CLAUDE|AGENTS)(?:\.local)?\.md$/.test(entry.path) ? 0 : undefined});
+      paths.add(entry.path); pending.push({entry, configuration: true, instructionDepth: /(?:^|\/)(?:CLAUDE|AGENTS)(?:\.local)?\.md$/.test(entry.path) ? 0 : undefined});
     }
   }
   // Core initContext fixes its index at <root>/brain.db. Explicit identities
@@ -59,16 +59,16 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
     unavailable.add(from.path);
   };
   while (pending.length) {
-    const { entry, instructionDepth } = pending.pop()!;
-    if (disposable.has(entry.path) || visited.has(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}`)) continue;
-    visited.add(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}`);
+    const { entry, instructionDepth, configuration } = pending.pop()!;
+    if (disposable.has(entry.path) || visited.has(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}:${configuration ?? false}`)) continue;
+    visited.add(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}:${configuration ?? false}`);
     // Readers use retained objects or pinned sealed roots, never live imports.
     if (entry.kind !== "file" || entry.ignored || entry.bytes > 1024 * 1024) { unavailable.add(entry.path); continue; }
     if (instructionDepth === undefined && !scripts.test(entry.path)) continue;
     const bytes = yield entry;
     if (!bytes) { unavailable.add(entry.path); continue; }
     const text = bytes.toString("utf8");
-    const roles = steeringReferences(entry.path, text, instructionDepth);
+    const roles = steeringReferences(entry.path, text, instructionDepth, configuration);
     if (roles.unknown) unavailable.add(entry.path);
     for (const reference of roles.references) add(entry, reference);
   }

@@ -1746,11 +1746,11 @@ is separate from reference classification (#2028). The finite mapping is in
 | --- | --- | --- |
 | Claude instruction imports | Standalone unquoted `@path` lines outside code, recursively to four hops | File-relative literal input, including extensionless text. Inline/escaped/ambiguous forms remain unknown. See the [consumer documentation](https://code.claude.com/docs/en/memory#import-additional-files). |
 | Bun [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig#preload) | Root and `[test]` `preload` arrays | Local module references relative to the config file; other properties such as install caches are not inputs. |
-| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
+| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv relative to the manifest directory. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
 | Claude settings | `hooks.<event>[].hooks[]` with `type: command`, `command` and optional `args` | Executable roles relative to the scope root; the installed SDK settings schema supplies these fields. Prompt-hook text and arbitrary properties are not file references. Plugins remain unknown. |
 | `.mcp.json` | `mcpServers.<name>.command` and `args` | Same literal executable/interpreter roles; network server URLs and ordinary arguments are not local steering dependencies. |
 | Pi settings | `extensions`, `skills`, `prompts`, `themes` arrays | Relative to the settings directory, matching the installed `DefaultPackageManager.resolve` consumer. Computed/glob/package/directory discovery stays unknown. |
-| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
+| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, relative to the config, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
 | Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
 
 This mapping was checked against core's (`loadModules`,
@@ -1759,7 +1759,9 @@ This mapping was checked against core's (`loadModules`,
 `packages/ui-backend-pi/src/session-resources.ts:82-126`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
-Both retained-object and sealed-root readers share classification and the
+Followed JSON resources do not acquire configuration-consumer semantics merely
+from a basename; configuration roles belong to known seeds. Both retained-object
+and sealed-root readers share classification and the
 1 MiB input bound (`nativeJournalSteeringInputs`,
 `packages/ui-server/src/brain/journal-steering.ts:91-100`). Ignored, unreadable,
 oversized, unsupported or ambiguous inputs are named as coverage limitations;

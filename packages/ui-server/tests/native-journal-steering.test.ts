@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { steeringReferences } from "../src/brain/journal-reference-roles.js";
 import { journalSteeringInputs, nativeJournalSteeringInputs } from "../src/brain/journal-steering.js";
 import type { JournalSnapshot } from "../src/brain/journal-snapshot.js";
 
@@ -68,4 +69,14 @@ for (const reader of ["retained", "native"] as const) test(`${reader} steering b
   expect(result.unavailable).toEqual(["bunfig.toml", "opaque.ts", "unreadable.ts"]);
   expect(reads).not.toContain("workspaces/other/run.ts"); expect(reads).not.toContain("context/policies/governance.md");
   expect(reads).not.toContain("not-proven");
+});
+
+
+test("configuration consumers and imported data retain distinct roles and command working directories", () => {
+  const manifest = JSON.stringify({scripts:{start:"bun ./startup.ts ./ordinary"}});
+  expect(steeringReferences("tools/package.json",manifest,undefined,true)).toEqual({references:[{path:"./startup.ts",base:"file",module:true}],unknown:false});
+  expect(steeringReferences("tools/package.json",manifest)).toEqual({references:[],unknown:false});
+  const settings = JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]}});
+  expect(steeringReferences(".claude/settings.json",settings,undefined,true)).toEqual({references:[{path:"./hook.ts",base:"scope",module:true}],unknown:false});
+  expect(steeringReferences(".claude/settings.json",settings)).toEqual({references:[],unknown:false});
 });
