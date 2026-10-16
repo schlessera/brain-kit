@@ -14,6 +14,12 @@ import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backe
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 import { resultText, scriptedModel } from "./measure-claude-runtime";
 import { createMeasurementWorkerFixture } from "./measurement-worker-fixture.js";
+import { enterMeasurementRtkView } from "./measurement-rtk-fixture.js";
+import { isStaticNativeElf } from "../packages/ui-sdk/src/server/worker-rtk.js";
+
+await enterMeasurementRtkView();
+if (!isStaticNativeElf("/usr/local/bin/rtk")) throw new Error("Enforcement fixture requires the installed static native RTK oracle");
+const rtkFixture = { kind: "private-read-only-system-static-native", sha256: new Bun.CryptoHasher("sha256").update(readFileSync("/usr/local/bin/rtk")).digest("hex") };
 
 const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
 const { query } = await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk");
@@ -38,8 +44,8 @@ try {
       const effects = witness.effects;
       const writeCommand = (path: string) => `touch ${path} && ${witness.command}`;
       const command = writeCommand(original);
-      // Controlled rewrite oracle, invoked by the production RTK hook. Other
-      // scenarios explicitly decline, so host RTK installations cannot vary it.
+      // Untrusted PATH scripts must fall back unchanged. Only the rewrite
+      // scenario uses the protected native installation in the private view.
       writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
         (scenario === "rtk-rewrite" ? `printf '%s\\n' ${fixtureShellQuote(JSON.stringify({ hookSpecificOutput: { updatedInput: { command: writeCommand(rewritten) } } }))}\n` : "exit 0\n"));
       chmodSync(join(bin, "rtk"), 0o755);
@@ -52,7 +58,8 @@ try {
         writeFileSync(join(cwd, ".claude/settings.json"), JSON.stringify(settings));
       }
       const saved = { ...process.env };
-      Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: `${bin}:${saved.PATH ?? "/usr/bin:/bin"}` });
+      Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: scenario === "rtk-rewrite"
+        ? "/usr/local/bin:/usr/bin:/bin" : `${bin}:/usr/bin:/bin` });
       resetRtkProbe();
       const log = model.plan({ name: "Bash", input: { command } });
       const hookCalls: Array<{ index: string; input: unknown; output: HookJSONOutput }> = [];
@@ -148,7 +155,7 @@ try {
       rmSync(root, { recursive: true, force: true });
     }
   }
-  const report = JSON.stringify({ date: new Date().toISOString(), agentSdk, results }, null, 2);
+  const report = JSON.stringify({ date: new Date().toISOString(), agentSdk, rtkFixture, results }, null, 2);
   const out = process.argv[process.argv.indexOf("--out") + 1];
   if (process.argv.includes("--out") && out) writeFileSync(out, report + "\n");
   console.log(report);

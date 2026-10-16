@@ -270,7 +270,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const deferred = deferredWorkerSpawn(async signal => {
         if (!startupView) throw new Error("Strict writable workers require a prepared native startup view.");
         let output: PreparedWorkerOutput;
-        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, signal }); }
+        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, folderPaths: sandbox?.retainedFolders, signal }); }
         catch (error) { record(error); throw error; }
         try {
           signal.throwIfAborted();

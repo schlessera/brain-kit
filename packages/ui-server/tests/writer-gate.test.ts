@@ -6,9 +6,10 @@
  * UI database: two handles on one file stand in for the two processes.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 import { createUiDb } from "../src/db/client";
 import { createWriterGate, processAlive, processStart } from "../src/brain/writer-gate";
 
@@ -106,4 +107,36 @@ describe("writer gate", () => {
       expect(w.server.holders()).toEqual([]);
     } finally { w.close(); }
   });
+});
+
+
+test("a peer inherits retired provider folders from the active cross-process gate and pins their topology", async () => {
+  const w = world();
+  mkdirSync(join(w.brain, "context/policies"), { recursive: true });
+  mkdirSync(join(w.brain, "group/private"), { recursive: true });
+  const policy = join(w.brain, "context/policies/governance.md");
+  writeFileSync(policy, "---\nschema_version: 1\nproviders:\n  - paths: [group/private/**]\n    allow: [anthropic]\n---\nAthena restricts a whole folder.\n");
+  try {
+    const first = await w.server.acquire("shared", "turn:odysseus");
+    try {
+      expect(first.folderPaths).toEqual(["group/private"]);
+      writeFileSync(policy, "---\nschema_version: 1\nproviders: []\n---\nAthena retires the restriction.\n");
+      const second = await w.cron.acquire("shared", "turn:athena");
+      try {
+        const sandbox = prepareWorkerSandbox(w.brain, { profile: "governed", areas: [], folderPaths: second.folderPaths });
+        expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+        const child = Bun.spawnSync(workerCommand({ brainPath: w.brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
+          if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi
+          if mv group group-moved 2>/dev/null; then echo ANCESTOR_RENAMED; exit 42; fi
+          printf Athena > group/private/new.md || exit 43
+          printf Odysseus > group/public.md || exit 44
+        `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+        expect(child.exitCode, `INHERITED_GATE_PLAN_REACHES_NATIVE_FOLDER_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
+        expect(second.folderPaths, "ACTIVE_PEER_FOLDER_PLAN_SURVIVES_POLICY_REMOVAL").toEqual(["group/private"]);
+      } finally { second.release(); }
+    } finally { first.release(); }
+    const after = await w.cron.acquire("shared", "turn:circe");
+    expect(after.folderPaths, "RETIRED_FOLDER_PLAN_EXPIRES_WITH_ITS_LAST_HOLDER").toEqual([]);
+    after.release();
+  } finally { w.close(); }
 });

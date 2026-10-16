@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-109`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-111`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-109`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-111`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -591,6 +591,10 @@ module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
 through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
+Publication also refuses deletion of a tier A ancestor directory, including an
+empty `context` or `.git` whose protected descendants are currently absent.
+This host-side check applies before any changed output is installed; worker
+namespace mount points alone do not constrain the host publisher.
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -700,7 +704,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:985-1013`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:988-1016`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1319,7 +1323,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1591`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1594`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1432,6 +1436,27 @@ providers:
   - paths: ["me/**", "finance/**"]
     allow: [anthropic]
 ```
+
+**Whole-folder sequencing (maintainer, 2026-10-16).** Whole-folder exclusions
+are qualified first, preserving the live brain and existing shared-writer
+concurrency. Literal `folder/**` selectors need stable roots and ancestors in
+every writer view: a private tmpfs attached to an old directory does not hide a
+replacement directory created by a peer. Newly admitted governed workers retain
+these directories with read-write self-binds; shared gate plans inherit active
+peers' roots across policy removal. Host publication independently refuses root
+or ancestor removal/replacement, since worker mount points cannot constrain host
+syscalls. Contents and permitted siblings remain writable. Missing or aliased
+folder topology is not invented through placeholder creation or overlays.
+Resolver-owned folder qualification is private and tied to the exact brain
+identity; public layout facts or copied layouts cannot mint folder mounts.
+
+These are topology primitives, not complete privacy admission or recipient
+proof. Gate root sets are plans rather than attested mounted identities; legacy
+writers, races with unqualified peers, policy changes, copies in history/indexes
+and server tools all need qualification before worker routing can activate.
+Actual recipients cannot be inferred from cost routes or model/vendor labels.
+Arbitrary type/glob exclusion criteria remain required; this sequencing does not
+waive them or approve different writer concurrency or filtered content overlays.
 
 **Agent turns.** Paths not allowed for the turn's provider are masked in its
 worker. A directory is masked with an empty read-only tmpfs, and a single file
@@ -1604,11 +1629,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:952-980`;
+`packages/ui-sdk/src/server/worker-launcher.ts:955-983`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:985-1011`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:988-1014`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1144-1203`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1147-1206`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2036,7 +2061,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:475-522`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:477-527`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
@@ -2287,3 +2312,16 @@ adapters and bounded offline worker evidence. The
 reserves the executor choice until that comparison is reviewed. Neither this
 amendment nor a successful plain-search prototype selects an executor or grants
 additional host model, UI, browser, shell or credential-command authority.
+
+
+#### Approved host OAuth refresh placement (2026-10-16)
+
+The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to
+the host, replacing the earlier native-worker ownership of that operation.
+The [runtime amendment](claude-code-runtime.md#host-owned-stored-login-refresh-2026-10-16-amendment)
+binds the bounded protocol, credential-maintenance serialization, offline
+qualification and activation gate. Native login acquisition, Pi's supported
+native auth runtime, per-request provider identity and billing, and the ban on
+provider credentials in governed worker files/environment remain binding.
+Delivering the internal resolver does not activate the ordinary worker relay or
+qualify the remaining egress paths and socket isolation.

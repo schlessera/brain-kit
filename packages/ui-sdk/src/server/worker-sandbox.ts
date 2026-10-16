@@ -84,6 +84,8 @@ export interface WorkerSandbox {
   readonly fallbackReason?: string;
   /** Protected mounts and their ancestors, resolved before the start manifest. */
   readonly protection?: WorkerProtection;
+  /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
+  readonly retainedFolders?: readonly string[];
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -508,6 +510,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
+  }
+  if (profile !== "restricted" && sandbox.retainedFolders?.length) {
+    lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);
   }
   if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {
     const history = resolvedFacts.history;

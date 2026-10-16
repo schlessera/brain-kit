@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:121-187`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:397`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:398`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -73,7 +73,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:49`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:493`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:503`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -87,11 +87,11 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:493`, eight
+  (`optionalDependencies`, `bun.lock:503`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile
   (`"@anthropic-ai/claude-agent-sdk/@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:2577`). The public SDK's platform package is nested because the
+  `bun.lock:2587`). The public SDK's platform package is nested because the
   private development-only hygiene research alias retains its original292 pair;
   the public backend still resolves293. The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:342-347`).
+  `packages/ui-server/src/app.ts:343-348`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -1154,3 +1154,65 @@ the documented setting avoids relying on that undocumented switch.
 and does not meet the absence requirement. These receipts establish assembly
 at a local origin, not first-party request bytes, subscription eligibility or
 provider cache hits. No live-provider measurement is implied.
+
+
+### Host-owned stored-login refresh (2026-10-16 amendment)
+
+The maintainer approved host-held Claude OAuth resolution, including ownership
+of stored-login refresh, in #1665 (comment 6222696632) and #1666 (comment
+6222698058). This supersedes the earlier placement of all refresh inside the
+native worker. Login acquisition and account selection remain native; the host
+resolver uses the selected stored record without creating a replacement account
+or changing billing mode. Pi keeps its supported native authentication runtime.
+Command-sourced credentials still execute only inside credentialed maintenance,
+never through host shell evaluation.
+
+The bounded server-only implementation reads the trusted host config directory,
+not a public request path (`resolveClaudeHostOAuth`,
+`packages/ui-backend-claude/src/host-oauth.ts:74-196`). It rereads the record for
+every resolution, respects an explicitly supplied setup token, and refreshes
+stored OAuth within five minutes of expiry. The measured production protocol is
+JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
+`client_id`, and the record's scopes. The record's client ID wins over the
+per-request environment override and the native production default. An alternate
+OAuth authority is refused rather than sending its refresh token to production.
+The returned access token and optional rotated refresh token are saved atomically
+in the host-owned record, preserving unrelated data and existing subscription
+and rate-limit metadata. These retained fields are not a newly fetched account
+profile or evidence that a subscription is valid.
+
+The source qualification resolves the executable relative to the SDK entry,
+matching the SDK's own module resolution. SDK `0.3.293` resolves its nested
+Linux x64 platform package `0.3.293`, whose executable reports `2.1.293` and
+matches the bundled download manifest SHA-256
+`8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978`.
+A separate hoisted platform package `0.3.292` also exists in the frozen install;
+it is not this SDK's selected executable. The refresh shape, expiry margin and
+client ID were inspected in the selected executable; the offline test pins its
+actual bytes and makes the native CLI read a fictional refreshed store inside
+a fresh private network namespace. This qualifies record compatibility and
+the bounded refresh HTTP exchange, not paid inference, a real subscription,
+or a different runtime's behavior. Earlier runtime measurements keep their
+recorded executable identities.
+
+Credential files must be private, owner-held, regular, unaliased and bounded;
+links and permissive files refuse. Refresh has a bounded response and timeout,
+never follows redirects, and exposes fixed error messages instead of provider
+responses, credentials or filesystem paths. Cancellation leaves the prior record
+intact and releases owned staging. A private exclusive lock serializes host
+resolvers; a second refresh reports busy and must resolve again after the owner
+finishes. A crash-abandoned lock requires host maintenance and is never removed
+by guessing that an owner is dead. Atomic publication compares current bytes
+before replacing the record and holds its directory descriptor. Native CLI
+commands do not participate in this private lock: activation must additionally
+serialize credential maintenance and native login/logout with host resolution.
+The byte comparison detects observed changes; it is not an atomic cross-process
+compare-and-swap against an independently launched native command.
+
+This internal resolver does not activate the ordinary worker relay. Before that
+activation, offline native inference must preserve new/resumed/changed/expired
+login, per-request endpoint and model selection, account and observed billing,
+concurrent refresh and cancellation, and prove that worker environment, files,
+logs and reachable sockets contain no provider credential. The broader network,
+policy, socket masking and first-party tool qualification in #1665 also remains
+required. No acceptance criterion is waived by delivering this resolver first.

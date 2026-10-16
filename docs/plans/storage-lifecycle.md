@@ -200,7 +200,7 @@ read the original receipt. Undo is a fresh stale-safe operation, not a blind cop
 over a newer file. Such a receipt protocol is proposed, not implemented here.
 
 The writer gate is cross-process and tracks process identity, not age
-(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:67-118`).
+(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:87-154`).
 Use that primitive alongside lifecycle ownership; do not interpret stale leases
 as proof an actually running backend is dead. Locks, retained readers and backups
 can deliberately prevent immediate reclamation.

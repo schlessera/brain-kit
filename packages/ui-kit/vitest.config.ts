@@ -1,3 +1,4 @@
+import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
 import { storageServer } from "../ui-react/tests/browser/storage-server-command.ts";
@@ -126,10 +127,39 @@ export default mergeConfig(
         {
           extends: true,
           test: {
+            name: "diagrams-chromium",
+            include: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramCapture, diagramFixture, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "diagrams-webkit",
+            include: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramCapture, diagramFixture, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "webkit" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
             name: "ui-react-layout",
             // Measurements of the real consumer, kept out of Bun's test glob,
             // and the offline fault harness's self-tests (#1016).
             include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
+            exclude: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,
