@@ -96,6 +96,7 @@ export function makeBridge(
   };
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
+  if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, () => !signal.aborted && isAuthorized());
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   /**
    * A linked turn-temp file the backend promoted, or could not (#1655): kept
@@ -166,6 +167,7 @@ export function makeBridge(
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
+        host.inboxTools?.shares?.bind(turnId, msg.sessionId);
         if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
           if (!profileBound && workerProfile.draftId && workerProfile.preference) {
             host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId);
@@ -568,7 +570,18 @@ export function makeBridge(
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path);
     };
-    bridge.applyBrain = async input => { await host.journal?.idle(); return apply({ principalId, turnId, input }); };
+    bridge.applyBrain = async input => {
+      await host.journal?.idle();
+      const execute = () => apply({ principalId, turnId, input });
+      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, execute) : execute();
+    };
+    if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = async input => {
+      await host.journal?.idle();
+      return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, async () => {
+        const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: backendId === "claude" ? "mcp__brain-ui__complete_share" : "complete_share", input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
+        return decision.behavior === "allow" && decision.updatedInput === undefined;
+      }, applicationPolicy!.lock);
+    };
     if (backendId === "claude" || backendId === "pi") {
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths,
@@ -601,7 +614,7 @@ export function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

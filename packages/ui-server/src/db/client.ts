@@ -24,14 +24,14 @@ export interface CreateUiDbOptions {
 
 export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Database {
   const db = new Database(dbPath, { create: true });
+  // Server and cron can race WAL recovery or startup. Install the existing
+  // timeout before journal_mode so that initialization waits for its lock.
+  // It does not rescue a deferred transaction that loses a snapshot-upgrade
+  // race (SQLITE_BUSY); activity writes still use immediate transactions.
+  // See src/activity/store.ts.
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
-  // Two processes write this database (the server and the cron wrapper). The
-  // timeout makes a writer wait for a held lock instead of failing on it.
-  // It does NOT rescue a deferred transaction that loses the snapshot-upgrade
-  // race (that still throws SQLITE_BUSY) — which is why activity writes use
-  // immediate transactions; see src/activity/store.ts.
-  db.exec("PRAGMA busy_timeout = 5000");
   runMigrations(db, options.log);
   return db;
 }

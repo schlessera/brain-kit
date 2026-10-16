@@ -83,6 +83,14 @@ async function request(input: string | URL | Request, init?: RequestInit) {
     const directory = url.searchParams.get('path') || '';
     return directories.has(directory) ? Response.json({ path: directory, entries: treeEntries(directory) }) : Response.json({ error: 'Directory not found' }, { status: 404 });
   }
+  // The product confirms iframe status through this closed transport, while
+  // opaque-origin navigation uses the static route built from the same corpus.
+  if (path.endsWith('/files/html') && (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'HEAD') {
+    const file = documentByPath[url.searchParams.get('path') || ''];
+    return file?.kind === 'html'
+      ? new Response(null, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+      : new Response(null, { status: 404 });
+  }
   if (path.endsWith('/files/content')) {
     const selected = url.searchParams.get('path') || '';
     const file = documentByPath[selected];

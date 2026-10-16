@@ -7,7 +7,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-type Scenario = "reload" | "auth" | "race" | "unmount" | "shared-consumers" | "multiple-confirmed" | "dismiss" | "confirmed" | "lost-response" | "signout" | "transfer" | "transfer-signout" | "partial" | "ttl";
+type Scenario = "lost-admission" | "admission" | "send-refused" | "reload" | "auth" | "race" | "unmount" | "shared-consumers" | "multiple-confirmed" | "dismiss" | "confirmed" | "lost-response" | "signout" | "transfer" | "transfer-signout" | "partial" | "ttl";
 let bundle: Promise<string> | undefined;
 type Original = { id: string; text: string; bytes: number[] };
 async function action<T>(page: Page, method: string): Promise<T> {
@@ -43,7 +43,7 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
           setTimeout(() => res.destroy(), 50); return;
         }
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ id: "odysseus-intake", receivedAt: Date.now(), dir: ".brain/inbox/odysseus-intake", text: "Penelope keeps the original loom plan.", files: scenario === "partial" ? [] : [{ name: "loom.pdf", path: ".brain/inbox/odysseus-intake/loom.pdf", mediaType: "application/pdf", bytes: 5 }] }));
+        res.end(JSON.stringify({ ...(scenario === "lost-admission" && uploads > 1 ? { filingSessionId: "odysseus-filing" } : {}), id: "odysseus-intake", receivedAt: Date.now(), dir: ".brain/inbox/odysseus-intake", text: "Penelope keeps the original loom plan.", files: scenario === "partial" ? [] : [{ name: "loom.pdf", path: ".brain/inbox/odysseus-intake/loom.pdf", mediaType: "application/pdf", bytes: 5 }] }));
       });
       return;
     }
@@ -82,7 +82,34 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
     await original(page);
     assert.equal(uploads, 0, "review admission never uploads before consent");
     assert.equal(await action(page, "chats"), 0, "review admission never starts chat before consent");
-    if (scenario === "reload") {
+    if (scenario === "admission" || scenario === "send-refused" || scenario === "lost-admission") {
+      await action(page, scenario !== "send-refused" ? "holdAdmission" : "refuseSend");
+      await action(page, "resume");
+      await action(page, "startConfirm");
+      await page.waitForFunction(refused => {
+        const proof = (window as unknown as { shareProof: { chats(): number; status(): { share: { busy: boolean; error: string | null } } } }).shareProof;
+        return refused ? !proof.status().share.busy && !!proof.status().share.error : proof.chats() > 0;
+      }, scenario === "send-refused");
+      await original(page);
+      assert.equal((await action<string[]>(page, "queue")).length, 1, "UNACCEPTED_FILING_RETAINS_REVIEW");
+      if (scenario === "lost-admission") {
+        await page.waitForFunction(() => (window as unknown as { shareProof: { pending(): boolean } }).shareProof.pending());
+        await page.reload(); await ready(page); await queue(page); await original(page);
+        await action(page, "resume");
+        await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0);
+        assert.equal(await action(page, "chats"), 0, "LOST_ADMISSION_OPENS_SESSION_WITHOUT_ANOTHER_PROMPT");
+        assert.deepEqual(await action(page, "inventory"), []);
+        assert.equal(uploads, 2, "duplicate intake recovers the durable binding");
+      } else if (scenario === "admission") {
+        await page.waitForFunction(() => (window as unknown as { shareProof: { pending(): boolean } }).shareProof.pending());
+        await action(page, "accept");
+        await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0);
+        assert.deepEqual(await action(page, "inventory"), [], "only correlated host acceptance retires device review");
+      } else {
+        await page.reload(); await ready(page); await queue(page); await original(page);
+        assert.equal(uploads, 1, "refused send remains confirmed and recoverable across reload");
+      }
+    } else if (scenario === "reload") {
       await page.reload(); await ready(page); await queue(page); await original(page);
       assert.equal(uploads, 0, "reload does not imply consent");
     } else if (scenario === "auth") {

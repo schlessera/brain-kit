@@ -84,6 +84,7 @@ function recordPendingCancellations(
 }
 
 type RunSessionInput = {
+  shareId?: string;
   authorization: AuthorizationContext;
   replayPrompt?: string;
   isRetry?: boolean;
@@ -256,6 +257,7 @@ async function runRetainedSession(
     cancelled: false,
     lastResult: null,
   };
+  turn.shareId = initial.shareId;
   const firstTurnId = turn.turnId;
   clearTimeout(turn.timeoutHandle);
   coordinator.running.add(turn);
@@ -714,6 +716,8 @@ async function runRetainedSession(
         if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
         // The recorder has written the terminal: from here on the Activity
         // record, not this slot, answers for the request (#964).
+        host.inboxTools?.shares?.end(turn.turnId);
+        turn.shareId = undefined;
         host.budgets?.end(turn.turnId);
         turn.revision = undefined;
         turn.startedAt = undefined;
@@ -923,6 +927,7 @@ export async function handleChatMessage(
   ws: WSContext,
   msg: {
     authorization: AuthorizationContext;
+    shareId?: string;
     text: string;
     sessionId?: string;
     attachments: ChatImageAttachment[];
@@ -980,6 +985,11 @@ export async function handleChatMessage(
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
   const starting = sessionId ? coordinator.startingBySession.get(sessionId) : undefined;
+  if (msg.shareId && (starting || runningTurn)) {
+    host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", ...(sessionId ? { sessionId } : {}),
+      ...(requestId ? { requestId } : {}), message: "A share must acquire its own session/item ownership after this turn ends." });
+    return;
+  }
   if (starting && sessionId) {
     if (starting.cancelled) {
       host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, ...(requestId ? { requestId } : {}), message: "This session is cancelling. Wait before sending again." });
@@ -1119,6 +1129,7 @@ export async function handleChatMessage(
     ...(msg.replayPrompt !== undefined ? { replayPrompt: msg.replayPrompt } : {}),
     ...(msg.isRetry ? { isRetry: true } : {}),
     text,
+    ...(msg.shareId ? { shareId: msg.shareId } : {}),
     sessionId,
     attachments,
     ...(files?.length ? { files } : {}),

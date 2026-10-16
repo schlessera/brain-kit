@@ -159,7 +159,7 @@ promote ambient SDK variables to supported inputs.
 
 | Owner reference | Declared literal names |
 | --- | --- |
-| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
+| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
 | [module-images](../packages/module-images/README.md#environment) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | [module-jobs](../packages/module-jobs/README.md#environment) | `CHROME_CDP_URL` |
 | [scrape](../packages/scrape/README.md#configuration) | `SCRAPE_USER_AGENT`, `SCRAPE_CHROME_URL`, `SCRAPE_CHROME_PATH`, `SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_RESPECT_ROBOTS` |

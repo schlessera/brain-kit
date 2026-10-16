@@ -17,6 +17,8 @@
     "check:pr": "bun scripts/check-pr.ts",
     "check:pack": "bun scripts/check-packages.ts",
     "test:browser": "node scripts/visual.mjs",
+    "test:endurance": "node scripts/visual.mjs --project=ui-react-endurance",
+    "test:inventory": "bun scripts/proof-inventory.ts",
     "test:layout": "node scripts/visual.mjs --project=ui-react-layout",
     "visual": "node scripts/visual.mjs --project=visual --project=subjects",
     "visual:update": "node scripts/visual.mjs --project=visual --project=subjects --update",

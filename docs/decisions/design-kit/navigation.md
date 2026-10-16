@@ -145,3 +145,23 @@ Fictional Chromium review captures show the [previous compact allocation](../../
 and [the grouped desktop Accounts pane](../../assets/settings-1773/desktop-accounts-paper.png).
 The original capture has an empty roster; the final capture uses long content
 to prove scrolling. These illustrate the organization, not pixel baselines.
+
+## 2026-10-16 — approved Storage placement (#1782)
+
+The [maintainer's S1 and complete-design approval](https://github.com/schlessera/brain-kit/issues/1782#issuecomment-6206739315)
+extends the #1773 inventory to eight panes: **Storage** follows Modules under
+**This brain**. Keep the desktop section column and compact horizontal tab
+strip, lazy activation, Models as the default, focus/scroll behavior, Modules
+leave guards, credential protection and D52 N3. Palette **Jump to > Storage**
+and contextual links target that pane. D36 is unchanged; no new shortcut,
+main-navigation destination, rail slot or phone-bar item is introduced.
+
+Settings gives repository and app storage a persistent management home. A
+Files subview would misrepresent app-owned stores; another destination would
+spend a navigation slot on an occasional task; a palette-only panel would have
+no persistent Settings home. The extra tab and compact-strip scrolling are the
+accepted tradeoff. The [complete Storage design](storage.md) records the
+accounting, responsive layouts, accessibility, consequence review and recovery
+rules. S4=B holds first public pane delivery until safe binary removal and the
+complete inspect/select/review/remove/result journey are ready; an interim
+read-only pane is not the approved shipping plan.

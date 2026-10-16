@@ -31,6 +31,21 @@ window.addEventListener("pagehide", () => {
   if (onlineDescriptor) Object.defineProperty(navigator, "onLine", onlineDescriptor);
   else delete (navigator as { onLine?: boolean }).onLine;
 });
+let holdAdmission = false;
+let refuseSend = false;
+let pendingAdmission: { requestId: string } | undefined;
+// Control only transport delivery; the root's real frame handler records the
+// existing correlated session acknowledgement used by the production hook.
+const send = ui.connection.send;
+ui.connection.send = message => {
+  if (message.type !== "chat_message") return send(message);
+  if (refuseSend) return false;
+  if (message.requestId) {
+    pendingAdmission = { requestId: message.requestId };
+    if (!holdAdmission) queueMicrotask(() => fixture.accept());
+  }
+  return true;
+};
 let intake: ReturnType<typeof useShareIntake> | undefined;
 function Review() {
   const driver = useShareIntake();
@@ -62,6 +77,16 @@ const fixture = {
   chats: () => ui.stores.chat.getState().draft?.messages.length ?? 0,
   loss: () => ui.localWorkFlow.loss(),
   status: () => ({ online: navigator.onLine, share: { busy: ui.stores.share.getState().busy, phase: ui.stores.share.getState().phase, error: ui.stores.share.getState().error }, connection: ui.stores.connection.getState().wsStatus }),
+  holdAdmission: () => { holdAdmission = true; },
+  refuseSend: () => { refuseSend = true; },
+  startConfirm: () => { void intake!.confirm(ui.stores.share.getState().queue[0]!); },
+  pending: () => pendingAdmission !== undefined,
+  accept: () => {
+    if (!pendingAdmission) return;
+    const { requestId } = pendingAdmission;
+    pendingAdmission = undefined;
+    ui.connection.handleServerMessage({ type: "session_info", sessionId: "odysseus-filing", isNew: true, requestId });
+  },
   confirm: () => intake!.confirm(ui.stores.share.getState().queue[0]!),
   confirmAll: async () => { for (const record of ui.stores.share.getState().queue) await intake!.confirm(record); },
   dismiss: () => intake!.dismiss(ui.stores.share.getState().queue[0]!),

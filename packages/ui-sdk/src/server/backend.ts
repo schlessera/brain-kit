@@ -219,6 +219,7 @@ export interface BackendBridge {
   inboxGet?(input: import("../tool-contracts/inbox.js").InboxGetInput): Promise<{ item: import("../protocol.js").InboxItem; thread: import("../protocol.js").InboxThread }>;
   inboxAdd?(input: import("../tool-contracts/inbox.js").InboxAddInput): Promise<{ created: boolean; threadId: string; itemId: string }>;
   resolveAction?(input: import("../tool-contracts/inbox.js").ResolveActionInput): Promise<{ replay: boolean; followUpId?: string }>;
+  completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
 
 }
 

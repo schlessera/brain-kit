@@ -148,7 +148,7 @@ function assembleClaudeSdkTurn(
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
     if (turnTempTool) allowed.push(TURN_TEMP_TOOL_NAME);
     if (req.bridge.inboxList) allowed.push(visibleToolName("inbox_list", "claude"), visibleToolName("inbox_get", "claude"));
-    if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"));
+    if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"), visibleToolName("complete_share", "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -400,6 +400,7 @@ function buildAppend(
         inboxGet: tools.inbox && visibleToolName("inbox_get", "claude"),
         inboxAdd: tools.inbox && visibleToolName("inbox_add", "claude"),
         resolveAction: tools.inbox && visibleToolName("resolve_action", "claude"),
+        completeShare: tools.inbox && visibleToolName("complete_share", "claude"),
         block: tools.block && SHOW_BLOCK_TOOL_NAME,
         turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
       },

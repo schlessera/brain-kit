@@ -143,8 +143,8 @@ on, links to or describes them.
 - Before opening or marking a PR ready, run `bun run check:pr --base
   origin/main` (use the immediate parent ref for an upper stack layer;
   [stack rules](docs/process/github.md#stacked-pull-requests)) and keep focused
-  failing-first/mutation receipts. Ready-PR CI
-  supplies the complete affected proof; every selected job must pass, and
+  failing-first/mutation receipts. Explicit ready-candidate CI supplies complete
+  affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).
