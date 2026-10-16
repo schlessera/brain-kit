@@ -1192,7 +1192,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:273`).
 
 **What changes:**
 
@@ -1948,7 +1948,7 @@ rules and no model call:
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:427`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
@@ -1967,6 +1967,12 @@ The choices that shape the report:
   writes that line after its output clip, so a long failing output still ends
   with it. `EROFS`, `EACCES` and `EPERM` text makes a failure `fs_denied`, and
   resolver or connection errors make it `network_refused`.
+- **Cancellation is not a failed step.** The recorder retains when Stop arrived
+  and which calls were still in flight. Those calls produce neither failures
+  nor successful resolutions, regardless of their eventual error text or exit
+  status. Earlier completed failures and independent nonzero exits remain
+  roadblocks. Pi throws an abort error with its stopped shell output so Activity
+  can distinguish a cancelled execution from an ordinary nonzero result.
 - **Governance events outrank the text.** A `policy_block`,
   `read_only_refusal`, declined `policy_confirm` or `outward_action`, or
   `egress_denial` written while a failed call ran sets that call's category
