@@ -1,3 +1,4 @@
+import { shapeSvg } from "./shape-svg.js";
 import { parseDocument } from "yaml";
 import { checkDiagram, diagramSource } from "./check.js";
 import { diagramSpecSchema, type DiagramSpec } from "./spec.js";
@@ -6,7 +7,7 @@ import { DIAGRAM_TYPE, diagramNodePaint, diagramEdgePaint, fitDiagramText, typeW
 import type { DiagramTree, DiagramNode } from "./geometry.js";
 
 /** Concrete internal SVG primitives shared by the two first-party entries. */
-export interface SvgPrimitive { tag: "g" | "rect" | "path" | "text" | "line" | "circle"; attrs: Record<string, string | number>; text?: string; children?: SvgPrimitive[] }
+export interface SvgPrimitive { tag: "g" | "rect" | "path" | "text" | "line" | "circle" | "polygon"; attrs: Record<string, string | number>; text?: string; children?: SvgPrimitive[] }
 export interface DiagramSvgModel { tree: DiagramTree; elements: SvgPrimitive[]; minimumFont: number }
 const ink = (name: string) => `var(--bk-${name})`;
 const primitive = (tag: SvgPrimitive["tag"], attrs: SvgPrimitive["attrs"], text?: string, children?: SvgPrimitive[]): SvgPrimitive => ({tag,attrs,text,children});
@@ -43,14 +44,25 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
   else throw Error("The selected canvas has no room for its readable legend footer; reserve footer space or use size: fit");
  }
  const elements:SvgPrimitive[]=[primitive("rect",{class:"bk-diagram-screen-frame",x:0.5,y:0.5,width:tree.viewBox.width-1,height:tree.viewBox.height-1,rx:8,fill:"none",stroke:ink("color-line"),"stroke-width":1})];
+ const nodePartsById=new Map<string,Extract<(typeof tree.elements)[number],{kind:"shape"}>[]>(),drawnNodes=new Set<string>();
+ for(const item of tree.elements)if(item.kind==="shape"&&item.nodeId){const parts=nodePartsById.get(item.nodeId)??[];parts.push(item);nodePartsById.set(item.nodeId,parts);}
  for (const element of tree.elements) {
   switch(element.kind) {
+   case "shape": {
+    const node=element.nodeId?spec.nodes.find(node=>node.id===element.nodeId):undefined;
+    const drawing=shapeSvg(element);
+    if(node){if(drawnNodes.has(node.id))break;drawnNodes.add(node.id);const parts=nodePartsById.get(node.id)!,anchor=parts.find(part=>part.shape!=="text")??element;
+     elements.push(primitive("g",{"data-diagram-node":node.id,"aria-label":[node.label,node.sub].filter(Boolean).join(", "),...(node.link?{"data-wiki-link":node.link}:{})},undefined,[...parts.map(shapeSvg),primitive("rect",{class:"bk-diagram-node-focus",x:anchor.x-4,y:anchor.y-4,width:anchor.width+8,height:anchor.height+8,rx:9,fill:"none",stroke:ink("focus-ring"),"stroke-width":2})]));}
+    else if(element.from || element.to) elements.push(primitive("g",{"data-from":element.from??"","data-to":element.to??""},undefined,[drawing]));
+    else elements.push(drawing); break;
+   }
+
    case "group": { const heading=text(element.label,"label",element.x+8,element.y+3,element.width-16,ink("color-ink-mute")); const headingWidth=typeWidthBudget(element.label,"label",Number(heading.attrs["font-size"])); elements.push(primitive("g",{"data-diagram-group":element.id},undefined,[primitive("rect",{x:element.x,y:element.y,width:element.width,height:element.height,rx:8,fill:ink("diagram-cluster"),stroke:ink("diagram-cluster-border"),"stroke-width":1}),primitive("rect",{"data-group-heading-mask":"",x:element.x+4,y:element.y-7,width:headingWidth+8,height:14,fill:ink("diagram-cluster")}),heading])); break; }
    case "connector": {
     const paint=diagramEdgePaint(spec.edges[element.edge]!.kind,element.transit.length>0);
     elements.push(primitive("g",{"data-diagram-edge":element.edge,"data-from":element.from.node,"data-to":element.to.node},undefined,[primitive("path",{d:element.path,fill:"none",stroke:paint.stroke,"stroke-width":paint.width,"stroke-dasharray":paint.dash,"stroke-linecap":paint.linecap,"stroke-linejoin":"round"}),arrow(element.points,paint.head,paint.stroke,paint.width)]));break;
    }
-   case "label-mask": { const within=tree.elements.some(group=>group.kind==="group"&&element.x>=group.x&&element.y>=group.y&&element.x+element.width<=group.x+group.width&&element.y+element.height<=group.y+group.height); elements.push(primitive("rect",{x:element.x,y:element.y,width:element.width,height:element.height,"data-edge-mask":element.edge,fill:ink(within?"diagram-cluster":"diagram-bg")}));break; }
+   case "label-mask": { const within=tree.elements.some(group=>group.kind==="group"&&element.x>=group.x&&element.y>=group.y&&element.x+element.width<=group.x+group.width&&element.y+element.height<=group.y+group.height || group.kind==="shape"&&group.paint==="zone"&&element.x<group.x+group.width&&element.x+element.width>group.x&&element.y<group.y+group.height&&element.y+element.height>group.y); elements.push(primitive("rect",{x:element.x,y:element.y,width:element.width,height:element.height,"data-edge-mask":element.edge,fill:ink(within?"diagram-cluster":"diagram-bg")}));break; }
    case "edge-label": elements.push(text(element.text,"label",element.x+4,element.y+element.height/2+3,element.width-8,diagramEdgePaint(spec.edges[element.edge]!.kind).stroke,{"data-edge-label":element.edge}));break;
    case "node": elements.push(primitive("g",{"data-diagram-node":element.id,"aria-label":[element.label,element.sub,element.tag ?? diagramNodePaint(element.role,element.focal).tag].filter(Boolean).join(", "),...(element.link ? {"data-wiki-link":element.link} : {})},undefined,nodeParts(element,spec)));break;
    default: { const exhaustive:never=element; throw Error(`Unknown diagram element: ${String(exhaustive)}`); }
