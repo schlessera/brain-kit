@@ -151,6 +151,7 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-inbox-get", name: "inbox_get", input: { itemId: "work-harbor" } },
   { toolUseId: "call-inbox-add", name: "inbox_add", input: { text: "Odysseus checks the harbor", idempotencyKey: "harbor" } },
   { toolUseId: "call-resolve", name: "resolve_action", input: { sessionId: "harbor-session", itemId: "harbor-action", optionId: "approve", expectedVersion: 1 } },
+  { toolUseId: "call-complete-share", name: "complete_share", input: { receiptIds: ["harbor-receipt"], files: [] } },
   { toolUseId: "call-turn-temp", name: "turn_temp", input: { action: "usage" } },
   { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
@@ -175,7 +176,7 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         reportMaskPath: (_brain, maskPath) => maskPath,
       });
       case "query_activity": return sdk.handleQueryActivity(input, bridge);
-      case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action":
+      case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action": case "complete_share":
         return sdk.handleInboxTool(call.name, input, bridge);
       case "propose_policy_change": {
         const proposal = sdk.PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(call.input);
@@ -250,6 +251,7 @@ describe("a backend built only from public /server names", () => {
           rationale: input.rationale, baseHash: null, proposedHash: "reviewed-policy", frontmatterDiff: "profiles.interactive: strict",
           bodyChanged: true, bodyDiff: "Odysseus reviews the policy.", sections: ["profiles.interactive"], warnings: [], message: "Policy change declined. Nothing was written." };
       },
+      completeShare: async input => { asked.push(`complete_share:${input.receiptIds.join(",")}`); return { itemId: "work-harbor", status: "done", replay: false }; },
       resolveAction: async input => { asked.push(`resolve_action:${input.sessionId}:${input.itemId}:${input.optionId}:${input.expectedVersion}`); return { replay: false, followUpId: "follow-up-harbor" }; },
     };
 
@@ -263,7 +265,7 @@ describe("a backend built only from public /server names", () => {
     expect(asked).toEqual([
       "ask_user:call-ask", "ask_user_list:call-list", "ask_user_rank:call-rank", "ask_user_form:call-form",
       "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
-      "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "propose_policy_change:call-policy",
+      "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "complete_share:harbor-receipt", "propose_policy_change:call-policy",
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });

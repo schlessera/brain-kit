@@ -73,7 +73,7 @@ Source anchors, checked against the reviewed commit:
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
-  and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-37`).
+  and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-38`).
   #1656 supplies staging-lifetime protection.
 - H: scratch defaults (`SCRATCH_DIR`, `packages/core/src/lib/scratch.ts:52-61`),
   scheduled prune (`startScratchPrune`, `packages/ui-server/src/cron/scratch-prune.ts:37-45`),
@@ -84,7 +84,7 @@ Source anchors, checked against the reviewed commit:
   measurements do not include the separate runtime-state tmpfs.
 - J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-48`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
-- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:231-246`)
+- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:252-267`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its
   [generated-host counterpart](https://github.com/schlessera/brain-hosting-template/issues/9).
 

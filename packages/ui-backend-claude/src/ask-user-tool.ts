@@ -93,7 +93,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  */
 export function createBrainUiMcpServer(handlers: {
   proposePolicyChange?: BackendBridge["proposePolicyChange"];
-  inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction">;
+  inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction" | "completeShare">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;

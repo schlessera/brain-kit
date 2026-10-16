@@ -194,6 +194,7 @@ export interface SurfaceTools {
   inboxGet?: string | false;
   inboxAdd?: string | false;
   resolveAction?: string | false;
+  completeShare?: string | false;
   /** Name of the inline answer-block tool, or false when absent. */
   block?: string | false;
   /** Name of the turn-temp tool (#1703), or false when the turn has no turn temp. */
@@ -207,7 +208,7 @@ export interface SurfaceTools {
  */
 const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   propose_policy_change: "policyChange",
-  inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
+  inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare",
   [ASK_USER_CONTRACT.name]: "askUser",
   [ASK_USER_LIST_CONTRACT.name]: "askUserList",
   [ASK_USER_RANK_CONTRACT.name]: "askUserRank",

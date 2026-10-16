@@ -27,6 +27,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
       }
       if (item.queue !== "queue" || item.status !== "ready" || item.attempts >= item.maxAttempts || (item.waitUntil ?? 0) > now()) return null;
       if (inboxThreadAwaitingSettlement(db, item.threadId)) return null;
+      if (db.query("SELECT 1 FROM inbox_interactive_shares s JOIN inbox_items i ON i.id = s.item_id WHERE i.thread_id = ? AND s.completion_json IS NULL").get(item.threadId)) return null;
       // Re-raising a decision before compensation begins must protect the
       // retained staging. Admission and this check share SQLite's write lock.
       if (db.query(`SELECT 1 FROM inbox_items WHERE thread_id = ? AND deleted_at IS NULL AND
