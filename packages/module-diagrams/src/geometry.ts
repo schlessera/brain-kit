@@ -1,7 +1,9 @@
 import { buildPositionalDiagram } from "./positional-layout.js";
 import type { DiagramShape } from "./shape.js";
 import { typeWidthBudget } from "./skin.js";
-import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
+import { buildAxisDiagram } from "./axis-layout.js";
+import type { DiagramShape } from "./shape.js";
+import { diagramSpecSchema, FREE_LAYOUT_TYPES, AXIS_TYPES, type DiagramSpec } from "./spec.js";
 
 export interface DiagramPoint { x: number; y: number }
 export interface DiagramBox { x: number; y: number; width: number; height: number }
@@ -188,6 +190,7 @@ function pathData(route: DiagramConnector): string {
 export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions = {}): DiagramTree {
   const spec = diagramSpecSchema.parse(input);
   if (["quadrant", "layer-stack", "pyramid", "funnel", "loop", "flywheel", "venn"].includes(spec.type)) return buildPositionalDiagram(spec);
+  if ((AXIS_TYPES as readonly string[]).includes(spec.type)) return buildAxisDiagram(spec);
   if (!(FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) throw new DiagramGeometryError([{ path: "$.type", code: "unroutable", message: `Geometry for '${spec.type}' belongs to its type family; free-layout routing is required here` }]);
   const fontSize = options.labelFontSize ?? 9.5, lineHeight = options.labelLineHeight ?? 12;
   if (![fontSize, lineHeight].every(value => Number.isFinite(value) && value >= 9 && value <= 256) || lineHeight < fontSize) throw Error("Label metrics require finite 9–256px dimensions and a line height at least the font size");

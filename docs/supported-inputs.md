@@ -93,6 +93,35 @@ optional file selects defaults without an error. A running turn retains its
 captured identity; a later load cannot mutate it. Policy edits remain outside
 turns or use the separately approved proposal route, never a worker write.
 
+Literal recursive folder selectors such as `me/**` also retain folder topology
+for newly admitted hosted writers. The prefix must contain no glob operators;
+this step does not interpret exact document types or arbitrary glob selectors.
+A shared writer inherits the retained folder roots of active peers, even if a
+later policy removes them. A governed worker read-write binds each existing,
+unaliased root and every ancestor before its ordinary protected mounts. Files
+inside and permitted siblings stay writable; root and ancestor renames fail.
+Initial inspection of an absent, linked, special or unverifiable folder selects
+strict fallback without creating a placeholder. A changed inspected identity
+refuses launch. Folder mount qualification stays private to the resolver and binds
+the frozen layout to its exact brain identity; copied or caller-constructed
+layouts cannot authorize retained-folder mounts. The live governed launcher also
+checks each retained root/ancestor mount point and its exact inode in the
+authenticated worker namespace before opening the payload gate. A changed or
+unobservable view refuses launch. This requires host access to the held worker
+namespace; the current separate-UID broker only attests runtime-state/temp roots,
+so it cannot qualify retained provider folders. Such launches refuse until that
+concrete boundary is qualified; ordinary separate-UID launches without retained
+folders retain their existing behavior. Native output publication refuses staged removal/replacement of
+admitted roots or ancestors through strict-area, maintenance and local sync.
+
+The gate stores planned root sets, not proof of mounted namespace identities;
+legacy rows remain unaccounted. These primitives do not activate inference-worker
+routing, masks, filtered indexes or server-tool refusals. They do not establish
+that a pre-existing writer or a concurrent policy change is safe for a protected
+reader. A future privacy admission must qualify all those boundaries and refuse
+unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
+folder retention cannot authorize protected data for an unknown recipient.
+
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing
 vectors even without `--embeddings`; force rebuilds, cache reuse and asynchronous

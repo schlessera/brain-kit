@@ -86,6 +86,12 @@ for (const [width, paper] of [[320, false], [1280, true], [640, false], [640, tr
     const opener = host!.querySelector<HTMLElement>('[data-turn-journal] button,[data-turn-journal] [role="button"]')!;
     opener.focus();
     await userEvent.keyboard("{Enter}");
+    const facts = page.getByRole("button", { name: "Turn facts", exact: true });
+    await expect.element(facts).toHaveAttribute("aria-expanded", "false");
+    await facts.click();
+    await expect.element(facts).toHaveAttribute("aria-expanded", "true");
+    // Choose the outer trigger before receipt updates to retain the focus guard.
+    opener.focus();
     await expect.poll(() => host!.textContent).toContain("This is not a subscription invoice");
     expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     expect(host!.textContent).toContain("Unpriced token stop: 512,000,000");

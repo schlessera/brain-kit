@@ -6,9 +6,12 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import * as crypto from "node:crypto";
 import { createRequire } from "node:module";
-import { ClaudeHostAuthError, resolveClaudeHostOAuth } from "../src/host-oauth.js";
+import { ClaudeHostAuthError, resolveClaudeHostOAuth as resolveHostOAuth } from "../src/host-oauth.js";
 
 const roots: string[] = [];
+const domains = new Map<string, { directory: string }>();
+const resolveClaudeHostOAuth = (root: string, env: Record<string, string | undefined>, signal?: AbortSignal) =>
+  resolveHostOAuth(root, env, signal, domains.get(root));
 const servers: ReturnType<typeof Bun.serve>[] = [];
 const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch")!;
 const originalFetch = globalThis.fetch;
@@ -18,6 +21,7 @@ const fresh = () => ({ accessToken: secret, refreshToken: refresh, expiresAt: Da
   scopes: ["user:inference", "user:profile"], subscriptionType: "max", rateLimitTier: "default_claude_max_5x", clientId: "odysseus-client" });
 function fixture(auth: Record<string, unknown> = fresh()) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-host-oauth-")); roots.push(root);
+  const directory = mkdtempSync(join(tmpdir(), "odysseus-host-auth-domain-")); roots.push(directory); domains.set(root, { directory });
   const path = join(root, ".credentials.json");
   writeFileSync(path, JSON.stringify({ unrelated: { retained: true }, claudeAiOauth: auth }), { mode: 0o600 });
   return { root, path };
@@ -36,6 +40,7 @@ afterEach(async () => {
   Object.defineProperty(globalThis, "fetch", fetchDescriptor);
   for (const server of servers.splice(0)) await server.stop(true);
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  domains.clear();
 });
 
 test("a credential file growing after its actual fstat is refused within the fixed read bound", async () => {
@@ -158,7 +163,7 @@ test("concurrent server refresh refuses the busy owner, then rereads its committ
   await expect(resolveClaudeHostOAuth(root, {})).rejects.toMatchObject({ reason: "busy" });
   const source = new URL("../src/host-oauth.ts", import.meta.url).href;
   const script = `const {resolveClaudeHostOAuth}=await import(${JSON.stringify(source)});
-    try { await resolveClaudeHostOAuth(${JSON.stringify(root)}, {}); process.exit(2); }
+    try { await resolveClaudeHostOAuth(${JSON.stringify(root)}, {}, undefined, ${JSON.stringify(domains.get(root))}); process.exit(2); }
     catch(error) { console.log(JSON.stringify({reason:error.reason})); }`;
   const other = Bun.spawn(["unshare", "--user", "--map-root-user", "--net", process.execPath, "-e", script], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });

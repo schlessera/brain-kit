@@ -396,6 +396,63 @@ signatures (every public export and the types it is made of)
         title: z.ZodString;
         type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
     }, z.core.$strict>, z.ZodObject<{
+        axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elseAt: z.ZodOptional<z.ZodNumber>;
+                elseGuard: z.ZodOptional<z.ZodString>;
+                from: z.ZodNumber;
+                guard: z.ZodString;
+                kind: z.ZodEnum<{
+                    alt: "alt";
+                    loop: "loop";
+                    opt: "opt";
+                }>;
+                to: z.ZodNumber;
+            }, z.core.$strict>>>;
+            kind: z.ZodLiteral<"sequence">;
+            messages: z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                from: z.ZodString;
+                id: z.ZodString;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    async: "async";
+                    message: "message";
+                    return: "return";
+                }>>;
+                label: z.ZodString;
+                note: z.ZodOptional<z.ZodString>;
+                to: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"swimlane">;
+            lanes: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>;
+            steps: z.ZodArray<z.ZodObject<{
+                lane: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                date: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"timeline">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"gantt">;
+            marker: z.ZodOptional<z.ZodString>;
+            phases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>>;
+            tasks: z.ZodArray<z.ZodObject<{
+                end: z.ZodString;
+                node: z.ZodString;
+                phase: z.ZodOptional<z.ZodString>;
+                start: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
             target: z.ZodString;
             text: z.ZodString;
@@ -652,6 +709,63 @@ signatures (every public export and the types it is made of)
         title: z.ZodString;
         type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
     }, z.core.$strict>, z.ZodObject<{
+        axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elseAt: z.ZodOptional<z.ZodNumber>;
+                elseGuard: z.ZodOptional<z.ZodString>;
+                from: z.ZodNumber;
+                guard: z.ZodString;
+                kind: z.ZodEnum<{
+                    alt: "alt";
+                    loop: "loop";
+                    opt: "opt";
+                }>;
+                to: z.ZodNumber;
+            }, z.core.$strict>>>;
+            kind: z.ZodLiteral<"sequence">;
+            messages: z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                from: z.ZodString;
+                id: z.ZodString;
+                kind: z.ZodOptional<z.ZodEnum<{
+                    async: "async";
+                    message: "message";
+                    return: "return";
+                }>>;
+                label: z.ZodString;
+                note: z.ZodOptional<z.ZodString>;
+                to: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"swimlane">;
+            lanes: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>;
+            steps: z.ZodArray<z.ZodObject<{
+                lane: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                date: z.ZodString;
+                node: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"timeline">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"gantt">;
+            marker: z.ZodOptional<z.ZodString>;
+            phases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strict>>>;
+            tasks: z.ZodArray<z.ZodObject<{
+                end: z.ZodString;
+                node: z.ZodString;
+                phase: z.ZodOptional<z.ZodString>;
+                start: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
             target: z.ZodString;
             text: z.ZodString;

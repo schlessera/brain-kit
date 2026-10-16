@@ -37,3 +37,15 @@ export function createGovernancePolicyReader(brainPath: string) {
       hash: lastValid?.hash ?? null, source: lastValid ? "last_valid" as const : "default" as const, errors: [...checked.errors], warnings: [] });
   } };
 }
+
+
+/** Literal recursive-folder selectors only; this is topology planning, never a provider admission verdict. */
+export function providerFolderRoots(policy: Pick<EffectiveGovernancePolicy, "providers">): string[] {
+  const roots = new Set<string>();
+  for (const rule of policy.providers) for (const pattern of rule.paths) {
+    if (!pattern.endsWith("/**")) continue;
+    const root = pattern.slice(0, -3);
+    if (root && !/[*?[\]{}()!]/u.test(root)) roots.add(root);
+  }
+  return [...roots].sort();
+}

@@ -1,5 +1,6 @@
 import { positionalSchema } from "./positional-spec.js";
 import { z } from "zod";
+import { axisSchema } from "./axis-spec.js";
 
 /** Common v1 grammar. Type-specific content fields are added by their family. */
 export const FREE_LAYOUT_TYPES = ["architecture", "flowchart", "state-machine", "tree", "er", "dependency"] as const;
@@ -27,7 +28,7 @@ const common = {
 };
 export const diagramSpecSchema = z.discriminatedUnion("type", [
   z.object({ ...common, type: z.literal(FREE_LAYOUT_TYPES), nodes: z.array(freeNode).max(1024) }).strict(),
-  z.object({ ...common, type: z.literal(AXIS_TYPES), nodes: z.array(node).max(1024) }).strict(),
+  z.object({ ...common, type: z.literal(AXIS_TYPES), axis: axisSchema.optional(), nodes: z.array(node).max(1024) }).strict(),
   z.object({ ...common, type: z.literal(FIXED_LAYOUT_TYPES), positional: positionalSchema.optional(), nodes: z.array(node).max(1024) }).strict(),
 ]);
 export type DiagramSpec = z.infer<typeof diagramSpecSchema>;

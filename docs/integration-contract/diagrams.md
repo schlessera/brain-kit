@@ -1,4 +1,4 @@
-# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2097)
+# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2096, #2097)
 
 With `@schlessera/brain-module-diagrams` enabled, `brain diagram check
 <file|-> --json` reads one standalone YAML document or exactly one Markdown
@@ -55,11 +55,54 @@ The discriminator `type` selects one common family grammar:
 | Ordered axes | `sequence`, `swimlane`, `timeline`, `gantt` | `at` and `size` forbidden; order supplies position |
 | Fixed layout | `quadrant`, `layer-stack`, `pyramid`, `funnel`, `loop`, `flywheel`, `venn` | `at` and `size` forbidden; the type supplies geometry |
 
-This is the common grammar for those families. The free-layout client/static renderer is available; it does not claim
-specialized participants/messages, lanes/steps, dated-event or type-specific
-content fields. Those are separate additive family work. Other type names are
-refused. After common semantic checks pass, free-layout validation also runs
-the pure geometry builder with its default label metrics. Ordered-axis specs retain their common checks until their family builder ships. Fixed-family specs additionally accept the positional grammar below.
+The common grammar remains accepted. Axis types add an optional strict `axis`
+object with a matching `kind`; its fields are described below. Free-layout
+rendering and the axis family are available. Fixed families add the optional positional grammar described below.
+
+## Ordered axis grammar
+
+The optional `axis` object never permits `at` or raw SVG/style data. Existing
+v1 `nodes`/`edges` are retained. Nodes supply labels, optional wiki-links and
+optional explicitly authored participant tags; tags are never inferred for a
+sequence. Every object is strict and references must resolve.
+
+| `axis.kind` | Fields |
+| --- | --- |
+| `sequence` | Ordered `messages`: `{id, from, to, label, kind?, focal?, note?}`. Kinds are `message`, `return`, `async`. Optional `fragments`: `{kind, from, to, guard, elseAt?, elseGuard?}`; kinds are `alt`, `opt`, `loop`, and message indices are zero-based inclusive. An alt has exactly two nonempty regions separated by `elseAt`. Other operators and partially overlapping ranges refuse. |
+| `swimlane` | Ordered `lanes: [{id,label}]`, ordered `steps: [{node,lane}]`. Each node has exactly one declared lane owner. Existing edges are handoffs. |
+| `timeline` | Chronological `events: [{node,date}]`, with real ISO calendar dates. |
+| `gantt` | Ordered `tasks: [{node,start,end,phase?}]`, optional `phases: [{id,label}]` and explicit `marker` date. End cannot precede start. Phase references resolve. Dependency arrows are outside this v1 grammar. |
+
+Dates are authored `YYYY-MM-DD` values, never wall-clock defaults. Timeline
+positions and Gantt durations are proportional to real date differences.
+An original axis spec without family data still draws from its node/edge order;
+a dated type with no dates labels that absence rather than inventing dates.
+Messages have a 4096-entry parse bound; the other family arrays have a
+1024-entry parse bound. These are work limits, not editorial budgets.
+
+Axis validation adds `axis` error findings and deterministic `budget` warnings.
+Sequence defaults are five lifelines, twelve messages, two notes, one fragment
+(or two if both are single-region opt/loop), and one nesting level. An alt has
+two regions. A third focal message refuses. Swimlanes warn above five lanes;
+Gantt warns above twelve tasks or five parallel tasks per phase. Universal
+node/edge/focal/callout budgets still apply, and a first excess editorial item
+warns rather than invalidating otherwise valid data.
+
+The family builder produces closed `shape` geometry: lines, rectangles,
+circles, polygons, generated paths and text with explicit numeric bounds,
+symbolic paint/type roles and optional generated arrow geometry. This is a
+finite concrete representation, not raw attributes or an extension registry.
+Client and static paths consume the same tree and shared shape painter.
+
+Sequence presentation follows the approved #2092 brief: solid lifelines,
+outlined activation bars, open message/return chevrons, dotted async, dashed
+returns and a filled amber head only on a focal message. Notes use 11px sans.
+Participant tags are optional authored data and expand headers to 52px.
+Normal 12px names and 9.5px labels are preserved at 320px with at least a 64px
+participant pitch; long names, labels, self-messages and notes can refuse the
+narrow presentation. The app then shows its caption/summary and Open diagram,
+with readable native-scale content in the dedicated viewer. Other axis types
+also fall back when their full readable canvas cannot fit inline.
 
 ## Semantic checks and budgets
 
@@ -72,7 +115,7 @@ contain a directed cycle.
 Editorial overruns are warnings and keep `valid: true` unless another error
 exists. Defaults come from the pinned upstream method's `layout-budget.md`:
 9 nodes, 12 edges, 2 callouts, and 14 Unicode code points per arrow label.
-Tighter common per-type budgets also apply: 5 sequence nodes, 5 swimlane nodes,
+Tighter common per-type budgets also apply: 5 sequence participants, 5 legacy swimlane items (the specialized grammar counts lanes instead),
 8 ER nodes, 6 layer-stack nodes, 6 pyramid nodes, 3 Venn nodes, and 4 tree levels
 (counting a root as level 1). Universal limits still apply to every type;
 type-specific grammar budgets are added with those grammars. The validator
@@ -98,7 +141,7 @@ not prose or filesystem error text.
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
 `focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
-`text_floor`, `contrast`, and `positional`. Warnings use `budget`; positional family guidance may also use `positional`.
+`text_floor`, `contrast`, `axis`, and `positional`. Warnings use `budget`; positional family guidance may also use `positional`.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
 
@@ -112,12 +155,12 @@ normal machine-output selection applies; `--human` selects readable findings.
 free-layout `DiagramSpec` and returns a `DiagramTree`, without DOM access,
 rendering, I/O or source mutation. It parses the structural schema itself;
 call `checkDiagram` for reference, grid, overlap and editorial validation.
-Fixed-family specs use their deterministic positional builder described below; ordered-axis types are refused here. Repeated identical inputs and options produce
+Axis and fixed-family types dispatch to their deterministic family builders. Repeated identical inputs and options produce
 byte-identical serialized trees.
 
 The tree contains `schema_version: 1`, `type`, `title`, `desc`, `viewBox`
 (`x`, `y`, `width`, `height`) and ordered `elements`. Discriminated element
-kinds are `group`, `connector`, `label-mask`, `edge-label` and `node`.
+kinds are `group`, `connector`, `label-mask`, `edge-label`, `node` and the closed generated `shape`.
 Groups derive a 16px padded member bound; nodes retain supplied coordinates,
 sizes, labels and presentation metadata. Connectors identify the source edge
 index and contain actual attachment ports, an orthogonal point list, an SVG
@@ -276,3 +319,6 @@ and legend space, and fitted/displayed type retains the 9px floor.
 The seven shipped examples under
 `packages/module-diagrams/skills/diagram/references/examples/positional/` are
 the sources for the type reference pages and browser visual baselines.
+The [shipped axis examples](../../packages/module-diagrams/skills/diagram/references/examples/)
+are the canonical sequence, swimlane, timeline and Gantt specs used by the
+family references, real CLI tests and browser visual fixtures.

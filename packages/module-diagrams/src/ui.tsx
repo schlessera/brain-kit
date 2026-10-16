@@ -1,3 +1,4 @@
+import { AXIS_TYPES } from "./spec.js";
 import { createElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import type { ContentRendererPack, ContentRendererProps } from "@schlessera/brain-ui-sdk/client";
@@ -29,7 +30,7 @@ function Drawing({model,theme,id,interactive=true}: {model:DiagramSvgModel;theme
 /** Render at native units; never shrink text below the approved 9px floor. */
 export function DiagramContent({source,theme,mode}:ContentRendererProps) {
  const spec=useMemo(()=>parseDiagram(source),[source]), desktop=useMemo(()=>diagramSvgModel(spec),[spec]);
- const narrow=useMemo(()=>spec.layouts?.narrow?diagramSvgModel(spec,"narrow"):null,[spec]);
+ const narrow=useMemo(()=>{try{return spec.layouts?.narrow || (AXIS_TYPES as readonly string[]).includes(spec.type)?diagramSvgModel(spec,"narrow"):null;}catch{return null;}},[spec]);
  const host=useRef<HTMLElement>(null), [width,setWidth]=useState(0),[viewer,setViewer]=useState(false),id=useId().replace(/[^a-z0-9-]/gi,"");
  useEffect(()=>{const element=host.current;if(!element)return;const observer=new ResizeObserver(entries=>setWidth(entries[0]!.contentRect.width));observer.observe(element);setWidth(element.getBoundingClientRect().width);return()=>observer.disconnect();},[]);
  const model=width>=desktop.tree.viewBox.width ? desktop : narrow&&width>=narrow.tree.viewBox.width?narrow:null;
