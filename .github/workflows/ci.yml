@@ -7,6 +7,10 @@ on:
         description: "Temporary issue 2121 same-SHA unit comparison"
         type: boolean
         default: false
+      namespace_only:
+        description: "Temporary issue 2121 cheap namespace prerequisites only"
+        type: boolean
+        default: false
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -452,7 +456,7 @@ jobs:
         run: bun scripts/ci-proof.ts aggregate
 
   unit-measurement:
-    if: github.event_name == 'workflow_dispatch' && inputs.unit_measurement == true
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_measurement == true && inputs.namespace_only != true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -464,7 +468,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
+          ref: b8a7522516b514ddba906628a7ddacb57ba67673
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -493,18 +497,30 @@ jobs:
   unit-worker-guard-measurement:
     if: github.event_name == 'workflow_dispatch' && inputs.unit_measurement == true
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 1c8b4366dbc162b2ea535737939375408168009b
+          ref: ${{ inputs.namespace_only == true && 'b8a7522516b514ddba906628a7ddacb57ba67673' || 'a2513103c014cf728b21f990c1de158eb114ae4a' }}
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
+      - name: Native namespace prerequisites
+        run: bash scripts/ci-runtime-setup.sh
+      - name: Immutable namespace source and real controls
+        if: inputs.namespace_only == true
+        run: |
+          mkdir -p tmp
+          git show -s --format='%H %T %P' HEAD | tee tmp/2121-namespace-source.txt
+          sha256sum scripts/unit-workers.ts scripts/unit-worker-entry.sh tests/unit-workers.test.ts tests/helpers/unit-worker-fixture.ts | tee -a tmp/2121-namespace-source.txt
+          ledger=$(mktemp -d /tmp/brain-unit-namespace-control.XXXXXX)
+          trap 'rm -rf -- "$ledger"' EXIT
+          unshare --user --map-current-user --keep-caps --mount bash scripts/unit-worker-entry.sh "$ledger" bun run test "$PWD/tests/workspace-lease.test.ts" "$PWD/tests/test-network-guard.test.ts" "$PWD/packages/ui-sdk/tests/maintenance-temp-budget.test.ts" "$PWD/packages/ui-sdk/tests/maintenance-worker.test.ts" "$PWD/tests/unit-workers.test.ts" 2>&1 | tee tmp/2121-namespace-controls.log
       - name: Queued-worker external-fetch mutation fails and production source is restored
+        if: inputs.namespace_only != true
         run: |
           mkdir -p tmp
           set +e
@@ -516,16 +532,18 @@ jobs:
           grep -q 'Offline test guard: attempted real network access' tmp/2121-offline-worker.log
           grep -q '2121 queued-worker external-fetch mutation' tmp/2121-offline-worker.log
           grep -q 'QUEUED_WORKER_PID' tmp/2121-offline-worker.log
-          git checkout 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
+          git checkout b8a7522516b514ddba906628a7ddacb57ba67673
           test ! -e tests/2121-worker-guard.test.ts
           test ! -e tests/2121-worker-control.test.ts
-          test "$(git rev-parse HEAD)" = 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
+          test "$(git rev-parse HEAD)" = b8a7522516b514ddba906628a7ddacb57ba67673
           git diff --exit-code
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: unit-worker-guard-mutation
           path: |
+            tmp/2121-namespace-source.txt
+            tmp/2121-namespace-controls.log
             tmp/2121-offline-worker.log
             tmp/unit-worker-checkouts.json
             tmp/unit-worker-*.xml
