@@ -9,6 +9,13 @@ import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_
 const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
 
+/** Only this concrete resolver can mint folder mounts; public layout facts are not authority. */
+const qualifiedFolders = new WeakMap<WorkerProtection, {
+  readonly brain: string; readonly device: string; readonly inode: string;
+  readonly roots: readonly string[];
+  readonly pins: readonly { readonly rel: string; readonly device: string; readonly inode: string }[];
+}>();
+
 /** Inspect subtrees without following links, including aliases below directories. */
 function checkTree(fd: number, rel: string, count: { value: number }, brain: string, depth = 0, allowPackageBins = true): void {
   if (depth > 256) throw new Error(`${rel} is nested too deeply to verify`);
@@ -111,21 +118,40 @@ export function resolveWorkerProtection(brain: string, options: {
         if (!folderPaths.some(other => rel.startsWith(`${other}/`))) checkTree(fd, rel, folderCount, brain, 0, false);
       } finally { closeSync(fd); }
     }
-    return { protection: { paths, ancestors: [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length),
-      ...(folderPins.size ? { folderPins: [...folderPins.values()].sort((a,b) => a.rel.split("/").length - b.rel.split("/").length) } : {}) } };
+    const orderedAncestors = [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length);
+    if (!folderPaths.length) return { protection: { paths, ancestors: orderedAncestors } };
+    const identity = fstatSync(root, { bigint: true }), visible = lstatSync(brain, { bigint: true });
+    if (identity.dev !== visible.dev || identity.ino !== visible.ino) throw new Error("the brain changed during folder inspection");
+    // Deep freeze the resolver-owned protection. A caller cannot reuse its
+    // private qualification with substituted protected paths or ancestors.
+    const protection: WorkerProtection = Object.freeze({ paths: Object.freeze(paths.map(path => Object.freeze({ ...path }))),
+      ancestors: Object.freeze(orderedAncestors) });
+    qualifiedFolders.set(protection, { brain: realpathSync(brain), device: String(identity.dev), inode: String(identity.ino),
+      roots: Object.freeze(folderPaths), pins: Object.freeze([...folderPins.values()].map(pin => Object.freeze({ ...pin }))) });
+    return { protection };
   } catch (error) {
     return { protection: { paths: [], ancestors: [] }, reason: `protected paths could not be verified: ${code(error)}` };
   } finally { if (root !== undefined) closeSync(root); }
 }
 
 /** Fixed order: ancestor mount points first, then the protected names. */
-export function protectedWorkerMounts(brain: string, protection: WorkerProtection): string[] {
-  for (const pin of protection.folderPins ?? []) {
+export function protectedWorkerMounts(brain: string, protection: WorkerProtection, retainedFolders: readonly string[] = []): string[] {
+  const qualified = qualifiedFolders.get(protection);
+  if (retainedFolders.some(root => !qualified?.roots.includes(root)))
+    throw new Error("provider folder topology was not qualified by the resolver");
+  if (qualified) {
+    const identity = lstatSync(brain, { bigint: true });
+    if (brain !== qualified.brain || !identity.isDirectory() || identity.isSymbolicLink()
+      || String(identity.dev) !== qualified.device || String(identity.ino) !== qualified.inode)
+      throw new Error("provider folder topology belongs to a different brain identity");
+  }
+  const folderPins = qualified?.pins ?? [];
+  for (const pin of folderPins) {
     const info = lstatSync(join(brain, pin.rel), { bigint: true });
     if (!info.isDirectory() || info.isSymbolicLink() || String(info.dev) !== pin.device || String(info.ino) !== pin.inode)
       throw new Error(`provider folder topology changed before launch: ${pin.rel}`);
   }
-  const pins = [...new Set([...protection.ancestors, ...(protection.folderPins ?? []).map(pin => pin.rel)])]
+  const pins = [...new Set([...protection.ancestors, ...folderPins.map(pin => pin.rel)])]
     .sort((a,b) => a.split("/").length - b.split("/").length);
   const argv = pins.flatMap(rel => ["--bind", join(brain, rel), join(brain, rel)]);
   for (const { rel, mode } of protection.paths) {

@@ -214,3 +214,21 @@ test("root and ancestor pins keep live peer additions behind a fixed directory c
     expect(readFileSync(join(brain, "group/private/born.md"), "utf8"), "ALLOWED_PEER_RETAINS_PRIVATE_SUBTREE_WRITES").toBe("Athena new private marker.\n");
   } finally { clearTimeout(timer); reader.kill(); await reader.exited; await errors; stream.releaseLock(); }
 });
+
+
+test("copied, caller-constructed and foreign-brain folder layouts cannot mint folder mounts", () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  const copied = { ...sandbox, protection: { ...sandbox.protection! } };
+  expect(() => workerCommand({ brainPath: brain, sandbox: copied, env: {}, command: ["/bin/true"] }), "COPIED_PROVIDER_FOLDER_FACTS_CANNOT_AUTHORIZE_MOUNTS").toThrow("not qualified by the resolver");
+  const cloned = JSON.parse(JSON.stringify(sandbox));
+  expect(() => workerCommand({ brainPath: brain, sandbox: cloned, env: {}, command: ["/bin/true"] }), "SERIALIZED_PROVIDER_FOLDER_FACTS_CANNOT_AUTHORIZE_MOUNTS").toThrow("not qualified by the resolver");
+  const forged = { ...sandbox, protection: { paths: [], ancestors: ["../outside"] } };
+  expect(() => workerCommand({ brainPath: brain, sandbox: forged, env: {}, command: ["/bin/true"] }), "CALLER_CONSTRUCTED_FOLDER_ANCESTORS_CANNOT_AUTHORIZE_MOUNTS").toThrow("not qualified by the resolver");
+  const other = fixture(); mkdirSync(join(other, "group/private"), { recursive: true });
+  expect(() => workerCommand({ brainPath: other, sandbox: { ...sandbox, brain: other }, env: {}, command: ["/bin/true"] }), "FOREIGN_BRAIN_FOLDER_QUALIFICATION_REFUSES_LAUNCH").toThrow("different brain identity");
+  expect(Object.isFrozen(sandbox.protection)).toBe(true);
+  expect(Object.isFrozen(sandbox.protection!.paths)).toBe(true);
+  expect(Object.isFrozen(sandbox.protection!.ancestors)).toBe(true);
+});

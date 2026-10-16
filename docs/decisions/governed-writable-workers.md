@@ -1447,6 +1447,8 @@ peers' roots across policy removal. Host publication independently refuses root
 or ancestor removal/replacement, since worker mount points cannot constrain host
 syscalls. Contents and permitted siblings remain writable. Missing or aliased
 folder topology is not invented through placeholder creation or overlays.
+Resolver-owned folder qualification is private and tied to the exact brain
+identity; public layout facts or copied layouts cannot mint folder mounts.
 
 These are topology primitives, not complete privacy admission or recipient
 proof. Gate root sets are plans rather than attested mounted identities; legacy
@@ -2059,7 +2061,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:479-529`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:477-527`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

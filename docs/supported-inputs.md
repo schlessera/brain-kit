@@ -102,7 +102,9 @@ unaliased root and every ancestor before its ordinary protected mounts. Files
 inside and permitted siblings stay writable; root and ancestor renames fail.
 Initial inspection of an absent, linked, special or unverifiable folder selects
 strict fallback without creating a placeholder. A changed inspected identity
-refuses launch. Native output publication refuses staged removal/replacement of
+refuses launch. Folder mount qualification stays private to the resolver and binds
+the frozen layout to its exact brain identity; copied or caller-constructed
+layouts cannot authorize retained-folder mounts. Native output publication refuses staged removal/replacement of
 admitted roots or ancestors through strict-area, maintenance and local sync.
 
 The gate stores planned root sets, not proof of mounted namespace identities;

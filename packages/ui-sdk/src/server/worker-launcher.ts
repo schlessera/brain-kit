@@ -588,7 +588,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []),
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.

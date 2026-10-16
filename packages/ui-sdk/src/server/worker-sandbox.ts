@@ -407,8 +407,6 @@ export interface ProtectedWorkerPath {
   readonly mode: "read_only" | "mask_file" | "mask_directory" | "absent";
 }
 export interface WorkerProtection {
-  /** Existing provider-policy folder topology; read-write mounts, never read authority. */
-  readonly folderPins?: readonly { readonly rel: string; readonly device: string; readonly inode: string }[];
   readonly paths: readonly ProtectedWorkerPath[];
   readonly ancestors: readonly string[];
 }
