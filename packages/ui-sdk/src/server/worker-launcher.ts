@@ -22,7 +22,7 @@ import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from ".
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
-import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
+import { resolveWorkerProtection, protectedWorkerMounts, verifyWorkerFolderMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -1249,6 +1249,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       turnTemp = identityBroker ? holdIdentityRoot(tempFd, "temp") : heldTmpfs(tempFd);
       if (identityBroker) tempFd = undefined;
     }
+    if (input.sandbox?.profile === "governed")
+      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline);
     // Release the gate: the worker's command starts only now.
     if (identityBroker) identityBroker.request("release"); else status!.release();
     stateFd = tempFd = undefined;
