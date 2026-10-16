@@ -33,6 +33,15 @@ afterEach(async () => { observer?.disconnect(); observer = undefined; if (render
   if (themeBefore === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = themeBefore;
 });
 const patch = (value: Record<string, unknown> = {}) => commands.policyServer({ op: "set", id: fixture!.id, patch: value }) as Promise<{ bytes: string; original: string; proposed: string; writes: number; reads: number; receiptTimeline: Array<{ stage: string; ms: number; requestId: number; method: string; path: string; status?: number; principal: string }>; policy: { hash: string }; journalChanges: Array<{path: string;actor:string;class:string}>; journalPolicies: Array<{policy_hash:string|null}>; admitted: Array<{hash: string | null}>; events: Array<{actor:string;kind:string}> }>;
+// Browser evidence must describe the failed poll, before the fixture RPC yields.
+async function readinessFailure(error: unknown, readFixture = patch) {
+  record("readiness-failed");
+  const browser = `${String(error)}\nTimeline (browser milliseconds from scene start): ${JSON.stringify(timeline)}\nFrames: ${JSON.stringify(received)}\nChat: ${JSON.stringify(activeChat(ui!.stores.chat.getState()).messages)}\nDOM: ${host!.textContent}`;
+  const started = performance.now() - sceneStarted;
+  const fixtureState = await readFixture();
+  const completed = performance.now() - sceneStarted;
+  return new Error(`${browser}\nFixture (sampled after browser snapshot): ${JSON.stringify(fixtureState)}\nFixture sample (browser milliseconds from scene start): ${JSON.stringify({ started, completed })}`);
+}
 async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectReceipt = false) {
   timeline.length = 0; sceneStarted = performance.now(); record("scene", { width, theme, zoom, mode });
   await page.viewport(width, 1000); document.documentElement.dataset.theme = theme;
@@ -88,7 +97,7 @@ async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectRec
   ui.connection.send({ type: "chat_message", text: "Propose strict for the voyage.", source: "voice-dictate" });
   if (mode !== "bad-proposal") {
     try { await expect.poll(() => host!.querySelector(approvalSelector)).not.toBeNull(); }
-    catch (error) { record("readiness-failed"); throw new Error(`${String(error)}\nTimeline (browser milliseconds from scene start): ${JSON.stringify(timeline)}\nFrames: ${JSON.stringify(received)}\nFixture: ${JSON.stringify(await patch())}\nChat: ${JSON.stringify(activeChat(ui.stores.chat.getState()).messages)}\nDOM: ${host.textContent}`); }
+    catch (error) { throw await readinessFailure(error); }
   }
   return host;
 }
@@ -184,4 +193,32 @@ test("receipt diagnostics distinguish dispatch failure from an unread server rec
   expect(timeline.at(-1)?.stage).toBe("readiness-failed");
   const state = await patch(); expect(state.reads).toBe(0); expect(state.writes).toBe(0); expect(state.receiptTimeline).toEqual([]);
   expect(host!.querySelector(approvalSelector)).toBeNull();
+});
+
+// A fixture RPC can settle after more native frames/render work. It must not
+// splice that later chat/DOM into the browser evidence from the failed poll.
+test("readiness evidence stays at the failure boundary while fixture diagnostics yield", async () => {
+  const host = await scene();
+  const chatBefore = JSON.stringify(activeChat(ui!.stores.chat.getState()).messages);
+  const domBefore = host.textContent;
+  const failure = await readinessFailure(new Error("Controlled snapshot boundary"), async () => {
+    const state = await patch();
+    ui!.stores.chat.getState().addUserMessage("policy-session", "Later diagnostic message.");
+    host.append(document.createTextNode("Later diagnostic DOM."));
+    record("controlled-late-update");
+    return state;
+  });
+  expect(host.textContent).toContain("Later diagnostic DOM.");
+  expect(JSON.stringify(activeChat(ui!.stores.chat.getState()).messages)).toContain("Later diagnostic message.");
+  expect(failure.message).toContain(`Chat: ${chatBefore}\nDOM: ${domBefore}`);
+  expect(failure.message).not.toContain("Later diagnostic");
+  expect(failure.message).not.toContain("controlled-late-update");
+  const fixtureLine = failure.message.split("\n").find(line => line.startsWith("Fixture (sampled after browser snapshot): "))!;
+  const fixtureState = JSON.parse(fixtureLine.slice(fixtureLine.indexOf(": ") + 2));
+  expect(fixtureState.reads).toBe(1);
+  expect(fixtureState.writes).toBe(0);
+  expect(fixtureState.receiptTimeline).toEqual([
+    expect.objectContaining({ stage: "request", method: "GET" }),
+    expect.objectContaining({ stage: "response", status: 200 }),
+  ]);
 });
