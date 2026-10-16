@@ -118,6 +118,14 @@ export interface ModuleCronEntry {
   command: string;
 }
 
+/** Package exports implementing one content renderer. */
+export interface ModuleRenderer {
+  fences?: string[];
+  extensions?: string[];
+  client: string;
+  static?: string;
+}
+
 /**
  * Everything a module adds to the brain. Returned by the manifest's `setup()`
  * so the contribution can be shaped by the user's validated module config
@@ -126,6 +134,8 @@ export interface ModuleCronEntry {
  * own config type.
  */
 export interface ModuleContribution<C = unknown> {
+  /** Package-owned exports; bundled by consumers, never runtime browser imports. */
+  renderers?: Record<string, ModuleRenderer>;
   taxonomy?: {
     types?: Record<string, TypeSpec>;
     classifierHints?: Record<string, string[]>;

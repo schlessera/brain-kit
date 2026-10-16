@@ -1385,7 +1385,7 @@ are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
 `record`, `list` and `variant` compose them. Unlisted representable schema
 fields appear through the generic renderer. Unsupported fields show their
 complete JSON value read-only; unchanged JSON subtrees retain their bytes.
-Modules do not contribute React implementations. A module using settings has
+Modules do not contribute React settings implementations. Content renderers use the separately declared, build-time-bundled renderer seam. A module using settings has
 a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
 
 Core reads `settings/<module-name>.json`, a JSON object without the reserved
@@ -3274,3 +3274,21 @@ its fixed in-process application tools then refuse unavailable routes at call
 time. Direct unhosted consumers omitting it retain their legacy project MCP
 roster. Existing custom bridges without the field retain the prior `applyBrain`
 presence fallback. Autonomous authority/rosters are unchanged.
+
+## Module content renderer declarations
+
+`ModuleContribution.renderers?: Record<string, ModuleRenderer>` is an additive
+module input. `ModuleRenderer` has optional `fences: string[]` and
+`extensions: string[]`, required `client: string` and optional `static: string`.
+Declarations are strict: unknown fields fail loading. Fence names match
+`^[a-z][a-z0-9-]*$`; extensions start with `.`. Both entry specifiers
+name export subpaths of the declaring module's own package, verified against
+its `package.json` name.
+
+Duplicate active fence/extension claims fail load naming both module owners.
+Dormant declarations do not claim dispatch names. Built-in Mermaid reserves
+`mermaid`, `mmd`, `.mermaid` and `.mmd`. Module lint resolves entries and
+requires the static entry's named `toStatic` export to be a function. Ordinary
+loading does not execute renderer entries. No runtime browser loading is added.
+See [modules](../modules.md#content-renderers) and the
+[renderer decision](../decisions/module-renderers.md).

@@ -16,7 +16,7 @@ declared once by a module and implemented by two entry points:
 
 | Part | Lives in | Runs in | Does |
 | --- | --- | --- | --- |
-| Declaration | the module manifest, `renderers` key | core's module loader | Names fence languages, file extensions, and the two entry specifiers. Validated `.strict()` like every contribution (`export interface ModuleContribution`, `packages/core/src/lib/module-types.ts:128-154`). |
+| Declaration | the module manifest, `renderers` key | core's module loader | Names fence languages, file extensions, and the two entry specifiers. Validated `.strict()` like every contribution (`export interface ModuleContribution`, `packages/core/src/lib/module-types.ts:136-164`). |
 | Client entry | `<module>/ui` export | the PWA, registered at build time | A React component `({ source, path?, mode, theme }) → element`, where `mode` is `chat`, `file` or `share`. Built from ui-kit pieces and public entry points only. |
 | Static entry | `<module>/render` export | `brain render`, `/api/render`, the client share path | `toStatic(source, { theme, path? }) → Promise<string>` returning HTML/SVG with no script and no external resource. It declares `needsBrowser`: Mermaid's static step needs a DOM, so it runs on the client before a share, as today. The diagrams module's does not. |
 
