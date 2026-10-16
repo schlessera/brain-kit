@@ -1018,3 +1018,18 @@ not a host restart. Those remaining scopes do not change the shipped profiles.
 Governed peers may see one another's configuration immediately; snapshot
 consumers retain their startup inputs until the next launch. See the
 [governed-worker decision](../decisions/governed-writable-workers.md).
+
+### Worker startup status
+
+The live launcher reads bubblewrap's `--json-status-fd` through a dedicated,
+unlinked pipe. Before releasing its `--block-fd` start gate, it checks that
+the reported child descends from this launch and runs in a different PID
+namespace. Runtime-state and turn-temp mounts are verified and initial state
+is populated while that gate is closed. The trusted bootstrap still rejects
+unexpected inherited descriptors; a fixed host shell opens only the status
+and gate channels afterwards, and bubblewrap closes both before the payload
+runs. Setup refusal ends the unstarted worker.
+
+This startup qualification does not provide a separate worker UID or the
+external descriptor broker. The separate-UID implementation remains tracked
+in [#1677](https://github.com/schlessera/brain-kit/issues/1677).

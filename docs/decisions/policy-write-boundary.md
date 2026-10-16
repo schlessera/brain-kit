@@ -448,27 +448,27 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1098`):
+`packages/ui-sdk/src/server/worker-launcher.ts:991-1119`):
 
-1. It finds the sandbox's first process from the kernel's record of
-   bubblewrap's only child, then opens the tmpfs root through
+1. It reads the sandbox's first PID from bubblewrap's private JSON status
+   pipe and verifies ancestry and a different PID namespace, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:807-831`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:822-846`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
    directory or nothing. The wait is bounded at five seconds and fails fast if
    bubblewrap exits.
-2. The worker's command is held behind a start gate that runs before any agent
-   code: the absolute `/bin/sh` reads one line from the worker's stdin with
-   its `read` builtin, which only the server writes, and then becomes the
-   command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:44`).
-   The gate runs no `PATH` lookup, so nothing in the worker's environment or
-   the brain can stand in for it, and the shell reads a pipe a byte at a time,
-   so the runtime's own input is untouched. The server copies the snapshot in
-   through the held descriptor (`populate(root) {`,
+2. The live launcher holds the worker behind bubblewrap's `--block-fd` gate.
+   A fixed host shell opens separate unlinked status and gate pipes after the
+   trusted bootstrap's inherited-descriptor check. Only bubblewrap receives
+   those descriptors; it closes them before the payload runs
+   (`export function workerBootstrap`, `packages/ui-sdk/src/server/worker-launcher.ts:697-718`).
+   This gate consumes no payload stdin. Direct argv consumers and synchronous
+   host probes retain the fixed stdin-line gate (`const STATE_GATE`,
+   `packages/ui-sdk/src/server/worker-launcher.ts:45`). The server copies the
+   snapshot in through the held descriptor (`populate(root) {`,
    `packages/ui-backend-claude/src/worker-state.ts:199-221`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process

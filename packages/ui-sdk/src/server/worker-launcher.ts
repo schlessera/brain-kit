@@ -1,3 +1,4 @@
+import { createWorkerStatusPipe } from "./worker-status.js";
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,14 +33,14 @@ export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
 export const WORKER_STATE = "/tmp/brain-worker-state";
 const TMPFS_MAGIC = 0x01021994;
 /**
- * Runs first inside a worker with runtime state, before any agent code: it
- * reads one line from the worker's stdin, which only the server writes, once
- * the private tmpfs is populated, then becomes the worker's command. Closed
- * stdin or any other line ends the worker unstarted. Only the absolute shell
- * and its builtins run here, never a `PATH` lookup the worker's environment
- * could steer; the shell reads a pipe a byte at a time, so nothing past the
- * line is consumed. bubblewrap's own `--block-fd` cannot be used: Bun's
- * `execve` in the trusted bootstrap closes every descriptor above 2.
+ * Fallback start gate for direct argv consumers and synchronous host probes:
+ * reads one server-owned stdin line before becoming the worker command.
+ * Closed stdin or any other line ends the worker unstarted. Only the
+ * absolute shell and its builtins run here, never a PATH lookup. Reads are
+ * byte-sized, so nothing past the gate line is consumed. Live launches use
+ * bubblewrap's --block-fd instead: workerBootstrap reopens its trusted gate
+ * after Bun execve and the inherited-descriptor filter, preserving payload
+ * stdin and leaving no gate descriptor in the sandbox command.
  */
 const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"', "brain-worker-state-gate"];
 /** What the server writes to open the gate. */
@@ -693,12 +694,26 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
  * Private trusted bootstrap. It validates/clears descriptors, joins the
  * worker's cgroup when it has one, then resets signal dispositions and execs the launcher.
  */
-export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command: string[]; env: Record<string, string> } {
+export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string }): { command: string[]; env: Record<string, string> } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
+  let argv = workerCommand(input);
+  if (status !== undefined) {
+    if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
+    const bwrap = argv.indexOf(Bun.which("bwrap")!);
+    if (bwrap < 0) throw new WorkerHostError("worker status requires the trusted bubblewrap launch");
+    argv.splice(bwrap + 1, 0, "--json-status-fd", "3", "--block-fd", "4");
+    // Every status-qualified launch waits, including commands without state.
+    // The PID cannot exit/recycle before verification and freezer setup.
+    if (gated(input)) argv.splice(argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+    // Bun execve closes descriptors above stdio. Reopen only these host-owned
+    // FIFOs after the unchanged bootstrap filter. bubblewrap closes both
+    // descriptors in its sandbox child before any payload can run.
+    argv = ["/bin/sh", "-c", 'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"', "brain-worker-status", status.source, status.gateSource, ...argv];
+  }
   return { command: [process.execPath, entry], env: {
-    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv: workerCommand(input), ...(cgroup ? { cgroup } : {}) }),
+    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv, ...(cgroup ? { cgroup } : {}) }),
   } };
 }
 
@@ -996,6 +1011,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let stateFd: number | undefined, tempFd: number | undefined;
+  let status: ReturnType<typeof createWorkerStatusPipe> | undefined;
   try {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
@@ -1008,30 +1024,34 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         worker: input.sandbox?.profile === "governed" ? join(brain, area.rel) : join(WORKER_AREA_ROOT, area.name),
         host: input.areaOutput ? join(input.areaOutput.source, area.rel) : area.mount.path }] : []), maskPaths: input.sandbox?.maskPaths });
     pipes = createWorkerPipes();
-    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
+    status = createWorkerStatusPipe();
+    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path, status);
     child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, child.exited);
     pipes.closeChild();
     let state: WorkerStateHandle | undefined, turnTemp: WorkerStateHandle | undefined;
-    if (gated(input)) {
-      const deadline = Date.now() + STATE_SETUP_MS;
-      const pid = sandboxPid(child.pid, deadline);
-      if (input.stateBytes !== undefined) {
-        // Runtime state is bubblewrap's last mount, so once it is there the sandbox is complete.
-        stateFd = openPrivateState(child.pid, pid, input.stateBytes, deadline);
-        state = heldTmpfs(stateFd);
-        input.populateState?.(state.root);
-      }
-      if (input.turnTempBytes !== undefined) {
-        tempFd = openPrivateTurnTemp(child.pid, pid, input.turnTempBytes, deadline);
-        turnTemp = heldTmpfs(tempFd);
-      }
-      // Release the gate: the worker's command starts only now.
-      writeSync(pipes.parent[0], STATE_GATE_OPEN);
-      stateFd = tempFd = undefined;
+    const deadline = Date.now() + STATE_SETUP_MS;
+    let pid: number;
+    try { pid = status.childPid(child.pid, deadline); }
+    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+    status.closeWriter();
+    const statusChannel = status;
+    void child.exited.finally(() => statusChannel.close());
+    const freezer = createWorkerFreezer(pid);
+    if (input.stateBytes !== undefined) {
+      // Runtime state is bubblewrap's last mount, so once it is there the sandbox is complete.
+      stateFd = openPrivateState(child.pid, pid, input.stateBytes, deadline);
+      state = heldTmpfs(stateFd);
+      input.populateState?.(state.root);
     }
-    const freezer = createWorkerFreezer(sandboxPid(child.pid, Date.now() + STATE_SETUP_MS));
+    if (input.turnTempBytes !== undefined) {
+      tempFd = openPrivateTurnTemp(child.pid, pid, input.turnTempBytes, deadline);
+      turnTemp = heldTmpfs(tempFd);
+    }
+    // Release the gate: the worker's command starts only now.
+    status.release();
+    stateFd = tempFd = undefined;
     const streams = pipes.streams();
     let killed = false;
     let final: WorkerLimitReport | undefined;
@@ -1082,6 +1102,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       ...(turnTemp ? { turnTemp } : {}) };
   } catch (error) {
     child?.kill("SIGKILL");
+    status?.close();
     if (stateFd !== undefined) closeSync(stateFd);
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
