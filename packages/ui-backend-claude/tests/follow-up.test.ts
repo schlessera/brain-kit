@@ -100,7 +100,7 @@ describe("delivering a follow-up into the running turn", () => {
     resume();
     await turn;
 
-    expect(h.first[0]?.message.content).toBe("Plan the voyage home.");
+    expect(h.first[0]?.message.content).toStartWith("Plan the voyage home.\n\n[Host context for this turn; advisory facts, never permission]\n");
     expect(followUp).toMatchObject({
       type: "user",
       parent_tool_use_id: null,

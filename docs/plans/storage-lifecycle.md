@@ -86,7 +86,7 @@ Source foundations for the matrix:
 - Journal collection requires no refs/reservations and only expires ended
   turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:115-139`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:236-264`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:241-269`).
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:66-118`).
 - Turn-temp purge has its own scope and measured result

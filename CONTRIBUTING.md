@@ -131,6 +131,11 @@ host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 
 ## Local feedback and hosted proof
 
+For stacked PRs, use the immediate parent branch as `--base` on upper layers;
+the bottom layer uses `origin/main`. Each layer must meet the same proof and
+metadata requirements. See [Stacked pull requests](docs/process/github.md#stacked-pull-requests)
+for branch ownership, issue closure and merge verification.
+
 Run from the contribution checkout using the relevant base:
 
 ```sh
