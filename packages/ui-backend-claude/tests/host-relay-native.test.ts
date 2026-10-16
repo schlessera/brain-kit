@@ -34,6 +34,14 @@ test("installed native first-party relay preserves resumed history, per-turn mod
   expect(result.authorities).toEqual(["https://api.anthropic.com/v1/messages", "https://api.anthropic.com/v1/messages",
     "https://platform.claude.com/v1/oauth/token", "https://api.anthropic.com/v1/messages", "https://platform.claude.com/v1/oauth/token"]);
   expect(result.refreshes).toBe(2);
+  expect(result.egressRecords, "NATIVE_DISPATCH_USES_CONCRETE_FIRST_PARTY_ADMISSION").toHaveLength(4);
+  expect(result.egressRecords.map((record: { outcome: string }) => record.outcome)).toEqual(["completed", "completed", "completed", "cancelled"]);
+  for (const record of result.egressRecords) {
+    expect(record).toMatchObject({ inference: true, host: "api.anthropic.com", port: 443, path: "/v1/messages", accounting: "http_wire_bound" });
+  }
+  expect(result.egressBytes, "NATIVE_REQUEST_AND_RESPONSE_CHARGED").toBeGreaterThan(6000);
+  expect(result.egressBytes).toBe(result.egressRecords.reduce((sum: number, record: { bytes: number }) => sum + record.bytes, 0));
+  expect(result.egressBytes).toBeLessThanOrEqual(2 * 1024 * 1024);
   expect(result.hostAfterRefresh).toBe(true);
   // These are the unaugmented native initialize observations. Unix transport
   // does not report the stored account's email, organization or tier here.

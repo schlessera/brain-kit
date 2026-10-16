@@ -11,7 +11,7 @@ import { ClaudeHostAuthError, resolveClaudeHostOAuth as resolveHostOAuth } from 
 const roots: string[] = [];
 const domains = new Map<string, { directory: string }>();
 const resolveClaudeHostOAuth = (root: string, env: Record<string, string | undefined>, signal?: AbortSignal) =>
-  resolveHostOAuth(root, env, signal, domains.get(root));
+  resolveHostOAuth(root, env, { origin: "https://api.anthropic.com" }, signal, domains.get(root));
 const servers: ReturnType<typeof Bun.serve>[] = [];
 const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch")!;
 const originalFetch = globalThis.fetch;
@@ -163,7 +163,7 @@ test("concurrent server refresh refuses the busy owner, then rereads its committ
   await expect(resolveClaudeHostOAuth(root, {})).rejects.toMatchObject({ reason: "busy" });
   const source = new URL("../src/host-oauth.ts", import.meta.url).href;
   const script = `const {resolveClaudeHostOAuth}=await import(${JSON.stringify(source)});
-    try { await resolveClaudeHostOAuth(${JSON.stringify(root)}, {}, undefined, ${JSON.stringify(domains.get(root))}); process.exit(2); }
+    try { await resolveClaudeHostOAuth(${JSON.stringify(root)}, {}, { origin: "https://api.anthropic.com" }, undefined, ${JSON.stringify(domains.get(root))}); process.exit(2); }
     catch(error) { console.log(JSON.stringify({reason:error.reason})); }`;
   const other = Bun.spawn(["unshare", "--user", "--map-root-user", "--net", process.execPath, "-e", script], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
@@ -271,3 +271,30 @@ for (const unsafe of ["symlink", "hardlink", "permissions", "invalid-scope", "ex
     expect(existsSync(join(root, ".brain-oauth-refresh.lock"))).toBe(false);
   });
 }
+
+test("actual OAuth dispatch origin requires exact host authorization before credential read or refresh", async () => {
+  const { root } = fixture({ ...fresh(), expiresAt: 1 });
+  let reads = 0;
+  const originalOpen = fs.openSync;
+  const opened = spyOn(fs, "openSync").mockImplementation(((...args: Parameters<typeof fs.openSync>) => {
+    reads++; return Reflect.apply(originalOpen, fs, args);
+  }) as typeof fs.openSync);
+  try {
+    for (const origin of ["https://example.org", "https://api.anthropic.com.example.org", "http://api.anthropic.com", "https://api.anthropic.com:444", "https://api.anthropic.com."]) {
+      await expect(resolveHostOAuth(root, { ANTHROPIC_BASE_URL: origin }, { origin }, undefined, domains.get(root)), "UNAPPROVED_ORIGIN_PRECEDES_SECRET_READ").rejects.toMatchObject({ reason: "destination" });
+    }
+    expect(reads, "NO_SECRET_FILE_OR_LOCK_FOR_UNAUTHORIZED_RECIPIENT").toBe(0);
+  } finally { opened.mockRestore(); }
+});
+
+test("trusted exact origins canonicalize scheme host and default port without accepting origin paths or credential selectors", async () => {
+  const { root } = fixture();
+  for (const origin of ["https://API.ANTHROPIC.COM:443", "https://api.anthropic.com/"]) {
+    expect((await resolveHostOAuth(root, {}, { origin }, undefined, domains.get(root))).authorization).toBe(`Bearer ${secret}`);
+  }
+  expect((await resolveHostOAuth(root, {}, { origin: "https://EXAMPLE.ORG:443", authorizedOrigins: ["https://example.org/"] }, undefined, domains.get(root))).authorization, "EXPLICIT_HOST_ORIGIN_AUTHORIZES_CUSTOM_RECIPIENT").toBe(`Bearer ${secret}`);
+  for (const origin of ["https://example.org:444", "http://example.org", "https://example.org/../", "https://example.org/v1/messages", "https://example.org?x=1", "https://example.org#fragment", "https://odysseus@example.org", "https://example.org\\path", "file:///tmp/odysseus", " https://example.org"]) {
+    await expect(resolveHostOAuth(root, {}, { origin, authorizedOrigins: ["https://example.org"] }, undefined, domains.get(root))).rejects.toMatchObject({ reason: "destination" });
+  }
+  await expect(resolveHostOAuth(root, {}, { origin: "https://api.anthropic.com", authorizedOrigins: ["https://*.example.org"] }, undefined, domains.get(root))).rejects.toMatchObject({ reason: "destination" });
+});

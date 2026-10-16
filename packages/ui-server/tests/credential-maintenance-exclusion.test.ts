@@ -59,13 +59,13 @@ test("real isolated credentialed maintenance admits its writer before waiting, e
   const observed = JSON.parse(new TextDecoder().decode(first.value));
   expect(observed).toMatchObject({ entered: true, access: "odysseus-maintenance-only-token" });
   expect(observed.mount, "ACTUAL_MAINTENANCE_NAMESPACE").not.toBe(readlinkSync("/proc/self/ns/mnt"));
-  await expect(resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
+  await expect(resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
   writeFileSync(release, "Odysseus maintenance complete");
   while (!(await reader.read()).done) { /* Preserve the native EOF barrier. */ }
   const stderr = await new Response(child.stderr).text();
   expect(await child.exited).toBe(0); expect(stderr).toBe("");
   const next = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); next.release();
-  expect((await resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).source).toBe("stored-login");
+  expect((await resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).source).toBe("stored-login");
   expect(writerHeld).toBe(false);
 });
 
@@ -125,7 +125,7 @@ test("asynchronous credentialed run excludes refresh until the actual command an
   const deadline = performance.now() + 5000;
   while (!existsSync(entered) && performance.now() < deadline) await Bun.sleep(5);
   expect(existsSync(entered), "ACTUAL_CREDENTIAL_COMMAND_ENTERED").toBe(true);
-  await expect(resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
+  await expect(resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
   writeFileSync(release, "released");
   expect(await running).toMatchObject({ stdout: "Odysseus maintenance complete\n", stderr: "", exitCode: 0 });
   const hold = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); hold.release();
