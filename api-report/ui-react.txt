@@ -85,6 +85,12 @@ export "." (./src/index.ts)
   useVoiceStore
   useWebSocket
 
+export "./content-figures" (./src/content-figures.ts)
+  StaticDiagramShareMenu
+  ZoomViewer
+  type ZoomViewerProps
+  useWikiLinkNavigation
+
 export "./package.json" (./package.json) [asset]
 
 export "./styles.css" (./dist/styles.css) [asset]
@@ -731,6 +737,11 @@ signatures (every public export and the types it is made of)
         onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
+  StaticDiagramShareMenu (packages/ui-react/src/components/chat/static-diagram-share.tsx)
+    export function StaticDiagramShareMenu({ svg, filename = "diagram" }: {
+        svg: () => Promise<string>;
+        filename?: string;
+    }): import("react").JSX.Element;
   StatsSection (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type StatsSection = {
         kind: "software";
@@ -863,6 +874,18 @@ signatures (every public export and the types it is made of)
         keyless: boolean;
         costNote: string;
         blurb: string;
+    }
+  ZoomViewer (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export function ZoomViewer({ children, onClose, actions, refitKey, maxFitScale = 2.5, minScale = MIN_SCALE, label = "Zoomed view", }: ZoomViewerProps): import("react").ReactPortal;
+  ZoomViewerProps (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export interface ZoomViewerProps {
+        children: React.ReactNode;
+        onClose: () => void;
+        actions?: React.ReactNode;
+        refitKey?: unknown;
+        maxFitScale?: number;
+        minScale?: number;
+        label?: string;
     }
   activeChat (packages/ui-react/src/stores/chat-state.ts)
     export function activeChat(state: ChatShellState): SessionChat;
@@ -1618,4 +1641,9 @@ signatures (every public export and the types it is made of)
   useWebSocket (packages/ui-react/src/hooks/use-websocket.ts)
     export function useWebSocket(): {
         send: (message: ClientMessage) => boolean;
+    };
+  useWikiLinkNavigation (packages/ui-react/src/components/chat/brain-markdown-links.tsx)
+    export function useWikiLinkNavigation(): {
+        resolve(target: string): string | null;
+        open(target: string, opener: HTMLElement | SVGElement, keyboard: boolean): boolean;
     };
