@@ -4,6 +4,7 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
+import { generatedCssInputs, generatedCssReadInputs } from "./generated-build-inputs";
 import { cssInputs } from "./css-inputs";
 import { normalizeInventory, type Spec } from "./proof-inputs";
 
@@ -97,9 +98,12 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     const source = readFileSync(absolute, "utf8"), ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
     if ((ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) unresolved.add(`Invalid source: ${normalized}`);
     const uses = new Set<string>(), sites = new Set<string>();
+    const pathResolveAliases = new Set<string>();
     const aliases = new Map<string, string>(), namespaces = new Set<string>(), filesystemAliases = new Set<string>(), shadowedBindings = new Set<string>();
     for (const statement of ast.statements) if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const specifier = statement.moduleSpecifier.text.replace(/^node:/, "");
+      if (specifier === "path" && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings))
+        for (const binding of statement.importClause.namedBindings.elements) if ((binding.propertyName?.text ?? binding.name.text) === "resolve") pathResolveAliases.add(binding.name.text);
       if (["fs", "fs/promises", "child_process"].includes(specifier)) {
         if (statement.importClause?.name) namespaces.add(statement.importClause.name.text);
         const bindings = statement.importClause?.namedBindings;
@@ -112,6 +116,12 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     }
     const edge = (specifier: string, typeOnly = false) => {
       if (builtins.has(specifier) || specifier.startsWith("bun:")) return;
+      const generated = specifier.startsWith(".") ? generatedCssInputs(root, resolve(dirname(absolute), specifier.split("?")[0]!)) : undefined;
+      if (generated) {
+        visit(generated.entry);
+        for (const producer of generated.producer) visit(producer, true);
+        return;
+      }
       const result = ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule;
       if (!result) {
         // Bundler-owned assets are still repository inputs, even when TypeScript has no declaration.
@@ -226,9 +236,18 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
         } else if (aliases.has(originalCallee) && readOperations.has(callee) ||
           [...namespaces].some(name => originalCallee.startsWith(name + ".") && readOperations.has(originalCallee.split(".").at(-1)!)) ||
           /^(?:require|Bun\.(?:file|spawn|spawnSync|build|resolveSync)|import\.meta\.glob)$/.test(originalCallee) || ts.isElementAccessExpression(node.expression) || /\.(?:fulfill|setContent)$/.test(originalCallee)) {
+          const path = node.arguments[0];
+          const generated = filesystemAliases.has(originalCallee) && !shadowedBindings.has(originalCallee) && callee === "readFile" &&
+            node.arguments.length === 2 && ts.isStringLiteral(node.arguments[1]!) && node.arguments[1]!.text === "utf8" &&
+            path && ts.isCallExpression(path) && ts.isIdentifier(path.expression) && pathResolveAliases.has(path.expression.text) &&
+            path.arguments.length === 1 && ts.isStringLiteral(path.arguments[0]!) ? generatedCssReadInputs(root, normalized, path.arguments[0]!.text) : undefined;
+          if (generated) {
+            visit(generated.entry);
+            for (const producer of generated.producer) visit(producer, true);
+          }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }

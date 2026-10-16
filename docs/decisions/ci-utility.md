@@ -298,6 +298,16 @@ top-level initializer or side effect. Dormant declared targets and their static
 imports remain fingerprinted source bytes. This bounded support does not close
 unrelated generated assets or provenance inputs.
 
+Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
+`dist/styles.css` output to its source stylesheet, recursive CSS inputs and
+tracked producer. The audited build cleans package output, uses the frozen
+Tailwind dependency and completes successfully before browser execution and its
+fresh receipt. Three audited command readers additionally bind the runner's
+`packages/ui-kit` cwd. Producer, command or execution-path drift makes that
+binding unavailable. Current `dist` bytes never substitute for source inputs.
+Other generated artifacts, external assets and temporary readers remain unknown
+until their own bindings are validated.
+
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
 runner identity. It also includes every proof/tooling script and workflow,
