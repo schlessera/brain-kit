@@ -76,8 +76,10 @@ export function detectClientEnvironment(): ClientEnvironment | undefined {
     env.standalone = true;
   }
 
-  if (mediaKinds?.camera) env.camera = true;
-  if (mediaKinds?.microphone) env.microphone = true;
+  if (mediaKinds) {
+    env.camera = mediaKinds.camera;
+    env.microphone = mediaKinds.microphone;
+  }
   // getUserMedia and geolocation both require a secure context, which is also
   // what the location tool needs.
   if (navigator.geolocation && window.isSecureContext !== false) env.geolocation = true;
