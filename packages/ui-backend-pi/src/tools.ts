@@ -586,7 +586,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         const body = [stdout, stderr].filter(Boolean).join("\n").trim();
         // The exit line goes after the clip, so a long failing output still
         // ends with it: the host classifies a nonzero exit from it (#1671).
-        const output = `${clip(`$ ${cmd}\n${body}`)}${code === 0 ? "" : `\n[exit ${code}]`}`;
+        const output = `${clip(body || "(no output)")}${code === 0 ? "" : `\n[exit ${code}]`}`;
         // Pi turns thrown tool errors into Activity-visible error results.
         // Keep the exit evidence, but distinguish a host abort from a command
         // that independently exited with the same status (including 143).
