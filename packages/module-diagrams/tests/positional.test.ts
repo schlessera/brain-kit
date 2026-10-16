@@ -18,6 +18,7 @@ for (const type of ["loop","flywheel"]) test(`${type}: actual ring/spoke samples
  for(const shape of shapes){const points:Array<{x:number;y:number}>=[];
   if(shape.shape==="line")for(let i=0;i<=128;i++)points.push({x:shape.x1+(shape.x2-shape.x1)*i/128,y:shape.y1+(shape.y2-shape.y1)*i/128});
   if(shape.shape==="path"){const values=shape.d.match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/gi)!.map(Number),[sx,sy,r]=values as [number,number,number],ex=values[7]!,ey=values[8]!,start=Math.atan2(sy-cy,sx-cx),end=Math.atan2(ey-cy,ex-cx),angle=(end-start+2*Math.PI)%(2*Math.PI);for(let i=0;i<=128;i++)points.push({x:cx+r*Math.cos(start+angle*i/128),y:cy+r*Math.sin(start+angle*i/128)});}
+  for(const point of points)for(const node of shapes.filter(e=>e.nodeId&&e.shape==="rect"&&e.nodeId!==shape.from&&e.nodeId!==shape.to)){const distance=Math.hypot(Math.max(node.x-point.x,0,point.x-node.x-node.width),Math.max(node.y-point.y,0,point.y-node.y-node.height));expect(distance,`LOOP_NONENDPOINT_NODE_CLEARANCE ${shape.id}/${node.id}`).toBeGreaterThanOrEqual(8-.001);}
   for(const point of points)for(const mask of masks){const dx=Math.max(mask.x-point.x,0,point.x-mask.x-mask.width),dy=Math.max(mask.y-point.y,0,point.y-mask.y-mask.height);expect(Math.hypot(dx,dy),`LOOP_MASK_CLEARANCE ${shape.id}/${mask.id}`).toBeGreaterThanOrEqual(8-0.001);}
  }
 });
@@ -70,3 +71,5 @@ test("Venn common focal set warning is actionable and the legend follows actual 
  const spec=example("venn");delete spec.positional.venn.intersections;spec.nodes[0].role="focal";const source=JSON.stringify(spec),result=checkDiagram(source);expect(result.valid).toBe(true);expect(result.warnings.some(w=>w.code==="positional"&&w.message.includes("intersections[].focal"))).toBe(true);expect(await toStatic(source,{theme:"light"})).not.toContain('data-legend-key="focal"');
  spec.positional.venn.intersections=[{members:spec.nodes.map((n:any)=>n.id),label:"READY",focal:true}];expect(await toStatic(JSON.stringify(spec),{theme:"light"})).toContain('data-legend-key="focal"');
 });
+
+test("Quadrant labels cannot cross an axis at a near-zero authored coordinate",()=>{const spec=example("quadrant");spec.positional.quadrant.points[0].y=.01;expect(checkDiagram(JSON.stringify(spec)).errors.some(e=>e.message.includes("clear of both axes"))).toBe(true);});

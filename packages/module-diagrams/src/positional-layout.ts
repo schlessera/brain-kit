@@ -25,6 +25,7 @@ export function buildPositionalDiagram(input:DiagramSpec):DiagramTree {
   text("x-negative",axes.xAxis.negative,16,cy-10,132,"label");text("x-positive",axes.xAxis.positive,width-148,cy-10,132,"label");
   text("y-positive",axes.yAxis.positive,cx-100,cy-ry-40,200,"label");text("y-negative",axes.yAxis.negative,cx-100,cy+ry+16,200,"label");
   spec.nodes.forEach((node,i)=>{const p=data?.points.find(p=>p.node===node.id),x=p?.x??(i%2?-.55:.55),y=p?.y??(i%4<2?.55:-.55),px=cx+x*(rx-56),py=cy-y*(ry-24);
+   if(Math.abs(px-cx)<8||Math.abs(py-cy)<14)throw Error("Quadrant dots and labels must remain clear of both axes; author a less ambiguous position");
    circle(node.id,px,py,4,focal.has(node.id)?"focal":"ink",node.id);text(`${node.id}-label`,node.label,x<0?px-146:px+10,py-10,136,"name","text",x<0?"end":"start");
   });
  } else if(spec.type==="layer-stack") {
