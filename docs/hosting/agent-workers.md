@@ -259,7 +259,7 @@ write verified scratch/workspace copies through the aliases below.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
 | Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
