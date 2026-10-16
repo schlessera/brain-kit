@@ -321,6 +321,16 @@ complete owner and call identities validate the actual Playwright sink and
 lexical binding. Interpolated HTML and other payloads remain unresolved; this
 support cannot certify arbitrary generated documents.
 
+The complete activation-audited import inventory also seals two bounded reader
+flows. The exact browser sequencer calls the cost reader without an override,
+so its default is the module-relative cost JSON. The exact font command fixes
+the repository and lock-hash cache roots, verifies every length/checksum before
+use and replaces the pinned stylesheet URLs with those verified bytes. Reader,
+caller and font JSON/CSS/head identities must match their audit; additional
+imports, reexports or loaders into either reader require fresh execution. These
+bindings name only the exact consumed repository bytes. They do not bless
+arbitrary file parameters, changed font data or unverified cached content.
+
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
 runner identity. It also includes every proof/tooling script and workflow,

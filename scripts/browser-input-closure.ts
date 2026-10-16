@@ -4,6 +4,7 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
+import { boundBrowserRuntimeInputs, type BrowserRuntimeBindings } from "./bound-browser-runtime-inputs";
 import { sourceBrowserPayload } from "./source-browser-payloads";
 import { lockedBrowserAsset, type LockedBrowserAsset } from "./locked-browser-assets";
 import { generatedCssInputs, generatedCssReadInputs } from "./generated-build-inputs";
@@ -37,9 +38,11 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   const external = new Map<string, LockedBrowserAsset>();
   const declared = new Map<string, Map<string, IndirectInput>>();
   const inactive = new Map<string, Set<string>>();
+  let runtimeBindings: BrowserRuntimeBindings = new Map();
   if (activation) {
     const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
     for (const failure of audit.unresolved) unresolved.add(failure);
+    if (!audit.unresolved.length) runtimeBindings = boundBrowserRuntimeInputs(root, audit.files);
     if (!audit.unresolved.length) for (const candidate of audit.candidates) {
       const names = inactive.get(candidate.owner) ?? new Set<string>();
       names.add(candidate.name); inactive.set(candidate.owner, names);
@@ -247,6 +250,8 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           const generated = literalRead ? generatedCssReadInputs(root, normalized, literalRead) : undefined;
           const locked = literalRead ? lockedBrowserAsset(root, normalized, literalRead) : undefined;
           const literalPayload = /\.(?:fulfill|setContent)$/.test(originalCallee) && sourceBrowserPayload(root, normalized, expression);
+          const boundRuntime = runtimeBindings.get(normalized)?.get(expression);
+          if (boundRuntime) for (const target of boundRuntime) visit(target, true);
           if (locked) {
             external.set(`${locked.package}/${locked.asset}`, locked);
             visit("package.json", true); visit("bun.lock", true);
@@ -257,7 +262,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length && !generated && !locked && !literalPayload) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
