@@ -492,6 +492,21 @@ Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.
 
+An owned installed runtime may also live beneath `/tmp` (#1844/#1901).
+Private temp is mounted first; only its resolved executable/package/dependency
+closure is then retained read-only, including required installation aliases.
+Unrelated host-temp files stay hidden, and explicit private files/directories
+inside the closure stay masked through those aliases. The temp allowance,
+other workers' isolation and the profile's brain permissions stay intact.
+
+Use a location separate from reserved worker scratch, runtime state,
+writable-area aliases, XDG directories, maintenance HOME/state/output, relays,
+proxies, `/proc` and `/dev`. A runtime path or alias overlapping one of these,
+including an ancestor or descendant, is refused before dispatch with the
+offending path. Install the owned runtime in a noncolliding directory; this
+restriction does not reject ordinary `/tmp` installations. It never falls back
+to running outside the worker or exposing the host's entire temp directory.
+
 What runs there, and how it meets the brain's **writer gate**:
 
 | Work | Credentials and network | Writer gate |
