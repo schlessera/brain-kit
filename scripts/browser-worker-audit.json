@@ -1,14 +1,14 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "146f9c078e11efbc5da71895d0bcb25ef487a9b908fcd14b85c460b77a290bd3",
+  "identity": "6b5bf76d7f0680d772f25ce8d73e2a39b72337c38d5025ec8fd37fba435b1cbb",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "48b4935c06d25517de130421bd1d44a2347ae030",
-    "selected": 301,
-    "files": 1621,
-    "scope": "Complete 301-pair selected source/import/configuration/command inventory audited, including ordered-axis geometry and closed SVG shapes. Both exact capture callers and every renderer/fixture/CSS/inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver now join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical, and actual complete 301 guarded fresh hosted shards remain mandatory. Native/PDF-worker layout/endurance categories stay fresh."
+    "base": "9b7e77a4b5df780b927ade2ebae53bcb4a2e3173",
+    "selected": 305,
+    "files": 1727,
+    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. Axis screenshot ordering defect #2253 blocks runtime qualification until repaired."
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",

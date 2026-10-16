@@ -31,11 +31,24 @@ const declarations:DocumentDeclaration[]=[{
 },{
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
-  "ownerHash": "5bb6584e6341323a5e8570a6cb3709416cddbf655187cbe4d9128fdac79af4a5",
+  "ownerHash": "f82b6f8f77d63e000ec2916539201bbda2a29756a734339aa631aa10294fcb64",
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
   "callerHash": "6546f81e60768d3741bbbee71229fdbf1ac609b5a1e90de54074a35fe550ffb3",
   "calls": 2,
-  "additionalCallers": {"packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {"hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c", "calls": 3}},
+  "additionalCallers": {
+    "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {
+      "hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c",
+      "calls": 3
+    },
+    "packages/ui-react/tests/browser/diagrams-positional.layout.tsx": {
+      "hash": "2d3e72c1b72aff553518bff7f03f99123bd772159f9844f3b68eef025556fbde",
+      "calls": 1
+    },
+    "packages/ui-react/tests/browser/diagrams-node-link.layout.tsx": {
+      "hash": "ee5282269f48ed482fc9f3b3316c88b538c7b29772e78f5f87ff27915fa4090f",
+      "calls": 2
+    }
+  },
   "sink": "page.setContent(`<html data-theme=\"${drawing.theme}\"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`)",
   "producers": {
     "packages/ui-kit/tests/visual/zero-request-replay.ts": "694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
@@ -56,15 +69,35 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/src/shape.ts": "126cb4f530ea60736764c1237cc33a944ef924d62d74ba404e9b97d9f1e2696e",
     "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
-    "packages/module-diagrams/src/check.ts": "dd6e84f52864d2868e37cb8cca2026ea3c9787567fbcafe1a722897eb98accd9",
-    "packages/module-diagrams/src/svg-model.ts": "3a394e6491161a6444d299572b9462f6cc43c11a3c6a0f405ac2358aa0079bef",
-    "packages/module-diagrams/src/geometry.ts": "78a88cb14a00be81ce54bbdb88720da04ff75b6beca36a16e9810d8b05b47ca6",
+    "packages/module-diagrams/src/check.ts": "9238125bac6b97809e34d4079af31e242c848a553b38e2415fa3b91b0bc7a96d",
+    "packages/module-diagrams/src/svg-model.ts": "f5032f9c58a7878f175e2f34623d90f819c01f20c60f2555a7574713514b9dcf",
+    "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
     "packages/module-diagrams/src/drawing-style.ts": "9d9108f2e8fdf5c416d1deee3ecc8d4f4ad709956a15ffcdb0a1b3a07919cfe5",
-    "packages/module-diagrams/src/ui.tsx": "99c60be85b9a5f21096c4535eaf7eb0bdcfc67b3ddf9b3f3520089f338f80040",
-    "packages/module-diagrams/src/layout.ts": "0c3c6e84cdfccb4675ceda99f06604a69001f9efde4f9d742265cbd771d7f399",
-    "packages/module-diagrams/src/skin.ts": "79b463167bbab59194e9a652da41013d552cf931bd3e9bd062a503926329c0f0",
-    "packages/module-diagrams/src/render.ts": "677245cc5b3b7ec4757e5771aecbe80dbd9f1f5e2d53d23b5cac355b7c28c463",
-    "packages/module-diagrams/src/spec.ts": "647500d978198622cc0b4b57d122b2100c87623cbd569ed77a971b56c7d71f0f"
+    "packages/module-diagrams/src/ui.tsx": "c407b4159ba4ff97d0dc30ad0b22845f60a1740e2caadffe44417a7d7a1a8386",
+    "packages/module-diagrams/src/layout.ts": "89ae43c33902768a71541b917bfda9e3e89c246a7757ee7b1a151b619272c896",
+    "packages/module-diagrams/src/skin.ts": "7d49130676a58726964c29d13158b93327f7259855f8dd748a5fe07039e05de6",
+    "packages/module-diagrams/src/render.ts": "cca2cac8310060a9be4aa5f5fba72b1a16bc58fdc6158b71c7b2d854d07c2d71",
+    "packages/module-diagrams/src/spec.ts": "376d2ae2cc963a9f33d744acc6ce29fbfe6cdae3e1074b8cd21ecd29666acd30",
+    "packages/module-diagrams/src/positional-check.ts": "50736c5283fdefbe9c0b501fb385445e3092867ad93cf6e3aa744f4aedae1e4e",
+    "packages/module-diagrams/src/positional-layout.ts": "2d46fa8710bab9f3b512733d1e2ad2fe4b3b1189f2438937903df55437d53a49",
+    "packages/module-diagrams/src/positional-spec.ts": "2ab49b3b1f68610a4fea8ac90cde0a34ac96e099d21f7d3383fa72b44ce64a87",
+    "packages/module-diagrams/src/containment.ts": "bb8ce8a46399e86e779d95c79c26e72db2d0005a9f517bcb86d0d4f0d79f4a24",
+    "packages/module-diagrams/src/node-link-check.ts": "8d79f23079a7c9e0592315ae37515fcf92af9c70a1992cbf52ba9d6032fff3eb",
+    "packages/module-diagrams/src/node-link-svg.ts": "58865c81cea002b7373d54d68ef350bf5d436efd7c3b185336a6492bec784b9d",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/flywheel.diagram.yaml": "7f0a2e0a6a568bbebb9e93f8df920a7bb1a4592b0863df7169af007188f75519",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/funnel.diagram.yaml": "f07c66e0884e43480e2433a38f46b1c30920f63b160c11d731e4dbe360c0bb3a",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/layer-stack.diagram.yaml": "7de880f4a717ab37174fbb07554d23d6cc97c28cce2a6b7841ec2a2e02ee8ec5",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/loop.diagram.yaml": "f646cc67dc0f1e74638fe508e43b777853247a2befd0acdb0c763c88cedaf725",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/pyramid.diagram.yaml": "b400671e033ab21d8d076b11a0011f4c2ae402d394d95b4a441ff974eede07f1",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/quadrant.diagram.yaml": "a34c654a0c4894cae18dc5a19d656bd69c08cf5422cef120f2c0b539ed7d7175",
+    "packages/module-diagrams/skills/diagram/references/examples/positional/venn.diagram.yaml": "a762f39dfa71cfc559ecf15b659bca094c5c9f7797e9147cc668bcdbccc987a3",
+    "packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml": "0c6d9a736fb3337f58b2430afc35b7bb597e42fd97d252b80ff721bb9bddaa8a",
+    "packages/module-diagrams/skills/diagram/references/examples/flowchart.diagram.yaml": "46ab66859d500bb36e327adc73375b9f48461ea2137ce24c87226b9aaaa41a97",
+    "packages/module-diagrams/skills/diagram/references/examples/state-machine.diagram.yaml": "2411a0e1bff9509f4fe3dad2fdfd92b55a9886e59520dbead6302b43ca00a964",
+    "packages/module-diagrams/skills/diagram/references/examples/tree.diagram.yaml": "005933705b5836ef083761d47c8ff52eec644618ee07ef726fc807a8f418c29e",
+    "packages/module-diagrams/skills/diagram/references/examples/er.diagram.yaml": "c28b51b3aa3f177c90e4df088edca9da918034a16721d1afde6373495771bd4a",
+    "packages/module-diagrams/skills/diagram/references/examples/dependency.diagram.yaml": "d5474b1abf5b11ad5826c099f4fbf2d33ca0e44b2b10eca287056da73f0102ad",
+    "packages/module-diagrams/skills/diagram/references/examples/architecture-containment.diagram.yaml": "8efc225957ba0fa6a51802448098895de838fa75087f3b4202df8196d0c622fc"
   }
 }];
 export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}

@@ -138,9 +138,16 @@
     "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
     "inputs": [
       {
-        "expression": "readFile(resolve(\"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml\"),\"utf8\")",
+        "expression": "readFile(resolve(name?`../../packages/module-diagrams/skills/diagram/references/examples/${name}.diagram.yaml`:\"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml\"),\"utf8\")",
         "targets": [
-          "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml"
+          "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/flowchart.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/state-machine.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/tree.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/er.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/dependency.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture-containment.diagram.yaml"
         ]
       }
     ]

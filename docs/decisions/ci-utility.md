@@ -421,7 +421,7 @@ and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
 a new audit. The scene, visual assertions and trace remain unchanged.
 
-Diagram capture binds both exact callers and their complete call-site inventories,
+Diagram capture binds all four exact renderer, axis, positional and node-link callers and their complete call-site inventories,
 closed SVG primitive producers,
 literal adopted fixture, generated consumer CSS and locked inline-font inputs.
 Its additional replay page contains that source-owned document, aborts and records
