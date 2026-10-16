@@ -11,8 +11,8 @@ import { resolveBrowserPin } from "./captures/provenance";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "endurance"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "endurance";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"] as const;
+export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance";
 
 /** Aggregate requires passed selected jobs; missing/false-looking output is not proof. */
 export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>, retained: ReadonlySet<string> = new Set()): string[] {
@@ -56,7 +56,8 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
     captures: ["editorial provenance and reproducibility"],
-    runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "shared-process Chrome then child cleanup"],
+    runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"],
+    runtime_host: ["native managed hosted admission"],
   };
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
@@ -87,7 +88,7 @@ if (import.meta.main) {
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime", "endurance"].includes(category)) throw new Error("Unknown proof category");
+      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].includes(category)) throw new Error("Unknown proof category");
       const args = process.argv.slice(3);
       const shardArg = args.find(arg => arg.startsWith("--shard="));
       const workersArg = args.find(arg => arg.startsWith("--workers="));
@@ -108,7 +109,7 @@ if (import.meta.main) {
       const [sha, tree, ...parents] = new TextDecoder().decode(identity.stdout).trim().split(" ");
       await Bun.write(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category, shard,
         checkout: { sha, tree, parents }, plan, inputs, files: category === "unit" ? unitFiles(plan, root, shard) : undefined }, null, 2));
-      const native = category === "unit" || category === "runtime";
+      const native = category === "unit" || category === "runtime" || category === "runtime_host";
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
       if (chrome && category === "unit") await runCommands([{ name: "first real Chrome launch and render",

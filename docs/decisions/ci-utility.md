@@ -181,6 +181,32 @@ digests. `scripts/unit-shard-measurement.json` records that provenance; the
 refresh names any observed unweighted file exceeding 30 seconds. Timings
 are reviewed inputs, never fetched during contribution CI.
 
+Runtime proof uses two independently selected jobs. `runtime` retains the three
+loopback-only Claude probes and the shared-process Chrome/child-cleanup command;
+`runtime_host` retains native managed hosted admission, including its four healthy
+backend/UID cells, index-release negative control, owned loop cleanup, unchanged
+runner quota and failure diagnostics. Both selections derive from the same runtime
+requirement and both must pass the aggregate. Local `check:pr --full` and `--all`
+retain the complete five-command inventory.
+
+A single checkout cannot safely overlap those two long phases: both test wrappers
+acquire its exclusive workspace-output lease, including the lease bind-mounted
+into the native container. The Chrome fixtures rebuild output while retaining
+that lease. The existing real-host/container lock controls prove contention;
+read-only access rejects a nested build. Separate jobs preserve those ownership
+rules without private-copy setup or an override. The exact two Chrome test files
+still execute in one process with `--shard=1/1`. Native cell order, deadlines,
+capabilities, offline namespaces and the pinned runtime remain unchanged.
+
+The successful historical main run 38903809808 at
+`626a03af4a9db064751230a84732755b8afa961e` records 702.725 seconds for the
+serial runtime category: 13.522/9.719/4.571 seconds for the probes, 424.345 seconds
+for hosted admission and 250.566 seconds for shared-process cleanup. Its four-CPU
+VM sampled 2.540 GB used of 16.766 GB and 884.56 active CPU-seconds. These are
+attributed historical observations, not a controlled current-source speedup.
+Current two-job phase and full-job/setup measurements are required to qualify the
+split against the longest single phase plus 90-second wall-time criterion.
+
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
