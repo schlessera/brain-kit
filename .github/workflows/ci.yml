@@ -30,6 +30,7 @@ jobs:
       cadence: ${{ steps.plan.outputs.cadence }}
       endurance: ${{ steps.plan.outputs.endurance }}
       runtime: ${{ steps.plan.outputs.runtime }}
+      runtime_host: ${{ steps.plan.outputs.runtime_host }}
       captures: ${{ steps.plan.outputs.captures }}
       layout: ${{ steps.plan.outputs.layout }}
       browser: ${{ steps.plan.outputs.browser }}
@@ -220,13 +221,56 @@ jobs:
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
         run: bash scripts/ci-runtime-setup.sh --native
+      - name: Complete runtime proof
+        run: bun scripts/ci-proof.ts runtime
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-proof
+          path: |
+            tmp/native-host-proof/
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  runtime_host:
+    needs: changeset
+    if: needs.changeset.outputs.runtime_host == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Real Chrome and offline Linux namespace prerequisites
+        run: bash scripts/ci-runtime-setup.sh --native
       # Diagnostic only: names the task that queues each deleted checkpoint (#1967).
       - name: Start btrfs dead-root kernel trace
         run: |
           mkdir -p tmp/native-host-proof
           sudo bash scripts/native-proof/dead-root-trace.sh start tmp/native-host-proof/dead-root-trace.txt
-      - name: Complete runtime proof
-        run: bun scripts/ci-proof.ts runtime
+      - name: Complete native hosted runtime proof
+        run: bun scripts/ci-proof.ts runtime_host
       - name: Stop and classify btrfs dead-root kernel trace
         if: always()
         run: |
@@ -238,7 +282,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: runtime-proof
+          name: runtime-host-proof
           path: |
             tmp/native-host-proof/
             tmp/proof-checkout.json
@@ -427,7 +471,7 @@ jobs:
   proof:
     name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
-    needs: [changeset, verify, pack, unit, runtime, browser, layout, captures, endurance]
+    needs: [changeset, verify, pack, unit, runtime, runtime_host, browser, layout, captures, endurance]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
