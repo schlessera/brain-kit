@@ -1,3 +1,4 @@
+import { usageEvents } from "../../ui-backend-claude/tests/helpers/usage-events.js";
 import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
 mockWorkerHostForSdkStream();
 /**
@@ -101,7 +102,9 @@ function claudeAdapter(brainPath: string, script: Script, sourceHistory: unknown
       await params.options!.canUseTool!("mcp__brain__write", { path: "plans/ithaca.md" }, { signal: new AbortController().signal, toolUseID: "source-write" } as never);
     }
     yield { type: "stream_event", session_id: id, event: { type: "content_block_delta", delta: { type: "text_delta", text: "Continuing." } } };
-    yield { type: "result", subtype: "success", session_id: id, total_cost_usd: 0.01, duration_ms: 1, num_turns: 1 };
+    yield* usageEvents(id, "claude-probe", 1000, 0);
+    yield { type: "result", subtype: "success", session_id: id, total_cost_usd: 0.01, duration_ms: 1, num_turns: 1,
+      modelUsage: { "claude-probe": { inputTokens: 1000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } };
   })()) as unknown as typeof query;
   return createClaudeBackend({
     brainPath,
@@ -192,10 +195,11 @@ function rig(options: RigOptions = {}): Rig {
   const claude = counted(claudeAdapter(brain, scripts.claude, SOURCE_HISTORY), starts.claude);
   const pi = counted(piAdapter(brain, scripts.pi), starts.pi);
   const db = createUiDb(":memory:");
-  const store = createActivityStore(db, { writer: "handoff-test" });
+  const pricing = { resolve: () => ({ input: 0.00001, output: 0, cacheRead: 0, cacheWrite: 0, estimate: false, source: "snapshot" as const }) };
+  const store = createActivityStore(db, { writer: "handoff-test", pricing });
   const stream = createActivityStream(store);
   const registry = createStaticBackendRegistry([claude, pi], "claude");
-  const catalog = createSessionCatalog(() => db);
+  const catalog = createSessionCatalog(() => db, undefined, undefined, { pricing, store });
   if (options.recordHandoff) catalog.recordHandoff = options.recordHandoff(catalog.recordHandoff!.bind(catalog));
   const host = new WsHost({
     brainPath: brain,
