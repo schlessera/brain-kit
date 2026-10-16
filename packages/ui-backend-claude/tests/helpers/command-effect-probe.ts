@@ -10,7 +10,7 @@ import type { WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { createPermissionWiring } from "../../src/permission-hooks";
 import { createTurnLockBinding } from "../../src/turn-lock";
 import { MUTATING_TOOL_MATCHER } from "../../src/tool-policy";
-import { resetRtkProbe } from "../../../ui-sdk/src/server/rtk.js";
+import { resetRtkProbe, rtkRewriteCommand } from "../../../ui-sdk/src/server/rtk.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -46,7 +46,10 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
     bridge: { emit: () => {}, activity: event => events.push(event), requestPermission: async request => {
       requests.push(request); if (options.cancelOnApproval) controller.abort(); return options.decision ?? { behavior: "allow" };
     } } }, allowedTools: ["Bash"], confirmPatterns: [], brainPath: root, turnLock,
-    childEnv: { PATH: bin }, log: () => {} });
+    childEnv: { PATH: bin },
+    // This hand-driven permission fixture has no native worker. Admit its
+    // explicit fake oracle; worker-rtk.test proves actual worker visibility.
+    rewriteRtk: command => rtkRewriteCommand(command, { PATH: bin }), log: () => {} });
   const hook = wiring.hooks!.PreToolUse!.find(group => group.matcher === (options.rewrite ? "^Bash$" : MUTATING_TOOL_MATCHER))!.hooks[0]!;
   const outputs: Array<Awaited<ReturnType<HookCallback>> | Awaited<ReturnType<NonNullable<typeof wiring.canUseTool>>>> = [];
   try {

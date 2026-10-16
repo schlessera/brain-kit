@@ -49,6 +49,8 @@ export function createPermissionWiring(options: {
   turnLock: TurnLockBinding;
   /** The filtered environment this turn's subprocesses run with. */
   childEnv: NodeJS.ProcessEnv;
+  /** Optional rewrite proven against this live worker, never the host PATH. */
+  rewriteRtk?: (command: string) => Promise<string>;
   /** Where a withheld re-admission is recorded. */
   log: BackendLogFn;
   /** Host-held actual startup view, never worker-supplied authority. */
@@ -531,6 +533,7 @@ export function createPermissionWiring(options: {
     onGrantWithheld: withheld,
   }), "Agent");
   const rtkHook = restrictRewrite(createRtkHook(childEnv, {
+    rewriteCommand: options.rewriteRtk,
     mayGrant: !outsideEnforcedAllowlist("Bash"),
     onGrantWithheld: withheld,
     // A confirmed command belongs to mutatingHook, which may apply an edit
