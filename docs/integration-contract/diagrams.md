@@ -141,7 +141,9 @@ not prose or filesystem error text.
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
 `focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
-`text_floor`, `contrast`, `axis`, and `positional`. Warnings use `budget`; positional family guidance may also use `positional`.
+`text_floor`, `contrast`, `axis`, and `positional`. Common editorial warnings use
+`budget`; family advisories (including positional guidance) are listed with their
+grammars below.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
 
@@ -351,7 +353,7 @@ Additional editorial warnings use `budget` for 3 flat architecture zones,
 2 containment admin bands / 4 traffic scopes / 8 nodes, 3 decision exits,
 twice-state-box-count transitions (excluding markers), 5 tree items across a whole level, 4 dependency ranks and
 1 highlighted dependency cycle. `state_label`, `prefer_tree`, `rank_missing`, `rank_alignment`, `rank_spacing`,
-and `accent_budget`
+`unmarked_cycle`, and `accent_budget`
 are actionable advisory findings. All warnings preserve content and validity in
 the absence of another error; focal hard maximum remains two.
 

@@ -203,7 +203,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
   const source = spec as Extract<DiagramSpec, { type: typeof FREE_LAYOUT_TYPES[number] }>;
   const focal = new Set([...(spec.focal ?? []), ...spec.nodes.filter(item => item.role === "focal").map(item => item.id)]);
   const nodes: DiagramNode[] = source.nodes.map(({ at, size, ...node }) => ({ ...node, nodeKind: "kind" in node ? node.kind : undefined, kind: "node", x: at[0], y: at[1], width: size[0], height: size[1], focal: focal.has(node.id) }));
-  if (spec.type === "dependency") nodes.forEach(node => { node.fanIn = spec.edges.filter(edge => edge.to === node.id).length; });
+  if (spec.type === "dependency") nodes.forEach(node => { node.fanIn = new Set(spec.edges.filter(edge => edge.to === node.id).map(edge=>edge.from)).size; });
   const boxes = new Map<string, BoxRecord>(nodes.map(node => [node.id, node]));
   const groups: DiagramGroup[] = (spec.groups ?? []).map(group => {
     const members = group.members.map(id => boxes.get(id));

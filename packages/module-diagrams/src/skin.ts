@@ -61,7 +61,7 @@ export function checkDiagramSkin(spec: DiagramSpec): DiagramSkinFinding[] {
   const size = node.size as [number, number];
   const shape = "shape" in node ? node.shape : undefined;
   if (shape === "merge" || shape === "initial" || shape === "final") return;
-  const lines = diagramNodeLines({...node,fanIn:spec.type === "dependency" ? spec.edges.filter(edge=>edge.to===node.id).length : undefined}, spec.type);
+  const lines = diagramNodeLines({...node,fanIn:spec.type === "dependency" ? new Set(spec.edges.filter(edge=>edge.to===node.id).map(edge=>edge.from)).size : undefined}, spec.type);
   const available = shape === "decision" ? size[0] / 2 - 16 : size[0] - 16;
   for (const line of lines) if (typeWidthBudget(line.value, line.role, 9) > available) findings.push({ path: `$.nodes[${index}]`, code: "text_floor", message: "Node text cannot fit its per-character width budget at the 9px floor; enlarge the node or shorten the text" });
   const height = shape === "decision" ? size[1] / 2 : size[1];

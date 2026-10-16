@@ -73,3 +73,8 @@ test("explicit dependency row misalignment and tight spacing warn without moving
  const spec=await example("dependency");spec.nodes[2].at[1]+=4;const original=JSON.stringify(spec);expect(checkDiagram(original).warnings.some(item=>item.code==="rank_alignment")).toBe(true);expect(JSON.stringify(spec)).toBe(original);
  spec.nodes[1].at[1]=128;spec.nodes[2].at[1]=128;expect(checkDiagram(JSON.stringify(spec)).warnings.some(item=>item.code==="rank_spacing")).toBe(true);
 });
+
+test("dependency fan-in counts distinct dependents and cyclic legacy graphs never suggest tree",async()=>{
+ const spec={schema_version:1,type:"dependency",title:"Raft provisions",desc:"Odysseus prepares provisions.",size:"fit",nodes:[{id:"raft",label:"Raft",at:[48,48],size:[176,64]},{id:"stores",label:"Provisions",at:[400,48],size:[176,64]}],edges:[{from:"raft",to:"stores"},{from:"raft",to:"stores"}]};const output=await toStatic(JSON.stringify(spec),{theme:"light"});expect(output).toContain('data-fan-in="1"');expect(output).not.toContain('data-fan-in="2"');
+ spec.edges=[{from:"raft",to:"stores"},{from:"stores",to:"raft"}];const checked=checkDiagram(JSON.stringify(spec));expect(checked.warnings.some(item=>item.code==="prefer_tree")).toBe(false);expect(checked.warnings.some(item=>item.code==="unmarked_cycle")).toBe(true);
+});
