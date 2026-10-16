@@ -108,6 +108,8 @@ class PrimaryDeadline {
         expect(site, "source-owned primary registration exists").toBeGreaterThan(0);
         expect(lines.filter(line => line.includes("timer = setTimeout(")).length, "exactly one primary owner").toBe(1);
         expect(lines[site - 1]).toContain("const deadline = new Promise<Outcome>");
+        const declarations = [...lines.slice(0, site).join("\n").matchAll(/\b(?:async )?function (\w+)\(/g)];
+        expect(declarations.at(-1)?.[1], "actual primary callback owner").toBe("probeVersionCommand");
         const owner = `version-probe.ts:${site + 1}:`;
         this.replace(globalThis, "setTimeout", ((callback: (...args: unknown[]) => void, delay: number, ...args: unknown[]) => {
           const stack = new Error().stack ?? "";
