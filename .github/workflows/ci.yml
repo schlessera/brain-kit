@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 0d1b8ec9965d284502234de6db78143118c56c87
+          ref: e7fea8b1ecb4a9f89f8651eca37e0bca797c20ad
           persist-credentials: false
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 0d1b8ec9965d284502234de6db78143118c56c87
+          ref: e7fea8b1ecb4a9f89f8651eca37e0bca797c20ad
           persist-credentials: false
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
