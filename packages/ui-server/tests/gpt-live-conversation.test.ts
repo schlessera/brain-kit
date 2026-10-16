@@ -1,6 +1,6 @@
 /** Real primary WebSocket transport redirected to a loopback fixture, no keys/network. */
 import { afterEach, expect, test } from "bun:test";
-import type { SessionStartEvent } from "openai/resources/live/live";
+import type { SessionStartEvent, SessionStartedEvent, InputTranscriptDeltaEvent, DelegationCreatedEvent } from "openai/resources/live/live";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 import { createGptLiveConversationProvider } from "../src/voice/gpt-live-conversation";
 
@@ -32,7 +32,13 @@ async function fixture(ack = true, consume = true) {
       open(ws) { remote = ws; },
       message(ws, frame) {
         const m = JSON.parse(String(frame)); sent.push(m);
-        if (m.type === "session.start" && ack) ws.send(JSON.stringify({ type: "session.started", event_id: "started", session: { id: "live-ithaca", model: "gpt-live-1", store: false, delegation: { type: "client" } } }));
+        if (m.type === "session.start" && ack) {
+          const started: SessionStartedEvent = { type: "session.started", event_id: "started", session: {
+            id: "live-ithaca", model: "gpt-live-1", status: "active", expires_at: Date.UTC(2026, 6, 12) / 1000 + 300,
+            store: false, delegation: { type: "client" },
+          } };
+          ws.send(JSON.stringify(started));
+        }
         if (m.type === "session.close") ws.send(JSON.stringify({ type: "session.closed", reason: "close_requested" }));
       },
     },
@@ -67,8 +73,8 @@ async function fixture(ack = true, consume = true) {
 }
 const ref = (nativeHandle = "delegation-1") => ({ conversationId: "ithaca", epoch: 1, utteranceId: "u1", turnId: "t1", requestId: "r1", nativeHandle });
 const result = { outcome: "completed" as const, facts: "The Ithaca note was captured.", delivery: "when-idle" as const };
-const input = (delta: string, event_id: string, client_event_id?: string) => ({ type: "session.input_transcript.delta", event_id, delta, start_ms: 0, end_ms: 20, ...(client_event_id ? { client_event_id } : {}) });
-const delegation = (id = "delegation-1", client_event_id?: string) => ({ type: "session.delegation.created", event_id: `event-${id}`, offset_ms: 20, delegation: { id, type: "delegation", target: "client" }, ...(client_event_id ? { client_event_id } : {}) });
+const input = (delta: string, event_id: string, client_event_id?: string) => ({ type: "session.input_transcript.delta", event_id, delta, start_ms: 0, end_ms: 20, ...(client_event_id ? { client_event_id } : {}) } satisfies InputTranscriptDeltaEvent);
+const delegation = (id = "delegation-1", client_event_id?: string) => ({ type: "session.delegation.created", event_id: `event-${id}`, offset_ms: 20, delegation: { id, type: "delegation", target: "client" }, ...(client_event_id ? { client_event_id } : {}) } satisfies DelegationCreatedEvent);
 
 test("GPT-Live starts the exact selected typed configuration with server Bearer auth", async () => {
   const f = await fixture();
