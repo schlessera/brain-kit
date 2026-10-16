@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { closureSelects, discoverInputClosure, discoverBrowserClosures, type InputDeclaration } from "../scripts/browser-input-closure";
@@ -56,7 +56,7 @@ test("capture ownership remains independent of browser inputs and rejects missin
 });
 
 test("unsupported computed call and CSS/build input forms retain broad selection", () => {
-  const root = fixture({ "spec.ts": 'import * as fs from "node:fs"; fs[method](target); import "./style.css";', "style.css": '@source "./";' });
+  const root = fixture({ "spec.ts": 'import * as fs from "node:fs"; fs[method](target); import "./style.css";', "style.css": '@source inline("unknown");' });
   const closure = discoverInputClosure(root, ["spec.ts"]);
   expect(closure.unresolved).toContain("Undeclared input spec.ts: fs[method](target)");
   expect(closure.unresolved).toContain("Unsupported CSS/build inputs: style.css");
@@ -102,12 +102,14 @@ test("a file-reader alias passed through an unsupported binding cannot disappear
 });
 
 test("actual category discovery preserves closed capture inputs when Vitest is unavailable", () => {
-  const root = fixture({ "scripts/capture.ts": 'import "./captures/client.js";', "scripts/captures/client.ts": 'import "./asset.svg";', "scripts/captures/asset.svg": "<svg/>", "scripts/captures/proof-inputs.json": "[]", "docs/process/feature-captures.md": "# Capture" });
+  const root = fixture({ "scripts/capture.ts": 'import "./captures/client.js";', "scripts/captures/client.ts": 'import "./asset.svg";', "scripts/captures/asset.svg": "<svg/>", "scripts/captures/proof-inputs.json": "[]", "scripts/css-proof-inputs.json": "[]", "packages/ui-kit/src/styles.css": "", "packages/ui-react/src/styles.css": "", "docs/process/feature-captures.md": "# Capture" });
   const closures = discoverBrowserClosures(root);
   expect(closures.browser.unresolved.length).toBeGreaterThan(0);
   expect(closures.captures.unresolved).toEqual([]);
   expect(closureSelects(["scripts/captures/asset.svg"], closures.captures, true)).toBe(true);
   expect(closureSelects(["packages/ui-server/src/unrelated.ts"], closures.captures, true)).toBe(false);
+  writeFileSync(join(root, "scripts/css-proof-inputs.json"), "malformed");
+  expect(discoverBrowserClosures(root).captures.unresolved).toContain("Cannot establish capture input ownership");
 });
 
 test("one declaration cannot silently cover two identical calls with different runtime bindings", () => {
@@ -115,4 +117,88 @@ test("one declaration cannot silently cover two identical calls with different r
   const closure = discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression: "readFileSync(target)", targets: ["data.md"] }] }]);
   expect(closure.unresolved).toContain("Ambiguous declaration site spec.ts: readFileSync(target)");
   expect(closureSelects(["unrelated.ts"], closure, true)).toBe(true);
+});
+
+
+test("CSS discovery follows local imports, raw scan roots and assets without executing scanned source", () => {
+  const root = fixture({ "entry.ts": 'import "./styles/main.css";', "styles/main.css": '@import "./theme.css"; @source "./scan"; .boat { background: url("./boat.svg"); }', "styles/theme.css": '@import "./tokens.css";', "styles/tokens.css": ':root { --ink: black; }', "styles/boat.svg": "<svg/>", "styles/scan/note.tsx": 'require(unknown);', "styles/scan/nested/note.md": "# Ithaca" });
+  const closure = discoverInputClosure(root, ["entry.ts"]);
+  expect(closure.unresolved).toEqual([]);
+  for (const file of ["styles/theme.css", "styles/tokens.css", "styles/boat.svg", "styles/scan/note.tsx", "styles/scan/nested/note.md", "styles/scan/new.tsx", "styles/scan/nested/renamed.md"]) expect(closureSelects([file], closure, true)).toBe(true);
+  expect(closureSelects(["other.ts"], closure, true)).toBe(false);
+  rmSync(join(root, "styles/boat.svg"));
+  expect(discoverInputClosure(root, ["entry.ts"]).unresolved).toContain("Missing input: styles/boat.svg");
+});
+
+test("CSS exact declarations resolve owned package imports and reject stale or ambiguous ownership", () => {
+  const expression = '@import "tailwindcss" source(none);';
+  const root = fixture({ "entry.ts": 'import "./styles.css";', "styles.css": expression + '\n@source "./scan";', "scan/boat.tsx": "export {};", "bun.lock": "locked", "package.json": "{}" });
+  const declaration = { owner: "styles.css", inputs: [{ expression, targets: ["bun.lock", "package.json"] }] };
+  expect(discoverInputClosure(root, ["entry.ts"], [declaration]).unresolved).toEqual([]);
+  writeFileSync(join(root, "styles.css"), '@import "tailwindcss";');
+  const implicitScan = discoverInputClosure(root, ["entry.ts"], [declaration]);
+  expect(implicitScan.unresolved).toContain('Stale declaration styles.css: ' + expression);
+  expect(implicitScan.unresolved).toContain('Undeclared CSS input styles.css: @import "tailwindcss";');
+  expect(closureSelects(["unrelated.ts"], implicitScan, true)).toBe(true);
+  writeFileSync(join(root, "styles.css"), '@import "other" source(none);');
+  const stale = discoverInputClosure(root, ["entry.ts"], [declaration]);
+  expect(stale.unresolved).toContain('Stale declaration styles.css: ' + expression);
+  expect(closureSelects(["unrelated.ts"], stale, true)).toBe(true);
+  writeFileSync(join(root, "styles.css"), expression + expression);
+  expect(discoverInputClosure(root, ["entry.ts"], [declaration]).unresolved).toContain('Ambiguous declaration site styles.css: ' + expression);
+});
+
+test("CSS unsupported syntax, escapes, absent scans and symlinks remain unresolved", () => {
+  const root = fixture({ "entry.ts": 'import "./styles/main.css";', "styles/main.css": "", "styles/asset.svg": "<svg/>" });
+  for (const text of ['@source inline("boat");', '@source "./missing";', '@import "https://example.invalid/theme.css";', '@import "./asset.svg" screen;', '.x {background: url(var(--asset));}', '@source "../../outside";', '@plugin "./plugin.js";', '@use "./other.scss";', '.x { background: u/**/rl("./missing.svg"); }', '@source "./sc\\61n";']) {
+    writeFileSync(join(root, "styles/main.css"), text);
+    const closure = discoverInputClosure(root, ["entry.ts"]);
+    expect(closure.unresolved.length).toBeGreaterThan(0);
+    expect(closureSelects(["unrelated.ts"], closure, true)).toBe(true);
+  }
+  symlinkSync(join(root, "styles/asset.svg"), join(root, "styles/link.svg"));
+  writeFileSync(join(root, "styles/main.css"), '.x {background: url("./link.svg");}');
+  expect(discoverInputClosure(root, ["entry.ts"]).unresolved).toContain("Unsupported symbolic input: styles/link.svg");
+});
+
+
+test("CSS scan directory ownership survives additions, deletion, renames and source import ordering", () => {
+  const root = fixture({ "entry.ts": 'import "./styles.css"; import "./scan/app.js";', "styles.css": '@source "./scan";', "scan/app.ts": 'import "../owned.js";', "owned.ts": "export {};", "scan/old.md": "Ithaca" });
+  const before = discoverInputClosure(root, ["entry.ts"]);
+  expect(before.unresolved).toEqual([]);
+  expect(before.files).toContain("owned.ts");
+  writeFileSync(join(root, "scan/new.md"), "Boat");
+  renameSync(join(root, "scan/old.md"), join(root, "scan/renamed.md"));
+  const after = discoverInputClosure(root, ["entry.ts"]);
+  expect(after.files).toContain("scan/new.md");
+  expect(after.files).toContain("scan/renamed.md");
+  expect(after.files).not.toContain("scan/old.md");
+  for (const closure of [before, after]) for (const path of ["scan/old.md", "scan/new.md", "scan/renamed.md"]) expect(closureSelects([path], closure, false)).toBe(true);
+  rmSync(join(root, "scan"), { recursive: true });
+  expect(discoverInputClosure(root, ["styles.css"]).unresolved).toContain("Missing CSS scan directory styles.css: ./scan");
+});
+
+test("CSS lexical discovery ignores strings/comments and handles case without hiding unsupported directives", () => {
+  const root = fixture({ "entry.css": `/* @import "missing.css"; */ .x { content: '@source "missing";'; } @IMPORT "./theme.css";`, "theme.css": ":root{}" });
+  expect(discoverInputClosure(root, ["entry.css"]).unresolved).toEqual([]);
+  expect(discoverInputClosure(root, ["entry.css"]).files).toContain("theme.css");
+  for (const text of ['@PLUGIN "./missing.js";', '@import "./theme.css"', '/* unfinished', '.x { background: url("./missing.svg"); }']) {
+    writeFileSync(join(root, "entry.css"), text);
+    expect(discoverInputClosure(root, ["entry.css"]).unresolved.length).toBeGreaterThan(0);
+  }
+});
+
+
+test("CSS root scan reproduction resolves and declarations cannot waive unsupported or local missing inputs", () => {
+  const root = fixture({ "entry.ts": 'import "./styles.css";', "styles.css": '@source "./";', "note.md": "Ithaca" });
+  const closure = discoverInputClosure(root, ["entry.ts"]);
+  expect(closure.unresolved).toEqual([]);
+  expect(closure.files).toContain("note.md");
+  expect(closureSelects(["new-note.md"], closure, false)).toBe(true);
+  for (const expression of ['@import "https://example.invalid/style.css";', '@source inline("boat");', '@source "./missing";', '@import "./missing.css";']) {
+    writeFileSync(join(root, "styles.css"), expression);
+    const invalid = discoverInputClosure(root, ["entry.ts"], [{ owner: "styles.css", inputs: [{ expression, targets: ["note.md"] }] }]);
+    expect(invalid.unresolved.length).toBeGreaterThan(0);
+    expect(closureSelects(["unrelated.ts"], invalid, true)).toBe(true);
+  }
 });
