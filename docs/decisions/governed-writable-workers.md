@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:886-914`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:959-987`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1306,7 +1306,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1492`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1565`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1314,6 +1314,46 @@ and file by file, with the same resolution the restricted envelope uses
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+### Owned runtime placement beneath `/tmp` — 2026-10-14
+
+The maintainer's ruling on #1844 selects support for a host-installed owned
+runtime beneath `/tmp`. The launcher installs private turn temp first, then
+retains only the existing concrete runtime closure read-only: the executable,
+its owning package, dependency directories and resolved workspace packages.
+Canonical locations and the installation aliases needed to execute them remain
+available. Internal callers without a named profile use the same closure;
+profiled, restricted, maintenance and mirror-transport callers keep their
+existing authority and explicit read envelopes.
+
+A runtime location cannot overlap reserved scratch, runtime state, writable
+areas, XDG, maintenance HOME/state/output, relay/proxy, fresh procfs or device
+mounts. Names, canonical targets and ancestors/descendants are checked before
+dispatch, including unresolved final entries beneath an aliased parent. A
+collision names the offending location and asks for a separate installation
+directory. Runtime retention also reapplies explicitly masked private files
+and subdirectories through retained aliases. It does not restore unrelated
+host-temp siblings or make runtime bytes writable.
+
+The concrete checks and mounts are in (`validateRuntimePlacement`,
+`packages/ui-sdk/src/server/worker-launcher.ts:650-656`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-670`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:671-689`).
+
+Broad host-temp binding would reveal other workers and operator state; blanket
+relocation would reject the selected supported placement. Neither is the
+chosen correction. Private temp sizing, namespace/capability restrictions,
+brain permissions, active host masks and cleanup retain their original rules.
+
+The original report at `5dc2595ca07042f2e2024c95bbc361f31637559f`
+recorded 285 passing experiment tests and two pre-request exit-127 failures;
+moving the same bytes outside `/tmp` passed eight tests / 76 assertions. Those
+historical controls identify the placement boundary, rather than qualifying
+the eventual correction. The retained regression additionally executes equal
+native bytes inside, outside and through an installation alias in every
+applicable launcher mode, and captures actual installed Claude requests in a
+loopback-only network namespace. No inference service or production store is
+used. #1901 records this support amendment alongside #1844's implementation.
 
 The mounts go on in a fixed order:
 
@@ -1547,11 +1587,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:853-881`;
+`packages/ui-sdk/src/server/worker-launcher.ts:926-954`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:886-912`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:959-985`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1045-1104`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1118-1177`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
