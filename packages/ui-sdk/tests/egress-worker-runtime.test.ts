@@ -56,7 +56,7 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
     expect(result.explicit).toBe("Odysseus reaches Ithaca");
     expect(result.curlExit, "EGRESS_REAL_CURL_PROXY").toBe(0);
     expect(result.curl).toBe("Odysseus reaches Ithaca");
-    expect(result.tlsExit, result.tlsError).toBe(0);
+    expect(result.tlsExit, String(result.tlsError)).toBe(0);
     expect(result.tls).toBe("Odysseus reaches Ithaca over TLS");
     expect(result.hostSocket, "EGRESS_HOST_HOME_SOCKET_MASKED").toBe(false);
     expect(socketConnections).toBe(0);
