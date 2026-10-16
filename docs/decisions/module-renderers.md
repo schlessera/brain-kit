@@ -86,7 +86,7 @@ string. The first-party Mermaid support moves onto the same seam. Today it is
 special-cased in three places:
 
 - the markdown fence (`function mermaidSourceFrom`, `packages/ui-react/src/components/chat/brain-markdown-code.tsx:22-31`)
-- the file viewer (`Standalone mermaid source files`, `packages/ui-react/src/components/files/file-viewer.tsx:82-89`)
+- the file viewer (`Standalone mermaid source files`, `packages/ui-react/src/components/files/file-viewer.tsx:85-92`)
 - the share pre-render (`export async function inlineMermaidDiagrams`, `packages/ui-react/src/lib/mermaid.ts:242-250`)
 
 A seam needs a second implementation plausible within a year. This one has

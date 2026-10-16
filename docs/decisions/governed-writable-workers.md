@@ -1761,7 +1761,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:216-233`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:224-241`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
