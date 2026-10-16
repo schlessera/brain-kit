@@ -150,7 +150,7 @@ Stated before the requirements because five of them derive from it.
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
   ((`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`),
-  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:872-901`)), and deriving scope through a join on a
+  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:877-906`)), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
   per-thread order. Append-only checkpoints, unique resolution records, scheduler
   heartbeats and budget reservations also need explicit durable storage. The four
@@ -343,7 +343,7 @@ Stated before the requirements because five of them derive from it.
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:650`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:651`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
