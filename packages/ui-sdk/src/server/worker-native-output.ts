@@ -224,7 +224,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         for (const rel of changed) {
           const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
           if (previous && next && (previous.type === "directory") !== (next.type === "directory")) throw Error(`maintenance cannot replace a directory with a non-directory or vice versa: ${rel}`);
-          if (isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => rel === p || rel.startsWith(`${p}/`))) throw Error(`maintenance output cannot change protected input ${rel}`);
+          const removesProtectedAncestor = previous?.type === "directory" && !next
+            && PROTECTED_TIER_A.some(p => p.startsWith(`${rel}/`));
+          if (removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => rel === p || rel.startsWith(`${p}/`))) throw Error(`maintenance output cannot change protected input ${rel}`);
           if (next?.type === "symlink") {
             const target = resolve(brain, join(rel, ".."), next.link!);
             if ((target !== brain && !target.startsWith(`${brain}/`)) || rel.startsWith(".git/") || PROTECTED_TIER_A.some(p => p.startsWith(`${rel}/`))) throw Error(`maintenance output has an escaping link: ${rel}`);
