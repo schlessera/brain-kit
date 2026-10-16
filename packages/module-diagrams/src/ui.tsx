@@ -21,7 +21,7 @@ function Drawing({model,theme,id,interactive=true}: {model:DiagramSvgModel;theme
   return createElement(item.tag,{...attrs,key},item.text,item.children?.map(render));
  }
  const {width,height}=model.tree.viewBox;
- return <svg xmlns="http://www.w3.org/2000/svg" className="bk-diagram" data-theme={theme} data-diagram-layout={width===320?"narrow":"default"} role={interactive?"figure":"img"} aria-labelledby={`${id}-title ${id}-desc`} viewBox={`0 0 ${width} ${height}`} width={width} height={height} style={{maxWidth:"none",flexShrink:0}}>
+ return <svg xmlns="http://www.w3.org/2000/svg" className="bk-diagram" data-grammar={model.tree.grammar} data-theme={theme} data-diagram-layout={width===320?"narrow":"default"} role={interactive?"figure":"img"} aria-labelledby={`${id}-title ${id}-desc`} viewBox={`0 0 ${width} ${height}`} width={width} height={height} style={{maxWidth:"none",flexShrink:0}}>
   <title id={`${id}-title`}>{model.tree.title}</title><desc id={`${id}-desc`}>{model.tree.desc}</desc>
   <style data-content-renderer-tokens="">{DIAGRAM_TOKEN_CSS}</style><style>{DIAGRAM_DRAWING_CSS}</style>
   {model.elements.map(render)}

@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "type": "state-machine",
+  "title": "Voyage lifecycle",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "initial",
+      "label": "Voyage begins",
+      "at": [
+        40,
+        100
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "shape": "initial"
+    },
+    {
+      "id": "planning",
+      "label": "Planning",
+      "at": [
+        152,
+        80
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "state"
+    },
+    {
+      "id": "sailing",
+      "label": "Sailing",
+      "at": [
+        448,
+        80
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "state",
+      "role": "focal"
+    },
+    {
+      "id": "arrived",
+      "label": "Arrived",
+      "at": [
+        744,
+        80
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "state"
+    },
+    {
+      "id": "final",
+      "label": "Voyage complete",
+      "at": [
+        1000,
+        96
+      ],
+      "size": [
+        16,
+        16
+      ],
+      "shape": "final"
+    }
+  ],
+  "edges": [
+    {
+      "to": "planning",
+      "from": "initial"
+    },
+    {
+      "to": "sailing",
+      "label": "DEPART",
+      "kind": "primary",
+      "from": "planning"
+    },
+    {
+      "to": "sailing",
+      "label": "WAIT",
+      "from": "sailing"
+    },
+    {
+      "to": "arrived",
+      "label": "LAND",
+      "from": "sailing"
+    },
+    {
+      "to": "final",
+      "label": "COMPLETE",
+      "from": "arrived"
+    }
+  ]
+}

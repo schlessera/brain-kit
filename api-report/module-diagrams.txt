@@ -9,6 +9,7 @@ export "." (./src/index.ts)
   DIAGRAM_TYPE
   type DiagramBox
   type DiagramBridge
+  type DiagramCardinality
   type DiagramCheckResult
   type DiagramConnector
   type DiagramEdgeLabel
@@ -25,6 +26,9 @@ export "." (./src/index.ts)
   type DiagramPaint
   type DiagramPoint
   type DiagramPort
+  type DiagramShape
+  type DiagramShapeBase
+  type DiagramShapePaint
   type DiagramSide
   type DiagramSkinFinding
   type DiagramSpec
@@ -33,6 +37,7 @@ export "." (./src/index.ts)
   type DiagramTypeRole
   type DiagramTypeStyle
   type DiagramsConfig
+  type PositionalSpec
   buildDiagram
   buildDiagramLayout
   checkDiagram
@@ -48,6 +53,7 @@ export "." (./src/index.ts)
   diagramSpecSchema
   fitDiagramText
   manifest
+  positionalSchema
   typeWidthBudget
 
 export "./module" (./src/module.ts)
@@ -86,6 +92,13 @@ signatures (every public export and the types it is made of)
         segment: number;
         radius: 6;
         over: string;
+    }
+  DiagramCardinality (packages/module-diagrams/src/geometry.ts)
+    export interface DiagramCardinality extends DiagramBox {
+        kind: "cardinality";
+        edge: number;
+        end: "from" | "to";
+        text: string;
     }
   DiagramCheckResult (packages/module-diagrams/src/check.ts)
     export interface DiagramCheckResult {
@@ -127,7 +140,7 @@ signatures (every public export and the types it is made of)
         head: "open" | "filled" | "hollow";
     }
   DiagramElement (packages/module-diagrams/src/geometry.ts)
-    export type DiagramElement = DiagramShape | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
+    export type DiagramElement = DiagramShape | DiagramCardinality | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
   DiagramFinding (packages/module-diagrams/src/check.ts)
     export interface DiagramFinding {
         path: string;
@@ -152,6 +165,8 @@ signatures (every public export and the types it is made of)
     }
   DiagramGroup (packages/module-diagrams/src/geometry.ts)
     export interface DiagramGroup extends DiagramBox {
+        scopeKind?: "admin" | "traffic";
+        parent?: string;
         kind: "group";
         id: string;
         label: string;
@@ -173,6 +188,17 @@ signatures (every public export and the types it is made of)
     }
   DiagramNode (packages/module-diagrams/src/geometry.ts)
     export interface DiagramNode extends DiagramBox {
+        nodeKind?: "compute" | "endpoint" | "managed";
+        parent?: string;
+        target?: string;
+        shape?: "start" | "end" | "step" | "decision" | "merge" | "state" | "initial" | "final";
+        fields?: Array<{
+            name: string;
+            type?: string;
+            key?: "PK" | "FK";
+        }>;
+        rank?: number;
+        fanIn?: number;
         kind: "node";
         id: string;
         label: string;
@@ -276,6 +302,7 @@ signatures (every public export and the types it is made of)
     export interface DiagramTree {
         schema_version: 1;
         type: DiagramSpec["type"];
+        grammar?: "architecture-containment";
         title: string;
         desc: string;
         viewBox: DiagramBox;
@@ -293,6 +320,8 @@ signatures (every public export and the types it is made of)
     }
   DiagramsConfig (packages/module-diagrams/src/module.ts)
     export type DiagramsConfig = z.infer<typeof configSchema>;
+  PositionalSpec (packages/module-diagrams/src/positional-spec.ts)
+    export type PositionalSpec = z.infer<typeof positionalSchema>;
   buildDiagram (packages/module-diagrams/src/geometry.ts)
     export function buildDiagram(input: DiagramSpec, options?: DiagramGeometryOptions): DiagramTree;
   buildDiagramLayout (packages/module-diagrams/src/layout.ts)
@@ -324,6 +353,96 @@ signatures (every public export and the types it is made of)
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
+        containment: z.ZodOptional<z.ZodObject<{
+            scopes: z.ZodArray<z.ZodObject<{
+                at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                id: z.ZodString;
+                kind: z.ZodEnum<{
+                    admin: "admin";
+                    traffic: "traffic";
+                }>;
+                label: z.ZodString;
+                parent: z.ZodOptional<z.ZodString>;
+                size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            peering: z.ZodOptional<z.ZodBoolean>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            kind: z.ZodOptional<z.ZodEnum<{
+                compute: "compute";
+                endpoint: "endpoint";
+                managed: "managed";
+            }>>;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            parent: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+            target: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"architecture">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
         desc: z.ZodString;
         edges: z.ZodArray<z.ZodObject<{
             from: z.ZodString;
@@ -369,6 +488,13 @@ signatures (every public export and the types it is made of)
                 optional: "optional";
                 store: "store";
             }>>;
+            shape: z.ZodOptional<z.ZodEnum<{
+                decision: "decision";
+                end: "end";
+                merge: "merge";
+                start: "start";
+                step: "step";
+            }>>;
             size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
@@ -387,7 +513,315 @@ signatures (every public export and the types it is made of)
             fit: "fit";
         }>;
         title: z.ZodString;
-        type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
+        type: z.ZodLiteral<"flowchart">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            shape: z.ZodOptional<z.ZodEnum<{
+                final: "final";
+                initial: "initial";
+                state: "state";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"state-machine">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        direction: z.ZodOptional<z.ZodEnum<{
+            down: "down";
+            right: "right";
+        }>>;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        hierarchy: z.ZodOptional<z.ZodLiteral<true>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"tree">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            fromCardinality: z.ZodOptional<z.ZodEnum<{
+                "0..1": "0..1";
+                "1..*": "1..*";
+                1: "1";
+                N: "N";
+            }>>;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+            toCardinality: z.ZodOptional<z.ZodEnum<{
+                "0..1": "0..1";
+                "1..*": "1..*";
+                1: "1";
+                N: "N";
+            }>>;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            fields: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                key: z.ZodOptional<z.ZodEnum<{
+                    FK: "FK";
+                    PK: "PK";
+                }>>;
+                name: z.ZodString;
+                type: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"er">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            cycle: z.ZodOptional<z.ZodBoolean>;
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            rank: z.ZodOptional<z.ZodNumber>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"dependency">;
     }, z.core.$strict>, z.ZodObject<{
         axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
             fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
@@ -563,6 +997,57 @@ signatures (every public export and the types it is made of)
             }>>;
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        positional: z.ZodOptional<z.ZodObject<{
+            loop: z.ZodOptional<z.ZodObject<{
+                hub: z.ZodString;
+                spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    station: z.ZodString;
+                    text: z.ZodString;
+                }, z.core.$strict>>>;
+                stations: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>;
+            pyramid: z.ZodOptional<z.ZodObject<{
+                layers: z.ZodArray<z.ZodObject<{
+                    annotation: z.ZodOptional<z.ZodString>;
+                    node: z.ZodString;
+                    value: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            quadrant: z.ZodOptional<z.ZodObject<{
+                points: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                }, z.core.$strict>>;
+                xAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+                yAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
+            stack: z.ZodOptional<z.ZodObject<{
+                direction: z.ZodOptional<z.ZodEnum<{
+                    down: "down";
+                    up: "up";
+                }>>;
+                directionLabel: z.ZodOptional<z.ZodString>;
+                order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            venn: z.ZodOptional<z.ZodObject<{
+                intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    focal: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    members: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>>>;
+                sets: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    weight: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
         }, z.core.$strict>>;
         schema_version: z.ZodLiteral<1>;
         size: z.ZodEnum<{
@@ -586,6 +1071,96 @@ signatures (every public export and the types it is made of)
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
+        containment: z.ZodOptional<z.ZodObject<{
+            scopes: z.ZodArray<z.ZodObject<{
+                at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                id: z.ZodString;
+                kind: z.ZodEnum<{
+                    admin: "admin";
+                    traffic: "traffic";
+                }>;
+                label: z.ZodString;
+                parent: z.ZodOptional<z.ZodString>;
+                size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            peering: z.ZodOptional<z.ZodBoolean>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            kind: z.ZodOptional<z.ZodEnum<{
+                compute: "compute";
+                endpoint: "endpoint";
+                managed: "managed";
+            }>>;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            parent: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+            target: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"architecture">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
         desc: z.ZodString;
         edges: z.ZodArray<z.ZodObject<{
             from: z.ZodString;
@@ -631,6 +1206,13 @@ signatures (every public export and the types it is made of)
                 optional: "optional";
                 store: "store";
             }>>;
+            shape: z.ZodOptional<z.ZodEnum<{
+                decision: "decision";
+                end: "end";
+                merge: "merge";
+                start: "start";
+                step: "step";
+            }>>;
             size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
@@ -649,7 +1231,315 @@ signatures (every public export and the types it is made of)
             fit: "fit";
         }>;
         title: z.ZodString;
-        type: z.ZodLiteral<"architecture" | "dependency" | "er" | "flowchart" | "state-machine" | "tree">;
+        type: z.ZodLiteral<"flowchart">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            shape: z.ZodOptional<z.ZodEnum<{
+                final: "final";
+                initial: "initial";
+                state: "state";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"state-machine">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        direction: z.ZodOptional<z.ZodEnum<{
+            down: "down";
+            right: "right";
+        }>>;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        hierarchy: z.ZodOptional<z.ZodLiteral<true>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"tree">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            fromCardinality: z.ZodOptional<z.ZodEnum<{
+                "0..1": "0..1";
+                "1..*": "1..*";
+                1: "1";
+                N: "N";
+            }>>;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+            toCardinality: z.ZodOptional<z.ZodEnum<{
+                "0..1": "0..1";
+                "1..*": "1..*";
+                1: "1";
+                N: "N";
+            }>>;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            fields: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                key: z.ZodOptional<z.ZodEnum<{
+                    FK: "FK";
+                    PK: "PK";
+                }>>;
+                name: z.ZodString;
+                type: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"er">;
+    }, z.core.$strict>, z.ZodObject<{
+        callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            target: z.ZodString;
+            text: z.ZodString;
+        }, z.core.$strict>>>;
+        desc: z.ZodString;
+        edges: z.ZodArray<z.ZodObject<{
+            cycle: z.ZodOptional<z.ZodBoolean>;
+            from: z.ZodString;
+            id: z.ZodOptional<z.ZodString>;
+            kind: z.ZodOptional<z.ZodEnum<{
+                async: "async";
+                default: "default";
+                link: "link";
+                primary: "primary";
+            }>>;
+            label: z.ZodOptional<z.ZodString>;
+            to: z.ZodString;
+        }, z.core.$strict>>;
+        focal: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        groups: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+            members: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>>;
+        layouts: z.ZodOptional<z.ZodObject<{
+            narrow: z.ZodObject<{
+                height: z.ZodNumber;
+                nodes: z.ZodArray<z.ZodObject<{
+                    at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                    id: z.ZodString;
+                    size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                }, z.core.$strict>>;
+                width: z.ZodLiteral<320>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        link: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodArray<z.ZodObject<{
+            at: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            id: z.ZodString;
+            label: z.ZodString;
+            link: z.ZodOptional<z.ZodString>;
+            rank: z.ZodOptional<z.ZodNumber>;
+            role: z.ZodOptional<z.ZodEnum<{
+                boundary: "boundary";
+                default: "default";
+                external: "external";
+                focal: "focal";
+                input: "input";
+                optional: "optional";
+                store: "store";
+            }>>;
+            size: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            sub: z.ZodOptional<z.ZodString>;
+            tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        schema_version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            "doc-inline": "doc-inline";
+            "doc-wide": "doc-wide";
+            "print-a3-landscape": "print-a3-landscape";
+            "print-a4-landscape": "print-a4-landscape";
+            "print-letter-landscape": "print-letter-landscape";
+            "slide-16x9": "slide-16x9";
+            "slide-4x3": "slide-4x3";
+            "social-og": "social-og";
+            "social-square": "social-square";
+            fit: "fit";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"dependency">;
     }, z.core.$strict>, z.ZodObject<{
         axis: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
             fragments: z.ZodOptional<z.ZodArray<z.ZodObject<{
@@ -825,6 +1715,57 @@ signatures (every public export and the types it is made of)
             }>>;
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        positional: z.ZodOptional<z.ZodObject<{
+            loop: z.ZodOptional<z.ZodObject<{
+                hub: z.ZodString;
+                spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    station: z.ZodString;
+                    text: z.ZodString;
+                }, z.core.$strict>>>;
+                stations: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>;
+            pyramid: z.ZodOptional<z.ZodObject<{
+                layers: z.ZodArray<z.ZodObject<{
+                    annotation: z.ZodOptional<z.ZodString>;
+                    node: z.ZodString;
+                    value: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            quadrant: z.ZodOptional<z.ZodObject<{
+                points: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                }, z.core.$strict>>;
+                xAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+                yAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
+            stack: z.ZodOptional<z.ZodObject<{
+                direction: z.ZodOptional<z.ZodEnum<{
+                    down: "down";
+                    up: "up";
+                }>>;
+                directionLabel: z.ZodOptional<z.ZodString>;
+                order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            venn: z.ZodOptional<z.ZodObject<{
+                intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    focal: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    members: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>>>;
+                sets: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    weight: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
         }, z.core.$strict>>;
         schema_version: z.ZodLiteral<1>;
         size: z.ZodEnum<{
@@ -851,6 +1792,58 @@ signatures (every public export and the types it is made of)
   fitDiagramText (packages/module-diagrams/src/skin.ts)
     export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number;
   manifest (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  positionalSchema (packages/module-diagrams/src/positional-spec.ts)
+    const positionalSchema: z.ZodObject<{
+        loop: z.ZodOptional<z.ZodObject<{
+            hub: z.ZodString;
+            spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                station: z.ZodString;
+                text: z.ZodString;
+            }, z.core.$strict>>>;
+            stations: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>;
+        pyramid: z.ZodOptional<z.ZodObject<{
+            layers: z.ZodArray<z.ZodObject<{
+                annotation: z.ZodOptional<z.ZodString>;
+                node: z.ZodString;
+                value: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        quadrant: z.ZodOptional<z.ZodObject<{
+            points: z.ZodArray<z.ZodObject<{
+                node: z.ZodString;
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+            }, z.core.$strict>>;
+            xAxis: z.ZodObject<{
+                negative: z.ZodString;
+                positive: z.ZodString;
+            }, z.core.$strict>;
+            yAxis: z.ZodObject<{
+                negative: z.ZodString;
+                positive: z.ZodString;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        stack: z.ZodOptional<z.ZodObject<{
+            direction: z.ZodOptional<z.ZodEnum<{
+                down: "down";
+                up: "up";
+            }>>;
+            directionLabel: z.ZodOptional<z.ZodString>;
+            order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        venn: z.ZodOptional<z.ZodObject<{
+            intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                members: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>>;
+            sets: z.ZodArray<z.ZodObject<{
+                node: z.ZodString;
+                weight: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
   toStatic (packages/module-diagrams/src/render.ts)
     export function toStatic(source: string, options: {
         theme: ContentRendererTheme;

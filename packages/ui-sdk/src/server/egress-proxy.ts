@@ -88,7 +88,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      if (matches(host, options.outwardHosts) || method !== "CONNECT" && !["GET", "HEAD"].includes(method)) {
+      if (matches(host, options.outwardHosts)) {
         let approved = false;
         let cancelled: (() => void) | undefined;
         try {
