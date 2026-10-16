@@ -51,13 +51,17 @@ Both outputs have one content root. Its computed print background must match
 the document paper, `rgb(255, 255, 255)`. Palette literals belong to `--bk-*`
 custom properties inside `<style data-content-renderer-tokens>`; paints
 elsewhere refer to tokens. Print uses opaque tokens. The suite checks inline
-styles, stylesheet rules, SVG paint attributes, computed fill/background alpha
-and opacity, scripts, event attributes and external resource URLs. Fragment
+styles, stylesheet rules (including named colours nested in compound values),
+SVG paint attributes, computed CSS/SVG paint alpha and SVG/CSS opacity, scripts,
+event attributes and external resource URLs. Print paint checks include strokes,
+gradient stops, flood filters, backgrounds, text, borders and compound shadows;
+opaque gradients, shadows and token-only colour mixes remain valid. Fragment
 references such as `url(#arrow)` are allowed. CSS imports and escaped resource
 syntax are refused by this conservative authoring check. Static resources are
 checked before output is connected for computed-style inspection.
 
 This is a guard for trusted packs, not an HTML sanitizer. It does not prove
-semantics, grayscale legibility, geometry or browser printing by itself. Add
-those runtime/visual checks to each pack. Every artifact leaving the screen
+semantics, grayscale legibility, raster-image pixels, arbitrary SVG filter
+programs, geometry or browser printing by itself. Add those runtime/visual
+checks to each pack. Every artifact leaving the screen
 uses `print`; explicit CLI theme selection is the export override.

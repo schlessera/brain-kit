@@ -12,19 +12,52 @@ function requireConformance(condition: boolean, message: string): asserts condit
   if (!condition) throw new Error(`Content renderer conformance: ${message}`);
 }
 
+/** CSSOM parses declarations; inspect colour tokens at every nesting depth, not whole values. */
+function hasColourLiteral(value: string): boolean {
+  // Quoted strings and local resource identifiers are not colours. A valid token
+  // reference is opaque; fallbacks remain visible and must obey the same rule.
+  const remainder = value
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "")
+    .replace(/url\([^)]*\)/gi, "")
+    .replace(/var\(--bk-[\w-]+\)/g, "");
+  if (/#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i.test(remainder)) return true;
+  return (remainder.match(/[-a-z_][-\w]*/gi) ?? []).some((token) =>
+    CSS.supports("color", token) && !/^(currentcolor|inherit|initial|unset|revert|revert-layer|none)$/i.test(token));
+}
 function declarations(style: CSSStyleDeclaration, tokenBlock: boolean): void {
   for (const property of style) {
     const value = style.getPropertyValue(property).trim();
-    // Literal palette values belong exclusively to custom properties in the token block.
-    const withoutReferences = value.replace(/var\(--bk-[\w-]+\)/g, "").trim();
-    const literal = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(/i.test(withoutReferences)
-      || (CSS.supports("color", withoutReferences) && !/^(currentcolor|inherit|initial|unset|none)$/i.test(withoutReferences));
-    requireConformance(!literal || (tokenBlock && property.startsWith("--bk-")), `colour literal outside token block: ${property}: ${value}`);
-    // Resource references must stay within this artifact; escaped syntax is refused below.
+    requireConformance(!hasColourLiteral(value) || (tokenBlock && property.startsWith("--bk-")), `colour literal outside token block: ${property}: ${value}`);
     for (const match of value.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)) {
       requireConformance(match[1]!.trim().startsWith("#"), "external URL in static/style output");
     }
     requireConformance(!/\\/.test(value), "escaped or imported CSS resource");
+  }
+}
+
+// A finite CSS/SVG paint inventory. Images' pixels and arbitrary SVG filter
+// geometry remain pack-specific proof; CSS colours inside gradients/shadows do not.
+const PAINT_ATTRIBUTES = ["fill", "stroke", "color", "stop-color", "flood-color", "lighting-color"] as const;
+const PRINT_PAINTS = [
+  ...PAINT_ATTRIBUTES,
+  "-webkit-text-fill-color", "-webkit-text-stroke-color", "scrollbar-color",
+  "background-color", "background-image", "border-image-source",
+  "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+  "outline-color", "column-rule-color", "text-decoration-color", "text-emphasis-color",
+  "caret-color", "accent-color", "box-shadow", "text-shadow", "filter",
+] as const;
+const PRINT_OPACITIES = ["opacity", "fill-opacity", "stroke-opacity", "stop-opacity", "flood-opacity"] as const;
+function opacity(value: string): number { return Number.parseFloat(value) / (value.trim().endsWith("%") ? 100 : 1); }
+function requireOpaquePaint(value: string, property: string): void {
+  // Computed colours may be rgb()/rgba(), wide-gamut color(), Lab, etc., nested
+  // inside a gradient or shadow. Inspect every colour function's explicit alpha.
+  for (const match of value.matchAll(/\b(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\(([^()]*)\)/gi)) {
+    const args = match[2]!;
+    const alpha = args.includes("/") ? args.split("/").at(-1) : /^(rgba|hsla)$/i.test(match[1]!) ? args.split(",")[3] : undefined;
+    requireConformance(alpha === undefined || opacity(alpha) === 1, `alpha fill in print: ${property}: ${value}`);
+  }
+  for (const match of value.matchAll(/\bopacity\(\s*([\d.]+%?)\s*\)/gi)) {
+    requireConformance(opacity(match[1]!) === 1, `alpha fill in print: ${property}: ${value}`);
   }
 }
 function rules(list: CSSRuleList, tokenBlock: boolean): void {
@@ -45,20 +78,23 @@ function inspect(element: Element, print: boolean): void {
       rules(sheet!.cssRules, node.hasAttribute("data-content-renderer-tokens"));
     }
     if ("style" in node) declarations((node as HTMLElement).style, false);
-    for (const attribute of ["fill", "stroke", "color", "stop-color", "flood-color"]) {
+    for (const attribute of PAINT_ATTRIBUTES) {
       const value = node.getAttribute(attribute);
       if (value !== null) requireConformance(/^(?:var\(--bk-[\w-]+\)|none|currentColor|url\(#[^)]+\))$/i.test(value), `colour literal outside token block: ${attribute}`);
     }
     if (print && node.localName !== "style") {
       const computed = getComputedStyle(node);
-      for (const property of ["fill", "background-color", "stop-color", "flood-color"]) {
+      for (const property of PRINT_PAINTS) {
         const value = computed.getPropertyValue(property);
-        // Transparent HTML backgrounds carry no paint; SVG fills and painted backgrounds must be opaque.
-        if (!value || value === "none" || (property === "background-color" && value === "rgba(0, 0, 0, 0)")) continue;
-        const alpha = /rgba?\([^)]*[,/]\s*([\d.]+)\s*\)$/.exec(value);
-        requireConformance((!value.startsWith("rgba(") || alpha?.[1] === "1") && (!value.includes("/") || Number(/\/\s*([\d.]+)/.exec(value)?.[1] ?? 1) === 1), `alpha fill in print: ${property}: ${value}`);
+        // Unpainted HTML backgrounds are transparent by default. The content
+        // root still has the independent opaque-white ground assertion below.
+        if (property === "background-color" && value === "rgba(0, 0, 0, 0)") continue;
+        requireOpaquePaint(value, property);
       }
-      requireConformance(Number(computed.opacity) === 1 && Number(computed.fillOpacity) === 1 && Number(computed.strokeOpacity) === 1, "alpha fill in print: opacity");
+      for (const property of PRINT_OPACITIES) {
+        const value = computed.getPropertyValue(property);
+        requireConformance(value === "" || opacity(value) === 1, `alpha fill in print: ${property}: ${value}`);
+      }
     }
   }
   if (print) requireConformance(getComputedStyle(element).backgroundColor === "rgb(255, 255, 255)", "print ground must equal document paper #ffffff");
