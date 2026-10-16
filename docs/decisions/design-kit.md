@@ -31,6 +31,7 @@ and attribute to "the maintainer".
 - [Tokens and styles](design-kit/tokens-and-styles.md).
 - [Maps](design-kit/maps.md).
 - [Navigation](design-kit/navigation.md).
+- [Storage](design-kit/storage.md).
 - [Answer blocks](design-kit/answer-blocks.md).
 - [show_block brief](design-kit/show-block-brief.md).
 - [Tool loading](design-kit/tool-loading.md).
@@ -44,6 +45,11 @@ and attribute to "the maintainer".
 - [Overlays](design-kit/overlays.md).
 
 ## Cross-subject relationships
+
+The [Storage placement amendment](design-kit/navigation.md#2026-10-16--approved-storage-placement-1782)
+extends #1773's Settings inventory while preserving D37/D52 navigation and
+D36 shortcut rules. The [Storage design](design-kit/storage.md) binds its
+accounting presentation, accessible exploration and recoverable removal flow.
 
 These links join original rulings and their later amendments; the dated entries
 remain the authority for what each relationship means.
