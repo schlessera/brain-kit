@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:86-289`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:86-291`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -1320,3 +1320,35 @@ cancellation. This is qualified composition, not ordinary default activation.
 Credential-free projection of existing native stores, managed/project dispatch
 binding in ordinary consumers, all first-party tool paths, reachable-socket
 inventory and retained governance events remain required by #1665/#1666.
+
+### Ordinary spawn consumes a host-prepared inference transport
+
+The existing ordinary spawn adapter can explicitly consume the turn proxy's
+private directory. It passes that transport to the actual worker launcher and
+selects state projection without `.credentials.json` (`const settings =`,
+`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
+settings, account metadata, shared auto-memory and the resumed transcript;
+copy-out still publishes only the existing transcript/memory domains. The host
+resolver reads and refreshes the original credential store instead of placing
+it in the worker. Default ordinary callers do not select this input yet.
+
+The offline qualification calls the production spawn adapter directly in both
+strict and governed profiles, with the installed SDK/CLI and the real proxy,
+relay and host resolver (`const spawner = createWorkerSpawn`,
+`packages/ui-backend-claude/tests/fixtures/ordinary-host-relay-probe.ts:132-138`).
+It checks actual native executable/environment,
+three-turn history/model/current-login continuity, a fourth-query refresh
+cancellation, shared charged destination records, native-store absence and
+reservation cleanup. Removing the adapter's projection selection fails the
+named native credential-file assertion (`expect(result.workerCredentialFile`,
+`packages/ui-backend-claude/tests/ordinary-host-relay.test.ts:51`). Its strict startup input is the
+explicit copied-storage test fixture; this is not native managed/Btrfs storage
+qualification.
+
+This explicit composition is an inference prerequisite for the ordinary
+cutover. It does not remove other CLI provider credentials, sanitize every
+native settings file, establish command-sourced auth admission, activate the
+ordinary SDK/turn lifecycle, or complete first-party transport/socket/privacy
+qualification. Those limits remain open and do not create a dependency on
+closing every other acceptance criterion of #1665 before #1666 can consume
+this concrete delivered prerequisite.

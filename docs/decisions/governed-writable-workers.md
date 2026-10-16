@@ -2020,7 +2020,7 @@ and receipt finalization. Staged raw versions remain under the same aggregate
 cap, active pins and completed-turn retention/collection. This is the external
 memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
-boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:201-215`;
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
 `packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.

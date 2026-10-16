@@ -135,6 +135,8 @@ export interface ClaudeWorkerState {
  */
 export function createClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>,
   options: { ephemeral?: boolean; resume?: string;
+    /** Host-held inference never projects the native credential store into its worker. */
+    hostInference?: boolean;
     /** The resolved allowance and budget; defaults to 64 MiB and three workers. */
     limits?: WorkerStateLimits;
     /** Defaults to the server process's one ledger. */
@@ -151,7 +153,7 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
 }
 
 function plan(brainPath: string, env: Record<string, string | undefined>,
-  options: { ephemeral?: boolean; resume?: string }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
+  options: { ephemeral?: boolean; resume?: string; hostInference?: boolean }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
   if (!options.ephemeral && options.resume !== undefined) validateSessionId(options.resume);
   const allowance = held.bytes;
   const brain = realpathSync(brainPath);
@@ -176,7 +178,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   // Capture membership, not bytes, for other sessions. A worker may create
   // a session but must never export files into an unrelated existing one.
   const existing = new Set(existsSync(projectRoot) ? readdirSync(projectRoot).map(name => name.replace(/\.jsonl$/, "")) : []);
-  const settings = ["settings.json", ".credentials.json", ".claude.json"].filter(name => existsSync(join(saved, name)));
+  const settings = ["settings.json", ...(options.hostInference ? [] : [".credentials.json"]), ".claude.json"].filter(name => existsSync(join(saved, name)));
   // Every session of the brain reads the project's auto-memory, so every turn copies it (#1626).
   settings.push(...files(join(projectRoot, MEMORY)).map(name => `${project}/${MEMORY}/${name}`));
   const transcripts: string[] = [];
