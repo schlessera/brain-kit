@@ -31,6 +31,14 @@ const center = (box: DiagramBox): DiagramPoint => ({ x: box.x + box.width / 2, y
 const normal = (side: DiagramSide): DiagramPoint => ({ x: side === "left" ? -1 : side === "right" ? 1 : 0, y: side === "top" ? -1 : side === "bottom" ? 1 : 0 });
 const overlaps = (a: DiagramBox, b: DiagramBox) => a.x < b.x + b.width - EPS && a.x + a.width > b.x + EPS && a.y < b.y + b.height - EPS && a.y + a.height > b.y + EPS;
 const contains = (frame: DiagramBox, box: DiagramBox) => box.x >= frame.x - EPS && box.y >= frame.y - EPS && box.x + box.width <= frame.x + frame.width + EPS && box.y + box.height <= frame.y + frame.height + EPS;
+/** Bound the emitted quarter arc between its two tangent points, not absent quadrants. */
+function cornerBounds(previous: DiagramPoint, corner: DiagramPoint, next: DiagramPoint): DiagramBox {
+  const before = distance(previous, corner), after = distance(corner, next);
+  const start = { x: corner.x + (previous.x - corner.x) / before * RADIUS, y: corner.y + (previous.y - corner.y) / before * RADIUS };
+  const end = { x: corner.x + (next.x - corner.x) / after * RADIUS, y: corner.y + (next.y - corner.y) / after * RADIUS };
+  return { x: Math.min(start.x, end.x) - LABEL_GAP, y: Math.min(start.y, end.y) - LABEL_GAP,
+    width: Math.abs(start.x - end.x) + 2 * LABEL_GAP, height: Math.abs(start.y - end.y) + 2 * LABEL_GAP };
+}
 function segmentHits(a: DiagramPoint, b: DiagramPoint, box: DiagramBox, padding = 0): boolean {
   const left = box.x - padding, right = box.x + box.width + padding, top = box.y - padding, bottom = box.y + box.height + padding;
   return Math.abs(a.y - b.y) < EPS ? a.y > top + EPS && a.y < bottom - EPS && Math.max(a.x, b.x) > left + EPS && Math.min(a.x, b.x) < right - EPS
@@ -251,7 +259,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
     }
     const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
       route.bridges.some(bridge => overlaps(candidate, { x: bridge.x - 6 - LABEL_GAP, y: bridge.y - 6 - LABEL_GAP, width: 12 + 2 * LABEL_GAP, height: 12 + 2 * LABEL_GAP })) ||
-      route.points.slice(1, -1).some(corner => overlaps(candidate, { x: corner.x - RADIUS - LABEL_GAP, y: corner.y - RADIUS - LABEL_GAP, width: 2 * (RADIUS + LABEL_GAP), height: 2 * (RADIUS + LABEL_GAP) }))));
+      route.points.slice(1, -1).some((corner, index) => overlaps(candidate, cornerBounds(route.points[index]!, corner, route.points[index + 2]!)))));
     if (!mask) fail(connector.edge, "the label has no opaque open-canvas mask with an 8px connector gap; move boxes or shorten the label");
     masks.push(mask!); labels.push({ kind: "edge-label", edge: connector.edge, text, fontSize, x: mask!.x, y: mask!.y, width, height });
   }
