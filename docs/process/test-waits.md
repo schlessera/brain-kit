@@ -1659,3 +1659,50 @@ font-cache permission setup failure are retained as diagnostics; qualification
 uses fresh private-cache copies whose Vitest chunk matches the independently
 integrity-verified npm archive, plus an owned font-cache directory. Shared
 caches and the lockfile are unchanged.
+
+## Cold-capture Record readiness
+
+The [cold-capture receipt](evidence/test-wait-cold-capture-readiness.json)
+attributes the original command to `abe5086df48883bc270a36edb127b05519398332`
+and records the candidate command hash, exact control diffs and native logs.
+Storage recovery enables the Record control; the earlier locked-inventory
+assertion already requires its subsequent refresh. The gate directly renders
+the local screen. Neither that screen nor its Button has an entrance animation.
+A native trial click checks the actual enabled, visible, stable pointer target
+before the original fine-pointer focus/Enter or coarse-pointer real click.
+The heading and Stop-and-save focus assertions remain separate observations.
+This readiness check does not drain arbitrary future callbacks.
+
+Both full files pass all 31 original cases: sixteen width/theme/pointer cells
+and fifteen boundary cases. All 68 authored assert expressions are unchanged.
+The changed preparation executes twenty times: the sixteen cold cells plus
+reauthentication, Continue while recording, disposal and failed live discard.
+The three separate reauthentication 350 ms waits, twenty native 1,300 ms audio
+waits, three 150 ms negative windows and 200 ms disposal observation remain.
+No native media clock, production behavior, discovery or matrix changes.
+
+One serialized shared-host pair in the pinned Playwright 1.63.0 image measures
+74.62 → 66.83 host command seconds, 69.37 → 61.52 Vitest seconds and
+68.65 → 60.71 test-body seconds. The removed preparation spans total
+7,009.820 ms. Candidate trial spans total 602.225 ms across twenty calls,
+including twelve relocated fine-pointer trials and eight new coarse trials;
+the original fine trials were not separately timed, so this is not net added
+work. Native audio spans remain 26,014.908 / 26,015.803 ms. Vitest setup/import
+is 8/5 versus 9/6 ms; worker, server, cache, storage and media setup also occurs
+inside the per-case spans. GNU CPU/RSS describes only the host wrapper/client,
+not daemon-owned browser processes. Browser CPU/RSS and cgroup quotas are
+unmeasured. An initial passing invocation waited for build ownership and is
+preserved separately, outside the matched comparison. These observations are
+not a performance guarantee or inferred whole-CI saving.
+
+A temporarily disabled native target, released after 700 ms, passes both input
+paths. Skipping the trial makes the original keyboard interaction fail to
+reach recording; this is an interaction timeout, not an audio assertion.
+A held-disabled target reaches the trial's enabled-state diagnostic. Delaying
+the production recording-focus effect fails the original Stop-and-save focus
+assertion. Dropping actual media deliveries fails the committed-audio assertion;
+mounting protected content on reachability fails the explicit-Continue assertion.
+Every fault closes its browser context and loopback server; restored fine and
+coarse controls pass. Temporary sources and DOM state are confined to those
+controls and restored. Narrow dark/light screenshots were inspected with the
+original accessibility, fitting, privacy and recording assertions retained.

@@ -237,9 +237,11 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       assert.equal(await action(page, "microphoneLive"), false, "Continue ends the initializing microphone before protected content mounts");
       return "Continue waits for initializing capture passed";
     }
-    await page.waitForTimeout(350);
     const start = page.getByRole("button", { name: "Record on this device", exact: true });
-    if (cell.pointer === "fine") { await start.click({ trial: true }); await start.focus(); await start.press("Enter"); }
+    // Recovery enables this control; local capture has no entrance animation.
+    // Check the actual pointer target before either original activation path.
+    await start.click({ trial: true });
+    if (cell.pointer === "fine") { await start.focus(); await start.press("Enter"); }
     else await start.click();
     await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { phase(): string } }).__offlineScene.phase() === "recording");
     assert.equal(await page.getByRole("button", { name: "Stop and save", exact: true }).evaluate(el => el === document.activeElement), true, "starting capture transfers focus to Stop and save");
