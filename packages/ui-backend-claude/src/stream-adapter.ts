@@ -77,7 +77,10 @@ export class StreamAdapter {
           // Child inference is counted once in the turn's cumulative receipt;
           // its text still never enters the main chat stream.
           const receipt = this.completedUsage.observe(event, parentToolUseId ?? "root");
-          if (event.type === "message_stop" && receipt) this.report({ kind: "usage", ...receipt });
+          if (event.type === "message_stop" && receipt) {
+            this.report({ kind: "usage", ...receipt });
+            if (!this.options.freshRuntimeUsage) this.report({ kind: "claude_session_usage", completed: receipt.usage });
+          }
         }
         if (parentToolUseId) break;
 
@@ -212,18 +215,22 @@ export class StreamAdapter {
         // Status BEFORE result: `result` is the turn's terminal frame and
         // must be the last thing a consumer sees for the turn.
         messages.push({ type: "status", status: "idle" });
-        // One query() subprocess per turn, so cost and `modelUsage` (preferred:
-        // it covers subagents and sidechains, which `usage` excludes) cover the
-        // turn. A follow-up the CLI runs as a continuation adds a result whose
-        // cost and modelUsage are cumulative over the process; the runner
-        // keeps the last one and adds the earlier runs' turns and duration.
-        const usage = usageFromResult(msg);
+        // SDK 0.3.293 / CLI 2.1.293 loopback measurement (#2025): result
+        // cost and modelUsage include earlier resumed turns; raw `usage`
+        // stays per-query. Completed responses include this host turn's root
+        // and child calls once, including continuations in the same process.
+        const cumulative = usageFromResult(msg);
+        const wholeFreshRuntime = this.options.autonomousUsage || this.options.freshRuntimeUsage;
+        const usage = wholeFreshRuntime ? cumulative : this.completedUsage.snapshot();
+        const costUsd = wholeFreshRuntime ? msg.total_cost_usd : undefined;
+        if (!wholeFreshRuntime) this.report({ kind: "claude_session_usage", completed: usage,
+          cumulative, reportedCostUsd: msg.total_cost_usd });
         if (msg.subtype === "success" && !msg.is_error) {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
             outcome: "success",
-            costUsd: msg.total_cost_usd,
+            ...(costUsd !== undefined ? { costUsd } : {}),
             durationMs: msg.duration_ms,
             numTurns: msg.num_turns,
             isError: false,
@@ -250,7 +257,7 @@ export class StreamAdapter {
             // Real accounting is available on error results too — a failed
             // turn still spent tokens, and hiding that would under-report.
             // Absent stays absent: 0 would claim "free".
-            ...(typeof msg.total_cost_usd === "number" ? { costUsd: msg.total_cost_usd } : {}),
+            ...(typeof costUsd === "number" ? { costUsd } : {}),
             ...(usage ? { usage } : {}),
           });
         }
@@ -259,6 +266,7 @@ export class StreamAdapter {
 
       case "system": {
         if (msg.subtype === "init") {
+          if (!this.options.autonomousUsage && !this.options.freshRuntimeUsage) this.report({ kind: "claude_session_usage" });
           messages.push({
             type: "status",
             status: "thinking",
@@ -394,6 +402,8 @@ export class StreamAdapter {
 }
 
 export interface StreamAdapterOptions {
+  /** A fresh nonpersistent helper has no resumed history in its terminal totals. */
+  freshRuntimeUsage?: boolean;
   /** Restricted autonomous accounting; no additional client frames. */
   autonomousUsage?: boolean;
   /**

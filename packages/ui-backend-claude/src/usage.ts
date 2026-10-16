@@ -15,6 +15,7 @@ export class CompletedResponseUsage {
   private receipt(atToolBoundary: boolean) {
     return Object.keys(this.models).length ? { usage: sumModelUsage(structuredClone(this.models)), atToolBoundary } : undefined;
   }
+  snapshot(): TurnUsage | undefined { return this.receipt(false)?.usage; }
   observe(event: StreamEvent, channel = "root"): { usage: TurnUsage; atToolBoundary: boolean } | undefined {
     if (event.type === "message_start") {
       const m = event.message, u = m.usage;

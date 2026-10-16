@@ -64,3 +64,19 @@ test("ordinary Claude interleaves root and child completed inference without exp
   expect(receipt).toMatchObject({usage:{inputTokens:12,outputTokens:6,cacheReadTokens:40,cacheCreationTokens:6}});
   expect(frame({type:"content_block_delta",delta:{type:"text_delta",text:"child-private-text"},index:0} as Event,"loom")).toEqual([]);
 });
+
+test("resumed result keeps only this turn including child receipts and no cumulative cost", () => {
+  const events: BackendActivityEvent[] = [], adapter = new StreamAdapter(event => events.push(event));
+  const frame = (event: Event, parent: string | null = null) => adapter.adapt({ type: "stream_event", event, parent_tool_use_id: parent } as SDKMessage);
+  frame(start("current-root", 10)); frame(delta(5)); frame(stop);
+  frame(start("current-child", 2), "loom"); frame(delta(1), "loom"); frame(stop, "loom");
+  // A duplicate child receipt is not another invocation.
+  frame(start("current-child", 2), "loom"); frame(delta(1), "loom"); frame(stop, "loom");
+  const result = adapter.adapt({ type: "result", subtype: "success", is_error: false, session_id: "odysseus-session",
+    total_cost_usd: 7, duration_ms: 1, num_turns: 1,
+    modelUsage: { "claude-sonnet-4-6": { inputTokens: 1200, outputTokens: 600, cacheReadInputTokens: 4000, cacheCreationInputTokens: 600 } },
+  } as unknown as SDKMessage).find(message => message.type === "result");
+  expect(result, "RESUMED_RESULT_OWN_TOKENS").toMatchObject({ usage: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 40, cacheCreationTokens: 6 } });
+  expect(result?.costUsd, "CUMULATIVE_COST_IS_NOT_A_TURN_COST").toBeUndefined();
+  expect(events.at(-1)).toMatchObject({ kind: "claude_session_usage", cumulative: { inputTokens: 1200 }, completed: { inputTokens: 12 } });
+});

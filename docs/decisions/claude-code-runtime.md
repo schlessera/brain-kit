@@ -111,7 +111,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:261-266`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:268-273`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -540,7 +540,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:221`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:228`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
@@ -1083,3 +1083,52 @@ a network namespace. It observes actual Read, allowlisted Bash and Write, and
 an operator-denied Write. Scripted responses establish runtime permission
 behavior; they are not provider results, subscription eligibility, model
 quality, billing evidence or a benchmark adoption decision.
+
+## Resumed usage accounting measurement (2026-10-16, #2025)
+
+`bun scripts/measure-claude-usage.ts --out report.json` exercised the installed
+Agent SDK **0.3.293** and its bundled CLI **2.1.293**, with isolated configuration,
+synthetic credentials and a scripted loopback Messages origin. Two serial
+`query()` calls shared a session through `resume`; each completed exactly one
+response with one input and one output token and no cache tokens.
+
+| Measurement | First turn | Resumed turn |
+| --- | ---: | ---: |
+| Completed response input/output | 1 / 1 | 1 / 1 |
+| Raw result `usage` input/output | 1 / 1 | 1 / 1 |
+| Result `modelUsage` input/output | 1 / 1 | 2 / 2 |
+| Result `total_cost_usd` | 0.000018 | 0.000036 |
+
+The model was `claude-sonnet-4-6` in both requests. This reproduces CLI
+session-cumulative cost/modelUsage without a provider call. It makes no claim
+about first-party invoices, cache eligibility or title-request occurrence:
+this run captured two streaming main requests and no additional request.
+
+An interactive/voice main result therefore uses completed response receipts,
+including child channels once and same-process follow-up continuations. The
+host prices those counts through the selected route. Neither the raw terminal
+cost nor subtracting consecutive terminal totals is a main-turn receipt:
+cancellation can roll cumulative counters backwards. Missing completed counts
+remain unknown. Autonomous Queue accounting retains its existing
+fresh-runtime semantics, as do fresh nonpersistent handoff helpers.
+
+The host separately reconciles source-qualified cumulative token evidence with
+retained completed-response counts for that session/backend. A positive
+unobserved remainder becomes an **Unstreamed Claude usage** Activity run, with
+unattributed request provenance. Its per-model/token-class high-water mark,
+completed counts and turn identity persist transactionally with the auxiliary
+run and session-cost addition. A repeated resumed total cannot book that
+remainder again, including when it shares the main/subagent model. Main-run
+cache/token metrics exclude it; overall Activity/session sums include measured
+auxiliary spend once. The reported SDK cost is audit evidence, not a pricing
+rate or an amount added to the ledger.
+
+An imported session establishes an unknown opening baseline; historical usage
+is not charged as new helper work. Missing totals, unmatched model ids and
+counter rollback make coverage partial, never negative main usage. Partial
+coverage is retained on the auxiliary run; a missing auxiliary measurement
+creates an unpriced run rather than a claim of free work. These conservative
+limits also apply after lost response coverage or changed runtime accounting.
+Existing frozen Activity rows are not migrated or repaired. #2052 owns the
+separate request/channel classifier for title-helper attribution; this
+reconciliation does not identify a helper by model name or suppress titles.

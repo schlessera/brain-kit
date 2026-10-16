@@ -89,7 +89,7 @@ async function startTurn(setup: {
     },
     // The per-turn runtime report (#211) is not what these tests are about.
     activity: (event) => {
-      if (event.kind !== "runtime_observed") activity.push(event);
+      if (event.kind !== "runtime_observed" && event.kind !== "claude_session_usage") activity.push(event);
     },
     ...(setup.withMaskHandler
       ? { requestMask: async () => new Uint8Array() }

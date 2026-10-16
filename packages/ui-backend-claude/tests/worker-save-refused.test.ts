@@ -1,3 +1,4 @@
+import { usageEvents } from "./helpers/usage-events.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Real keyless workers: copy-out refuses after the runtime reported success (#1697). */
 import { expect, test } from "bun:test";
@@ -42,6 +43,7 @@ async function run(mode: Mode, cancel = false) {
       if (mode === "concurrent" || mode === "exceeded") writeFileSync(saved, "Telemachus\n");
       if (mode === "memory") writeFileSync(memory, "Telemachus\n");
       yield { type: "system", subtype: "init", session_id: SESSION, apiKeySource: "none" };
+      yield* usageEvents(SESSION, "claude-sonnet-4-6", 17, 9);
       yield { type: "result", subtype: "success", session_id: SESSION, total_cost_usd: 0.25,
         duration_ms: 123, num_turns: 1, result: "Ithaca", usage: { input_tokens: 17, output_tokens: 9 } };
       if (cancel) host.abort();
@@ -64,7 +66,7 @@ for (const mode of ["concurrent", "hardlink", "memory"] as const) {
   test(`refused ${mode} copy-out replaces success with one named failure and keeps usage`, async () => {
     const { results, saved, memory, backendError } = await run(mode);
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ outcome: "error", isError: true, costUsd: 0.25,
+    expect(results[0]).toMatchObject({ outcome: "error", isError: true, usage: { inputTokens: 17, outputTokens: 9 },
       durationMs: 123, numTurns: 1, failure: { errorClass: "worker_state_save_refused" } });
     expect(backendError).toBeUndefined();
     expect(results[0]!.failure!.message).toContain("not saved in full");
@@ -79,7 +81,7 @@ for (const mode of ["concurrent", "hardlink", "memory"] as const) {
 
 test("valid copy-out keeps success and the saved transcript", async () => {
   const { results, saved } = await run("valid");
-  expect(results).toMatchObject([{ outcome: "success", costUsd: 0.25 }]);
+  expect(results).toMatchObject([{ outcome: "success", usage: { inputTokens: 17, outputTokens: 9 } }]);
   expect(saved).toBe("Odysseus\nIthaca\n");
 });
 
@@ -95,7 +97,7 @@ test("host cancellation outranks refused copy-out", async () => {
   const { results } = await run("concurrent", true);
   expect(results).toHaveLength(1);
   expect(results[0]).not.toHaveProperty("failure.errorClass", "worker_state_save_refused");
-  expect(results[0]).toMatchObject({ outcome: "cancelled", isError: false, costUsd: 0.25 });
+  expect(results[0]).toMatchObject({ outcome: "cancelled", isError: false, usage: { inputTokens: 17, outputTokens: 9 } });
 });
 
 

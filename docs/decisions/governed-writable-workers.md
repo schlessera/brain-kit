@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:554-558`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:568-572`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1029,7 +1029,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:284`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:341`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1042,7 +1042,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:442`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,

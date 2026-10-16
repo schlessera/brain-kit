@@ -453,7 +453,6 @@ describe("startTurn", () => {
       type: "result",
       sessionId: "sess-1",
       outcome: "success",
-      costUsd: 0,
       durationMs: 1,
       numTurns: 1,
       isError: false,
@@ -1464,4 +1463,17 @@ test("the admitted remaining USD budget reaches Claude's SDK backstop and its st
  await backend.startTurn(makeReq({...fixture.bridge,activity:event=>events.push(event)},new AbortController().signal,{maxBudgetUsd:37.25}));
  expect(captured,"BUDGET_CLAUDE_ACTUAL_SDK_OPTION").toBe(37.25);expect(events.filter(event=>event.kind==="budget_backstop")).toHaveLength(1);
  expect(fixture.frames.find(frame=>frame.type==="result")).toMatchObject({outcomeDetail:"max_budget"});
+});
+
+test("a fresh nonpersistent handoff helper retains its own terminal cost", async () => {
+  const backend = createClaudeBackend({ brainPath: "/brain", queryFn: makeQueryFn(async function* () {
+    yield initMsg("odysseus-handoff-helper");
+    yield { ...resultMsg("odysseus-handoff-helper"), total_cost_usd: 0.25 };
+  }) });
+  const { frames, bridge } = makeBridge();
+  await backend.startTurn(makeReq({ ...bridge, checkpointPermission: () => {} }, new AbortController().signal, {
+    enforceAllowedTools: true, noGrantSurface: true,
+    autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "Summarize the voyage." },
+  }));
+  expect(frames.at(-1), "FRESH_HANDOFF_COST_RETAINED").toMatchObject({ type: "result", costUsd: 0.25 });
 });

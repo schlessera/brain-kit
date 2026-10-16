@@ -594,7 +594,8 @@ async function runRetainedSession(
               recorder?.recordBudgetStop(budgetFailure.message,"budget_unavailable");
               abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
             }
-          } : undefined
+          } : undefined,
+          billing
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {

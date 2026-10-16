@@ -1,8 +1,9 @@
+import { usageEvents } from "./helpers/usage-events.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * This pins current behaviour so the 0.34.0 factory split can be proven
- * behaviour-preserving. Changing an assertion here is a behaviour change and
- * needs saying so.
+ * behaviour-preserving. #2025 changes accounting to completed-response
+ * receipts; cumulative result totals remain separate runtime evidence.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -104,6 +105,8 @@ describe("createClaudeBackend stream and usage characterization", () => {
             ],
           },
         };
+        yield* usageEvents("claude-success", "claude-character-1", 10, 5, 20, 3);
+        yield* usageEvents("claude-success", "claude-character-2", 4, 6, 7, 2);
         yield {
           type: "result",
           subtype: "success",
@@ -186,7 +189,7 @@ describe("createClaudeBackend stream and usage characterization", () => {
         type: "result",
         sessionId: "claude-success",
         outcome: "success",
-        costUsd: 0.42,
+
         durationMs: 1234,
         numTurns: 2,
         isError: false,
@@ -201,14 +204,14 @@ describe("createClaudeBackend stream and usage characterization", () => {
               outputTokens: 5,
               cacheReadTokens: 20,
               cacheCreationTokens: 3,
-              costUsd: 0.3,
+
             },
             "claude-character-2": {
               inputTokens: 4,
               outputTokens: 6,
               cacheReadTokens: 7,
               cacheCreationTokens: 2,
-              costUsd: 0.11,
+
             },
           },
         },
@@ -220,6 +223,7 @@ describe("createClaudeBackend stream and usage characterization", () => {
     const harness = makeBackend(() =>
       (async function* () {
         yield init("claude-error-result");
+        yield* usageEvents("claude-error-result", "claude-character-2", 7, 2);
         yield {
           type: "result",
           subtype: "error_max_budget_usd",
@@ -248,7 +252,7 @@ describe("createClaudeBackend stream and usage characterization", () => {
       numTurns: 3,
       isError: true,
       outcomeDetail: "max_budget",
-      costUsd: 0.19,
+
       usage: {
         inputTokens: 7,
         outputTokens: 2,
@@ -258,9 +262,9 @@ describe("createClaudeBackend stream and usage characterization", () => {
           "claude-character-2": {
             inputTokens: 7,
             outputTokens: 2,
-            cacheReadTokens: undefined,
-            cacheCreationTokens: undefined,
-            costUsd: 0.18,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+
           },
         },
       },

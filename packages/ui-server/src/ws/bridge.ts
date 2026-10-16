@@ -49,7 +49,8 @@ export function makeBridge(
   /** Frozen policy protection captured after this turn's gate admission. */
   protectedPaths?: readonly string[],
   workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
-  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void
+  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void,
+  pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -82,6 +83,7 @@ export function makeBridge(
   // a follow-up turn's text or destinations when its coordinator slot is reused.
   const promotedLinks = new Map<string, string>();
   let collectedSessionId = turn.sessionId;
+  let claudeUsage: import("./claude-usage-accounting.js").ClaudeUsageEvidence | undefined;
   const persistPromotedBlocks = () => {
     if (collector && collectedSessionId) host.classifier?.rewriteLinks(collectedSessionId, collector.textParts(), promotedLinks);
   };
@@ -198,6 +200,13 @@ export function makeBridge(
         }
       }
       if (msg.type === "result") {
+        if (claudeUsage && turn.turnId === turnId) {
+          catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+          const costUsd = catalog.accountClaudeUsage?.(msg.sessionId, backendId, turnId, claudeUsage, resumedSession, { ...pricingContext, principalId });
+          const { costUsd: _sessionCost, usage: _reportedUsage, ...terminal } = msg;
+          msg = { ...terminal, ...(claudeUsage.completed ? { usage: claudeUsage.completed } : {}),
+            ...(costUsd !== undefined ? { costUsd } : {}) };
+        }
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
         if (turn.turnId === turnId && msg.stateRoom && msg.failure?.errorClass !== "session_too_large"
           && msg.failure?.errorClass !== "worker_state_exceeded" && msg.failure?.errorClass !== "worker_state_busy") {
@@ -374,7 +383,12 @@ export function makeBridge(
     },
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
-      if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
+      if (event.kind === "claude_session_usage" && turn.turnId === turnId) {
+        claudeUsage = { ...claudeUsage, completed: event.completed,
+          ...(event.cumulative ? { cumulative: event.cumulative, cumulativeCompleted: event.completed,
+            reportedCostUsd: event.reportedCostUsd } : {}) };
+      }
+      else if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
       else if (event.kind === "turn_temp_purge") {
         // Each purge of turn temp (#1703), kept with the session history and never shown.
         const { kind, ...payload } = event;
