@@ -1,6 +1,7 @@
 import React from "react";
 import { CodeBlock } from "@schlessera/brain-ui-kit";
 import { CopyButton } from "./copy-button.js";
+import { ContentRendererView } from "../content-renderer.js";
 import { MermaidBlock } from "./mermaid-block.js";
 
 /** Concatenate all text descendants of a React node tree. */
@@ -31,6 +32,16 @@ function mermaidSourceFrom(children: React.ReactNode): string | null {
 }
 
 export function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
+  for (const child of React.Children.toArray(children)) {
+    if (!React.isValidElement(child)) continue;
+    const code = child.props as { className?: string; children?: React.ReactNode };
+    const language = code.className?.match(/(?:^|\s)language-([^\s]+)/)?.[1];
+    if (language) return <ContentRendererView language={language} source={extractText(code.children).replace(/\n$/, "")} fallback={<LegacyPre {...props}>{children}</LegacyPre>} />;
+  }
+  return <LegacyPre {...props}>{children}</LegacyPre>;
+}
+
+function LegacyPre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
   const mermaid = mermaidSourceFrom(children);
   if (mermaid !== null) return <MermaidBlock source={mermaid} />;
   return <CodePre {...props}>{children}</CodePre>;
