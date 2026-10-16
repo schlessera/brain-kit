@@ -3115,14 +3115,14 @@ describe("activity and device root ownership", () => {
     const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><AppShell><DevicesAgentsTab active /></AppShell></BrainUiProvider>;
     const view = render(panel(a.root));
     try {
-      await act(async () => { a.requests[0].response.resolve(principalResponse([])); await flushPromises(); });
+      await act(async () => { a.matching("/auth/principals")[0].response.resolve(principalResponse([])); await flushPromises(); });
       changeControlledInput(view.getByLabelText("Label") as HTMLInputElement, "Alpha helper");
       fireEvent.click(view.getByRole("button", { name: "Create agent credential" }));
-      expect(a.requests[1].init?.method).toBe("POST");
+      expect(a.matching("/auth/principals")[1].init?.method).toBe("POST");
       view.rerender(panel(b.root));
       await act(async () => {
-        b.requests[0].response.resolve(principalResponse([]));
-        a.requests[1].response.resolve(Response.json({ id: "issued", label: "Alpha helper", expiresAt: 1, cookie: "alpha-once" }));
+        b.matching("/auth/principals")[0].response.resolve(principalResponse([]));
+        a.matching("/auth/principals")[1].response.resolve(Response.json({ id: "issued", label: "Alpha helper", expiresAt: 1, cookie: "alpha-once" }));
         await flushPromises();
       });
       expect(a.root.stores.principal.getState().oneTimeCredential?.cookie).toBe("alpha-once");
@@ -4752,7 +4752,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
