@@ -74,10 +74,13 @@ Source anchors, checked against the reviewed commit:
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
   and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-38`).
-  #1656 supplies staging-lifetime protection.
+  [#807](https://github.com/schlessera/brain-kit/issues/807) supplies live-work
+  and settlement protection for staging cleanup.
 - H: scratch defaults (`SCRATCH_DIR`, `packages/core/src/lib/scratch.ts:52-61`),
   scheduled prune (`startScratchPrune`, `packages/ui-server/src/cron/scratch-prune.ts:37-45`),
   and the [writable-area decision](../decisions/worker-writable-areas.md).
+  [#1656](https://github.com/schlessera/brain-kit/issues/1656) supplies retained
+  scratch conversation pins.
 - I: [server configuration](../../packages/ui-server/README.md) and worker-area/governed-worker
   decisions distinguish the independent configured limits and mounts. Delivered
   #1703 adds scoped turn-temp usage/purge and promotion protection; those
