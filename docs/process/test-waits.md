@@ -1552,3 +1552,56 @@ semantics. Other answer cases and the separate late-principal coverage were
 unchanged in that source-frozen study. Later integration retains the separate
 principal-read distribution and seven added Other-answer cases; those changes
 and the new mandatory fixture build are outside this historical timing pair.
+
+## Renderer phase scheduling with browser doubles
+
+The [phase-clock evidence](evidence/test-wait-renderer-phase-clock.json) records
+#1947's paired study on base `4e4a663f`, using Bun 1.4.2 on one shared Linux
+host. Production renderer/semaphore bytes are identical in both arms. The
+all-double policy fixture retains its original 15 cases and 82 expectations,
+adds registered-deadline, cancellation, overlap and failure-cleanup checks, and
+executes 16 cases / 184 expectations. Existing native Chromium proof, production
+options and the fixed 2000 ms browser-cleanup bound are unchanged.
+
+Only this fixture's global timeout descriptors are temporarily replaced. Real
+promise continuations and native event-loop turns execute between logical
+callbacks. Each driven phase first asserts its actual pending registration;
+queue, acquisition, rendering, idle and cleanup retain their requested values.
+Just-before/due checks, independent overlapping allowances, idle rearming and
+cleared handles are explicit. Late resolutions drain ready promise jobs before
+checking actual fake-resource close/configuration/capture effects. This finite
+promise-only fixture does not use an event-loop turn as a general IO completion
+signal. Outer failure ceilings remain native. Teardown shuts down every owned
+renderer, drives registered deadlines, checks that none remain pending, and
+restores complete descriptors in `finally`, including after a synthetic failure.
+This proves scheduling policy with doubles, not native browser cleanup duration.
+
+The uninstrumented full command changes from 3.15 to 0.11 seconds; summed case
+bodies change from 3024.55 to 6.96 ms. The focused wedged-cleanup command changes
+from 2.13 to 0.11 seconds; the slow-launch/overlapping-render pair changes from
+0.51 to 0.11 seconds. These are separate scopes, not additive savings. Full-file
+CPU is 0.21 to 0.14 seconds and maximum RSS is 54524 to 56068 KiB; this single
+shared-host pair establishes no reliable CPU/memory effect or whole-CI gain.
+The one frozen dependency install reported 9.57 seconds and is excluded from
+these commands; no build is needed. Wrapper/preload/module loading remain in
+command totals and outside body totals.
+
+Separate instrumented runs observe 136 native timeout registrations in the
+baseline. The candidate observes 92 logical registrations (18 fired, 74 cleared)
+and 33 native failure ceilings, all cleared without firing. The added idle
+restart and failure-cleanup control explain changed event counts; these are not
+one-to-one event inventories. Original waits and watchdog spans overlap and are
+not summed as savings. Full raw receipts and requested-value/state counts are
+in the evidence. Instrumentation is absent from the functional test.
+
+Wrong requested deadlines, wrong rendering phase, missing cancellation and
+missing idle rearm each fail registration/state assertions. One-millisecond
+early/late scheduler faults fail before/due checks. Removing expiration guards
+fails the original late-content `screenshots == 0` assertion (received 1);
+duplicating native fake-browser close fails the original close-count assertion
+(received 2). Omitting descriptor restoration fails the failure-path control.
+Two narrower mutations survived independent safeguards: deleting only the
+post-content check still leaves later checks, and removing close memoization
+alone does not duplicate the selected closer invocation. They are retained as
+limits of those controls, not claimed as detected faults. All mutations were
+restored before the passing paired candidate run.
