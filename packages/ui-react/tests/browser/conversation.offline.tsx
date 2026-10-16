@@ -541,7 +541,9 @@ test("a visual grant winning a voice-refusal race reports the host grant instead
   expect(receipt.byVoice).toBe(false);
   await expect.poll(() => s.host.textContent).toContain("The screen decision was already accepted.");
   expect(s.host.textContent).not.toContain("Denied · by voice");
-  expect(s.ui.stores.chat.getState().buffers[SESSION]?.messages.flatMap(m => m.toolCalls).find(t => t.id === "ithaca-race")?.status).toBe("approved");
+  // The receipt owns the confirmed decision; the ordinary tool result still
+  // owns transcript status and restored-card recovery.
+  expect(s.host.querySelector('[data-approval-card]')).toBe(null);
 });
 
 test("a disconnect after refusal keeps the outcome unknown and never resends the old denial", async (ctx) => {

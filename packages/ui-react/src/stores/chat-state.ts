@@ -1571,8 +1571,10 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         if (!chat?.messages.some(m => m.toolCalls.some(t => owns(m, t) && t.voicePermission !== receipt))) return;
         mutateBuffer(key, current => ({ messages: current.messages.map(m => ({ ...m, toolCalls: m.toolCalls.map(t => {
           if (!owns(m, t)) return t;
-          const status = t.status === "complete" ? t.status : receipt.phase === "granted" ? "approved" as const : receipt.phase === "denied" || receipt.phase === "expired" ? "denied" as const : t.status;
-          return { ...t, status, voicePermission: receipt };
+          // Receipt state locks decisions through awaitsDecision. Preserve the
+          // transcript status so ordinary result/recovery routing can still
+          // recognize an unanswered restored card and record its closure.
+          return { ...t, voicePermission: receipt };
         }) })) }));
       },
 
