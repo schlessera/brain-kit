@@ -1169,7 +1169,7 @@ never through host shell evaluation.
 
 The bounded server-only implementation reads the trusted host config directory,
 not a public request path (`resolveClaudeHostOAuth`,
-`packages/ui-backend-claude/src/host-oauth.ts:75-195`). It rereads the record for
+`packages/ui-backend-claude/src/host-oauth.ts:100-221`). It rereads the record for
 every resolution, respects an explicitly supplied setup token, and refreshes
 stored OAuth within five minutes of expiry. The measured production protocol is
 JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
@@ -1248,7 +1248,7 @@ relay with a placeholder in its environment while the host resolves stored OAuth
 for each dispatch. The offline control composes the existing resolver and relay
 directly; it adds no production factory or ordinary-worker activation
 (`const relay = startInferenceRelay`,
-`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:76-77`).
+`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:79-80`).
 The test verifies the selected binary's checksum and every actual native
 process's executable, and runs the entire fixture with an empty ambient
 environment in fresh network and PID namespaces. Native inference and refresh
