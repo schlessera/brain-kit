@@ -350,7 +350,8 @@ edges add optional `cycle`; backward rank edges require a named highlighted cycl
 Additional editorial warnings use `budget` for 3 flat architecture zones,
 2 containment admin bands / 4 traffic scopes / 8 nodes, 3 decision exits,
 twice-state-box-count transitions (excluding markers), 5 tree items across a whole level, 4 dependency ranks and
-1 highlighted dependency cycle. `state_label`, `prefer_tree`, `rank_missing`, and `accent_budget`
+1 highlighted dependency cycle. `state_label`, `prefer_tree`, `rank_missing`, `rank_alignment`, `rank_spacing`,
+and `accent_budget`
 are actionable advisory findings. All warnings preserve content and validity in
 the absence of another error; focal hard maximum remains two.
 

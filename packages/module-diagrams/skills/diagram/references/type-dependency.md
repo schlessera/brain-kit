@@ -3,7 +3,9 @@
 Use this for shared children or cycles; an explicitly ranked tree-shaped graph
 warns to consider tree. Node `rank` is an optional nonnegative integer; rank 0 is
 entry, deeper ranks are authored below earlier ranks. Missing ranks warn explicitly;
-a generic unranked source is never presented as a verified ranked layout. Upward edges require
+a generic unranked source is never presented as a verified ranked layout.
+Same-rank rows should align, with at least 120px separation between ranks;
+misalignment or tighter spacing warns without moving authored nodes. Upward edges require
 `cycle: true` and a visible `label` such as CYCLE. A cycle gets the outside-right
 orthogonal lane, amber dashed paint and matching label. Reserve it first in edge
 order. More than one highlighted cycle warns; focal nodes with a cycle warn

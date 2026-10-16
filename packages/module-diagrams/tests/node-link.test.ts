@@ -68,3 +68,8 @@ test("containment has ported nested perpendicular-axis and first-over-budget con
 });
 
 test("an endpoint cannot target a compute node",async()=>{const spec=await example("architecture-containment");spec.nodes[1].target="hermes";expect(checkDiagram(JSON.stringify(spec)).errors.some(item=>item.code==="containment"&&item.path==="$.nodes[1].target"),"ENDPOINT_TARGET_MUST_BE_MANAGED").toBe(true);});
+
+test("explicit dependency row misalignment and tight spacing warn without moving nodes",async()=>{
+ const spec=await example("dependency");spec.nodes[2].at[1]+=4;const original=JSON.stringify(spec);expect(checkDiagram(original).warnings.some(item=>item.code==="rank_alignment")).toBe(true);expect(JSON.stringify(spec)).toBe(original);
+ spec.nodes[1].at[1]=128;spec.nodes[2].at[1]=128;expect(checkDiagram(JSON.stringify(spec)).warnings.some(item=>item.code==="rank_spacing")).toBe(true);
+});
