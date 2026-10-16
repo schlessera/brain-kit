@@ -9,6 +9,37 @@ for complete mandatory local proof and packaging-before-verification scheduling.
 Every test, offline boundary, image/runtime pin and behavioral assertion remains.
 The earlier #1321 exception was one PR's ruling; this is the general policy.
 
+## Browser proof input ownership
+
+The maintainer selected D/A/A under [#2125](https://github.com/schlessera/brain-kit/issues/2125)
+on 2026-10-16: discover repository static imports and validate explicit declarations
+for spawned processes, generated entrypoints, file reads, assets and CSS/build inputs.
+Browser, layout, endurance and captures each use their applicable combined closure.
+Captures use their own entrypoints and declarations. A selected category runs in full;
+this changes category selection, never its internal case inventory or shard coverage.
+
+Declarations live alongside the harness in `packages/ui-kit/tests/proof-inputs.json`
+and `scripts/captures/proof-inputs.json`. Each binds an exact owner call expression
+to nonempty repository targets. Targets must exist and participate transitively;
+directories also own newly added descendants. Missing, duplicate, stale, unused,
+escaping or unsupported inputs retain the previous broad selection. Exact source
+matching detects a changed call site; it does not prove an arbitrary runtime target
+is bounded. Do not declare an owner as its own target to conceal unknown inputs.
+
+Runtime-selected configuration/modules and backend imports can prevent a closed
+category. That is a conservative result, not permission to discard an edge. The
+shared Vitest config imports the dispatch command; its real application fixture
+reaches every current server route. A synthetic unrelated-route negative therefore
+does not demonstrate savings for any existing route. Fixed spawned fixture and
+corpus paths are declared independently of these runtime-variable edges.
+
+Global dependency/tooling changes retain complete selection. Main pushes retain
+complete affected proof. Scheduled and manual runs remain exhaustive as an
+independent detector of omitted inputs; they do not replace exact candidate proof.
+The same immutable 100-PR replay must identify every newly omitted browser category
+and its closure evidence. Zero reductions is a valid observed result, without a
+speedup claim or an inferred narrower harness.
+
 ## Local feedback and authoritative proof
 
 `bun run check:pr --base origin/main` runs local lint/leakage, metadata,
