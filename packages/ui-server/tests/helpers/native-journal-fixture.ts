@@ -79,6 +79,13 @@ export function createNativeJournalFixture(brain: string, root: string) {
   };
   const client: ReturnType<typeof createNativeBrainManagerClient> = {
     ...manager,
+    async readStage() { throw Error("Copied native fixture cannot qualify private stage reads"); },
+    async statStage() { throw Error("Copied native fixture cannot qualify private stage metadata"); },
+    async listStage() { throw Error("Copied native fixture cannot qualify private stage inventory"); },
+    async attestStage() { throw Error("Copied native fixture cannot qualify stage identity authority"); },
+    async readCheckpoint() { throw Error("Copied native fixture cannot qualify fixed-UID checkpoint reads."); },
+    async statCheckpoint() { throw Error("Copied native fixture cannot qualify fixed-UID checkpoint metadata."); },
+    async listCheckpoint() { throw Error("Copied native fixture cannot qualify fixed-UID checkpoint inventory."); },
     async prepareStage() { throw Error("Copied native fixture does not qualify output-stage runtime; provide explicit prepared worker test output."); },
     async inspectStage() { throw Error("Copied native fixture has no output stage to inspect."); },
     async releaseStage(id) { return { id, state: "deleted" }; },
@@ -103,6 +110,7 @@ export function createNativeJournalFixture(brain: string, root: string) {
         if (message.operation === "prepareStage") return Response.json(await client.prepareStage(message.id,message.checkpointId,message.allowanceBytes,request.signal));
         if (message.operation === "releaseStage") return Response.json(await client.releaseStage(message.id,request.signal));
         if (message.operation === "inspectStage") throw Error("Copied native fixture cannot qualify stage inspection.");
+        if (message.operation !== "delta") throw Error("Copied native fixture cannot qualify private native operations.");
         const result = await client.delta(message.from, message.to, request.signal);
         const raw = new Uint8Array(await new Response(result.stream).arrayBuffer()), completed = await result.completed;
         const frames: Uint8Array[] = [];

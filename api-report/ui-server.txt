@@ -723,6 +723,44 @@ signatures (every public export and the types it is made of)
     }
   ModelDiscoverySource (packages/ui-server/src/agent/backend.ts)
     export type ModelDiscoverySource = BackendModelSource;
+  NativeCheckpoint (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeCheckpoint {
+        id: string;
+        sourceUuid: string;
+        path: string;
+        fsid: string;
+        rootId: string;
+        uuid: string;
+        transaction: string;
+        readOnly: true;
+    }
+  NativeCheckpointFile (packages/ui-sdk/src/server/native-brain-manager-client.ts)
+    export interface NativeCheckpointFile {
+        workerUid: number;
+        stream: ReadableStream<Uint8Array>;
+        completed: Promise<{
+            bytes: number;
+            workerUid: number;
+        }>;
+    }
+  NativeCheckpointMetadata (packages/ui-sdk/src/server/native-brain-manager-client.ts)
+    export interface NativeCheckpointMetadata {
+        path: string;
+        kind: "directory" | "file" | "symlink" | "other";
+        mode: number;
+        bytes: number;
+        stamp: string;
+        inode: string;
+        target?: string;
+    }
+  NativeDeltaStream (packages/ui-sdk/src/server/native-brain-manager-client.ts)
+    export interface NativeDeltaStream {
+        stream: ReadableStream<Uint8Array>;
+        completed: Promise<{
+            exitCode: 0;
+            bytes: number;
+        }>;
+    }
   NativeJournalCheckpoint (packages/ui-server/src/brain/native-journal-observer.ts)
     export interface NativeJournalCheckpoint {
         id: string;
@@ -742,6 +780,61 @@ signatures (every public export and the types it is made of)
             }>;
         }>;
         release(id: string, signal?: AbortSignal): Promise<unknown>;
+        readCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["readCheckpoint"];
+        statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
+        listCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["listCheckpoint"];
+    }
+  NativeManagerReady (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeManagerReady {
+        brainPath: string;
+        brainUuid: string;
+        brainRootId: string;
+        privatePaths: string[];
+        fsid: string;
+        capacityBytes: number;
+        availableBytes: number;
+        recoveryReserveBytes: number;
+        reserveAllocatedBytes: number;
+    }
+  NativeRecoveryRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeRecoveryRecord {
+        id: string;
+        state: "creating" | "sealed" | "deleting" | "deleted";
+        checkpoint?: NativeCheckpoint;
+        kind?: "stage";
+        stage?: NativeStage;
+        stageRequest?: {
+            checkpointId: string;
+            checkpointUuid: string;
+            allowanceBytes: number;
+        };
+    }
+  NativeStage (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeStage {
+        id: string;
+        checkpointId: string;
+        checkpointUuid: string;
+        sourceUuid: string;
+        path: string;
+        namespacePid: number;
+        namespaceStart: string;
+        appUid: number;
+        appGid: number;
+        allowanceBytes: number;
+        rootDevice: string;
+        rootInode: string;
+    }
+  NativeStageChange (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeStageChange {
+        pathHex: string;
+        kind: "entry" | "whiteout" | "opaque";
+    }
+  NativeStageInspection (packages/ui-sdk/src/server/native-brain-manager-client.ts)
+    export interface NativeStageInspection {
+        checkpointId: string;
+        checkpointUuid: string;
+        changes: AsyncIterable<NativeStageChange>;
+        completed: NativeDeltaStream["completed"];
     }
   Observability (packages/ui-server/src/observability/index.ts)
     export interface Observability {
@@ -1277,6 +1370,40 @@ signatures (every public export and the types it is made of)
     };
   createLabeller (packages/ui-server/src/labels/labeller.ts)
     export function createLabeller(deps: CreateLabellerDeps): Labeller;
+  createNativeBrainManagerClient (packages/ui-sdk/src/server/native-brain-manager-client.ts)
+    export function createNativeBrainManagerClient(input: {
+        socketPath: string;
+        timeoutMs?: number;
+        maxDeltaBytes?: number;
+    }): {
+        attestStage: (id: string, signal?: AbortSignal) => Promise<{
+            close(): void;
+            fd: number;
+        }>;
+        checkpoint: (id: string, signal?: AbortSignal) => Promise<NativeCheckpoint>;
+        delta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
+        inspectStage: (id: string, signal?: AbortSignal) => Promise<NativeStageInspection>;
+        listCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
+        listRecovery: (after?: null | string, signal?: AbortSignal) => Promise<{
+            next: null | string;
+            records: NativeRecoveryRecord[];
+        }>;
+        listStage: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
+        prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
+        readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
+        readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
+        ready: (signal?: AbortSignal) => Promise<NativeManagerReady>;
+        release: (id: string, signal?: AbortSignal) => Promise<{
+            id: string;
+            state: "deleted";
+        }>;
+        releaseStage: (id: string, signal?: AbortSignal) => Promise<{
+            id: string;
+            state: "deleted";
+        }>;
+        statCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata | null>;
+        statStage: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata | null>;
+    };
   createObservability (packages/ui-server/src/observability/index.ts)
     export function createObservability(options?: ObservabilityOptions): Observability;
   createRecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)

@@ -6,6 +6,11 @@ export function workerLaunchPayload(): string | undefined {
   return readEnvVar("BRAIN_WORKER_LAUNCH");
 }
 
+/** Optional host-owned cross-UID broker helper, never read inside a worker. */
+export function workerIdentityHelperInput(): string | undefined {
+  return readEnvVar("BRAIN_UI_WORKER_IDENTITY_HELPER");
+}
+
 /** The host's agent worker resource limits (#1660), parsed by `parseWorkerLimits`. */
 export function workerLimitsSpec(): string | undefined {
   return readEnvVar("BRAIN_UI_WORKER_LIMITS");

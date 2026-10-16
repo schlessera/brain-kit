@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { recoveredWorkerFile, recoveredWorkerFiles, sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -52,7 +52,17 @@ export function validateSessionId(id: string): void {
 
 /** Reads one regular, unaliased file of at most `limit` bytes, never following a link. */
 export function regular(path: string, limit: number): Buffer {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const recovered = recoveredWorkerFile(path, limit);
+  if (recovered !== undefined) return recovered;
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) {
+    if (["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      const recovered = recoveredWorkerFile(path, limit);
+      if (recovered !== undefined) return recovered;
+    }
+    throw error;
+  }
   try {
     const info = fstatSync(fd);
     if (!info.isFile() || info.nlink !== 1 || info.size > limit) throw new WorkerHostError("runtime state contains an alias, special file or oversized file");
@@ -75,6 +85,10 @@ export function directory(path: string): void {
  * worker is gone by then, so nothing can swap an entry between checks.
  */
 export function files(root: string, prefix = "", options: { resolved?: boolean } = {}): string[] {
+  if (options.resolved === false) {
+    const recovered = recoveredWorkerFiles(root);
+    if (recovered !== undefined) return recovered.map(name => prefix ? `${prefix}/${name}` : name);
+  }
   if (!existsSync(root)) return [];
   if (!lstatSync(root).isDirectory() || (options.resolved !== false && realpathSync(root) !== root)) {
     throw new WorkerHostError("runtime state directory is redirected");
@@ -107,6 +121,8 @@ export interface ClaudeWorkerState {
    * namespace is gone; `rewrite` promotes newly appended answer links for display.
    */
   persist(root: string, rewrite?: (text: string) => string): void;
+  /** Prepare only newly appended answer links before synchronous publication. */
+  prepareCopyOut?(root: string, prepare: (text: string) => Promise<void>, signal?: AbortSignal): Promise<void>;
   /** Releases the admission reservation; idempotent, called on every exit path. */
   release(): void;
 }
@@ -223,6 +239,19 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
      * `rewrite` observes this turn’s answer links for promotion. All transcript
      * bytes stay exactly as the runtime wrote them (#2049).
      */
+    async prepareCopyOut(root, prepare, signal) {
+      for (const file of files(join(root, project), "", { resolved: false })) {
+        signal?.throwIfAborted();
+        if (file.includes("/") || !file.endsWith(".jsonl")) continue;
+        const id = file.replace(/\.jsonl$/, "");
+        if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
+        const name = `${project}/${file}`, bytes = regular(join(root, name), allowance);
+        const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
+        const texts: string[] = [];
+        rewriteAppendedAnswers(bytes, prefix, text => { texts.push(text); return text; });
+        for (const text of texts) { signal?.throwIfAborted(); await prepare(text); }
+      }
+    },
     persist(root, rewrite) {
       // Only this brain's native transcript files and its memory notes, never
       // worker-supplied commands, settings, destinations or deletion requests.

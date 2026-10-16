@@ -239,7 +239,7 @@ test("cancellation during native stage preparation never launches a late Pi work
   try {
     const startupView = {brain,root:brain,storage:{root:brain,retain(){},release(){}},cleanup(){}};
     const opening = openPiWorkerSession({brainPath:brain},sessionDir,{workerSignal:controller.signal,workerStartupView:startupView,
-      workerSandbox:{profile:"strict",scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{path:join(brain,"workspaces"),writable:true}}]} as never,
+      workerSandbox:{brain,restricted:false,profile:"strict",scratchAliasesRemoved:[],areas:[{name:"workspaces",rel:"workspaces",mount:{path:join(brain,"workspaces"),writable:true}}]} as never,
       caps:{askUser:false,askUserList:false,askUserRank:false,location:false,activity:false,mask:false}});
     await entered.promise;controller.abort(new Error("Odysseus cancelled native preparation"));
     await expect(opening).rejects.toThrow("Odysseus cancelled native preparation");
@@ -266,7 +266,7 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
       turnTemp: { close() { events.push("turn-temp-close"); } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const opening = openPiWorkerSession({ brainPath: brain }, sessionDir, { workerStartupView: profile === "strict" ? view : undefined,
-    workerSandbox: { profile, scratchAliasesRemoved: [], areas: profile === "strict" ? [{ name: "workspaces", rel: "workspaces", mount: { path: join(brain, "workspaces"), writable: true } }] : [] } as never,
+    workerSandbox: { brain, restricted: false, profile, scratchAliasesRemoved: [], areas: profile === "strict" ? [{ name: "workspaces", rel: "workspaces", mount: { path: join(brain, "workspaces"), writable: true } }] : [] } as never,
     workerStarted() { events.push("callback"); expect(worker.processStateLedger().turnTempHeld).toBeGreaterThan(baseline); throw failure; },
     caps: { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false } });
   const result = opening.then(() => undefined, error => error);

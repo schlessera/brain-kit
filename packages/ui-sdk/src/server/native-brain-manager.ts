@@ -1,7 +1,7 @@
 /**
  * Host-only Btrfs broker for one explicitly provisioned finite store (#1790).
  * Run in a separate trusted service, never in the app or an agent worker.
- * It cannot format, resize, execute repository code or accept caller paths.
+ * It cannot format, resize, execute repository code or accept caller host paths.
  * Its fixed staging operation mounts one bounded private trusted OverlayFS.
  */
 import { constants, openSync, closeSync, fsyncSync, fstatSync, writeFileSync, readFileSync, renameSync, lstatSync, statSync,
@@ -10,6 +10,8 @@ import { dirname, isAbsolute, join } from "node:path";
 import { nativeCheckpointId, nativeManagerRequest, nativeManagerFrame, NativeBrainManagerError, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
   type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord } from "./native-brain-manager-protocol.js";
 import { startNativeStage } from "./native-brain-stage.js";
+import { randomUUID } from "node:crypto";
+import { nativeCheckpointReaderPath, startNativeCheckpointRead } from "./native-checkpoint-reader.js";
 
 const BTRFS = "/usr/bin/btrfs", PYTHON = "/usr/bin/python3", FALLOCATE = "/usr/bin/fallocate";
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" });
@@ -49,6 +51,8 @@ export interface NativeBrainManagerConfig {
   appGid: number;
   /** Fixed app identity and existing configured output-staging bounds. */
   appUid?: number;
+  /** Fixed identity used by the configured worker identity helper; never caller-selected. */
+  workerUid?: number;
   stageAllowanceBytes?: number;
   stageBudgetBytes?: number;
   capacityBytes: number;
@@ -70,6 +74,9 @@ export function validateNativeBrainManagerConfig(config: NativeBrainManagerConfi
   if (config.recoveryReserveBytes >= config.capacityBytes || config.recoveryReserveBytes % 4096 !== 0)
     throw new NativeBrainManagerError("invalid", "Native manager recovery reserve must be whole pages smaller than the configured capacity.");
   if (!Number.isSafeInteger(config.appGid) || config.appGid < 0) throw new NativeBrainManagerError("invalid", "Native manager needs an explicit app group identity.");
+  if (config.workerUid !== undefined && (!Number.isSafeInteger(config.workerUid) || config.workerUid <= 0 || config.workerUid >= 0xffffffff ||
+    !Number.isSafeInteger(config.appUid) || config.workerUid === config.appUid))
+    throw new NativeBrainManagerError("invalid", "Native checkpoint reader requires a fixed nonzero worker UID distinct from its fixed app UID.");
   if ([config.appUid, config.stageAllowanceBytes, config.stageBudgetBytes].some(value => value !== undefined)) {
     if (!Number.isSafeInteger(config.appUid) || config.appUid! < 0 || config.appUid! >= 0xffffffff)
       throw new NativeBrainManagerError("invalid", "Native staging requires a fixed app UID.");
@@ -134,6 +141,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
   let closed = false, pending = Promise.resolve(), active = new Set<AbortController>(), backingPath: string | undefined;
   const activeStages = new Map<string, Awaited<ReturnType<typeof startNativeStage>>>();
   const stageReservations = new Map<string, { checkpointId: string; allowanceBytes: number }>();
+  const checkpointReaders = new Map<string, { checkpointId: string; close(): Promise<void> }>();
   let stagedBytes = 0;
   async function acquire(signal?: AbortSignal): Promise<() => void> {
     signal?.throwIfAborted(); if (closed) throw new NativeBrainManagerError("unavailable", "Native manager is closing.");
@@ -333,6 +341,80 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     nativeManagerRequest.parse(request); const release = await acquire(signal); let handedToStream = false;
     try {
       if (request.operation === "ready") return Response.json(await ready(signal));
+      if (request.operation === "cancelCheckpointRead") {
+        const reader = checkpointReaders.get(request.id);
+        if (reader) await reader.close();
+        return Response.json({ id: request.id, closed: true });
+      }
+      if (request.operation === "readStage") {
+        if (fixed.workerUid === undefined || fixed.appUid === undefined) throw new NativeBrainManagerError("unsupported", "Configure the fixed worker identity before private stage reads.");
+        if (checkpointReaders.size >= 8) throw new NativeBrainManagerError("unavailable", "Native reader slots are busy.");
+        const intent = readIntent(request.id), handle = activeStages.get(request.id);
+        if (!intent || intent.kind !== "stage" || intent.state !== "sealed" || !handle)
+          throw new NativeBrainManagerError("unavailable", "Stage reading requires one active manager-owned stage.");
+        const maximum = Math.min(request.maximum, request.action === "file" ? handle.stage.allowanceBytes : fixed.maxDeltaBytes);
+        const id = randomUUID(), token = randomUUID(), socketPath = nativeCheckpointReaderPath(fixed.socketPath, id);
+        const reader = await handle.read({ id, token, socketPath, request: { action: request.action, path: request.path, maximum } }, signal);
+        const close = async () => { try { await reader.close(); } finally { checkpointReaders.delete(id); } };
+        checkpointReaders.set(id, { checkpointId: handle.stage.checkpointId, close });
+        if (signal?.aborted) { await close(); signal.throwIfAborted(); }
+        return Response.json({ id, token, socketPath, workerUid: fixed.workerUid, maximum });
+      }
+      if (request.operation === "readCheckpoint") {
+        if (fixed.workerUid === undefined || fixed.appUid === undefined)
+          throw new NativeBrainManagerError("unsupported", "Configure the native manager's fixed workerUid to match the qualified identity helper before private checkpoint reads.");
+        if (checkpointReaders.size >= 8) throw new NativeBrainManagerError("unavailable", "Native checkpoint reader slots are busy.");
+        const intent = readIntent(request.id);
+        if (!intent || intent.kind === "stage" || intent.state !== "sealed")
+          throw new NativeBrainManagerError("unknown", "Checkpoint reading requires one retained sealed checkpoint identity.");
+        const checkpoint = await verifyOwned(intent, signal);
+        const maximum = Math.min(request.maximum, request.action === "file" ? fixed.capacityBytes : fixed.maxDeltaBytes);
+        const id = randomUUID(), token = randomUUID(), socketPath = nativeCheckpointReaderPath(fixed.socketPath, id);
+        const rootFd = openSync(checkpoint.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        try {
+          signal?.throwIfAborted();
+          const reader = await startNativeCheckpointRead({ id, token, socketPath, workerUid: fixed.workerUid, maximum, rootFd,
+            appUid: fixed.appUid, appGid: fixed.appGid, timeoutMs: fixed.operationTimeoutMs, request: { action: request.action, path: request.path, maximum } });
+          checkpointReaders.set(id, { checkpointId: request.id, close: reader.close });
+          void reader.finished.finally(() => checkpointReaders.delete(id)).catch(() => {});
+          if (signal?.aborted) { await reader.close(); signal.throwIfAborted(); }
+          return Response.json({ id, token, socketPath, workerUid: fixed.workerUid, maximum });
+        } finally { closeSync(rootFd); }
+      }
+      if (request.operation === "attestStage") {
+        if (fixed.workerUid === undefined || fixed.appUid === undefined)
+          throw new NativeBrainManagerError("unsupported", "Stage identity authority requires the configured fixed worker identity.");
+        if (checkpointReaders.size >= 8) throw new NativeBrainManagerError("unavailable", "Native descriptor transfer slots are busy.");
+        const intent = readIntent(request.id), handle = activeStages.get(request.id);
+        if (!intent || intent.kind !== "stage" || intent.state !== "sealed" || !handle)
+          throw new NativeBrainManagerError("unavailable", "Only a live manager-owned stage can authorize a worker mount namespace.");
+        const stage = handle.stage;
+        const start = readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19];
+        if (start !== stage.namespaceStart || stage.appUid !== fixed.appUid || stage.appGid !== fixed.appGid)
+          throw new NativeBrainManagerError("unavailable", "Stage keeper identity changed before attestation.");
+        const source = readIntent(stage.checkpointId);
+        if (!source || source.kind === "stage" || source.state !== "sealed")
+          throw new NativeBrainManagerError("unknown", "Stage checkpoint authority is no longer retained.");
+        const checkpoint = await verifyOwned(source, signal);
+        if (checkpoint.uuid !== stage.checkpointUuid) throw new NativeBrainManagerError("unknown", "Stage checkpoint identity changed.");
+        const rootFd = openSync(checkpoint.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        try {
+          const info = fstatSync(rootFd, { bigint: true });
+          const authority = { version: 1 as const, kind: "brain-worker-stage" as const, id: stage.id,
+            appUid: stage.appUid, appGid: stage.appGid,
+            keeper: { pid: stage.namespacePid, start: stage.namespaceStart, mountNamespaceInode: handle.mountNamespaceInode },
+            root: { path: stage.path + "/merged", dev: handle.mergedDevice, ino: handle.mergedInode },
+            checkpoint: { path: checkpoint.path, dev: String(info.dev), ino: String(info.ino), uuid: checkpoint.uuid },
+            allowanceBytes: stage.allowanceBytes };
+          const id = randomUUID(), token = randomUUID(), socketPath = nativeCheckpointReaderPath(fixed.socketPath, id);
+          const transfer = await startNativeCheckpointRead({ id, token, socketPath, workerUid: fixed.workerUid, maximum: NATIVE_CONTROL_BYTES, rootFd,
+            appUid: fixed.appUid, appGid: fixed.appGid, timeoutMs: fixed.operationTimeoutMs, request: { action: "authority", authority } });
+          checkpointReaders.set(id, { checkpointId: checkpoint.id, close: transfer.close });
+          void transfer.finished.finally(() => checkpointReaders.delete(id)).catch(() => {});
+          if (signal?.aborted) { await transfer.close(); signal.throwIfAborted(); }
+          return Response.json({ id, token, socketPath });
+        } finally { closeSync(rootFd); }
+      }
       if (request.operation === "listRecovery") {
         const ids = readdirSync(state).filter(name => name.endsWith(".json")).map(name => name.slice(0, -5)).sort();
         if (ids.some(id => !nativeCheckpointId.safeParse(id).success)) throw new NativeBrainManagerError("unknown", "Native state contains an unrecognized identity.");
@@ -379,7 +461,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         let handle: Awaited<ReturnType<typeof startNativeStage>> | undefined;
         try {
           handle = await startNativeStage({ id: request.id, checkpointId: request.checkpointId, checkpointUuid: checkpoint.uuid,
-            sourceUuid: fixed.brainUuid, path, lower: checkpoint.path, appUid: fixed.appUid, appGid: fixed.appGid,
+            sourceUuid: fixed.brainUuid, path, lower: checkpoint.path, workerUid: fixed.workerUid, appUid: fixed.appUid, appGid: fixed.appGid,
             allowanceBytes: request.allowanceBytes, timeoutMs: fixed.operationTimeoutMs, signal });
           activeStages.set(request.id, handle); await writeIntent({ ...intent, state: "sealed", stage: handle.stage });
           return Response.json(handle.stage);
@@ -440,6 +522,8 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         return Response.json(checkpoint);
       }
       if (request.operation === "release") {
+        if ([...checkpointReaders.values()].some(reader => reader.checkpointId === request.id))
+          throw new NativeBrainManagerError("unavailable", "Close the checkpoint's active fixed-reader handle before releasing its native view.");
         let intent = readIntent(request.id);
         if (intent?.kind === "stage") throw new NativeBrainManagerError("invalid", "Use releaseStage for staged namespace ownership.");
         if ([...stageReservations.values()].some(stage => stage.checkpointId === request.id))
@@ -503,7 +587,9 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
   return {
     /** Only an already authenticated Unix endpoint invokes this fixed operation set. */
     run,
-    async close() { closed = true; for (const controller of active) controller.abort(); await pending; for (const stage of activeStages.values()) await stage.close(); activeStages.clear(); closeSync(stateFd); },
+    async close() { closed = true; for (const controller of active) controller.abort(); await pending;
+      for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
+      for (const stage of activeStages.values()) await stage.close(); activeStages.clear(); closeSync(stateFd); },
   };
 }
 

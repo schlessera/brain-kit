@@ -131,6 +131,23 @@ server is not refused for running as root
 The app shows a standing notice above the composer while it is present.
 Clients must tolerate it being absent.
 
+### Verified worker identity (additive, #1677)
+
+Successful worker-host checks may include `identity: "separate_uid"` and
+`workerUid`, the actual nonzero outside UID verified by that execution's host
+probe. `GovernedStatus.identity` additionally accepts `"separate_uid"` with
+the same optional `workerUid`. With no identity helper configured the governed
+status retains `"shared_uid"`. A configured but unqualified helper does not
+produce a separate-UID receipt or silently fall back to shared identity.
+Clients tolerate omitted identity/UID fields and new named qualification
+requirements. See the [host protocol](../hosting/agent-workers.md#separate-worker-identity).
+
+The optional host input `BRAIN_UI_WORKER_IDENTITY_HELPER` is one absolute
+root-owned executable path, never a shell prefix. Its versioned descriptor
+protocol, required group access and best-effort recovery limitations are
+documented with the host boundary. Production helper installation belongs to
+the public hosting template; the packages ship no production setuid binary.
+
 <a id="governance-events-additive-1651"></a>
 
 ### Governance events (additive, #1651)

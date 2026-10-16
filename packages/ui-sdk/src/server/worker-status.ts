@@ -31,7 +31,7 @@ export function createWorkerStatusPipe() {
         const buffer = Buffer.alloc(MAX_STATUS_BYTES + 1);
         let used = 0;
         for (;;) {
-          try { used += readSync(reader!, buffer, used, buffer.length - used); }
+          try { used += readSync(reader!, buffer, used, buffer.length - used, null); }
           catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
           const end = buffer.subarray(0, used).indexOf(10);
           if (end >= 0) {

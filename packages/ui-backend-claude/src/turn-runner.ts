@@ -98,7 +98,7 @@ export function createClaudeTurnRunner(options: {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true, true);
-    requireWorkerHost(options.backend.brainPath);
+    const workerHost = requireWorkerHost(options.backend.brainPath);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -359,6 +359,7 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
+        ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
         fileVersions,
         req: { ...req, signal: abortController.signal },
         profile,

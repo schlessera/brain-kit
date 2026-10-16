@@ -146,6 +146,13 @@ all subject to the persistent activation gate.
 
 ## Environment inputs
 
+`BRAIN_UI_WORKER_IDENTITY_HELPER` is an optional trusted host input owned by
+the UI SDK. It names one absolute, root-owned executable implementing the
+[separate worker identity protocol](hosting/agent-workers.md#separate-worker-identity).
+It is not a repository setting, command prefix or per-turn environment grant.
+Omission retains shared UID with masks and an explicit exposure disclosure;
+configured helpers must pass the real identity/sentinel/positive-control probe.
+
 The package-owned references below contain the literal-variable inventory,
 meaning, omission behavior and conditional requirements. The inventory includes
 platform inputs and test controls so they can be classified rather than silently

@@ -10,9 +10,13 @@ import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
+import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 
 export interface WorkerOutputStorage {
   readonly root: string; readonly mount: string; readonly namespacePid: number; readonly allowanceBytes: number;
+  /** Root-manager-created sealed metadata authority; never inherited by the payload. */
+  readonly identityTicketFd?: number;
+  readonly namespaceStart?: string;
   retain(): void; release(): void | Promise<void>;
 }
 export interface PreparedWorkerOutput {
@@ -27,7 +31,9 @@ export interface PreparedWorkerOutput {
 const executionDrain = new WeakMap<PreparedWorkerOutput, { exited?: Promise<void> }>();
 /** Launcher-only ownership transfer: even a post-spawn failure must drain the child before deletion. */
 export function bindPreparedWorkerOutputExit(output: PreparedWorkerOutput, exited: Promise<unknown>): void {
-  const state = executionDrain.get(output); if (state) state.exited = exited.then(() => {}, () => {});
+  const state = executionDrain.get(output); if (state) state.exited = exited.then(() => {}, error => {
+    if (workerCleanupUnconfirmed(error)) throw error;
+  });
 }
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
@@ -101,9 +107,15 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   const limits = hostOutputStagingLimits(); let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
+  let identityTicket: { fd: number; close(): void } | undefined;
   const cleanup = () => cleanupPromise ??= (async () => {
-    try { if (prepared) await executionDrain.get(prepared)?.exited; if (fd !== undefined) { closeSync(fd); fd = undefined; } if (stageRequested) await native.manager.releaseStage(id); }
-    finally { reservation?.release(); await view.cleanup(); }
+    if (prepared) await executionDrain.get(prepared)?.exited;
+    identityTicket?.close(); identityTicket = undefined;
+    if (fd !== undefined) { closeSync(fd); fd = undefined; }
+    // The stage and checkpoint remain owned if the manager cannot confirm
+    // deletion. Releasing capacity on that failure would hide retained bytes.
+    if (stageRequested) await native.manager.releaseStage(id);
+    reservation?.release(); await view.cleanup();
   })();
   try {
     reservation = processStateLedger().reserve(undefined, undefined, limits);
@@ -118,16 +130,67 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     fd = openSync(`/proc/${stage.namespacePid}/root${stage.path}`, DIRECTORY);
     const info = fstatSync(fd, { bigint: true });
     if (String(info.dev) !== stage.rootDevice || String(info.ino) !== stage.rootInode) throw Error("Native stage mounted-root identity differs from its receipt");
+    if (workerIdentityHelper()) identityTicket = await native.manager.attestStage(id, options.signal);
+    options.signal?.throwIfAborted();
     const root = `/proc/${process.pid}/fd/${fd}`, storage: WorkerOutputStorage = { root, mount: stage.path, namespacePid: stage.namespacePid,
+      namespaceStart: stage.namespaceStart, ...(identityTicket ? { identityTicketFd: identityTicket.fd } : {}),
       allowanceBytes: stage.allowanceBytes, retain() { if (cleanupPromise) throw Error("Native output is closed"); }, release: cleanup };
     const output = { source: `${root}/merged`, storage };
+    const permissionDenied = (error: unknown) => ["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException)?.code ?? "");
+    async function readerUid(): Promise<number> {
+      const identity = (await import("./worker-launcher.js")).verifiedWorkerIdentity(brain);
+      if (!identity) throw Error("Native private output requires a successfully qualified worker identity");
+      return identity.workerUid;
+    }
+    async function privateStat(stageInput: boolean, rel: string) {
+      const uid = await readerUid();
+      return stageInput ? native.manager.statStage(id, rel, uid, options.signal)
+        : native.manager.statCheckpoint(native.checkpoint.id, rel, uid, options.signal);
+    }
+    async function privateBytes(stageInput: boolean, rel: string, consume: (bytes: Uint8Array) => Promise<void>, bound?: number) {
+      const uid = await readerUid(), maximum = Math.min(bound ?? 4 * 1024 ** 3, stage!.allowanceBytes);
+      const copy = stageInput ? await native.manager.readStage(id, rel, maximum, uid, options.signal)
+        : await native.manager.readCheckpoint(native.checkpoint.id, rel, maximum, uid, options.signal);
+      const reader = copy.stream.getReader(); let total = 0;
+      try {
+        for (;;) {
+          options.signal?.throwIfAborted();
+          const chunk = await reader.read(); if (chunk.done) break;
+          total += chunk.value.byteLength; if (total > maximum) throw Error("Native private output exceeds its existing bound");
+          await consume(chunk.value);
+        }
+        const receipt = await copy.completed;
+        if (receipt.bytes !== total || receipt.workerUid !== uid) throw Error("Native private output reader receipt changed");
+      } finally { await reader.cancel(); await copy.completed.catch(() => {}); }
+    }
+    async function inspectInput(stageInput: boolean, rel: string, members = false): Promise<Captured> {
+      try { return await inspect(stageInput ? output.source : view.root, rel, members); }
+      catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
+      const info = await privateStat(stageInput, rel);
+      if (!info) return { entry: undefined, stamp: undefined };
+      const version = `worker:${info.stamp}:${info.mode}:${info.kind}`;
+      if (info.kind === "symlink") return { entry: { type: "symlink", mode: info.mode, link: info.target }, stamp: version };
+      if (info.kind === "directory") {
+        const uid = await readerUid();
+        const rows = members ? (stageInput ? await native.manager.listStage(id, rel, uid, options.signal)
+          : await native.manager.listCheckpoint(native.checkpoint.id, rel, uid, options.signal)) : undefined;
+        return { entry: { type: "directory", mode: info.mode, ...(rows ? { members: rows.map(row => Buffer.from(row.path.slice(rel.length + 1)).toString("hex")).sort() } : {}) }, stamp: version };
+      }
+      if (info.kind !== "file") throw Error("Native output must be a regular file, directory or link");
+      const hash = createHash("sha256");
+      await privateBytes(stageInput, rel, async bytes => { hash.update(bytes); });
+      if ((await privateStat(stageInput, rel))?.stamp !== info.stamp) throw Error("Native private output changed while hashing");
+      return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
+    }
     async function publish(lock?: KeyedLock) {
       if (cleanupPromise) throw Error("Native output is closed");
+      if (prepared) await executionDrain.get(prepared)?.exited;
+      if (identityTicket) options.signal?.throwIfAborted();
       const receipt = await native.manager.inspectStage(id), candidates = new Set<string>();
       let count = 0;
       async function expand(rel: string, depth = 0) {
         if (depth > 256) throw Error("Native output exceeds existing directory depth bound");
-        const entry = await inspect(view.root, rel, true); if (entry.entry?.type !== "directory") return;
+        const entry = await inspectInput(false, rel, true); if (entry.entry?.type !== "directory") return;
         // Only deletion/opaque prefixes expand sealed descendants; ordinary copy-up parents never do.
         for (const raw of entry.entry.members!) {
           const name = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(raw, "hex")), child = `${rel}/${name}`;
@@ -146,8 +209,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       const selected = (rel: string) => !options.areas || options.areas.some(area => rel === area || rel.startsWith(`${area}/`));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
       for (const rel of [...candidates].filter(selected).sort()) {
-        const next = await inspect(output.source, rel); after.set(rel, next);
-        before.set(rel, await inspect(view.root, rel, !next.entry));
+        const next = await inspectInput(true, rel); after.set(rel, next);
+        before.set(rel, await inspectInput(false, rel, !next.entry));
       }
       const changed = [...before.keys()].filter(rel => !equal(before.get(rel)!.entry, after.get(rel)!.entry));
       const releases: (() => void)[] = [];
@@ -166,7 +229,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           if (!equal(previous, live.entry, previous?.type === "directory" && !next)) throw Error(`stale maintenance output: ${rel}`);
         }
         // Changed-byte copies yield; the final inode/stat predicate immediately precedes publication.
-        const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry }[] = [];
+        const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry; recovery?: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
         let publicationError: unknown;
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
@@ -181,7 +244,31 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
             pending.push({ rel, ...handle, temporary, next });
             if (next.type === "symlink") symlinkSync(next.link!, temporary);
             else {
-              const source = parent(output.source, rel), input = await open(at(source.fd, source.name), FILE);
+              if (after.get(rel)!.stamp?.startsWith("worker:")) {
+                const beforeRead = await privateStat(true, rel);
+                if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel}`);
+                try {
+                  pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
+                } catch { throw Error("Native private output recovery capacity unavailable; the turn already executed and its output was not published"); }
+                const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
+                try {
+                  await privateBytes(true, rel, async bytes => {
+                    let written = 0;
+                    while (written < bytes.byteLength) {
+                      const result = await target.write(bytes, written, bytes.byteLength - written);
+                      if (!result.bytesWritten) throw Error("Native private output copy made no progress");
+                      written += result.bytesWritten;
+                    }
+                  }, beforeRead!.bytes);
+                  if ((await privateStat(true, rel))?.stamp !== beforeRead!.stamp) throw Error(`Native private output changed during copy: ${rel}`);
+                  await target.chmod(next.mode);
+                } finally { await target.close(); }
+                continue;
+              }
+              const source = parent(output.source, rel);
+              let input: Awaited<ReturnType<typeof open>>;
+              try { input = await open(at(source.fd, source.name), FILE); }
+              catch (error) { closeSync(source.fd); throw error; }
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
                 if (stamp(await input.stat({ bigint: true })) !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel}`);
@@ -235,7 +322,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         finally {
           // Drain every retained descriptor; cleanup cannot replace the original refusal.
           for (const item of pending) {
-            try { if (item.temporary) rmSync(item.temporary, { force: true }); } catch (error) { publicationError ??= error; }
+            try { if (item.temporary) rmSync(item.temporary, { force: true }); item.recovery?.release(); } catch (error) { publicationError ??= error; }
             try { closeSync(item.fd); } catch (error) { publicationError ??= error; }
           }
           for (const directory of directoryModes.reverse()) {

@@ -10,6 +10,26 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+`bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
+the host identity protocol. It compiles the test-only helper on the host without
+setuid permissions, then installs it as root-owned setuid only inside its owned,
+network-disabled disposable container. The server runs as UID 21001 and the
+worker as UID 21002. This cell uses the pinned native seccomp profile and narrow
+listed capabilities without `SYS_PTRACE`. `SYS_CHROOT` accompanies `SYS_ADMIN`
+for the short helper's entry into the authenticated manager stage mount
+namespace; dropping it makes the actual managed-stage launch refuse. The same
+cell reuses the owned 4 GiB Btrfs fixture for sealed stage authority and private
+checkpoint capture, and runs the fixed reader's descriptor/bounds/cancellation
+controls. Its outer container permits the
+fixture helper's UID transition; the actual worker must still prove
+`NoNewPrivs=1` and zero effective capabilities. The other native cells retain
+their existing outer `no-new-privileges` setting. No helper is installed on the
+host. Missing prerequisites and failed controls fail the runtime job; source,
+binary and filter hashes, image identity, logs and owned-container cleanup
+receipts are retained under `tmp/worker-identity-proof/`. The fixture is protocol
+qualification, not a production helper distribution; production packaging and
+installation belong to the hosting template.
+
 Claude uses its actual backend adapter and production worker launcher with a
 deterministic SDK-query fixture that launches a scripted shell and emits SDK
 messages; this native check does not execute the Claude CLI or its HTTP transport.
