@@ -15,6 +15,6 @@ for (const mode of ["interactive", "voice", "autonomous"] as const) test(`pi pol
     ...(mode === "autonomous" ? { autonomous: { allowedTools: [], systemPromptAppend: "Autonomous." } as never } : {}) };
   const { entry } = await pool.acquire(req);
   const names = createPiBridgeTools({ brainPath: ".", turn: entry.turnContext, capabilities: observed!.caps }).map(tool => tool.name);
-  expect(names.includes("propose_policy_change")).toBe(mode === "interactive");
+  expect(names.includes("propose_policy_change")).toBe(mode !== "autonomous");
   expect(DEFAULT_PI_ALLOWED_TOOLS).not.toContain("propose_policy_change"); pool.finish(entry);
 });

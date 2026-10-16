@@ -8,6 +8,7 @@ import type {
   TurnRetry,
 } from "@schlessera/brain-ui-sdk/server";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
+import { usageLimitText } from "./usage-limit.js";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult, CompletedResponseUsage } from "./usage.js";
 
@@ -36,6 +37,7 @@ export class StreamAdapter {
    * decides whether the turn failed.
    */
   private apiError: TurnFailure | null = null;
+  private usageLimitStop = false;
   private retryAttempts = 0;
   private resetsAt: number | undefined;
   private readonly completedUsage = new CompletedResponseUsage();
@@ -124,7 +126,11 @@ export class StreamAdapter {
         // client sees for it is #191's. Only the top-level turn's: a subagent
         // that failed is the parent's to handle, and a parent that completes
         // anyway did not fail.
-        if (!parentToolUseId && msg.error) {
+        const limitText = !parentToolUseId ? usageLimitText(msg.message, msg.message.content) : null;
+        if (limitText) {
+          this.usageLimitStop = true;
+          this.apiError = this.failure(FIRST_PARTY_FAILURE_CLASSES.rate_limit, limitText, undefined);
+        } else if (!parentToolUseId && msg.error) {
           const text = msg.message.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("")
@@ -225,7 +231,7 @@ export class StreamAdapter {
         const costUsd = wholeFreshRuntime ? msg.total_cost_usd : undefined;
         if (!wholeFreshRuntime) this.report({ kind: "claude_session_usage", completed: usage,
           cumulative, reportedCostUsd: msg.total_cost_usd });
-        if (msg.subtype === "success" && !msg.is_error) {
+        if (msg.subtype === "success" && !msg.is_error && !this.usageLimitStop) {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
@@ -239,7 +245,9 @@ export class StreamAdapter {
         } else {
           // `success` with `is_error` is how the runtime ends a turn on an
           // API error: the error text is the `result`, the status rides
-          // beside it (#191). An error subtype carries a failure only when
+          // beside it (#191). A synthetic usage-limit stop also fails even
+          // when the runtime leaves is_error false (#2032).
+          // An error subtype carries a failure only when
           // the runtime reported an API error first.
           const failure =
             msg.subtype === "success"

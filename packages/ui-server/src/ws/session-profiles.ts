@@ -29,7 +29,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
         ...(budgets ? (["turn","session","day"] as const).map(scope=>({name:`${scope === "day" ? "UTC day" : scope === "session" ? "Conversation lifetime" : "Turn"} inference budget`,
           value:`Warn $${resolved.policy.policy.budgets[scope].warn_usd}; stop $${resolved.policy.policy.budgets[scope].block_usd}; unpriced token stop ${resolved.policy.policy.budgets[scope].block_tokens.toLocaleString()}`,
           onHit:scope === "session" ? "Review partial work and continue with a reviewed new-conversation handoff; day balance remains." : scope === "day" ? "Stops until the server's next UTC midnight; review partial work." : "Stops this turn; review partial work."})) : [{name:"Inference budgets",value:"Unknown"}]),
-        { name: "Per-turn scope", value: `${caps.tool_calls} tool calls · ${caps.minutes} min · ${caps.files_changed} distinct changed paths · ${caps.turn_bytes} observed bytes` },
+        { name: "Per-turn scope", value: `${caps.tool_calls} tool calls · ${caps.minutes} min · ${caps.files_changed} distinct changed paths · ${formatScopeBytes(caps.turn_bytes)} observed bytes` },
         { name: "Independent hard timeout", value: limits ? `${limits.hardTimeoutMs() / 60_000} min` : "Unknown" },
         { name: "Scope authority", value: "One finite grant per dimension; disk floor max(5%, 2 GiB) is Stop only. Independent hard timeout, resource and storage limits also apply." }, { name: "Network recording", value: "Unknown" }] };
   };
@@ -89,3 +89,9 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   };
 }
 export type SessionProfiles = ReturnType<typeof createSessionProfiles>;
+
+function formatScopeBytes(bytes: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  const unit = bytes < 1024 ? 0 : Math.min(Math.floor(Math.log2(bytes) / 10), units.length - 1);
+  return `${Number((bytes / 1024 ** unit).toFixed(2))} ${units[unit]}`;
+}

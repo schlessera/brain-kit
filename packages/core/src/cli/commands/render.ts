@@ -32,6 +32,8 @@ import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain render <path|-> — render a document to PDF, PNG, or standalone HTML
 
+The input path must be inside the brain; use - for stdin.
+
   --format <fmt>        pdf (default), png, or html
   --out <path>          Output path, inside the brain. Default: the input path
                         with the format's extension; for stdin, the scratch area.
@@ -183,6 +185,21 @@ function runReference(pos: string[], flags: Record<string, string | boolean>, js
     throw new UsageError(`--kind ${kind.name} needs --scaffold to print its skeleton`);
   }
   process.stdout.write(readSkeleton(kind));
+}
+
+/** Validate only render's source before the CLI's read-only write refusal.
+ * Reference forms have no source, and stdin must not be consumed by this check.
+ * The handler repeats it immediately before reading, since the path can change.
+ */
+export function validateRenderInput(args: string[], root: string): void {
+  const { args: pos, flags } = parseArgs(args);
+  if (flags.kind !== undefined || flags.blocks === true) return;
+  const input = pos[0];
+  if (!input) throw new UsageError("Usage: brain render <path|-> [--format pdf|png|html] [--out <path>]");
+  if (input === "-") return;
+  const abs = resolveWritable(root, input);
+  if (!abs) throw new UsageError(`Path is not inside the brain: ${input}`);
+  if (!existsSync(abs)) throw new UsageError(`No such file: ${input}`);
 }
 
 export const renderCommand: CoreCommand = {

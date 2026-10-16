@@ -1,3 +1,4 @@
+import { toolAvailabilityRefusal } from "./tool-availability.js";
 import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
@@ -177,9 +178,15 @@ export function createPermissionWiring(options: {
   // An explicit "ask" beats all three — measured for each, and for the
   // settings hook with a canUseTool deny then holding — and it leaves another
   // hook's updatedInput intact, so the rewrites still reach the decision.
-  // Registered only under the declaration, so nothing moves for a turn that
-  // declares nothing.
+  // Allowlist escalation remains declaration-scoped. Interactive calls also
+  // receive unconditional availability refusals, including auto-allowed tools.
   const enforcementHook: HookCallback = async (hookInput) => {
+    if (hookInput.hook_event_name === "PreToolUse") {
+      const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
+      if (unavailable) return { continue: true, hookSpecificOutput: {
+        hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable,
+      } };
+    }
     if (hookInput.hook_event_name === "PreToolUse" &&
       (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, hookInput.tool_name, hookInput.tool_input))) {
       return { continue: true, hookSpecificOutput: {
@@ -190,7 +197,7 @@ export function createPermissionWiring(options: {
     }
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
-      allowed.has(hookInput.tool_name)
+      !enforced || allowed.has(hookInput.tool_name)
     ) {
       return { continue: true };
     }
@@ -254,6 +261,8 @@ export function createPermissionWiring(options: {
   ) => {
     if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
+    const unavailable = toolAvailabilityRefusal(req, toolName);
+    if (unavailable) return { behavior: "deny", message: unavailable };
     const denied = denyCommand(toolName, input, opts.toolUseID);
     if (denied) return { behavior: "deny", message: denied };
     if (routed(toolName)) return { behavior: "allow" };
@@ -342,6 +351,8 @@ export function createPermissionWiring(options: {
     if (hookInput.hook_event_name !== "PreToolUse") {
       return { continue: true };
     }
+    const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
+    if (unavailable) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable } };
     if (req.signal.aborted) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled before tool admission." } };
     const denied = denyCommand(hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id);
     if (denied) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denied } };
@@ -357,7 +368,7 @@ export function createPermissionWiring(options: {
     // one; this is just its runtime binding.
     //
     // Allowlisting is not the only reason it belongs here. This backend loads
-    // the brain repo's project settings (`settingSources`, sdk-options.ts:207),
+    // the brain repo's project settings (`settingSources`, sdk-options.ts:232),
     // and a hook
     // declared in those can answer a call before canUseTool is reached at all
     // — #124 has the measurements. This hook fires either way. None of that
@@ -531,6 +542,7 @@ export function createPermissionWiring(options: {
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },
         ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [beginNativeRead] }] : []),
+        ...(!enforced && !req.autonomous ? [{ hooks: [enforcementHook] }] : []),
       ],
       ...(!req.autonomous ? {
         PostToolUse: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],

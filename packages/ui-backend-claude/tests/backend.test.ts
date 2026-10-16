@@ -65,6 +65,11 @@ function makeReq(
   return { prompt: "hi", signal, bridge, ...extra };
 }
 
+// Lock lifecycle controls must reach a permitted native write, not strict refusal.
+const governedNativeTurn: Partial<StartTurnRequest> = {
+  workerSandbox: { brain: "/brain", profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+};
+
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 /** Spin until `pred` holds, so a test never races a background acquire/emit. */
@@ -925,7 +930,7 @@ describe("writeLock", () => {
 
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
     const b1 = makeBridge();
-    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    await backend.startTurn(makeReq(b1.bridge, new AbortController().signal, governedNativeTurn));
 
     expect(denied).toBe(true);
     expect(heldBeforeDenial).toEqual(["path:/brain/notes/a.md"]);
@@ -981,7 +986,7 @@ describe("writeLock", () => {
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
 
     const b1 = makeBridge();
-    const turn1 = backend.startTurn(makeReq(b1.bridge, abort1.signal));
+    const turn1 = backend.startTurn(makeReq(b1.bridge, abort1.signal, governedNativeTurn));
     await until(() => t1Resolved);
     expect(writeLock.locked).toBe(true);
 
@@ -992,7 +997,7 @@ describe("writeLock", () => {
 
     // A later mutating turn acquires cleanly, proving the lock was freed.
     const b2 = makeBridge();
-    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal));
+    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal, governedNativeTurn));
     await turn2;
     expect(b2.frames.some((f) => f.type === "result")).toBe(true);
     expect(writeLock.locked).toBe(false);
@@ -1208,14 +1213,14 @@ describe("lockKeyForTool — the serialization policy", () => {
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn, writeLock });
 
     const b1 = makeBridge();
-    const turn1 = backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
+    const turn1 = backend.startTurn(makeReq(b1.bridge, new AbortController().signal, governedNativeTurn));
     await until(() => t1Resolved);
     expect(writeLock.heldKeys).toEqual(["path:/brain/notes/a.md"]);
 
     // The second write targets a different file: it must NOT park behind the
     // first — this is the single-session-collapse regression guard.
     const b2 = makeBridge();
-    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal));
+    const turn2 = backend.startTurn(makeReq(b2.bridge, new AbortController().signal, governedNativeTurn));
     await until(() => t2Resolved);
     expect(writeLock.heldKeys.sort()).toEqual([
       "path:/brain/notes/a.md",
@@ -1431,15 +1436,22 @@ describe("Agent background rewrite", () => {
   });
 });
 
-describe("turn budget in the system prompt", () => {
-  test("req.turnBudgetMs surfaces in the appended brief", async () => {
+describe("turn budget in the current tail", () => {
+  test("req.turnBudgetMs surfaces in owned tail beside the generic lifecycle brief", async () => {
     let captured: Options | undefined;
-    const queryFn = ((params: { options?: Options }) => {
+    let promptText = "";
+    const queryFn = ((params: { options?: Options; prompt: string | AsyncIterable<import("@anthropic-ai/claude-agent-sdk").SDKUserMessage> }) => {
       captured = params.options!;
-      return (async function* () {
+      return {
+        initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
+        getSettings: async () => ({ effective: {}, sources: [] }),
+        async *[Symbol.asyncIterator]() {
+        if (typeof params.prompt === "string") promptText = params.prompt;
+        else { const first = await params.prompt[Symbol.asyncIterator]().next(); if (!first.done) promptText = JSON.stringify(first.value.message.content); }
         yield initMsg("s1");
         yield resultMsg("s1");
-      })();
+        },
+      };
     }) as unknown as typeof query;
 
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn });
@@ -1449,7 +1461,8 @@ describe("turn budget in the system prompt", () => {
     );
 
     const sp = captured!.systemPrompt as { append?: string };
-    expect(sp.append).toContain("about 25 minutes");
+    expect(sp.append).not.toContain("about 25 minutes");
+    expect(promptText).toContain("about 25 minutes");
     expect(sp.append).toContain("Turn lifecycle");
   });
 });

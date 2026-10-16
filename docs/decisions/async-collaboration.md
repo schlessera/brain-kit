@@ -71,11 +71,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:536`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:560`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:546`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:570`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:85-264`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:88-399`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -85,7 +85,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-144`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:77-104`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:95-124`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:177-192`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:597`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:603`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)

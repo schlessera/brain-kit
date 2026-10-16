@@ -3210,3 +3210,16 @@ reconciliation separately from main usage, without assigning title-helper
 provenance or relying on a model name. Direct backend consumers receive own
 completed token counts on `result`; its absent cost remains unknown until a
 host prices those counts. Autonomous Queue semantics are unchanged.
+
+### Stable hosted application roster (#2048)
+
+The additive, trusted `StartTurnRequest.applicationAuthority?: "server"` field
+identifies a deployment whose authoritative mutations use the server route.
+The UI server supplies it on every interactive turn, independent of posture,
+strict fallback or temporary bridge handler availability. It is session-stable
+host configuration, never client/model input or a grant. Claude uses it to keep
+legacy project MCP writers shadowed even when `applyBrain` is temporarily absent;
+its fixed in-process application tools then refuse unavailable routes at call
+time. Direct unhosted consumers omitting it retain their legacy project MCP
+roster. Existing custom bridges without the field retain the prior `applyBrain`
+presence fallback. Autonomous authority/rosters are unchanged.
