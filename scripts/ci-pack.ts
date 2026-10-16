@@ -34,7 +34,7 @@ import { binModeProblems } from "./bin-modes";
 import { listPublishablePackages, type PublishablePackage } from "./publishable-packages";
 
 /** The named probes in scripts/ci-pack-probe.mjs, run inside the consumer. */
-export const PROBES = ["geo-static-map", "claude-backend-export", "core-testing-suites", "ui-kit-brand", "travel-cli"] as const;
+export const PROBES = ["diagrams-static", "geo-static-map", "claude-backend-export", "core-testing-suites", "ui-kit-brand", "travel-cli"] as const;
 export type Probe = (typeof PROBES)[number];
 /**
  * Probes that run in a Bun process of their own, as they always did, rather
