@@ -10,7 +10,7 @@ export class MeasuredBrowserSequencer extends BaseSequencer {
     const shard = this.ctx.config.shard;
     if (!shard) return files;
     const specs = files.map(file => {
-      const project = file.project.name.replace(/ \(chromium\)$/, "");
+      const project = file.project.name.replace(/ \((?:chromium|webkit)\)$/, "");
       return { project, key: `${project}::${relative(ROOT, file.moduleId).replaceAll("\\", "/")}`, file };
     });
     const costs = readBrowserCosts();

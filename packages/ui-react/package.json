@@ -34,7 +34,12 @@
     },
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./content-figures": {
+      "bun": "./src/content-figures.ts",
+      "types": "./dist/content-figures.d.ts",
+      "default": "./dist/content-figures.js"
+    }
   },
   "files": [
     "src",

@@ -1248,7 +1248,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:286`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:287`).
 
 **What changes:**
 

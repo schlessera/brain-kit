@@ -58,8 +58,14 @@ export "./module" (./src/module.ts)
 export "./package.json" (./package.json) [asset]
 
 export "./render" (./src/render.ts)
+  default
+  diagramsStaticPack
+  toStatic
 
-export "./ui" (./src/ui.ts)
+export "./ui" (./src/ui.tsx)
+  DiagramContent
+  default
+  diagramsContentPack
 
 signatures (every public export and the types it is made of)
   DIAGRAM_PALETTE (packages/module-diagrams/src/skin.generated.ts)
@@ -103,6 +109,8 @@ signatures (every public export and the types it is made of)
         dashed: boolean;
         transit: string[];
     }
+  DiagramContent (packages/module-diagrams/src/ui.tsx)
+    export function DiagramContent({ source, theme, mode }: ContentRendererProps): import("react").JSX.Element;
   DiagramEdgeLabel (packages/module-diagrams/src/geometry.ts)
     export interface DiagramEdgeLabel extends DiagramBox {
         kind: "edge-label";
@@ -243,6 +251,8 @@ signatures (every public export and the types it is made of)
   contrastRatio (packages/module-diagrams/src/skin.ts)
     export function contrastRatio(foreground: string, background: string): number;
   default (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  default (packages/module-diagrams/src/render.ts) exported name of diagramsStaticPack
+  default (packages/module-diagrams/src/ui.tsx) exported name of diagramsContentPack
   diagramEdgePaint (packages/module-diagrams/src/skin.ts)
     export function diagramEdgePaint(kind?: string, transit?: boolean): DiagramEdgePaint;
   diagramInkRamp (packages/module-diagrams/src/skin.ts)
@@ -661,10 +671,19 @@ signatures (every public export and the types it is made of)
         title: z.ZodString;
         type: z.ZodLiteral<"flywheel" | "funnel" | "layer-stack" | "loop" | "pyramid" | "quadrant" | "venn">;
     }, z.core.$strict>], "type">;
+  diagramsContentPack (packages/module-diagrams/src/ui.tsx)
+    const diagramsContentPack: ContentRendererPack;
   diagramsModule (packages/module-diagrams/src/module.ts)
     const diagramsModule: ModuleManifest<DiagramsConfig>;
+  diagramsStaticPack (packages/module-diagrams/src/render.ts)
+    const diagramsStaticPack: StaticRendererPack;
   fitDiagramText (packages/module-diagrams/src/skin.ts)
     export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number;
   manifest (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  toStatic (packages/module-diagrams/src/render.ts)
+    export function toStatic(source: string, options: {
+        theme: ContentRendererTheme;
+        path?: string;
+    }): Promise<string>;
   typeWidthBudget (packages/module-diagrams/src/skin.ts)
     export function typeWidthBudget(text: string, role: DiagramTypeRole, fontSize?: number): number;

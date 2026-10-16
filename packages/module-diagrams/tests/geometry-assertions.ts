@@ -34,7 +34,7 @@ export function assertLabelGap(_spec: DiagramSpec, tree: DiagramTree) {
     const edge = connectors(tree).find(edge => edge.edge === mask.edge)!, a = edge.points[mask.segment]!, b = edge.points[mask.segment + 1]!;
     const horizontal = Math.abs(a.y - b.y) < tolerance;
     const gap = horizontal ? mask.y >= a.y ? mask.y - a.y : a.y - mask.y - mask.height : mask.x >= a.x ? mask.x - a.x : a.x - mask.x - mask.width;
-    expect(gap, "RULE_2_REAL_MASK_GAP_MIN").toBeGreaterThanOrEqual(6 - tolerance);
+    expect(gap, "RULE_2_REAL_MASK_GAP_MIN").toBeGreaterThanOrEqual(8 - tolerance);
     expect(gap, "RULE_2_REAL_MASK_GAP_MAX").toBeLessThanOrEqual(10 + tolerance);
     expect(mask.opaque, "RULE_2_OPAQUE_MASK").toBe(true);
   }
@@ -152,7 +152,7 @@ export function assertPathCorrespondence(spec: DiagramSpec, tree: DiagramTree) {
           near(end, { x: 2 * center.x - current!.x, y: 2 * center.y - current!.y }, "PATH_HOP_IS_A_TRUE_SEMICIRCLE"); angle = Math.PI; hops++;
         }
         const startAngle = Math.atan2(current!.y - center.y, current!.x - center.x);
-        for (let sample = 0; sample <= 16; sample++) samples.push({ x: center.x + rx * Math.cos(startAngle + angle * sample / 16), y: center.y + rx * Math.sin(startAngle + angle * sample / 16) });
+        for (let sample = 0; sample <= 64; sample++) samples.push({ x: center.x + rx * Math.cos(startAngle + angle * sample / 64), y: center.y + rx * Math.sin(startAngle + angle * sample / 64) });
         current = end;
       } else throw Error(`Unexpected actual path command ${command}`);
     }
@@ -162,7 +162,7 @@ export function assertPathCorrespondence(spec: DiagramSpec, tree: DiagramTree) {
       for (const box of boxes(spec)) if (!route.transit.includes(box.id)) expect(point.x > box.x + tolerance && point.x < box.x + box.width - tolerance && point.y > box.y + tolerance && point.y < box.y + box.height - tolerance, "PATH_ARC_CLEAR_OF_ACTUAL_NODES").toBe(false);
       for (const mask of masks(tree)) {
         const dx = Math.max(mask.x - point.x, 0, point.x - mask.x - mask.width), dy = Math.max(mask.y - point.y, 0, point.y - mask.y - mask.height);
-        expect(Math.hypot(dx, dy), "PATH_CURVE_CLEAR_OF_LABEL_MASK").toBeGreaterThanOrEqual(6 - tolerance);
+        expect(Math.hypot(dx, dy), "PATH_CURVE_CLEAR_OF_LABEL_MASK").toBeGreaterThanOrEqual(8 - tolerance);
       }
     }
   }

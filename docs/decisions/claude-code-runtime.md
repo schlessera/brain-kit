@@ -73,7 +73,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:49`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:493`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:503`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -87,11 +87,11 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:493`, eight
+  (`optionalDependencies`, `bun.lock:503`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile
   (`"@anthropic-ai/claude-agent-sdk/@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:2577`). The public SDK's platform package is nested because the
+  `bun.lock:2587`). The public SDK's platform package is nested because the
   private development-only hygiene research alias retains its original292 pair;
   the public backend still resolves293. The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
@@ -468,7 +468,7 @@ into them.
   billing now stays unknown for every origin; server credentials and an
   observed runtime version cannot establish a child's billing. The recorded
   root-span attribute is the source of truth
-  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:535-536`);
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:537-538`);
   [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
   records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the

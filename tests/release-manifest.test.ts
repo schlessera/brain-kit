@@ -440,7 +440,7 @@ describe("workspace enumerations", () => {
     expect(overriddenIn(consumerManifest("smoke", packPlan(ROOT)))).toEqual(sortedNames);
   });
 
-  test("the React 18 smoke test pins every internal package brain-ui-react needs to its tarball", () => {
+  test("the React 18 smoke test pins every internal package the UI and diagram pack need to their tarballs", () => {
     // brain-ui-react and the internal packages it depends on, found from the
     // manifests rather than listed here, so a new internal dependency that the
     // step forgets resolves from npm and fails this test instead.
@@ -455,7 +455,7 @@ describe("workspace enumerations", () => {
         ...manifest?.optionalDependencies,
       }).filter((dep) => dep.startsWith("@schlessera/"));
     };
-    const needed = new Set([react.manifest.name]);
+    const needed = new Set([react.manifest.name, "@schlessera/brain-module-diagrams"]);
     for (const name of needed) for (const dep of internal(name)) needed.add(dep);
     expect(needed.size).toBeGreaterThan(1);
     const react18 = packPlan(ROOT).filter((e) => e.row.react18);
