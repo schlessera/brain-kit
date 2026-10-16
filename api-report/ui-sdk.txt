@@ -885,6 +885,7 @@ export "./internal" (./src/internal.ts)
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type QuestionObservation
+  type ReplayReceipt
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
@@ -1017,6 +1018,7 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext
+  sessionReplay
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit

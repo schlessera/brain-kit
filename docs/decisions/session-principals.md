@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract/wire.md:137-151`;
-  `Activity stream`, `:432-446`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract/wire.md:141-155`;
+  `Activity stream`, `:436-450`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -204,7 +204,7 @@ credentials, not people.
 (`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
 pruning, so cost-by-actor dies at prune time without it. The precedent is
 profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
-`activity/recorder.ts:187-202`). Nullable for cron (`origin: "cron"`,
+`activity/recorder.ts:189-204`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
 

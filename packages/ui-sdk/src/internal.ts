@@ -80,3 +80,6 @@ export { sessionPromptContext } from "./server/session-prompt-context.js";
 export type { SessionPromptFacts } from "./server/session-prompt-context.js";
 
 export { describeClient } from "./server/system-prompt.js";
+
+export { sessionReplay } from "./server/session-replay.js";
+export type { ReplayReceipt } from "./server/session-replay.js";
