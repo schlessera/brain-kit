@@ -266,8 +266,9 @@ sit in the Ready view as traps.
 2. **Triage.** `type:`, `area:`, a priority if it is sorted, and a milestone if
    it is committed. Add it to the board.
 3. **Ready.** Context is complete and nothing blocks it. Add `agent-ready` if a
-   stranger could implement it from the body alone. Task templates do not add
-   it automatically; triage establishes readiness.
+   stranger could implement it from the body alone. The narrow blocked upper-layer
+   selection exception below retains real dependency labels and board Status. Task
+   templates do not add it automatically; triage establishes readiness.
 4. **In progress.** Assign yourself, move the card. One issue at a time per
    branch: `<type>/<issue-number>-<slug>`. A dependent slice may use a separate
    branch under the [stack rules](#stacked-pull-requests).
@@ -309,6 +310,19 @@ non-interactive operation. These project rules apply alongside it:
   including its tests and required docs/changeset; every merged prefix must be
   usable and satisfy the existing merge bar. Keep the issue branch naming
   convention, adding a slice suffix when several layers advance one issue.
+- A scoped upper-layer issue may be selected while `blocked` only when every
+  remaining open blocker is an open issue represented by an open, non-draft
+  lower-layer PR in the epic's declared stack, with complete passing selected
+  proof for its current parent/head candidate. Verify actual membership,
+  head/base and the declared immediate parent before claiming and again before
+  checkout creation; start from that verified parent head. Any genuine `needs:`
+  label, assignment, non-stack blocker, missing/ambiguous/draft parent or
+  unavailable/failed/cancelled/unexpectedly skipped selected proof rejects the
+  exception. All-closed dependencies use ordinary reconciliation and a merged
+  parent permits starting at `main`. Keep `Blocked by` and `blocked` while the
+  lower layer remains open; board Status and `project-sync` are unchanged. The
+  [work-issue selection review](../../.agents/skills/work-issue/SKILL.md#stack-selection-exception)
+  gives passing/rejecting examples and the evidence to record.
 - The bottom PR targets `main`; each upper PR targets its immediate parent.
   Run `bun run check:pr --base origin/main` at the bottom and
   `bun run check:pr --base <parent-ref>` above it, after fetching or verifying
@@ -322,13 +336,24 @@ non-interactive operation. These project rules apply alongside it:
 - A partial slice uses `Refs #N` and states what remains. Only the layer that
   completes all criteria and required verification uses `Closes #N`.
   [GitHub interprets closing keywords only for PRs targeting the default branch](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
-  Verify actual issue state after the stack lands and reconcile closure with
-  completion evidence when automatic closure did not happen. Every merge
+  The actor merging the stack verifies and reconciles each actually included
+  layer's issue closure against delivered commits/tree, acceptance and required
+  verification evidence. If automatic closure did not happen, close manually
+  only after those criteria are satisfied and record delivery evidence. Partial
+  deliveries and remaining human/verification work stay open with exact next
+  actions. Every merge
   includes milestone readback for all included PRs and the issues each
   completes or advances.
-- Edit the owning layer, commit, then rebase upstack and push with the skill's
-  commands. Inspect the resulting heads and current checks for every affected
-  PR. Respect clean worktree ownership and never push to a merged branch.
+- Parent or ancestor review changes invalidate affected candidate proof and
+  readiness. Communicate changed identities; each owner refreshes their own
+  layer in dependency order, verifies the current immediate parent and its
+  qualification, rebases, inspects the diff/conflicts, and runs parent-relative
+  preflight plus required hosted confirmation. Retain older receipts with their
+  actual identities. An absent owner requires a documented dependency or an
+  explicit ownership handoff, never silent cross-owner edits/pushes. Respect
+  clean dedicated worktrees and never push to a merged branch. Scope-ready
+  labels alone do not establish current candidate qualification. A #2111
+  reservation never waives per-layer checks or covers several candidates.
 - Merge stacked PRs with `gh stack merge <target> --yes --squash`. A target
   includes its unmerged ancestors; a bare number resolves as a stack number
   before a PR number. Confirm the resolved membership and inspect all included
