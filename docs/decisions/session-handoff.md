@@ -137,7 +137,7 @@ server observation. No second warning band or capacity change was selected.
 The common threshold and copy are (`stateRoomWarning`,
 `packages/ui-sdk/src/state-room.ts:4-6`) and (`stateRoomCopy`,
 `packages/ui-sdk/src/state-room.ts:9-13`). Claude observes the completed actual
-copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:215-237`);
+copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:221-243`);
 Pi retains its existing payload/reserve admission (`checkSessionSize`,
 `packages/ui-backend-pi/src/worker-protocol.ts:21-26`).
 

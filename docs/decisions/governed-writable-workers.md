@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:886-914`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:959-987`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -802,7 +802,16 @@ The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Steering classification
+principal authority remain the caller's responsibility. The policy publisher
+creates, writes, fsyncs and removes its operation-owned staging name entirely
+inside that synchronous callback, between the two serialized observations
+(`await options.observeUserPolicy`,
+`packages/ui-server/src/brain/policy-proposal.ts:183-210`). First publication
+also removes the temporary hardlink before the final observation. No filename
+prefix is ignored; a similarly named real agent change is still retained.
+Failed staging preserves the original policy, while failed recording after
+publication retains partial/unknown receipts rather than claiming completion.
+Steering classification
 and effective budget/scope enforcement belong to their own programme work.
 
 **Delivered user revert (#1653).** The existing reader has a single-file history
@@ -1306,7 +1315,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1492`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1565`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1314,6 +1323,46 @@ and file by file, with the same resolution the restricted envelope uses
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+### Owned runtime placement beneath `/tmp` — 2026-10-14
+
+The maintainer's ruling on #1844 selects support for a host-installed owned
+runtime beneath `/tmp`. The launcher installs private turn temp first, then
+retains only the existing concrete runtime closure read-only: the executable,
+its owning package, dependency directories and resolved workspace packages.
+Canonical locations and the installation aliases needed to execute them remain
+available. Internal callers without a named profile use the same closure;
+profiled, restricted, maintenance and mirror-transport callers keep their
+existing authority and explicit read envelopes.
+
+A runtime location cannot overlap reserved scratch, runtime state, writable
+areas, XDG, maintenance HOME/state/output, relay/proxy, fresh procfs or device
+mounts. Names, canonical targets and ancestors/descendants are checked before
+dispatch, including unresolved final entries beneath an aliased parent. A
+collision names the offending location and asks for a separate installation
+directory. Runtime retention also reapplies explicitly masked private files
+and subdirectories through retained aliases. It does not restore unrelated
+host-temp siblings or make runtime bytes writable.
+
+The concrete checks and mounts are in (`validateRuntimePlacement`,
+`packages/ui-sdk/src/server/worker-launcher.ts:650-656`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-670`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:671-689`).
+
+Broad host-temp binding would reveal other workers and operator state; blanket
+relocation would reject the selected supported placement. Neither is the
+chosen correction. Private temp sizing, namespace/capability restrictions,
+brain permissions, active host masks and cleanup retain their original rules.
+
+The original report at `5dc2595ca07042f2e2024c95bbc361f31637559f`
+recorded 285 passing experiment tests and two pre-request exit-127 failures;
+moving the same bytes outside `/tmp` passed eight tests / 76 assertions. Those
+historical controls identify the placement boundary, rather than qualifying
+the eventual correction. The retained regression additionally executes equal
+native bytes inside, outside and through an installation alias in every
+applicable launcher mode, and captures actual installed Claude requests in a
+loopback-only network namespace. No inference service or production store is
+used. #1901 records this support amendment alongside #1844's implementation.
 
 The mounts go on in a fixed order:
 
@@ -1547,11 +1596,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:853-881`;
+`packages/ui-sdk/src/server/worker-launcher.ts:926-954`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:886-912`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:959-985`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1045-1104`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1118-1177`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1868,13 +1917,31 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:184-252`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
 
-Claude auto-memory currently persists outside the authoritative brain through
-its backend state service. That service supplies no journal version receipt;
-the canonical brain/workspace journal does not invent a memory path or user
-restore authority. Its external memory integration remains a separate source
-limitation, not a claim of delivered raw-memory review/revert.
+Claude auto-memory persists outside the authoritative brain. Its validated
+native copy-out wraps each changed direct `.md` note in host journal retention:
+exact before/after objects and the private destination are staged and pinned
+before saving; only a successful save publishes the attributed steering change.
+The logical `claude-memory://<note.md>` path and `claude_memory` scope cannot
+collide with a canonical brain-relative path. Host directories, credentials,
+transcripts and settings never become journal change entries. Taint is captured
+from existing session/turn evidence at save time, not inferred on replay.
+
+The existing reader and authenticated per-file/whole-turn recovery use the
+private saved destination. Current bytes and saved-directory identity must match
+before restoration, preserving later memory. Revert is user-attributed and
+journaled for Undo; voice/agent/autonomous actors gain no recovery authority.
+Ordinary persistence never deletes notes. Refused or interrupted saves retain
+truthful partial/unconfirmed history, including the window between file commit
+and receipt finalization. Staged raw versions remain under the same aggregate
+cap, active pins and completed-turn retention/collection. This is the external
+memory completion of the earlier 0.42.0 steering slice, not a widening of memory
+providers or a claim of capturing intervening external writes. The copy-out
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:201-215`;
+retention/finalization is `persistClaudeMemory`,
+`packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
 
@@ -1907,7 +1974,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

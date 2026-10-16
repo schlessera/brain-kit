@@ -651,6 +651,7 @@ async function runRetainedSession(
         lifecycle?.mark("backendInvokedAt");
         await backend.startTurn({
           applicationAuthority: "server",
+          ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
