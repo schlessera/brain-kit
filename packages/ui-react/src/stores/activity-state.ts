@@ -22,9 +22,11 @@ export {
   timingFor,
 } from "./activity-store-helpers.js";
 
-function boundLifecycles(records: Record<string, ActivityTurnLifecycle>): Record<string, ActivityTurnLifecycle> {
+function boundLifecycles(records: Record<string, ActivityTurnLifecycle>, highWater: Record<string, number>, deltaSeq: Record<string, number>): Record<string, ActivityTurnLifecycle> {
   const terminal = Object.values(records).filter(item => item.endedAt !== null).sort((a,b) => b.acceptedAt-a.acceptedAt);
-  for (const item of terminal.slice(100)) delete records[item.turnId];
+  for (const item of terminal.slice(100)) {
+    delete records[item.turnId]; delete highWater[item.lifecycleId]; delete deltaSeq[item.lifecycleId];
+  }
   return records;
 }
 
@@ -156,7 +158,7 @@ export function createActivityStore(env: StoreEnvironment) {
         for (const lifecycle of msg.lifecycles ?? []) {
           if (!stale.has(lifecycle.lifecycleId)) lifecycles[lifecycle.turnId] = lifecycle;
         }
-        return { ...maps, lifecycles: boundLifecycles(lifecycles) };
+        return { ...maps, lifecycles: boundLifecycles(lifecycles, maps.highWater, maps.deltaSeq) };
       });
     },
 
@@ -165,7 +167,9 @@ export function createActivityStore(env: StoreEnvironment) {
       if (msg.seq <= (s.highWater[msg.runId] ?? 0)) return;
       if (msg.lifecycle) {
         if (msg.seq < (s.deltaSeq[msg.runId] ?? 0)) return;
-        set({lifecycles:boundLifecycles({...s.lifecycles,[msg.lifecycle.turnId]:msg.lifecycle}),deltaSeq:{...s.deltaSeq,[msg.runId]:msg.seq}});
+        const highWater = { ...s.highWater }, deltaSeq = { ...s.deltaSeq, [msg.runId]: msg.seq };
+        const lifecycles = boundLifecycles({ ...s.lifecycles, [msg.lifecycle.turnId]: msg.lifecycle }, highWater, deltaSeq);
+        set({ lifecycles, highWater, deltaSeq });
       } else if (msg.span) {
         const span = msg.span;
         set((prev) => ({

@@ -470,3 +470,12 @@ test("lifecycle sequencing is independent of backend state and stale snapshots c
   expect(useActivityStore.getState().spans["ithaca-turn"]!["backend-root"]).toBeDefined();
   s.clear();expect(useActivityStore.getState().lifecycles).toEqual({});
 });
+
+
+test("terminal lifecycle eviction also bounds its independent sequence indexes",()=>{
+  const s=useActivityStore.getState();
+  const lifecycles=Array.from({length:101},(_,index)=>({lifecycleId:`lifecycle:ithaca-${index}`,turnId:`ithaca-${index}`,acceptedAt:index,endedAt:index+1,outcome:"success"} as import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle));
+  s.applySnapshot({type:"activity_snapshot",view:"index",spans:[],events:[],lifecycles,highWaterSeq:Object.fromEntries(lifecycles.map(item=>[item.lifecycleId,1]))});
+  const held=useActivityStore.getState();expect(Object.keys(held.lifecycles)).toHaveLength(100);
+  expect(held.highWater["lifecycle:ithaca-0"]).toBeUndefined();expect(held.lifecycles["ithaca-100"]).toBeDefined();
+});
