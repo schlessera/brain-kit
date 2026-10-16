@@ -1,3 +1,5 @@
+import { buildPositionalDiagram } from "./positional-layout.js";
+import type { DiagramShape } from "./shape.js";
 import { typeWidthBudget } from "./skin.js";
 import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
 
@@ -15,7 +17,7 @@ export interface DiagramLabelMask extends DiagramBox { kind: "label-mask"; edge:
 export interface DiagramEdgeLabel extends DiagramBox { kind: "edge-label"; edge: number; text: string; fontSize: number }
 export interface DiagramNode extends DiagramBox { kind: "node"; id: string; label: string; focal: boolean; sub?: string; tag?: string; role?: string; link?: string }
 export interface DiagramGroup extends DiagramBox { kind: "group"; id: string; label: string; focal: boolean }
-export type DiagramElement = DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
+export type DiagramElement = DiagramShape | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
 export interface DiagramTree { schema_version: 1; type: DiagramSpec["type"]; title: string; desc: string; viewBox: DiagramBox; elements: DiagramElement[] }
 export interface DiagramGeometryOptions { labelFontSize?: number; labelLineHeight?: number }
 export interface DiagramGeometryFinding { path: string; code: "unroutable"; message: string }
@@ -185,6 +187,7 @@ function pathData(route: DiagramConnector): string {
 /** Pure neutral geometry for a semantically valid free-layout spec. No DOM or paint. */
 export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions = {}): DiagramTree {
   const spec = diagramSpecSchema.parse(input);
+  if (["quadrant", "layer-stack", "pyramid", "funnel", "loop", "flywheel", "venn"].includes(spec.type)) return buildPositionalDiagram(spec);
   if (!(FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) throw new DiagramGeometryError([{ path: "$.type", code: "unroutable", message: `Geometry for '${spec.type}' belongs to its type family; free-layout routing is required here` }]);
   const fontSize = options.labelFontSize ?? 9.5, lineHeight = options.labelLineHeight ?? 12;
   if (![fontSize, lineHeight].every(value => Number.isFinite(value) && value >= 9 && value <= 256) || lineHeight < fontSize) throw Error("Label metrics require finite 9–256px dimensions and a line height at least the font size");

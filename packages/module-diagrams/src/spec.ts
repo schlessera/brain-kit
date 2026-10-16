@@ -1,3 +1,4 @@
+import { positionalSchema } from "./positional-spec.js";
 import { z } from "zod";
 
 /** Common v1 grammar. Type-specific content fields are added by their family. */
@@ -27,7 +28,7 @@ const common = {
 export const diagramSpecSchema = z.discriminatedUnion("type", [
   z.object({ ...common, type: z.literal(FREE_LAYOUT_TYPES), nodes: z.array(freeNode).max(1024) }).strict(),
   z.object({ ...common, type: z.literal(AXIS_TYPES), nodes: z.array(node).max(1024) }).strict(),
-  z.object({ ...common, type: z.literal(FIXED_LAYOUT_TYPES), nodes: z.array(node).max(1024) }).strict(),
+  z.object({ ...common, type: z.literal(FIXED_LAYOUT_TYPES), positional: positionalSchema.optional(), nodes: z.array(node).max(1024) }).strict(),
 ]);
 export type DiagramSpec = z.infer<typeof diagramSpecSchema>;
 /** Structural schema; reference, focal-role and geometry rules are checked separately. */

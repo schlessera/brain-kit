@@ -7,7 +7,7 @@ import { DIAGRAM_TOKEN_CSS } from "./skin.js";
 import { DIAGRAM_DRAWING_CSS } from "./drawing-style.js";
 import { toStatic } from "./render.js";
 
-const attrNames:Record<string,string>={"font-family":"fontFamily","font-size":"fontSize","font-weight":"fontWeight","letter-spacing":"letterSpacing","stroke-width":"strokeWidth","stroke-dasharray":"strokeDasharray","stroke-linecap":"strokeLinecap","stroke-linejoin":"strokeLinejoin",class:"className"};
+const attrNames:Record<string,string>={"text-anchor":"textAnchor","font-family":"fontFamily","font-size":"fontSize","font-weight":"fontWeight","letter-spacing":"letterSpacing","stroke-width":"strokeWidth","stroke-dasharray":"strokeDasharray","stroke-linecap":"strokeLinecap","stroke-linejoin":"strokeLinejoin",class:"className"};
 function Drawing({model,theme,id,interactive=true}: {model:DiagramSvgModel;theme:ContentRendererProps["theme"];id:string;interactive?:boolean}) {
  const [active,setActive]=useState<string|null>(null), navigation=useWikiLinkNavigation();
  function render(item:SvgPrimitive,key:number):React.ReactNode {

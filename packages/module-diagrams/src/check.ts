@@ -1,3 +1,4 @@
+import { checkPositional } from "./positional-check.js";
 import { checkDiagramSkin } from "./skin.js";
 import { checkDiagramLayouts } from "./layout.js";
 import { buildDiagram, DiagramGeometryError } from "./geometry.js";
@@ -122,6 +123,7 @@ export function checkDiagram(source: string): DiagramCheckResult {
     }
   }
   output.errors.push(...checkDiagramSkin(spec), ...checkDiagramLayouts(spec));
+  const positional = checkPositional(spec); output.errors.push(...positional.errors); output.warnings.push(...positional.warnings);
   output.valid = output.errors.length === 0;
   return output;
 }
