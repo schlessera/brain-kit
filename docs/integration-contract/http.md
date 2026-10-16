@@ -489,3 +489,17 @@ Both effects remain user journal entries, with existing conflict-safe Undo.
 Partial writes or unavailable storage remain partial/unknown, not an atomic
 merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
 and cross-session restrictions remain binding.
+
+### Activity host timing envelopes (additive)
+
+`GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by
+its list limit and filtered by session when supplied. Backend live/history
+summaries add optional `lifecycle`; existing list membership, filtering,
+backend durations and costs remain unchanged. Envelope-only attempts are in
+`lifecycles`, never disguised as backend runs. `GET /api/activity/runs/:runId`
+adds optional `lifecycle` plus its `lifecycleSeq` high-water, also on its rollup, and resolves an envelope-only
+turn with no spans/rollup and `detailPruned: false`. Historical records omit
+it. The agent Activity query returns the same envelope on run/recent reads.
+See [host turn lifecycle](wire.md#host-turn-lifecycle-additive) for timestamp,
+terminal, missing-phase and historical semantics. No inference aggregation
+includes envelope records.

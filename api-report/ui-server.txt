@@ -102,6 +102,16 @@ signatures (every public export and the types it is made of)
     };
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
+        writeLifecycle(record: ActivityTurnLifecycle): void;
+        lifecycleChangesSince(cursor: number, limit?: number): Array<{
+            changeId: number;
+            runId: string;
+            seq: number;
+            kind: "lifecycle";
+            lifecycle: ActivityTurnLifecycle;
+        }>;
+        lifecycle(turnId: string): ActivityTurnLifecycle | null;
+        lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
         readonly writer: string;
         startSpan(input: StartSpanInput): SpanRow;
         endSpan(spanId: string, input: EndSpanInput): boolean;

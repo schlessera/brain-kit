@@ -1,7 +1,8 @@
+import { piToolAvailabilityRefusal } from "./permission-gate.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 
-import { capsOf, type PiSessionLike, type SessionEnv } from "./backend-options.js";
+import { INTERACTIVE_SESSION_CAPS, capsOf, type PiSessionLike, type SessionEnv } from "./backend-options.js";
 import type { SessionRuntime } from "./session-runtime.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -45,15 +46,27 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
     req: StartTurnRequest
   ): Promise<{ entry: SessionEntry; isNew: boolean }> {
     req.signal.throwIfAborted();
+    const currentTurn: TurnContext = { bridge: req.bridge, signal: req.signal, posture: req.posture,
+      autonomous: req.autonomous, enforceAllowedTools: req.enforceAllowedTools === true, noGrantSurface: req.noGrantSurface === true };
+    const available = (name: string) => piToolAvailabilityRefusal(currentTurn, name) === undefined;
     const env: SessionEnv = {
       workerSignal: req.signal,
+      sessionBudgetLimits: req.sessionBudgetLimits,
+      budgetContext: req.budgetContext,
       ...(req.workerStartupView ? { workerStartupView: req.workerStartupView } : {}),
       ...(req.workerStarted ? { workerStarted: req.workerStarted } : {}),
       ...(req.workerSandbox ? { workerSandbox: req.workerSandbox } : {}),
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      caps: { ...capsOf(req.bridge), policyChange: !req.autonomous && !req.noGrantSurface && req.posture !== "voice" && Boolean(req.bridge.proposePolicyChange), turnTemp: !req.autonomous },
+      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false } : { ...INTERACTIVE_SESSION_CAPS },
+      currentSurface: req.autonomous ? undefined : { posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
+        inbox: { list: available("inbox_list"), get: available("inbox_get"), add: available("inbox_add"),
+          resolveAction: available("resolve_action"), completeShare: available("complete_share") } },
+      currentCaps: req.autonomous ? undefined : {
+        askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
+        location: available("get_current_location"), activity: available("query_activity"), inbox: available("inbox_list"),
+        mask: available("request_image_mask"), policyChange: available("propose_policy_change"), turnTemp: true },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

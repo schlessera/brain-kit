@@ -23,7 +23,7 @@ export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
 
 /** The run fields a report reads: the history row's summary or the detail's rollup. */
 export type ReportRun = Pick<ActivityRunSummary,
-  "origin" | "outcome" | "durationMs" | "billingMode" | "failureReason" | "jobName"> & {
+  "origin" | "outcome" | "durationMs" | "billingMode" | "failureReason" | "jobName" | "lifecycle"> & {
   detailPruned?: boolean;
 };
 
@@ -71,7 +71,9 @@ export function activityReportBody(run: ReportRun, record: ReportRecord, ctx: Re
   if (commit) facts.push(`server commit: ${commit}`);
   facts.push(`origin: ${originLine(run.origin)}`);
   if (isFailureOutcome(run.outcome)) facts.push(`outcome: ${run.outcome}`);
-  if (run.durationMs !== null && run.durationMs !== undefined) facts.push(`duration: ${formatDuration(run.durationMs)}`);
+  if (run.durationMs !== null && run.durationMs !== undefined) facts.push(`backend duration: ${formatDuration(run.durationMs)}`);
+  facts.push(`total turn: ${run.lifecycle?.totalElapsedMs == null ? "unknown" : formatDuration(run.lifecycle.totalElapsedMs)}`);
+  facts.push(`time to first frame: ${run.lifecycle?.timeToFirstFrameMs == null ? "unknown" : formatDuration(run.lifecycle.timeToFirstFrameMs)}`);
   const pruned = record.state === "pruned" || ((record.state === "unloaded" || record.state === "loading") && Boolean(run.detailPruned));
   if (pruned) facts.push("record: rollup only (detail pruned)");
   else if (record.state === "retained") facts.push(`record: retained · ${record.spans.length} ${record.spans.length === 1 ? "step" : "steps"}`);
@@ -121,6 +123,7 @@ export function rollupReportRun(rollup: ActivityRunRollup, detailPruned: boolean
     origin: rollup.origin as ReportRun["origin"],
     outcome: rollup.outcome,
     durationMs: rollup.durationMs,
+    lifecycle: rollup.lifecycle,
     billingMode: rollup.billingMode,
     failureReason: rollup.failureReason,
     jobName: rollup.jobName,

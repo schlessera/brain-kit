@@ -43,8 +43,13 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   // Real installed CLI source; this executable shim adds no mock logic.
   const cli = join(brain, "node_modules/.bin/brain");
   const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
+  const backingProgram = `import os,json
+try:
+    with open("/native-backing/fixture.img","rb") as f: result={"read":f.read(40).decode(),"uid":os.getuid()}
+except OSError as e: result={"denied":e.errno,"uid":os.getuid()}
+print(json.dumps(result))`;
   // The fixed witness runs inside the actual automatic index maintenance worker.
-  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance",${JSON.stringify(DESCENDANT_CONTROL ? "cwd-descendant" : "")}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const backing=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(backingProgram)}],{stdout:"pipe",stderr:"pipe"});if(backing.exitCode!==0)throw Error(backing.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-backing.json",backing.stdout);const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance",${JSON.stringify(DESCENDANT_CONTROL ? "cwd-descendant" : "")}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
   const FILES = 2000, BYTES = 16384;
   for (let i = 0;i < FILES;i++) {
     const header = `---\ntype: note\ntitle: Odysseus voyage ${i}\nupdated: 2026-07-12\n---\nOdysseus charts Ithaca ${i}.\n`;
@@ -59,13 +64,18 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const staging = hostOutputStagingLimits({});
   const show = Bun.spawnSync(["btrfs", "subvolume", "show", brain], { stdout: "pipe", stderr: "pipe" }); expect(show.exitCode).toBe(0);
   const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
-  const fs = Bun.spawnSync(["btrfs", "filesystem", "show", "/brain-fixture"], { stdout: "pipe", stderr: "pipe" }); expect(fs.exitCode).toBe(0);
-  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  // Read only the owned device; filesystem show can inspect unrelated host mounts.
+  const fs = Bun.spawnSync(["btrfs", "inspect-internal", "dump-super", "/dev/brain-native-proof-loop"], { stdout: "pipe", stderr: "pipe" }); expect(fs.exitCode, fs.stderr.toString()).toBe(0);
+  const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   mkdirSync("/native-runtime", { mode: 0o755, recursive: true });
   const socket = "/native-runtime/manager.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: socket,
     appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
     capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
+  const admitted = await createNativeBrainManagerClient({ socketPath: socket }).ready();
+  expect(admitted.privatePaths, "NATIVE_ADMITTED_EXACT_BACKING_PRIVATE_PATH").toContain("/native-backing/fixture.img");
+  writeFileSync(join(ARTIFACTS, "native-ready.json"), JSON.stringify(admitted, null, 2));
   const permissions = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, dir, brain]); expect(permissions.exitCode).toBe(0);
   const child = Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
@@ -278,6 +288,11 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
         expect(existsSync(join(brain,".brain/maintenance-authority.json")), "NATIVE_AUTOMATIC_INDEX_AUTHORITY_PUBLISHED").toBe(true);
         const maintenanceAuthority = JSON.parse(readFileSync(join(brain,".brain/maintenance-authority.json"),"utf8"));
         expect(maintenanceAuthority.namespaceUid, "NATIVE_MAINTENANCE_NAMESPACE_UID").toBe(0);
+        const backing = JSON.parse(readFileSync(join(brain,".brain/maintenance-backing.json"),"utf8"));
+        writeFileSync(join(ARTIFACTS,"maintenance-backing.json"), JSON.stringify(backing));
+        expect(backing.read ?? "", "NATIVE_EXACT_BACKING_MASK_PREVENTS_MARKER_READ").toBe("");
+        expect(backing.uid, "NATIVE_BACKING_WITNESS_NAMESPACE_UID").toBe(0);
+        if (backing.read === undefined) expect(backing.denied, "NATIVE_BACKING_READ_DENIED_BY_FILE_COVER").toBe(13);
         expect(maintenanceAuthority.ioctlsDenied).toHaveLength(7);
         expect(maintenanceAuthority.nestedUsernsDenied, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED").toBe(true);
         expect(maintenanceAuthority.quotaWriteDenied, "NATIVE_MAINTENANCE_QUOTA_WRITE_DENIED").toBe(true);
@@ -345,8 +360,8 @@ if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] 
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
   const show = Bun.spawnSync(["/usr/bin/btrfs", "subvolume", "show", brain]); expect(show.exitCode).toBe(0);
   const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
-  const fs = Bun.spawnSync(["/usr/bin/btrfs", "filesystem", "show", "/brain-fixture"]); expect(fs.exitCode).toBe(0);
-  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  const fs = Bun.spawnSync(["/usr/bin/btrfs", "inspect-internal", "dump-super", "/dev/brain-native-proof-loop"]); expect(fs.exitCode, fs.stderr.toString()).toBe(0);
+  const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   const socketPath = "/native-runtime/release-observation.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
     appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
@@ -387,8 +402,8 @@ if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor rele
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
   const show = Bun.spawnSync(["/usr/bin/btrfs", "subvolume", "show", brain]); expect(show.exitCode).toBe(0);
   const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show.stdout.toString())![1]!.replaceAll("-", "");
-  const fs = Bun.spawnSync(["/usr/bin/btrfs", "filesystem", "show", "/brain-fixture"]); expect(fs.exitCode).toBe(0);
-  const fsid = /uuid:\s*([0-9a-f-]+)/.exec(fs.stdout.toString())![1]!;
+  const fs = Bun.spawnSync(["/usr/bin/btrfs", "inspect-internal", "dump-super", "/dev/brain-native-proof-loop"]); expect(fs.exitCode, fs.stderr.toString()).toBe(0);
+  const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   const socketPath = "/native-runtime/release-transient.sock";
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
     appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });

@@ -2989,6 +2989,7 @@ export interface ActivitySpanEvent {
  * carries open root spans only — history comes from the REST activity API.
  */
 export interface ServerActivitySnapshot {
+  lifecycles?: ActivityTurnLifecycle[];
   type: "activity_snapshot";
   view: ActivityView;
   sessionId?: string;
@@ -3001,8 +3002,9 @@ export interface ServerActivitySnapshot {
   append?: boolean;
 }
 
-/** One committed change. Exactly one of `span` / `event` is present. */
+/** One committed change. Exactly one of `span`, `event`, `lifecycle` is present. */
 export interface ServerActivityDelta {
+  lifecycle?: ActivityTurnLifecycle;
   type: "activity_delta";
   runId: string;
   seq: number;
@@ -3050,7 +3052,39 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
   return v === "openrouter" || v === "direct";
 }
 
+/** Host-owned envelope; never contributes inference usage or cost. */
+export interface ActivityTurnLifecycle {
+  hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
+  skippedPhases: Array<"governed" | "budget" | "journal">;
+  lifecycleId: string;
+  turnId: string;
+  sessionId: string | null;
+  backendRunId: string | null;
+  acceptedAt: number;
+  dequeuedAt: number | null;
+  governedStartedAt: number | null;
+  governedAcquiredAt: number | null;
+  budgetStartedAt: number | null;
+  budgetAdmittedAt: number | null;
+  journalStartedAt: number | null;
+  journalBeganAt: number | null;
+  backendInvokedAt: number | null;
+  firstFrameAt: number | null;
+  failureObservedAt: number | null;
+  endedAt: number | null;
+  outcome: ActivitySpanOutcome | null;
+  reason: string | null;
+  totalElapsedMs: number | null;
+  timeToFirstFrameMs: number | null;
+  queueWaitMs: number | null;
+  governedAdmissionMs: number | null;
+  budgetAdmissionMs: number | null;
+  journalBeginMs: number | null;
+  backendStartupMs: number | null;
+}
+
 export interface ActivityRunSummary {
+  lifecycle?: ActivityTurnLifecycle;
   runId: string;
   origin: ActivitySpanOrigin;
   name: string;
@@ -3084,6 +3118,7 @@ export interface ActivityRunSummary {
 }
 
 export interface ActivityRunRollup {
+  lifecycle?: ActivityTurnLifecycle;
   origin: string;
   name: string;
   sessionId: string | null;
@@ -3108,6 +3143,8 @@ export interface ActivityRunRollup {
 }
 
 export interface ActivityRunDetail {
+  lifecycleSeq?: number;
+  lifecycle?: ActivityTurnLifecycle;
   runId: string;
   detailPruned: boolean;
   spans?: ActivitySpan[];

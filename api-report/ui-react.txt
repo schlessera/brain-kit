@@ -917,6 +917,7 @@ signatures (every public export and the types it is made of)
             status?: string;
         }) => Promise<{
             history: ActivityRunSummary[];
+            lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[];
             live: ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<ActivityRuntimeStats>;
@@ -1322,6 +1323,7 @@ signatures (every public export and the types it is made of)
             status?: string;
         }) => Promise<{
             history: import("@schlessera/brain-ui-sdk").ActivityRunSummary[];
+            lifecycles?: import("@schlessera/brain-ui-sdk").ActivityTurnLifecycle[];
             live: import("@schlessera/brain-ui-sdk").ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<import("@schlessera/brain-ui-sdk").ActivityRuntimeStats>;

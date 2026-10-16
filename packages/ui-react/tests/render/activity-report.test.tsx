@@ -12,6 +12,12 @@ import { act, cleanup, fireEvent, render as renderDom, waitFor } from "@testing-
 import type { ReactNode } from "react";
 import type { ActivityRunDetail, ActivityRunSummary, ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
+import { createUiDb } from "../../../ui-server/src/db/client.js";
+import { createActivityStore } from "../../../ui-server/src/activity/store.js";
+import { toWireRollup, toWireSpan } from "../../../ui-server/src/activity/stream.js";
+import { RunDetail } from "../../src/components/activity/activity-run-detail.js";
+import { RunRow } from "../../src/components/activity/activity-run-list.js";
+
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -164,6 +170,42 @@ async function openReport(page: ReturnType<typeof render>, runId: string) {
 }
 
 describe("eligibility", () => {
+  test("a recovered successful run renders its Activity row and receipt without a failure footnote", async () => {
+    const db = createUiDb(":memory:");
+    try {
+      const store = createActivityStore(db);
+      store.startSpan({ spanId: "recovered-root", runId: "run-recovered", name: "Loom ledger sync",
+        kind: "cron", origin: "cron", jobName: "Loom ledger sync" });
+      store.startSpan({ spanId: "recovered-tool", runId: "run-recovered", parentSpanId: "recovered-root",
+        name: "Read loom ledger", kind: "tool", origin: "cron" });
+      store.endSpan("recovered-tool", { outcome: "error", reason: "loom ledger unavailable" });
+      store.endSpan("recovered-root", { outcome: "success" });
+      store.rollupRun("run-recovered");
+      const rolled = store.runRollup!("run-recovered")!;
+      const rollup = toWireRollup(rolled);
+      const run: ActivityRunSummary = { ...rollup, runId: rolled.runId, origin: rolled.origin,
+        running: false, detailPruned: false };
+      const previousFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/activity/runs/run-recovered")) return Response.json({
+          runId: run.runId, detailPruned: false, rollup,
+          spans: store.snapshotRun(run.runId)!.spans.map(toWireSpan), events: [], highWaterSeq: 4,
+        });
+        return previousFetch(input, init);
+      }) as typeof fetch;
+      const page = render(<><RunRow run={run} onOpen={() => {}} />
+        <RunDetail runId={run.runId} onBack={() => {}} /></>);
+      await page.findByText("This run");
+      // The same store-produced wire rollup that drives the list drives the receipt.
+      // A failed child remains in the trace; only the run-level footnote disappears.
+      expect(page.getByText("success")).toBeTruthy();
+      const receipt = page.getByText("This run").parentElement!;
+      expect(receipt.textContent).not.toContain("loom ledger unavailable");
+      expect(page.getByText("Read loom ledger")).toBeTruthy();
+      expect(store.getSpan("recovered-tool")!.outcome).toBe("error");
+    } finally { db.close(); }
+  });
+
   test("only failed runs offer Send bug report, by the shared predicate", async () => {
     const page = await mount();
     expect(reportButtons(page).map((b) => b.dataset.reportRun).sort()).toEqual(["run-harbour", "run-loom", "run-storm"]);

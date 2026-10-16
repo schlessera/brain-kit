@@ -67,6 +67,7 @@ somebody already learn the hard way?*
 | [experiment-tier.md](experiment-tier.md) | Why measurement-harness tests live under `experiments/`, outside product discovery, and run as a receipt-checked gate before each release, with the file- and assertion-level inventory behind #1386. |
 | [runtime-requirements.md](runtime-requirements.md) | Why package ranges and package/host runtime minimums compose, which loaded/executed identities are checked, how unknown versions and overrides behave, and why compatibility stays separate from measurement. |
 | [codex-subscription-auth.md](codex-subscription-auth.md) | Why pi and the Codex CLI use separate ChatGPT OAuth grants, the source-based no-sharing ruling, and the observed separate-login limits. |
+| [session-prompt-context.md](session-prompt-context.md) | Why the exact session append is retained, changed facts use owned new-tail context, and replay preserves the actual user text. |
 | [pi-endpoint-routing.md](pi-endpoint-routing.md) | Why declared built-in pi models use the configured inference runtime, native per-request authentication endpoints take precedence, and the routing migration requires real adapter destination proof. |
 | [reranker-activation.md](reranker-activation.md) | Why model judgment requires persistent opt-in across search entry points, why credentials and modes cannot enable it, and why the measured Jev provider and seam remain available. |
 | [gemini-agent-contract.md](gemini-agent-contract.md) | Why Gemini embeds the single installed contract, how migration preserves user text and refuses ambiguous markers, and why sync leaves exact root/nested instruction conflicts for judgment. |
@@ -169,7 +170,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:189-218`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

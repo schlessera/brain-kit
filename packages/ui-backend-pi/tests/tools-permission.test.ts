@@ -100,6 +100,7 @@ describe("tool_call permission gate", () => {
       const turn = createTurnContext();
       const mock = makeMockBridge({ decision: { behavior: "deny", message: "operator excluded base reads" } });
       turn.bridge = mock.bridge;
+      turn.bridge = { ...mock.bridge, readBrainBase: async () => ({ content: "Odysseus returns.", expectedBaseHash: "a".repeat(64) }) };
       turn.enforceAllowedTools = true;
       turn.noGrantSurface = noGrantSurface;
       const handler = gateHandler({ turn, allowedTools: new Set(["brain_read"]), confirmPatterns: CONFIRM });
@@ -462,6 +463,27 @@ describe("curated tools execute without in-tool gating", () => {
       const res = await tools.bash.execute("t2", { command: "echo brain-kit-ok" }, undefined, undefined, CTX);
       expect(mock.permissionCalls).toHaveLength(0);
       expect(resultText(res)).toContain("brain-kit-ok");
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test.each([
+    ["echo hi", "hi", 0],
+    ["true", "(no output)", 0],
+    ["printf 'failure' >&2; exit 7", "failure\n[exit 7]", 7],
+    ["exit 3", "(no output)\n[exit 3]", 3],
+  ])("bash returns output without a command echo: %s", async (command, output, exitCode) => {
+    const brain = makeEmptyBrain();
+    try {
+      const tools = toolMap(createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()),
+      }));
+      const res = await tools.bash!.execute("bash-output", { command }, undefined, undefined, CTX);
+      expect(resultText(res)).toBe(output);
+      expect(res.details).toEqual({ exitCode });
     } finally {
       brain.cleanup();
     }

@@ -63,3 +63,29 @@ test("actual sequencer keeps every emitted specification once and leaves unshard
   const unsharded = new MeasuredBrowserSequencer({ config: {} } as Vitest);
   expect(await unsharded.shard(files)).toBe(files);
 });
+
+test("single-test layout reports retain complete positive timing coverage", () => {
+  expect(browserCostsFromLogs(["✓ ui-react-layout (chromium) ../ui-react/tests/browser/odysseus.layout.tsx (1 test) 950ms"])).toEqual({
+    "ui-react-layout::packages/ui-react/tests/browser/odysseus.layout.tsx": 0.95,
+  });
+  expect(browserCostsFromLogs(["✓ ui-react-layout (chromium) ../ui-react/tests/browser/odysseus.layout.tsx (1 test) 0ms"])).toEqual({
+    "ui-react-layout::packages/ui-react/tests/browser/odysseus.layout.tsx": UNKNOWN_BROWSER_SECONDS,
+  });
+});
+
+test("measured ordinary layout costs balance expensive files without admitting endurance or dropping unknowns", () => {
+  const measured = readBrowserCosts();
+  const entries = Object.keys(measured.seconds).filter(key => key.startsWith("ui-react-layout::"));
+  const emitted = [...entries, "ui-react-layout::packages/ui-react/tests/browser/odysseus-new.layout.tsx"].map(key => ({ project: "ui-react-layout", key }));
+  const partitions = balanceBrowserSpecs(emitted, 2, measured);
+  const totals = partitions.map(partition => partition.reduce((sum, spec) => sum + (measured.seconds[spec.key] ?? UNKNOWN_BROWSER_SECONDS), 0));
+  expect(entries.length).toBeGreaterThanOrEqual(47);
+  expect(Math.max(...totals) / Math.min(...totals)).toBeLessThan(1.1);
+  expect(partitions.flat().some(spec => spec.key.endsWith("odysseus-new.layout.tsx"))).toBe(true);
+  const expensive = entries.toSorted((a, b) => measured.seconds[b]! - measured.seconds[a]!);
+  const first = partitions.findIndex(partition => partition.some(spec => spec.key === expensive[0]));
+  const second = partitions.findIndex(partition => partition.some(spec => spec.key === expensive[1]));
+  expect(first).not.toBe(second);
+  expect(Object.keys(measured.seconds).some(key => key.startsWith("ui-react-endurance::"))).toBe(false);
+  assertBrowserPartition(emitted, partitions);
+});
