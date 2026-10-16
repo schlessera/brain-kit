@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { inclusionInputs } from "../scripts/inclusion-inputs";
@@ -14,8 +14,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "inclusion-inputs-")); roots.push(root); git(root, "init", "-q"); git(root, "config", "commit.gpgsign", "false");
   write(root, ".gitignore", "node_modules\n"); symlinkSync(resolve(import.meta.dir, "../node_modules"), join(root, "node_modules"), "dir");
   for (const path of ["package.json", "bun.lock", "tsconfig.json"]) write(root, path, "{}\n");
-  for (const path of ["bunfig.toml", ".github/workflows/ci.yml", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts", "scripts/visual.mjs", "scripts/build.ts", "scripts/workspace-lease.mjs"]) write(root, path, "");
-  write(root, "packages/ui-kit/tests/proof-inputs.json", "[]"); write(root, "scripts/browser-shard-costs.json", JSON.stringify({ seconds: { [`visual::${spec}`]: 1 } }));
+  for (const path of ["bunfig.toml", ".github/workflows/ci.yml", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts", "scripts/visual.mjs", "scripts/build.ts", "scripts/workspace-lease.mjs", "packages/ui-kit/src/styles.css", "packages/ui-react/src/styles.css"]) write(root, path, "");
+  write(root, "packages/ui-kit/tests/proof-inputs.json", "[]"); write(root, "scripts/css-proof-inputs.json", "[]"); write(root, "scripts/browser-shard-costs.json", JSON.stringify({ seconds: { [`visual::${spec}`]: 1 } }));
   write(root, spec, `import "../../../src/fixture.ts";\n`); write(root, "packages/src/fixture.ts", "export const value = 1;\n"); write(root, second, "export {};\n"); commit(root); return root;
 }
 test("inclusion hashes transitive immutable blobs and modes while unrelated prose can change", () => {
@@ -42,4 +42,30 @@ test("undeclared computed runtime inputs and missing or symbolic source cannot a
   expect(() => inclusionInputs(root, "browser", inventory, "fixed-runner")).toThrow("Unresolved immutable");
   symlinkSync("/tmp/unknown-proof-input", join(root, "packages/src/fixture.ts")); commit(root);
   expect(() => inclusionInputs(root, "browser", inventory, "fixed-runner")).toThrow();
+});
+
+
+test("declared directory inputs hash tracked additions, deletion and rename identities", () => {
+  const root = fixture();
+  write(root, spec, `import {readdirSync} from "node:fs"; readdirSync(target);\n`);
+  write(root, "data/one.md", "Ithaca\n");
+  write(root, "packages/ui-kit/tests/proof-inputs.json", JSON.stringify([{ owner: spec, inputs: [{ expression: "readdirSync(target)", targets: ["data"] }] }])); commit(root);
+  const before = inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint;
+  write(root, "data/two.md", "Raft\n"); commit(root);
+  const added = inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint; expect(added).not.toBe(before);
+  renameSync(join(root, "data/two.md"), join(root, "data/renamed.md")); commit(root);
+  const renamed = inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint; expect(renamed).not.toBe(added);
+  rmSync(join(root, "data/renamed.md")); commit(root);
+  expect(inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint).toBe(before);
+});
+
+test("workspace source resolution stays inside its immutable snapshot instead of current install links", () => {
+  const root = fixture();
+  write(root, "packages/lib/package.json", JSON.stringify({ name: "@schlessera/brain-ui-react", exports: { ".": { bun: "./src/index.ts", default: "./dist/index.js" } } }));
+  write(root, "packages/lib/src/index.ts", "export const value = 1;\n");
+  write(root, spec, `import "@schlessera/brain-ui-react";\n`); const source = commit(root);
+  const original = inclusionInputs(root, "browser", inventory, "fixed-runner");
+  write(root, "packages/lib/src/index.ts", "export const value = 2;\n"); commit(root);
+  expect(inclusionInputs(root, "browser", inventory, "fixed-runner", source).fingerprint).toBe(original.fingerprint);
+  expect(inclusionInputs(root, "browser", inventory, "fixed-runner").fingerprint).not.toBe(original.fingerprint);
 });

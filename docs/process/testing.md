@@ -289,7 +289,11 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
   receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts. Read
+  domains may retain validated equivalent successful automatic receipts.
+  Inclusion fingerprints recompute each immutable tree's complete supported
+  import/declaration closure and tracked path/blob/mode, build/discovery/partition
+  and runner identities. Unknown generated/runtime inputs execute fresh; a
+  graph-structure hash or unchanged imported files alone cannot authorize reuse. Read
   the current retention ledger and aggregate; original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;

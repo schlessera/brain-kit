@@ -263,20 +263,35 @@ independent domain. Main pushes and scheduled/manual runs execute fresh proof.
 There are no chains through previously retained/skipped jobs.
 
 Vitest's installed `list --filesOnly --json=<path>` discovers actual project/file
-ownership without collecting suites. Shared files remain inputs to both
-domains; `recordings-tray.offline.tsx`, for example, belongs to layout and rail
-projects. The complete two-shard spec inventory/order and measured partition,
-runner image/version, and every tracked Git blob/path/mode are fingerprinted.
-Only the content of unreferenced, unexported opposite-domain test leaves is
-excluded. Their paths/modes stay hashed. Reference closure includes strings,
-helpers, fixtures and symlink targets; all unknown files, shared fixtures,
-source, dependency manifests/lockfiles, configuration and runtime/image pins
-stay hashed. New discovery and changed ownership expand conservatively.
-The installed TypeScript compiler's expanded build inventory and the explicit
-CSS scan roots must also exclude those foreign leaves; unknown build/scan
-configuration retains fresh execution.
-Unknown dynamic spec imports, Git-dependent spec inputs, alternate runtime
-contexts or unavailable discovery do not qualify for retention.
+ownership without collecting suites. Browser and layout each fingerprint their
+complete applicable static-import and validated indirect-input closure from
+#2125, including CSS scan roots and assets. Unknown runtime/computed inputs,
+unavailable discovery and invalid declarations require fresh execution.
+Directory ownership includes added descendants; missing and symbolic inputs
+remain conservative failures until fully supported.
+
+The inclusion fingerprint binds relevant immutable Git paths, blob identities
+and modes, selected discovery ownership/order, the two measured partitions and
+runner identity. It also includes every proof/tooling script and workflow,
+root/package manifests and lockfiles, compiler configuration and expanded build
+source inventories. These conservative shared harness inputs can invalidate
+retention even when only one domain executes them. Unrelated prose is not an
+input merely because it is tracked; imported or declared prose remains included.
+
+Source/current closure discovery uses separate raw-Git-blob snapshots. Workspace
+package links resolve inside their own snapshot, while external dependency
+resolution uses the frozen install only after source/current algorithm,
+configuration, manifests and lockfiles match. Current generated/dist artifacts,
+working-tree bytes and Git archive substitutions cannot stand in for immutable
+source content. A helper or dependency identity mismatch executes fresh.
+
+The implemented fingerprint is only a necessary condition for retention. The
+actual complete browser/layout graph still has runtime-generated fixture inputs
+and runner observations that need audited supported bindings. Those unresolved
+inputs continue fresh execution; neither a synthetic closed fixture nor a graph
+structure hash establishes a real hosted retention hit. #2126 remains open until
+its controlled same-PR hosted demonstration and independent aggregate evidence
+are complete.
 
 Each source shard must have an actual successful fresh execution step, a
 matching GitHub Actions check, one post-success receipt, and a checkout log

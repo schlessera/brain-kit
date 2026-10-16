@@ -1,16 +1,18 @@
 /** Immutable inclusion fingerprints. Unknown runtime ownership always executes fresh. */
+import ts from "typescript";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { discoverInputClosure, type InputDeclaration } from "./browser-input-closure";
 import { balanceBrowserSpecs, readBrowserCosts } from "./browser-shards";
-import { git, selectedSpecs, treeEntries, type Inputs, type Reusable, type Spec } from "./proof-inputs";
+import { selectedSpecs, treeEntries, type Inputs, type Reusable, type Spec } from "./proof-inputs";
 
 const required = ["package.json", "bun.lock", "tsconfig.json", "bunfig.toml", ".github/workflows/ci.yml",
   "packages/ui-kit/tests/proof-inputs.json", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts",
   "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts", "scripts/browser-shard-costs.json",
-  "scripts/visual.mjs", "scripts/build.ts", "scripts/workspace-lease.mjs"];
+  "scripts/visual.mjs", "scripts/build.ts", "scripts/workspace-lease.mjs", "scripts/css-proof-inputs.json",
+  "packages/ui-kit/src/styles.css", "packages/ui-react/src/styles.css"];
 const harness = (path: string) => path.startsWith("scripts/") || path.startsWith(".github/workflows/") ||
   required.includes(path) || /(?:^|\/)(?:package\.json|bun\.lock|bunfig\.toml|tsconfig(?:\.[^/]+)?\.json)$/.test(path);
 
@@ -27,10 +29,27 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     throw new Error("Changed immutable algorithm or dependency inputs require fresh proof");
   const snapshot = mkdtempSync(join(tmpdir(), "brain-proof-inputs-"));
   try {
-    const archive = Bun.spawnSync(["git", "archive", "--format=tar", ref], { cwd: root, stdout: "pipe", stderr: "pipe" });
-    if (archive.exitCode) throw new Error("Cannot materialize immutable proof tree");
-    const extracted = Bun.spawnSync(["tar", "-xf", "-", "-C", snapshot], { stdin: archive.stdout, stdout: "pipe", stderr: "pipe" });
-    if (extracted.exitCode) throw new Error("Cannot extract immutable proof tree");
+    // Read raw Git blobs, not archive filters/export-ignore/substitution or
+    // current worktree bytes. No generated output enters the snapshot.
+    const blobs = Bun.spawnSync(["git", "cat-file", "--batch"], { cwd: root,
+      stdin: new TextEncoder().encode(entries.map(entry => entry.oid).join("\n") + "\n"), stdout: "pipe", stderr: "pipe" });
+    if (blobs.exitCode) throw new Error("Cannot materialize immutable proof blobs");
+    const bytes = Buffer.from(blobs.stdout); let offset = 0;
+    for (const entry of entries) {
+      const end = bytes.indexOf(10, offset);
+      if (end < offset) throw new Error("Missing immutable blob header");
+      const header = bytes.subarray(offset, end).toString("ascii").split(" ");
+      const size = Number(header[2]);
+      if (header[0] !== entry.oid || header[1] !== "blob" || !Number.isSafeInteger(size) || size < 0 || end + 1 + size >= bytes.length)
+        throw new Error("Invalid immutable blob inventory");
+      const contents = bytes.subarray(end + 1, end + 1 + size), target = join(snapshot, entry.path);
+      mkdirSync(dirname(target), { recursive: true });
+      if (entry.mode === "120000") symlinkSync(contents.toString("utf8"), target);
+      else if (entry.mode === "100644" || entry.mode === "100755") { writeFileSync(target, contents); chmodSync(target, entry.mode === "100755" ? 0o755 : 0o644); }
+      else throw new Error("Unsupported immutable input mode");
+      offset = end + 1 + size + 1;
+    }
+    if (offset !== bytes.length) throw new Error("Unexpected immutable blob output");
     if (!existsSync(join(root, "node_modules"))) throw new Error("Locked dependency resolution unavailable");
     // Workspace package symlinks must resolve INSIDE this immutable snapshot.
     // External packages remain read-only links to the matching frozen install.
@@ -51,13 +70,29 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
         }
       } else symlinkSync(workspaces.has(entry.name) ? join(snapshot, workspaces.get(entry.name)!) : join(root, "node_modules", entry.name), join(snapshot, "node_modules", entry.name), "dir");
     }
-    const declarations = JSON.parse(readFileSync(join(snapshot, "packages/ui-kit/tests/proof-inputs.json"), "utf8")) as InputDeclaration[];
+    const declarations = ["packages/ui-kit/tests/proof-inputs.json", "scripts/css-proof-inputs.json"].flatMap(file => {
+      const value = JSON.parse(readFileSync(join(snapshot, file), "utf8"));
+      if (!Array.isArray(value)) throw new Error("Invalid immutable input declarations");
+      return value as InputDeclaration[];
+    });
     if (!Array.isArray(declarations)) throw new Error("Invalid immutable input declarations");
     const selected = selectedSpecs(category, inventory);
-    const inputs = [...required.filter(path => path !== "scripts/browser-shard-costs.json"), ...selected.map(spec => spec.file)];
+    const inputs = [...required.filter(path => path.startsWith("packages/ui-kit/") || path === "packages/ui-react/src/styles.css"), ...selected.map(spec => spec.file)];
     const closure = discoverInputClosure(snapshot, inputs, declarations);
     if (closure.unresolved.length) throw new Error(`Unresolved immutable ${category} inputs require fresh proof: ${closure.unresolved.slice(0, 3).join("; ")}`);
     const included = new Set([...closure.files, ...entries.filter(entry => harness(entry.path)).map(entry => entry.path)]);
+    // Builds compile their expanded source inventories; compilation hashes
+    // source bytes without interpreting dormant runtime filesystem calls.
+    for (const entry of entries.filter(entry => /^packages\/[^/]+\/tsconfig\.build\.json$/.test(entry.path))) {
+      const config = ts.readConfigFile(join(snapshot, entry.path), ts.sys.readFile);
+      if (config.error) throw new Error("Unknown immutable compiler configuration");
+      const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, join(snapshot, entry.path.slice(0, entry.path.lastIndexOf("/"))));
+      if (parsed.errors.length) throw new Error("Unknown immutable compiler inventory");
+      for (const path of parsed.fileNames) {
+        if (!path.startsWith(snapshot + "/")) throw new Error("Compiler input escapes immutable repository");
+        included.add(path.slice(snapshot.length + 1));
+      }
+    }
     // Directory ownership expands from the immutable tree, not from current disk.
     for (const directory of closure.directories ?? []) for (const entry of entries)
       if (entry.path.startsWith(directory + "/")) included.add(entry.path);

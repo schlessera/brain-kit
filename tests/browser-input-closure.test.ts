@@ -202,3 +202,21 @@ test("CSS root scan reproduction resolves and declarations cannot waive unsuppor
     expect(closureSelects(["unrelated.ts"], invalid, true)).toBe(true);
   }
 });
+
+
+test("a declared file read can retain exact result transformation calls without stale ownership", () => {
+  const inner = `readFileSync(target, "utf8")`, outer = inner + `.replace("boat", "raft")`;
+  const root = fixture({ "spec.ts": `import {readFileSync} from "node:fs"; ${outer};`, "data.md": "boat" });
+  const closure = discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression: inner, targets: ["data.md"] }, { expression: outer, targets: ["data.md"] }] }]);
+  expect(closure.unresolved).toEqual([]);
+  expect(closure.files).toContain("data.md");
+});
+
+test("type-only imported files are hashed without executing their unrelated runtime inputs", () => {
+  const root = fixture({ "spec.ts": `import type { Shape } from "./types.js"; export type { Shape } from "./types.js";`, "types.ts": `import {readFileSync} from "node:fs"; export type Shape = string; readFileSync(unknown);` });
+  const closure = discoverInputClosure(root, ["spec.ts"]);
+  expect(closure.files).toContain("types.ts");
+  expect(closure.unresolved).toEqual([]);
+  writeFileSync(join(root, "spec.ts"), `import "./types.js";`);
+  expect(discoverInputClosure(root, ["spec.ts"]).unresolved).toContain("Undeclared input types.ts: readFileSync(unknown)");
+});

@@ -79,6 +79,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     }
     if (!sourceExtension.test(file)) return;
     const source = readFileSync(absolute, "utf8"), ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    if (/\bGITHUB_[A-Z_]+\b/.test(source)) unresolved.add(`Git-dependent execution input: ${normalized}`);
     if ((ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) unresolved.add(`Invalid source: ${normalized}`);
     const uses = new Set<string>(), sites = new Set<string>();
     const aliases = new Map<string, string>(), namespaces = new Set<string>();
@@ -91,19 +92,35 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
         if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) aliases.set(element.name.text, element.propertyName?.text ?? element.name.text);
       }
     }
-    const edge = (specifier: string) => {
+    const edge = (specifier: string, typeOnly = false) => {
       if (builtins.has(specifier) || specifier.startsWith("bun:")) return;
       const result = ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule;
       if (!result) {
         // Bundler-owned assets are still repository inputs, even when TypeScript has no declaration.
         const asset = specifier.startsWith(".") ? resolve(dirname(absolute), specifier.split("?")[0]!) : "";
-        if (asset && existsSync(asset)) { visit(relative(root, asset)); return; }
+        if (asset && existsSync(asset)) { visit(relative(root, asset), typeOnly); return; }
         unresolved.add(`Unresolved import ${normalized}: ${specifier}`); return;
       }
       const target = inside(root, result.resolvedFileName);
       if (target?.startsWith("node_modules/") || result.isExternalLibraryImport && !specifier.startsWith("@schlessera/")) return;
       if (!target) { unresolved.add(`External workspace input ${normalized}: ${specifier}`); return; }
-      visit(target);
+      visit(target, typeOnly);
+    };
+    // Result transformations can be declared exactly, but only along the
+    // direct receiver chain of a recognised input call. An arbitrary outer
+    // function cannot conceal unrelated input operations.
+    const inputDeclarations = (node: ts.Node): IndirectInput[] => {
+      const matches: IndirectInput[] = [];
+      let current = node;
+      for (;;) {
+        const declaration = declared.get(normalized)?.get(current.getText(ast));
+        if (declaration) matches.push(declaration);
+        const property = current.parent;
+        if (!property || !ts.isPropertyAccessExpression(property) || property.expression !== current ||
+            !ts.isCallExpression(property.parent) || property.parent.expression !== property) break;
+        current = property.parent;
+      }
+      return matches;
     };
     const walk = (node: ts.Node) => {
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
@@ -122,7 +139,8 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
         if (!ts.isImportClause(parent) && !ts.isNamespaceImport(parent) && !(ts.isPropertyAccessExpression(parent) && parent.expression === node) && !(ts.isElementAccessExpression(parent) && parent.expression === node)) unresolved.add(`Unsupported input namespace alias ${normalized}: ${node.text}`);
       }
       if (ts.isIdentifier(node) && node.text === "require" && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) unresolved.add(`Unsupported require alias ${normalized}`);
-      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) edge(node.moduleSpecifier.text);
+      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
+        edge(node.moduleSpecifier.text, ts.isImportDeclaration(node) ? node.importClause?.isTypeOnly === true : node.isTypeOnly);
       if (ts.isCallExpression(node)) {
         const originalCallee = node.expression.getText(ast), callee = aliases.get(originalCallee) ?? originalCallee, expression = node.getText(ast);
         if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
@@ -135,9 +153,9 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
         } else if (aliases.has(originalCallee) && readOperations.has(callee) ||
           [...namespaces].some(name => originalCallee.startsWith(name + ".") && readOperations.has(originalCallee.split(".").at(-1)!)) ||
           /^(?:require|Bun\.(?:file|spawn|spawnSync|build|resolveSync)|import\.meta\.glob)$/.test(originalCallee) || ts.isElementAccessExpression(node.expression) || /\.(?:fulfill|setContent)$/.test(originalCallee)) {
-          const declaration = declared.get(normalized)?.get(expression);
-          if (!declaration) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
-          else { uses.add(expression); for (const target of declaration.targets) visit(target); }
+          const matching = inputDeclarations(node);
+          if (!matching.length) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          else for (const declaration of matching) { uses.add(declaration.expression); for (const target of declaration.targets) visit(target); }
         }
       }
       if (ts.isNewExpression(node) && /^(?:Worker|SharedWorker|Bun\.Glob)$/.test(node.expression.getText(ast))) {
