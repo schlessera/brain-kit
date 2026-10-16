@@ -1,4 +1,4 @@
-import { CircleHelp, TriangleAlert, HardDrive } from "lucide-react";
+import { Button, type IconName } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useStorageGuidance } from "../settings/storage/use-storage-guidance.js";
 /** A persistent status control opens the existing Settings pane; it adds no destination. */
@@ -17,36 +17,39 @@ export function StorageIndicator() {
       : uncertain
       ? "Capacity unknown"
       : "Capacity observed";
-  const Glyph =
+  const icon: IconName =
     value.severity === "critical" || value.severity === "low"
-      ? TriangleAlert
+      ? "failed"
       : uncertain
-      ? CircleHelp
-      : HardDrive;
+      ? "unverified"
+      : "ledger";
   return (
     <div
       className="shrink-0 border-b border-border px-2"
       data-storage-indicator=""
     >
-      <button
-        type="button"
-        className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
-        style={{ overflowWrap: "anywhere" }}
-        aria-label={`Open Storage: ${label}${
+      <Button
+        tone="quiet"
+        size="sm"
+        icon={icon}
+        style={{
+          minHeight: 44,
+          border: 0,
+          borderRadius: 0,
+          overflowWrap: "anywhere",
+        }}
+        ariaLabel={`Open Storage: ${label}${
           uncertain && value.severity && value.severity !== "observed"
             ? ", evidence out of date or unavailable"
             : ""
         }`}
-        onClick={() => root.stores.ui.getState().openSettings("storage")}
-      >
-        <Glyph size={16} className="shrink-0" aria-hidden="true" />
-        <span>
-          Storage · {label}
-          {uncertain && value.severity && value.severity !== "observed"
+        label={`Storage · ${label}${
+          uncertain && value.severity && value.severity !== "observed"
             ? " · Check current evidence"
-            : ""}
-        </span>
-      </button>
+            : ""
+        }`}
+        onClick={() => root.stores.ui.getState().openSettings("storage")}
+      />
     </div>
   );
 }

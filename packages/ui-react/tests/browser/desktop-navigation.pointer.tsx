@@ -312,8 +312,8 @@ for (const theme of ["dark", "light"] as const) {
       await expect.poll(() => document.activeElement, { message: "focus enters the query" }).toBe(input);
       const names = [...dialog()!.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent!.replace("⏎", ""));
       const fine = mode !== "coarse";
-      expect(names.slice(0, 7), "Jump to, remapped, with Graph keyless").toEqual([
-        ...DESTINATIONS.map((d, i) => (fine ? `${d}⌘${i + 1}` : d)), "Graph", "New chat",
+      expect(names.slice(0, 8), "Jump to, remapped, with Storage and Graph keyless").toEqual([
+        ...DESTINATIONS.map((d, i) => (fine ? `${d}⌘${i + 1}` : d)), "Storage", "Graph", "New chat",
       ]);
       expect(names.filter((n) => n.startsWith("Sessions")), "Sessions once").toHaveLength(1);
       await userEvent.keyboard("{Escape}");

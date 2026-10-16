@@ -91,8 +91,9 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
         ) ?? breadcrumb.current
       )?.focus();
   }, [view.loading, view.tree, view.parent]);
+  const refreshGuidance = guidance.refresh;
   const observed = Math.max(view.status?.snapshot?.observedAt ?? 0, view.status?.previous?.observedAt ?? 0, view.status?.lastFailure?.at ?? 0);
-  useEffect(() => { if (observed) void guidance.refresh(); }, [observed, guidance.refresh]);
+  useEffect(() => { if (observed) void refreshGuidance(); }, [observed, refreshGuidance]);
   const snapshot = view.snapshot,
     tree = view.tree,
     page = view.filtering ? view.files : tree,

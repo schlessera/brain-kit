@@ -147,7 +147,7 @@ for (const width of [320, 1280])
           "STORAGE_HISTORY_NO_OVERFLOW"
         ).toBeLessThanOrEqual(host.clientWidth + 1);
         for (const target of host.querySelectorAll<HTMLElement>(
-          "summary,select,[data-storage-indicator] button"
+          'summary,select,[data-storage-indicator] [role="button"]'
         ))
           expect(
             target.getBoundingClientRect().height / zoom,

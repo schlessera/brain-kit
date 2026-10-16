@@ -4291,10 +4291,10 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     const dialog = view.getByRole("dialog", { name: "Command palette" });
     expect(dialog).toBeTruthy();
     const names = view.getAllByRole("option").map((o) => o.textContent);
-    // Jump to: the five destinations with their remapped keys, then Graph
-    // with none, then New chat. Sessions is one row, not two (D52 §1).
-    expect(names.slice(0, 7).map((n) => n?.replace(/⏎/g, ""))).toEqual([
-      "Chat⌘1", "Sessions⌘2", "Actions⌘3", "Files⌘4", "Settings⌘5", "Graph", "New chat",
+    // Jump to: the five destinations with their remapped keys, then keyless
+    // Storage and Graph, then New chat. Sessions is one row, not two (D52 §1).
+    expect(names.slice(0, 8).map((n) => n?.replace(/⏎/g, ""))).toEqual([
+      "Chat⌘1", "Sessions⌘2", "Actions⌘3", "Files⌘4", "Settings⌘5", "Storage", "Graph", "New chat",
     ]);
     expect(names.filter((n) => n?.includes("Sessions"))).toHaveLength(1);
     // Every other route is still here, the rail's acts included.
