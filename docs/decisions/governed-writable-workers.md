@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-112`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-109`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -270,8 +270,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:88-120`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-112`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-109`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:886-914`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:985-1013`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -798,11 +798,24 @@ automatic revert or claim of recovering writes between observations is made.
 
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The live receipt's polite accessibility status follows authoritative cost and
+completion-state updates for its own session and turn. Repeated equal text and
+unrelated updates do not mutate the live region; expired or inactive-session
+receipts clear it. Known subscription zero remains distinct from unknown cost.
 The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Steering classification
+principal authority remain the caller's responsibility. The policy publisher
+creates, writes, fsyncs and removes its operation-owned staging name entirely
+inside that synchronous callback, between the two serialized observations
+(`await options.observeUserPolicy`,
+`packages/ui-server/src/brain/policy-proposal.ts:183-210`). First publication
+also removes the temporary hardlink before the final observation. No filename
+prefix is ignored; a similarly named real agent change is still retained.
+Failed staging preserves the original policy, while failed recording after
+publication retains partial/unknown receipts rather than claiming completion.
+Steering classification
 and effective budget/scope enforcement belong to their own programme work.
 
 **Delivered user revert (#1653).** The existing reader has a single-file history
@@ -1306,7 +1319,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1492`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1591`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1314,6 +1327,50 @@ and file by file, with the same resolution the restricted envelope uses
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+### Owned runtime placement beneath `/tmp` — 2026-10-14
+
+The maintainer's ruling on #1844 selects support for a host-installed owned
+runtime beneath `/tmp`. The launcher installs private turn temp first, then
+retains only the existing concrete runtime closure read-only: the executable,
+its owning package, dependency directories and resolved workspace packages.
+Canonical locations and the installation aliases needed to execute them remain
+available. Internal callers without a named profile use the same closure;
+profiled, restricted, maintenance and mirror-transport callers keep their
+existing authority and explicit read envelopes.
+
+A runtime location cannot overlap reserved scratch, runtime state, writable
+areas, XDG, maintenance HOME/state/output, relay/proxy, fresh procfs or device
+mounts. Names, canonical targets and ancestors/descendants are checked before
+dispatch, including unresolved final entries beneath an aliased parent. A
+collision names the offending location and asks for a separate installation
+directory. Runtime retention also reapplies explicitly masked private files
+and subdirectories through retained aliases. It does not restore unrelated
+host-temp siblings or make runtime bytes writable.
+
+The concrete checks and mounts are in (`validateRuntimePlacement`,
+`packages/ui-sdk/src/server/worker-launcher.ts:650-656`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-696`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:697-715`).
+Alias restoration recognizes names already supplied by a read-only bind or an
+explicit system-view symlink. It does not mount a canonical executable over an
+existing alias such as `/bin/sh`; missing owned temporary paths still receive
+only their narrow read-only binds.
+
+Broad host-temp binding would reveal other workers and operator state; blanket
+relocation would reject the selected supported placement. Neither is the
+chosen correction. Private temp sizing, namespace/capability restrictions,
+brain permissions, active host masks and cleanup retain their original rules.
+
+The original report at `5dc2595ca07042f2e2024c95bbc361f31637559f`
+recorded 285 passing experiment tests and two pre-request exit-127 failures;
+moving the same bytes outside `/tmp` passed eight tests / 76 assertions. Those
+historical controls identify the placement boundary, rather than qualifying
+the eventual correction. The retained regression additionally executes equal
+native bytes inside, outside and through an installation alias in every
+applicable launcher mode, and captures actual installed Claude requests in a
+loopback-only network namespace. No inference service or production store is
+used. #1901 records this support amendment alongside #1844's implementation.
 
 The mounts go on in a fixed order:
 
@@ -1547,11 +1604,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:853-881`;
+`packages/ui-sdk/src/server/worker-launcher.ts:952-980`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:886-912`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:985-1011`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1045-1104`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1144-1203`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1862,6 +1919,22 @@ first. Review uses the existing raw diff reader and user per-file/whole-turn
 revert controls. No extra collapsed banner or steering-group action is added.
 Policy is separate, class `policy`, excluded from the steering count, and only
 the approved user route writes it.
+
+The [approved review hierarchy](https://github.com/schlessera/brain-kit/issues/1846#issuecomment-6197338526)
+keeps retained changes ahead of configuration-identification inventory. Stored
+class, scope, ignored flags and kind group each change once; filenames never
+suppress observations or infer a writer. Ignored paths retain their metadata
+explanation separately from other nonregular entries, and genuine missing
+versions retain their own reasons. The optional authoritative configuration
+coverage summary supplies a compact incomplete glyph outside label truncation;
+omitted and unknown evidence never claims completeness. Turn facts collapse
+without hiding retention, shared-writer, partial or budget warnings. Every
+configuration path remains in the filterable, bounded-height list; filtering
+announces once 500 ms after the last input. Same-turn reads retain the prior
+details, filter, scroll, focus and open disclosures until replacement, including
+read errors. Session/turn changes and unavailable retained states cannot reuse
+another window's details. This changes review hierarchy, not capture, changed
+path counts, retention, budgets, attribution or recovery authority.
 
 Each steering observation retains a governance event and shared-window
 attribution. If an existing same-session/turn taint event precedes an agent

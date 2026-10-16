@@ -12,7 +12,7 @@ under the [contract versioning policy](contract-versioning.md).
 `true` and an absent effective value opt in. Leaving the field optional lets
 an omitted value in a later configuration layer preserve an earlier type
 policy. The default applies when no layer sets it
-(`embedsType`, `packages/core/src/lib/embedding-policy.ts:4-6`).
+(`embedsType`, `packages/core/src/lib/embedding-policy.ts:8-10`).
 
 This is a vector policy, not a content exclusion. Documents, chunks, FTS,
 links, audit findings and ordinary inventory counts remain. Markdown and
@@ -34,7 +34,7 @@ Switching a type to `embed: false` removes its stored vectors on the next
 ordinary index, including unchanged files and a run without embeddings.
 The indexer loads an existing vector store without migrating its width to
 perform this reconciliation
-(`dropIneligibleVectors`, `packages/core/src/lib/indexer/vectors.ts:118-130`).
+(`dropIneligibleVectors`, `packages/core/src/lib/indexer/vectors.ts:120-133`).
 The Markdown files remain the source of truth; the current configuration
 determines how their disposable index is rebuilt.
 
@@ -50,13 +50,13 @@ Coverage is eligible chunks with a vector divided by eligible chunks. Both
 counts use the current taxonomy. Stale vectors for an opted-out type count
 toward the total vector inventory but cannot inflate coverage. The total
 `chunks` and `embeddings` fields retain their inventory meanings
-(`embeddingEligibilitySql`, `packages/core/src/lib/embedding-policy.ts:9-15`).
+(`embeddingEligibilitySql`, `packages/core/src/lib/embedding-policy.ts:13-22`).
 
 Zero eligible chunks means `null`, not zero, one, or a division result. An
 unreadable vector store remains unknown. A keyless brain without embeddings
 keeps its existing unmeasured semantics. A null value does not trigger the
 coverage-floor warning
-(`const embeddingCoverage =`, `packages/core/src/lib/stats.ts:287-290`).
+(`const embeddingCoverage =`, `packages/core/src/lib/stats.ts:299-302`).
 
 This changes the meaning of the existing ratio without adding a second
 ratio or changing its JSON shape. Consumers use that supplied nullable value
@@ -68,9 +68,13 @@ in the [integration contract](../integration-contract/cli.md#embedding-eligibili
 
 ## Alternatives rejected
 
-- **Path rules or partial embedding within a type.** The approved boundary is
-  the document type. Additional policy languages would introduce precedence
-  and validation questions without an approved use case.
+- **General path opt-outs or partial embedding within a type.** `TypeSpec.embed`
+  remains the taxonomy's type boundary. The later approved G2
+  [data-to-provider policy](governed-writable-workers.md#data-to-provider-routing-g2)
+  adds a separate exposure boundary using paths/types and actual recipients;
+  it does not introduce a second taxonomy opt-out. Every matching allowlist
+  must permit the recipient. Unknown recipients cannot authorize matching
+  content, while keyword indexing remains independent.
 - **Removing opted-out documents from indexing.** That would lose the keyword,
   link and audit uses which make the opt-out useful.
 - **Keeping total chunks as the denominator.** A deliberately excluded type

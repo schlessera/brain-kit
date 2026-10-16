@@ -1,7 +1,8 @@
 import { ScopeCapCard, scopeReceiptText, scopeNumber } from "./scope-cap-card.js";
-import { Button, DiffBlock, Disclosure, Overlay } from "@schlessera/brain-ui-kit";
+import { Button, DiffBlock, Disclosure, IconButton, Overlay } from "@schlessera/brain-ui-kit";
 import type { TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { JournalCoverage } from "./journal-coverage.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useTurnRevert } from "./use-turn-revert.js";
@@ -15,20 +16,21 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   if (cardScope.current.turnId !== turnId) cardScope.current = { turnId, sessionId };
   const cardSession = cardScope.current.sessionId;
   const [open, setOpen] = useState(false);
-  const [details, setDetails] = useState<TurnJournalDetails | null>(null);
+  const [factsOpen, setFactsOpen] = useState(false), factsId = useId();
+  const [retainedDetails, setDetails] = useState<TurnJournalDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<TurnJournalChange | null>(null);
   const [preview, setPreview] = useState<{ inline: boolean; before?: string; after?: string; reason?: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [otherSequence, setOtherSequence] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const announced = useRef<string | undefined>(undefined);
   const wrapper = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), trigger = useRef<HTMLElement | null>(null);
   const state = summary?.state ?? "unrecorded";
   const readable = !!sessionId && !!turnId && state !== "unknown" && state !== "unrecorded" && state !== "expired";
+  const details = readable && retainedDetails?.sessionId === sessionId && retainedDetails.turnId === turnId ? retainedDetails : null;
   const revert = useTurnRevert(sessionId, turnId, readable && state !== "recording" && summary?.actor !== "voice", open, () => trigger.current?.isConnected ? trigger.current : wrapper.current?.querySelector<HTMLElement>("summary,button") ?? null);
   useEffect(() => {
-    setDetails(null); setError(null);
+    setError(null);
     if (!open || !readable) return;
     const controller = new AbortController();
     root.api.turnJournal(sessionId!, turnId!, controller.signal).then(value => {
@@ -37,7 +39,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     return () => controller.abort();
   }, [root, sessionId, turnId, open, readable, summary?.observedAt, summary?.changedFiles, state]);
   useEffect(() => {
-    setSelected(null); setPreview(null); setPreviewError(null); setOpen(false);
+    setDetails(null); setSelected(null); setPreview(null); setPreviewError(null); setOpen(false); setFactsOpen(false);
   }, [sessionId, turnId]);
   useEffect(() => {
     setPreview(null); setPreviewError(null);
@@ -57,15 +59,18 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
   const label = `${changes} · ${steering} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
-    if (!live || !turnId || announced.current === turnId || !["complete", "partial"].includes(state)) return;
-    announced.current = turnId; setAnnouncement(`Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}`);
-  }, [live, turnId, state, changes, cost]);
+    // Equal text does not update the live region; authoritative cost/state
+    // changes do. Never retain another session's or expired turn's status.
+    setAnnouncement(live && turnId && cardSession === sessionId && ["complete", "partial"].includes(state)
+      ? `Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}` : "");
+  }, [live, turnId, cardSession, sessionId, state, changes, cost]);
   const groups = details ? [
-    ["Steering", details.changes.filter(change => change.class === "steering")],
-    ["Policy", details.changes.filter(change => change.class === "policy")],
+    ["Steering", details.changes.filter(change => change.class === "steering" && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
+    ["Policy", details.changes.filter(change => change.class === "policy" && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
     ["Content", details.changes.filter(change => change.class === "content" && !change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
     ["Workspaces", details.changes.filter(change => change.class === "content" && !!change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
-    ["Non-revertible changes", details.changes.filter(change => change.class === "content" && (change.before?.ignored || change.after?.ignored || (change.before?.kind ?? change.after?.kind) === "other"))],
+    ["Ignored paths · bytes not kept", details.changes.filter(change => change.before?.ignored || change.after?.ignored)],
+    ["Other entries · bytes not kept", details.changes.filter(change => !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) === "other")],
   ] as const : [];
   const selectedObservation=selected?.conflict?.versions.find(ref=>ref.sequence===selected.sequence);
   const otherObservations=selected?.conflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
@@ -73,10 +78,12 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
     {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
-    <Disclosure label={label} open={open} onOpenChange={setOpen}>
+    <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
-        <p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
-        {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
+        <div className="flex items-start justify-between gap-2 min-h-11"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
+          <IconButton icon="fyi" size="sm" tone="mute" name="Turn facts" expanded={factsOpen} controls={factsId} style={{ width: 44, height: 44, flex: "none" }} onClick={() => setFactsOpen(value => !value)} />
+        </div>
+        {factsOpen && <div id={factsId} className="grid gap-3 min-w-0">
         {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}
         <p>Model: {summary?.model ?? "unknown"}.</p>
         {budget ? <div className="grid gap-2" data-inference-budget>
@@ -89,15 +96,26 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           <p>Ceilings: {summary.scope.limits.tool_calls} calls · {summary.scope.limits.minutes} min · {summary.scope.limits.files_changed} paths · {summary.scope.limits.turn_bytes} bytes. Independent hard timeout: {summary.scope.hardTimeoutMs / 60_000} min. Host resource and storage limits also remain binding.</p>
           <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
           <p>Coverage: {summary.scope.coverage === "partial" ? "Incomplete observation; missing counts are unknown." : "Observed versions in brain, scratch and workspaces; writes overwritten between observations are not captured."} Distinct paths and bytes may include overlapping writers. Free-space floor: max(5%, 2 GiB), Stop only.</p></section> : <p>Scope limits: unknown.</p>}
+        </div>}
+        {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
         {state === "partial" && <p>Observation stopped before every detail could be retained. Partial work remains; this journal cannot fully reverse the turn.</p>}
+        {budget?.scopes.some(item => item.blocked) ? <p>Budget stop reached. Details in Turn facts.</p> : budget?.scopes.some(item => item.warning) ? <p>Budget warning: a warning threshold was reached. Details in Turn facts.</p> : null}
         {readable && !details && !error && <p>Loading retained changes…</p>}
         {error && <p role="status">{error}</p>}
-        {details?.missing.map((missing, index) => <p key={`${missing.path}-${index}`} className="break-words">Unavailable: {missing.path} ({missing.reason})</p>)}
+        {details && <h3 className="font-medium">What changed</h3>}
         {revert.controls}
-        {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3><ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-          <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.actor === "user" ? " · Approved by you" : ""}</span></span>
+        {details && groups.slice(0,4).every(([,entries]) => !entries.length) && <p>No retained content, steering, policy or workspace changes.</p>}
+        {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3>
+          {name.startsWith("Ignored paths") && <p>These paths match the brain's ignore rules, so only size and timestamps were observed and no bytes were kept. Equal sizes do not mean equal content. The journal does not identify which process wrote them.</p>}
+          {name.startsWith("Other entries") && <p>Not a regular file or symlink. Its contents were not kept.</p>}
+          <ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+          <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.before?.ignored || change.after?.ignored ? " · ignored" : ""}{change.actor === "user" ? " · Approved by you" : ""}</span></span>
           {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
         </li>)}</ul></section>)}
+        {!!details?.missing.some(item => item.reason !== "configuration_inputs_not_fully_identified") && <section className="grid gap-2 min-w-0"><h3 className="font-medium">Retained versions unavailable</h3><p>These observed versions cannot be reviewed or restored.</p>
+          {details.missing.filter(item => item.reason !== "configuration_inputs_not_fully_identified").map((item, index) => <p key={`${item.path}-${index}`} className="break-all">{item.path} · {({ interrupted_observation: "Observation was interrupted", journal_capacity: "Journal storage was full", journal_unavailable: "Journal storage was unavailable", revert_not_observed: "The revert was not observed" } as Record<string, string>)[item.reason] ?? item.reason}</p>)}
+        </section>}
+        <JournalCoverage key={`${sessionId}/${turnId}`} coverage={summary?.configurationCoverage} missing={details?.missing} />
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
           <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
           <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">

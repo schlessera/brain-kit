@@ -186,16 +186,41 @@ The observed longest step is 989 seconds versus the earlier 1,402 seconds,
 about 29% shorter. The sources differ only in the owned worker harness and
 fixture corrections, and runner variation is uncontrolled: this is a measured
 comparison, not literal same-SHA count proof or a qualified throughput claim.
-N=2 remains the bounded candidate. The missing serial arms at the exact same
-`9e7a178f` source are isolated in
-[run 38933790923](https://github.com/schlessera/brain-kit/actions/runs/38933790923);
-its workflow is a measurement vehicle, not production confirmation. Actual
-checkout, inventory, count and resource reconciliation plus two consecutive
-exhaustive/main passes remain obligations in
-[#2121](https://github.com/schlessera/brain-kit/issues/2121). An earlier source's
-serial pass is never relabeled as a different source's full pass. Dependency
-copies and private builds count in proof time and sampled VM resources; job
-setup/install and queue cost remain separate step measurements.
+N=2 remains the bounded candidate. That earlier comparison retains its original
+source limitation.
+
+The four serial arms in
+[run 38933790923, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38933790923)
+now supply the literal same-source comparison at `9e7a178f` and the same tree.
+All four actual checkout logs agree with their checkout/resource artifacts.
+Independent reconciliation of both arms' selected files, top-level JUnit
+file suites, individual cases, report summaries and timings proves identical
+961-file inventories and counts: 13,512 cases, 13,484 pass, 28 skip, zero
+TODO/failures. Each partition retains 231 / 242 / 243 / 245 files. The four
+serial complete measured steps took 1,014 / 1,169 / 1,177 / 1,200 seconds,
+versus 852 / 962 / 989 / 987 seconds for N=2: the longest selected step is
+about 18% shorter at this source. VM-receipt elapsed time is separately
+1,007.80 / 1,161.67 / 1,175.03 / 1,193.28 seconds for serial and
+845.24 / 955.70 / 980.70 / 984.59 for N=2; step time also includes cold
+Chrome/startup around those measured phases.
+
+Serial receipts record 1.18 / 1.61 / 1.49 / 1.58 average busy cores and
+4.83 / 3.31 / 6.23 / 3.30 GB sampled VM peaks; the tightest headroom is
+10.53 GB. The same-source N=2 peaks and cores above remain within the
+same 4-vCPU, 16.77-GB envelope. These are sequential experiments on separate
+runner instances, with uncontrolled queue/cold-start/host variation, not a
+randomized estimate or production-main qualification. Serial jobs waited
+2,950–3,005 seconds from dispatch to start; their 4,209-second event-to-final
+completion includes those queues, while simultaneous queues are not added
+as elapsed critical path. No arm was cancelled or retried for this comparison.
+
+Both measurement workflows are evidence vehicles, not production confirmation;
+the N=2 experiment's independent lint failure is unchanged. Two consecutive
+qualifying exhaustive/main passes remain obligations in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121), independently of
+this now-completed same-source count comparison. Dependency copies and private
+builds count in proof time and sampled VM resources; setup/install and queues
+remain separate step measurements. No deadline, shard count or N changed here.
 
 Unit weights have the same explicit reviewed path:
 `bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
@@ -228,8 +253,31 @@ serial runtime category: 13.522/9.719/4.571 seconds for the probes, 424.345 seco
 for hosted admission and 250.566 seconds for shared-process cleanup. Its four-CPU
 VM sampled 2.540 GB used of 16.766 GB and 884.56 active CPU-seconds. These are
 attributed historical observations, not a controlled current-source speedup.
-Current two-job phase and full-job/setup measurements are required to qualify the
-split against the longest single phase plus 90-second wall-time criterion.
+The split's [runtime-only experiment 38920698136, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920698136)
+ran source `e7fea8b1ecb4a9f89f8651eca37e0bca797c20ad`, tree
+`4c3f9f786a6838b02f43ae8753253c927956b2f8`. Actual checkout logs and
+immutable checkout/resource artifacts agree. All five phases succeeded:
+15.75 / 12.01 / 5.38 seconds for the probes, 265.72 seconds for shared-process
+Chrome/cleanup and 427.17 seconds for separate hosted admission. Ordinary
+runtime totaled 298.86 seconds (299-second proof step, 352-second whole job);
+hosted admission took a 427-second step and 480-second whole job. The longest
+whole job, including setup, satisfies the longest phase plus 90-second ceiling
+(480 <= 517.17 seconds). This measurement workflow is an experiment, not a
+production confirmation event.
+
+[Automatic main run 38920963140, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920963140)
+independently executed merged source `80e028d84b7686d6cf864d8166029b1142de8756`,
+tree `5f75530d5f191f6615f78736a7c67577b0cdbf84`, in both successful runtime
+jobs. Its five phases succeeded in 11.90 / 8.85 / 3.93 / 194.25 / 424.80 seconds.
+Ordinary runtime totaled 218.93 seconds; hosted admission's 425-second proof
+step and 478-second whole job satisfy the same ceiling (478 <= 514.80 seconds).
+The ordinary/hosted VM receipts record sampled peaks of 2.53 / 1.93 GB and
+445.21 / 328.54 active CPU-seconds on separate 4-vCPU, 16.77-GB runners.
+These source-bound main jobs establish phase coverage and the wall-time bound;
+they do not establish a whole-workflow pass or a controlled speedup. The
+experiment retains its own source and event identity. The separate
+confirmation-event requirement remains tracked in
+[#2128](https://github.com/schlessera/brain-kit/issues/2128).
 
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final

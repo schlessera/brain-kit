@@ -69,7 +69,7 @@ objects merge per field. No value grants authority to autonomous turns.
 | `egress` | `mode`: `record`/`allowlist`; `allow`, `deny`: string arrays; `max_bytes_per_turn`: nonnegative safe integer | `record`, empty lists and no byte cap by default. This reader does not establish network enforcement. |
 | `outward` | `allow`: array of `{ command: string, remotes: string[] }`; `hosts`: string array | Default empty additions to the existing outward-action rules and built-in destination list. Parsing grants no action. |
 | `taint` | `egress: { allow: string[] }` | Default empty additions; session-derived hosts/inference relay and taint enforcement remain their owning guardrail's responsibility. |
-| `providers` | Array of `{ paths: string[], allow: string[] }` | Default `[]`; path patterns and named providers are data for the routing guardrail. Parsing does not activate filtering or a relay. |
+| `providers` | Array of `{ paths?: string[], types?: string[], allow: string[] }` | Default `[]`. At least one selector is present. Paths use canonical brain-relative Bun glob patterns; types are exact runtime taxonomy names. Either selector matches; every matching rule must allow the actual recipient. Unknown recipients cannot authorize matching content. |
 
 The [budget](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
 and [scope](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)
@@ -92,6 +92,30 @@ any valid file, they use built-in defaults with a null effective hash. A missing
 optional file selects defaults without an error. A running turn retains its
 captured identity; a later load cannot mutate it. Policy edits remain outside
 turns or use the separately approved proposal route, never a worker write.
+
+Core indexing applies these selectors to embedding eligibility without removing
+keyword documents, chunks or links. A changed restriction reconciles existing
+vectors even without `--embeddings`; force rebuilds, cache reuse and asynchronous
+vector writes retain the same check. With provider rules present, hardlinked,
+symlinked, escaped or unreadable source paths cannot borrow an unrestricted
+spelling to authorize provider work. Keyword indexing remains available for
+these sources; coverage uses the eligible denominator.
+The concrete built-in Gemini embedding factory recognizes recipient `google`
+only when its actual installed SDK client resolves to the HTTPS Google
+Generative Language endpoint. Provider/model labels, custom implementations,
+Vertex/platform overrides and other endpoints do not establish that identity.
+A constructed client retains its resolved route when the ambient environment
+later changes; a new client is checked independently.
+
+An embedding recipient does not authorize a separate completion or vision
+provider. Matching documents use local summary/context fallback, and matching
+assets retain keyword placeholders or cached descriptions rather than sending
+bytes to an unproven enrichment route. An invalid policy leaves keyword indexing
+available, disables embedding/enrichment requests and reconciles all vectors as
+ineligible, with a named diagnostic. This does not redact text already copied
+into unrelated documents or establish worker, history or server-tool isolation.
+Policy check warns that affected turns lose Git history; the warning is not
+proof that worker masks or a relay are active.
 
 `brain policy check --json` is read-only, does not execute `brain.config.ts`,
 and reports the [documented envelope](integration-contract/cli.md#governance-policy-check-additive-1650).

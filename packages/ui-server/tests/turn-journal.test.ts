@@ -1,6 +1,8 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -19,6 +21,74 @@ function fixture(capBytes?: number) {
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
+
+test("configuration coverage summary follows retained inventory, independently of missing versions", async () => {
+  const f = fixture();
+  try {
+    expect(f.journal.summary("absent")).not.toHaveProperty("configurationCoverage");
+    await f.begin("coverage");
+    expect(f.journal.summary("coverage"), "RECORDING_COVERAGE_IS_UNKNOWN").toHaveProperty("configurationCoverage", "unknown");
+    await f.journal.finish("coverage");
+    for (const state of ["complete", "recording", "partial", "expired"] as const) {
+      for (const incomplete of [false, true]) {
+        f.db.query("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'")
+          .run(state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]));
+        expect(f.journal.summary("coverage"), "COVERAGE_COMES_FROM_CONFIGURATION_INVENTORY")
+          .toHaveProperty("configurationCoverage", incomplete ? "incomplete" : state === "complete" ? "complete" : "unknown");
+        expect(f.journal.summary("coverage").changedFiles, "COVERAGE_NEVER_CHANGES_PATH_ACCOUNTING").toBe(state === "partial" ? null : 0);
+      }
+    }
+  } finally { await f.close(); }
+});
+
+test("identified SQLite sidecars and large coverage retain exact accounting without hiding similarly named content", async () => {
+  // Concrete observer/CAS/SQLite with the explicitly synthetic native-record
+  // helper: this is capture/accounting proof, not Btrfs-manager qualification.
+  const f = fixture(), path = join(f.brain, "ledger.sqlite"), sqlite = new Database(path);
+  try {
+    writeFileSync(join(f.brain, ".gitignore"), "/ledger.sqlite*\n");
+    sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE cargo (id INTEGER PRIMARY KEY,value TEXT); INSERT INTO cargo VALUES (1,'Ithaca');");
+    for (let i = 0; i < 733; i++) {
+      const dir = join(f.brain, "scripts/config", String(i)); mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "brain.config.ts"), "export default {modules: [import(process.env.ODYSSEUS_MODULE)]};\n");
+    }
+    // Current consumed-input discovery correctly ignores unrelated nested
+    // configs. Make every opaque input part of the actual root import graph.
+    writeFileSync(join(f.brain, "brain.config.ts"), Array.from({ length: 733 }, (_, i) => `import "./scripts/config/${i}/brain.config.ts";`).join("\n") + "\nexport default {};\n");
+    const samples = () => ["", "-wal", "-shm"].filter(suffix => existsSync(path + suffix)).map(suffix => {
+      const info = statSync(path + suffix), bytes = readFileSync(path + suffix);
+      return { path: `ledger.sqlite${suffix}`, hash: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, inode: info.ino, mtime: info.mtimeMs, ctime: info.ctimeMs };
+    });
+    await f.begin("small"); const before = samples();
+    const note = "Odysseus returns home.\r\n"; expect(Buffer.byteLength(note)).toBe(24);
+    writeFileSync(join(f.brain, "notes/small.md"), note);
+    sqlite.query("UPDATE cargo SET value=? WHERE id=1").run("Athena"); const after = samples();
+    await f.journal.finish("small");
+    const first = f.journal.details("ithaca", "small")!;
+    expect(first.summary.changedFiles).toBe(new Set(first.changes.map(change => change.path)).size);
+    expect(first.changes.find(change => change.path === "notes/small.md")?.after?.hash).toBe(createHash("sha256").update(note).digest("hex"));
+    expect(first.changes.filter(change => change.path.startsWith("ledger.sqlite")).length).toBeGreaterThan(0);
+    expect(first.changes.filter(change => change.path.startsWith("ledger.sqlite")).every(change => change.after?.ignored && !change.after?.hash)).toBe(true);
+    const coverage = first.missing.filter(item => item.reason === "configuration_inputs_not_fully_identified");
+    expect(coverage.filter(item => item.path.startsWith("scripts/config/"))).toHaveLength(733);
+    expect(coverage).toHaveLength(734); // Root interpretation is also conservatively unproven.
+    expect(first.summary).toHaveProperty("configurationCoverage", "incomplete");
+    expect(before.some(old => after.some(current => current.path === old.path && current.hash !== old.hash))).toBe(true);
+    await f.begin("host-only"); sqlite.query("UPDATE cargo SET value=? WHERE id=1").run("Penelope"); await f.journal.finish("host-only");
+    const second = f.journal.details("ithaca", "host-only")!;
+    expect(second.changes.some(change => change.path === "notes/small.md")).toBe(false);
+    expect(second.changes.length).toBeGreaterThan(0);
+    expect(second.changes.every(change => change.path.startsWith("ledger.sqlite") && change.after?.ignored)).toBe(true);
+    await f.begin("deliberate");
+    writeFileSync(join(f.brain,"notes/ledger.sqlite-shm"), "Athena deliberately keeps this note.\n");
+    writeFileSync(join(f.brain,"scripts/config/0/brain.config.ts"), "export default {modules: []};\n");
+    await f.journal.finish("deliberate");
+    const deliberate = f.journal.details("ithaca", "deliberate")!;
+    expect(deliberate.changes.find(change => change.path === "notes/ledger.sqlite-shm"), "SIMILAR_OPERATIONAL_NAME_REMAINS_CONTENT").toMatchObject({ class: "content", after: { ignored: false } });
+    expect(deliberate.changes.find(change => change.path === "scripts/config/0/brain.config.ts"), "GENUINE_CONFIGURATION_CHANGE_REMAINS_STEERING").toMatchObject({ class: "steering" });
+    console.log(`JOURNAL_REVIEW_SQLITE_RECEIPT ${JSON.stringify({ writer: "one identified fixture-owned SQLite connection; no agent tools", before, after, changedPaths: first.changes.map(change => change.path), noToolPaths: second.changes.map(change => change.path), coverage: coverage.length })}`);
+  } finally { sqlite.close(); await f.close(); }
+});
 
 test("the retained journal reads exact before/after versions and ignored listings after the turn ends", async () => {
   const f = fixture();

@@ -4,8 +4,9 @@ import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-
  * prlimit. Each fixture runs inside a worker and is observed from outside.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../src/server/worker-filesystem-filter";
 import { workerCommand, WorkerHostError } from "../src/server/worker-launcher";
 import {
   cgroupMemoryCeiling, defaultWorkerLimits, effectiveRlimits, parseWorkerLimits, PRLIMIT_REQUIREMENT, prlimitArgs, ROOT_NPROC_REASON,
@@ -118,7 +119,11 @@ describe("configuration", () => {
       const argv = workerCommand({ brainPath: f.brain, command: ["/bin/true", "odysseus"], env: {}, limits });
       expect(argv.slice(argv.lastIndexOf("--") - 5)).toEqual(["/usr/bin/prlimit", "--nproc=64:64", `--data=${GIB}:${GIB}`,
         `--fsize=${MIB}:${MIB}`, "--nofile=256:256", "--", "/bin/true", "odysseus"]);
-      expect(argv[0]).toEndWith("bwrap");
+      const bwrap = Bun.which("bwrap")!;
+      const prefix = statfsSync(f.brain).type === 0x9123683e
+        ? [realpathSync(Bun.which("python3")!), "-I", "-S", "-c", WORKER_FILESYSTEM_FILTER_PROGRAM, bwrap]
+        : [bwrap];
+      expect(argv.slice(0, prefix.length), "LIMITS_TRUSTED_FILESYSTEM_PREFIX").toEqual(prefix);
     } finally { f.cleanup(); }
   });
 });

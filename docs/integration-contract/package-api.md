@@ -3,6 +3,11 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+**Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
+adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
+glyph and accessible label remain outside the truncating summary label, before
+the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
