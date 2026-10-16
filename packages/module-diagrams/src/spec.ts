@@ -13,7 +13,9 @@ const node = z.object({ id, label: text, sub: text.optional(), tag: text.optiona
 const position = z.tuple([z.number().nonnegative(), z.number().nonnegative()]);
 const dimensions = z.tuple([z.number().positive(), z.number().positive()]);
 const freeNode = node.extend({ at: position, size: dimensions }).strict();
+const narrow = z.object({ width: z.literal(320), height: z.number().positive().max(16384), nodes: z.array(z.object({ id, at: position, size: dimensions }).strict()).max(1024) }).strict();
 const common = {
+  layouts: z.object({ narrow }).strict().optional(),
   schema_version: z.literal(1), title: z.string().min(1).max(60), desc: text,
   size: z.enum(DIAGRAM_SIZES), link: link.optional(),
   groups: z.array(z.object({ id, label: text, members: z.array(id).min(1).max(1024) }).strict()).max(1024).optional(),

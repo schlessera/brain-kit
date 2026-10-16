@@ -1,3 +1,5 @@
+import { checkDiagramSkin } from "./skin.js";
+import { checkDiagramLayouts } from "./layout.js";
 import { buildDiagram, DiagramGeometryError } from "./geometry.js";
 import { isMap, parseDocument } from "yaml";
 import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
@@ -119,6 +121,7 @@ export function checkDiagram(source: string): DiagramCheckResult {
       else throw failure;
     }
   }
+  output.errors.push(...checkDiagramSkin(spec), ...checkDiagramLayouts(spec));
   output.valid = output.errors.length === 0;
   return output;
 }
