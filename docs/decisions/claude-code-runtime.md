@@ -1169,7 +1169,7 @@ never through host shell evaluation.
 
 The bounded server-only implementation reads the trusted host config directory,
 not a public request path (`resolveClaudeHostOAuth`,
-`packages/ui-backend-claude/src/host-oauth.ts:74-196`). It rereads the record for
+`packages/ui-backend-claude/src/host-oauth.ts:75-195`). It rereads the record for
 every resolution, respects an explicitly supplied setup token, and refreshes
 stored OAuth within five minutes of expiry. The measured production protocol is
 JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
@@ -1199,15 +1199,36 @@ Credential files must be private, owner-held, regular, unaliased and bounded;
 links and permissive files refuse. Refresh has a bounded response and timeout,
 never follows redirects, and exposes fixed error messages instead of provider
 responses, credentials or filesystem paths. Cancellation leaves the prior record
-intact and releases owned staging. A private exclusive lock serializes host
-resolvers; a second refresh reports busy and must resolve again after the owner
-finishes. A crash-abandoned lock requires host maintenance and is never removed
-by guessing that an owner is dead. Atomic publication compares current bytes
-before replacing the record and holds its directory descriptor. Native CLI
-commands do not participate in this private lock: activation must additionally
-serialize credential maintenance and native login/logout with host resolution.
-The byte comparison detects observed changes; it is not an atomic cross-process
-compare-and-swap against an independently launched native command.
+intact and releases owned staging. Host resolution and credentialed maintenance
+share a kernel-backed exclusive lock. The lock belongs to the server's open
+file description; a short trusted `flock` helper acquires it without a shell,
+repository program, credential or inherited host environment. Process exit
+releases the descriptor automatically. A contender refuses busy or waits for
+its configured admission bound; it never removes an alleged stale owner's file.
+The default private per-UID domain is independent of `TMPDIR`, so server and
+cron agree. A trusted private test domain isolates concurrent proof; repository
+input cannot select it. Hosts must provide the trusted system `flock` helper;
+missing or unsafe lock state refuses before credential access.
+
+Credentialed asynchronous maintenance takes writer admission before credential
+exclusion and existing output admission. Host OAuth reads take only credential
+exclusion and never reacquire an exclusive writer, avoiding inversion with an
+active turn. Streaming maintenance retains exclusion until both process exit
+and native stdout/stderr EOF, including a descendant retaining inherited
+output. Cancelling an output reader drains the native stream. Synchronous
+credentialed execution refuses; fixed isolated Git mirror transport uses its
+separate credential path. Independently launched native CLI commands do not
+participate: the server's command gateway is the serialization boundary.
+Atomic publication still compares current bytes before replacing the record
+and holds its directory descriptor. The comparison detects observed changes;
+it is not an atomic compare-and-swap against an independent native command.
+
+The existing inference relay can resolve host headers anew for each authorized
+dispatch after discarding inbound credential headers. Resolver failures expose
+a fixed message, cancellation stops resolution, and invalid routes never ask
+for a credential. This capability does not select an OAuth destination or
+activate ordinary workers. A project-selected endpoint and native account
+observation are not permission to disclose a host-held OAuth token.
 
 This internal resolver does not activate the ordinary worker relay. Before that
 activation, offline native inference must preserve new/resumed/changed/expired
