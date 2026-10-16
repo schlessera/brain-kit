@@ -1,6 +1,6 @@
 /** Actual SDK/CLI protocol qualification, inside the caller's private network namespace. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
-import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, acquireHostCredentialExclusion } from "@schlessera/brain-ui-sdk/internal";
+import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, acquireHostCredentialExclusion, startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { resolveClaudeHostOAuth } from "../../src/host-oauth.js";
 import { nativeModelReply } from "../helpers/native-model-reply.js";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -73,8 +73,11 @@ globalThis.fetch = (async (input, init) => {
   const local = new URL(provider.url); local.pathname = target.pathname; local.search = target.search;
   return originalFetch(local, init);
 }) as typeof fetch;
-const relay = startInferenceRelay({ upstream: "https://api.anthropic.com", routes: ANTHROPIC_INFERENCE_ROUTES,
-  credentials: async signal => ({ authorization: (await resolveClaudeHostOAuth(host, {}, signal, { directory })).authorization }) });
+const egressRecords: EgressRecord[] = [];
+const egress = await startEgressProxy({ mode: "allowlist", allow: ["api.anthropic.com"], deny: [], outwardHosts: [],
+  maxBytes: 2 * 1024 * 1024, observe: record => egressRecords.push(record), approveOutward: async () => true });
+const relay = startInferenceRelay({ egress, upstream: "https://api.anthropic.com", routes: ANTHROPIC_INFERENCE_ROUTES,
+  credentials: async (signal, target) => ({ authorization: (await resolveClaudeHostOAuth(host, {}, { origin: target.origin }, signal, { directory })).authorization }) });
 const env = { HOME: worker, CLAUDE_CONFIG_DIR: worker, PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
   CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER, ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "",
   ANTHROPIC_UNIX_SOCKET: relay.socketPath, ANTHROPIC_BASE_URL: "http://localhost",
@@ -153,7 +156,7 @@ try {
   }
   const observed = JSON.stringify({ nativeEnvironments, accounts, stderr, files: files(worker) });
   console.log(JSON.stringify({ namespace: readlinkSync("/proc/self/ns/net"), sessionRetained: Boolean(session),
-    requests, authorities, refreshes, accounts, nativeBinaryMatches, workerCredentialFile: existsSync(join(worker, ".credentials.json")),
+    requests, authorities, refreshes, accounts, nativeBinaryMatches, egressRecords, egressBytes: egress.usedBytes(), workerCredentialFile: existsSync(join(worker, ".credentials.json")),
     hostAfterRefresh, refreshCancelled, cancellationRetainedHostBytes, cancellationReleasedLock,
     secretsInNativeObservation: [...access, refresh, "odysseus-rotated-refresh"].some(secret => observed.includes(secret)),
     nativePlaceholder: nativeEnvironments.length === 4 && nativeEnvironments.every(value => value.includes(`CLAUDE_CODE_OAUTH_TOKEN=${INFERENCE_PLACEHOLDER}\0`)),
@@ -164,5 +167,5 @@ try {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     if (child.exitCode === null && child.signalCode === null) await new Promise<void>(resolve => child.once("exit", () => resolve()));
   }
-  relay.stop(); globalThis.fetch = originalFetch; provider.stop(true); rmSync(root, { recursive: true, force: true });
+  relay.stop(); egress.stop(); globalThis.fetch = originalFetch; provider.stop(true); rmSync(root, { recursive: true, force: true });
 }

@@ -8,6 +8,8 @@ import { join } from "node:path";
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
 export interface EgressRecord {
+  /** Only the server's concrete inference-relay admission supplies this tag. */
+  inference?: true;
   method: string;
   host: string;
   port: number;
@@ -63,16 +65,17 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.requestTimeout = 30_000;
   server.on("connection", socket => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); });
   const track = (socket: Socket) => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); return socket; };
-  function operation(method: string, url: URL) {
+  function operation(method: string, url: URL, inference = false) {
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
-    const host = hostname(url.hostname), port = Number(url.port || "80");
+    const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
+    let finalOutcome: EgressRecord["outcome"] | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; controllers.delete(controller); controller.abort();
+      finished = true; finalOutcome = outcome; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ ...(inference ? { inference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
@@ -101,7 +104,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       return true;
     };
-    return { finish, charge, admit };
+    return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -191,5 +194,19 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes };
+  return { dir, socketPath, stop, usedBytes: () => usedBytes,
+    /** The existing inference relay shares this turn's admission, counter and audit. */
+    inference(method: string, target: URL, signal: AbortSignal) {
+      const op = operation(method, new URL(target), true);
+      const abort = () => op.finish("cancelled", "client_disconnected");
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      return { charge: op.charge, signal: op.signal, outcome: op.outcome,
+        admit: async () => !op.signal.aborted && await op.admit(),
+        finish(outcome: EgressRecord["outcome"], reason?: string) {
+          signal.removeEventListener("abort", abort); op.finish(outcome, reason);
+        },
+      };
+    },
+  };
 }

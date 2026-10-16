@@ -1169,7 +1169,7 @@ never through host shell evaluation.
 
 The bounded server-only implementation reads the trusted host config directory,
 not a public request path (`resolveClaudeHostOAuth`,
-`packages/ui-backend-claude/src/host-oauth.ts:75-195`). It rereads the record for
+`packages/ui-backend-claude/src/host-oauth.ts:100-221`). It rereads the record for
 every resolution, respects an explicitly supplied setup token, and refreshes
 stored OAuth within five minutes of expiry. The measured production protocol is
 JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
@@ -1248,7 +1248,7 @@ relay with a placeholder in its environment while the host resolves stored OAuth
 for each dispatch. The offline control composes the existing resolver and relay
 directly; it adds no production factory or ordinary-worker activation
 (`const relay = startInferenceRelay`,
-`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:76-77`).
+`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:79-80`).
 The test verifies the selected binary's checksum and every actual native
 process's executable, and runs the entire fixture with an empty ambient
 environment in fresh network and PID namespaces. Native inference and refresh
@@ -1278,3 +1278,45 @@ this protocol composition, not the ordinary launcher, credential-free startup
 projection, managed/project endpoint precedence, host-file or socket isolation,
 or command-sourced credential compatibility. Those remain prerequisites for
 ordinary activation and completion of #1665/#1666.
+
+### Host authority for OAuth inference recipients (2026-10-16)
+
+The maintainer approved explicit host-owned origin authorization in #1665
+(comment 6224536886) and #1666 (comment 6224537286). The production first-party
+inference origin, `https://api.anthropic.com`, remains implicit. A custom origin
+must have explicit authorization in trusted host configuration for this
+credential. Native project or managed endpoint settings select a route; they
+cannot authorize disclosure of a host-held bearer. An unauthorized selected
+origin refuses before reading the credential or attempting refresh. The host
+must preserve the selected route rather than silently substitute first-party
+inference. Matching uses a canonical scheme, hostname and port, with no suffix
+or wildcard match, userinfo, path, query or fragment. Redirects remain refused.
+The refresh token still goes only to the qualified production token authority.
+
+The internal resolver requires the actual dispatch origin. The relay supplies
+its immutable configured target to the existing credential resolver for each
+request. The callback receives a copy: it cannot change that request's route.
+Only trusted host configuration may supply the explicit authorized-origin list;
+no request, worker state, native account label, model or cost hint supplies it.
+This amendment changes recipient authority and leaves native endpoint
+precedence as a routing fact. It does not authorize TLS interception, live calls,
+or fabrication of native billing or account observations.
+
+The relay can also consume the concrete turn proxy's existing admission,
+shared byte counter and redacted recorder. Inference records carry an internal
+`inference: true` tag so later taint enforcement can distinguish that transport;
+the tag grants no destination permission. Request bodies are bounded while
+reading, before provider contact. Response bodies are charged while streaming,
+remain open until EOF, and cancel on limit or client/turn cancellation. Parallel
+inference and generic proxy traffic share the same turn counter. The inference
+counter bounds HTTP application bytes and framing before provider TLS. It does
+not measure TLS ciphertext, handshakes or DNS traffic. Generic CONNECT continues
+to count opaque tunneled bytes. Records exclude headers, credentials, bodies
+and query strings.
+
+Offline native controls compose these internal components and preserve the
+three-turn login/model/history observations above, with a fourth-query refresh
+cancellation. This is qualified composition, not ordinary default activation.
+Credential-free projection of existing native stores, managed/project dispatch
+binding in ordinary consumers, all first-party tool paths, reachable-socket
+inventory and retained governance events remain required by #1665/#1666.
