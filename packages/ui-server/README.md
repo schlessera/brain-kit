@@ -500,3 +500,14 @@ read the same operation. Cancellation and crashes preserve uncertainty about
 committed effects. Before/after store measurements and capacity observations are
 independent and never promise reclaimed bytes. No retention default or automatic
 cleanup schedule changes. The initial Storage pane is delivered separately.
+
+### Recoverable attachment operations
+
+The [human-owner removal API](../../docs/http-api.md#recoverable-attachment-removal-additive-2012)
+reviews exact canonical attachments, retains and verifies originals through the
+existing native journal, and records per-item intent before removal. Interrupted
+work remains readable without replay. Undo is a fresh checked operation that
+refuses replacements and disappears when retained detail expires. Ignored,
+protected, linked, executable or unsupported targets remain ineligible. Review
+runs Git inside a disposable worker; the existing Markdown application stays
+narrow. The complete Storage pane is a separate UI delivery.

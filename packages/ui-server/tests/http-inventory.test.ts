@@ -20,7 +20,7 @@ test("real app method/path inventory equals the complete classified HTTP specifi
         expect(proseCounts).toEqual([declared.length, declared.length]);
       }
       const middleware = [...new Set(t.routes.filter((r) => r.method === "ALL").map((r) => r.path))].sort();
-      expect(middleware).toEqual(["/*", "/api/*", "/api/auth/passkey/*", "/api/auth/principals/*", "/api/internal/inbox/poke", "/api/sessions/:sessionId/turns/:turnId/revert*", "/api/storage*", "/api/storage/maintenance*"]);
+      expect(middleware).toEqual(["/*", "/api/*", "/api/auth/passkey/*", "/api/auth/principals/*", "/api/internal/inbox/poke", "/api/sessions/:sessionId/turns/:turnId/revert*", "/api/storage*", "/api/storage/maintenance*", "/api/storage/removals*"]);
       expect(t.routes.filter((r) => r.method === "ALL" && r.path === "/*")).toHaveLength(staticRoot ? 3 : 2);
       expect(t.routes.some((r) => r.method === "HEAD" || r.method === "OPTIONS")).toBe(false);
     } finally { await t.close(); }

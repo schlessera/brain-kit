@@ -6,7 +6,7 @@ import { isJournalSteeringPath, nativeJournalSteeringInputs } from "./journal-st
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
-export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number) => Promise<string>) {
+export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>) {
   const observer = createNativeJournalObserver(manager);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
@@ -18,6 +18,26 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
     async policy(covered: readonly string[] = []): Promise<NativeJournalPolicy> {
       const root = observer.currentRoot();
       return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum), covered);
+    },
+    allowed(path: string, policy: NativeJournalPolicy): boolean { return !!journalPathScope(path) && !policy.ignored(path); },
+    eligible(path: string, policy: NativeJournalPolicy): boolean {
+      const metadata = observer.get(path);
+      return !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path);
+    },
+    /** Exact current sealed before-version; the caller keeps the ordinary policy and storage owner. */
+    async retainBefore(path: string, policy: NativeJournalPolicy, signal?: AbortSignal): Promise<JournalSnapshotEntry | undefined> {
+      signal?.throwIfAborted();
+      const metadata = observer.get(path), root = observer.currentRoot();
+      if (!metadata) return undefined;
+      if (metadata.bytes > 64 * 1024 * 1024) throw new Error("Selected attachment exceeds the bounded recovery copy size.");
+      const result = entry(metadata, policy);
+      if (!result || result.ignored || result.kind !== "file") return result;
+      const file = await openNativeJournalFile(root.path, path);
+      try {
+        const hash = await retain(file.fd, metadata.bytes, signal);
+        signal?.throwIfAborted();
+        return { ...result, hash };
+      } finally { await file.close(); }
     },
     async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal) {
       const observation = await observer.observe(signal);

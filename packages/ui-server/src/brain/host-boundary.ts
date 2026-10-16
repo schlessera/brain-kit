@@ -69,6 +69,10 @@ export interface BrainExecution {
   onExecute?: () => void;
   /** @internal Combined output bound for an explicitly bounded operation. */
   outputBytes?: number;
+  /** @internal A consequence reader discards every worker output, including Git side effects. */
+  publish?: false;
+  /** @internal Fixed host-selected publication areas, never supplied by a request. */
+  outputAreas?: readonly string[];
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
@@ -429,7 +433,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       execution.signal?.throwIfAborted();
       execution.assertAuthorized?.();
       if (!isolated()) {
-        if (execution.outputBytes !== undefined) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
+        if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
         execution.onExecute?.();
         const proc = hostSpawn(execution);
         try {
@@ -451,14 +455,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
           try {
             execution.signal?.throwIfAborted();
-            outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
+            outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal, areas: execution.outputAreas });
             const launch = command(execution);
             const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
             execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
             execution.onExecute?.();
             const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
               ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) });
-            if (!result.killed) {
+            if (!result.killed && execution.publish !== false) {
               execution.assertAuthorized?.();
               if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
               else await outputs.publish();
@@ -473,6 +477,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     async launch(execution) {
       execution.signal?.throwIfAborted();
       if (!isolated()) {
+        if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
         const proc = hostSpawn(execution);
         return { stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
           get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") };
@@ -516,7 +521,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, signal: execution.signal, areas: execution.outputAreas });
         const launch = command(execution);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
         execution.signal?.throwIfAborted();
@@ -526,7 +531,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
-        if (!signalCode) {
+        if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
         }
@@ -539,6 +544,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     runSync(execution) {
       if (!isolated()) {
+        if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
         const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }

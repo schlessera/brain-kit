@@ -319,6 +319,15 @@ export "." (./src/index.ts)
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
+  type StorageRemovalCapability
+  type StorageRemovalFile
+  type StorageRemovalInspection
+  type StorageRemovalItem
+  type StorageRemovalReceipt
+  type StorageRemovalReview
+  type StorageRemovalReviewRequest
+  type StorageRemovalStartRequest
+  type StorageRemovalUndoRequest
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
@@ -786,6 +795,15 @@ export "./client" (./src/client/index.ts)
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
+  type StorageRemovalCapability
+  type StorageRemovalFile
+  type StorageRemovalInspection
+  type StorageRemovalItem
+  type StorageRemovalReceipt
+  type StorageRemovalReview
+  type StorageRemovalReviewRequest
+  type StorageRemovalStartRequest
+  type StorageRemovalUndoRequest
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
@@ -1408,6 +1426,15 @@ export "./protocol" (./src/protocol.ts)
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
+  type StorageRemovalCapability
+  type StorageRemovalFile
+  type StorageRemovalInspection
+  type StorageRemovalItem
+  type StorageRemovalReceipt
+  type StorageRemovalReview
+  type StorageRemovalReviewRequest
+  type StorageRemovalStartRequest
+  type StorageRemovalUndoRequest
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
@@ -2101,6 +2128,15 @@ export "./server" (./src/server/index.ts)
   type StorageOwner
   type StoragePage
   type StorageReferenceEvidence
+  type StorageRemovalCapability
+  type StorageRemovalFile
+  type StorageRemovalInspection
+  type StorageRemovalItem
+  type StorageRemovalReceipt
+  type StorageRemovalReview
+  type StorageRemovalReviewRequest
+  type StorageRemovalStartRequest
+  type StorageRemovalUndoRequest
   type StorageRoot
   type StorageSnapshot
   type StorageStatus
@@ -9404,6 +9440,100 @@ signatures (every public export and the types it is made of)
         newestIndexedAt: string | null;
         freshness: "unchecked";
         unchecked: string[];
+    }
+  StorageRemovalCapability (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalCapability {
+        latest: StorageRemovalReceipt | null;
+        available: boolean;
+        reason: string | null;
+        limits: {
+            items: number;
+            fileBytes: number;
+            totalBytes: number;
+            milliseconds: number;
+            reviewMilliseconds: number;
+            receiptBytes: number;
+            receipts: number;
+        };
+    }
+  StorageRemovalFile (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalFile {
+        path: string;
+        bytes: number | null;
+        hash: string | null;
+        eligible: boolean;
+        reason: string | null;
+        git: "tracked" | "untracked" | "ignored" | "no-repository" | "unknown";
+        references: {
+            source: string;
+            certainty: "resolved" | "possible";
+        }[];
+        recovery: "requires-retention" | "retained" | "unavailable";
+    }
+  StorageRemovalInspection (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalInspection {
+        observedAt: number;
+        files: StorageRemovalFile[];
+        complete: boolean;
+        unchecked: string[];
+        selectedFileBytes: number;
+    }
+  StorageRemovalItem (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalItem {
+        path: string;
+        state: "not-started" | "applying" | "removed" | "restored" | "changed" | "protected" | "failed" | "unknown";
+        reason: string | null;
+        undoAvailable: boolean;
+        undoReason: string | null;
+    }
+  StorageRemovalReceipt (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalReceipt {
+        review: StorageRemovalReview;
+        state: "review" | "waiting" | "running" | "complete" | "partial" | "refused" | "cancelled" | "unknown";
+        requestedAt: number;
+        startedAt: number | null;
+        completedAt: number | null;
+        reason: string | null;
+        items: StorageRemovalItem[];
+        before: StorageMaintenanceObservation | null;
+        after: StorageMaintenanceObservation | null;
+        index: "not-requested" | "complete" | "unavailable";
+        commit: "not-requested";
+        sync: "not-requested";
+        retained: {
+            journal: "subject-to-retention";
+            git: "unchanged-by-operation";
+            backups: "not-measured";
+        };
+    }
+  StorageRemovalReview (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalReview {
+        id: string;
+        action: "remove" | "undo";
+        sourceId: string | null;
+        fingerprint: string;
+        observedAt: number;
+        expiresAt: number;
+        files: StorageRemovalFile[];
+        complete: boolean;
+        unchecked: string[];
+        selectedFileBytes: number;
+    }
+  StorageRemovalReviewRequest (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalReviewRequest {
+        id: string;
+        paths: string[];
+    }
+  StorageRemovalStartRequest (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalStartRequest {
+        id: string;
+        fingerprint: string;
+    }
+  StorageRemovalUndoRequest (packages/ui-sdk/src/storage-removal.ts)
+    export interface StorageRemovalUndoRequest {
+        id: string;
+        sourceId: string;
+        paths: string[];
     }
   StorageRoot (packages/ui-sdk/src/storage.ts)
     export interface StorageRoot extends StorageBytes {

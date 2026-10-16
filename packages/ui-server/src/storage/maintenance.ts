@@ -28,7 +28,7 @@ function scratchOutcome(raw: string): NonNullable<StorageMaintenanceReceipt["out
   const items: StorageMaintenanceItem[] = [...value.removed.map((item: {path: string}) => ({ id: item.path, state: "cleaned" as const, reason: null })), ...value.failed.map((item: {path: string}) => ({ id: item.path, state: "failed" as const, reason: "owner_removal_failed" }))];
   return { ...emptyOutcome(), removed: value.removed.length, failed: value.failed.length, pinnedFiles: value.pinned.files, pinnedBytes: value.pinned.bytes, overageBytes: value.overageBytes, suspended: !!value.pinError, items: items.slice(0, 200), truncated: items.length > 200 };
 }
-function observation(snapshot: StorageSnapshot | null, scope: readonly string[]): StorageMaintenanceObservation | null {
+export function storageObservation(snapshot: StorageSnapshot | null, scope: readonly string[]): StorageMaintenanceObservation | null {
   if (!snapshot) return null;
   const stores = snapshot.roots.filter(root => scope.includes(root.category)).map(root => ({ ...root, label: root.label.slice(0, 80), reason: root.reason?.slice(0, 160) ?? null }));
   const ids = new Set(stores.map(root => root.id));
@@ -85,7 +85,7 @@ export function createStorageMaintenance(db: Database, options: {
     try {
       assertAuthorized();
       if (!available(result.operation)) { result.state = "refused"; result.reason = "owner_unavailable"; return; }
-      result.before = observation(await options.storage.measure(principal, controller.signal), result.scope);
+      result.before = storageObservation(await options.storage.measure(principal, controller.signal), result.scope);
       assertAuthorized();
       if (result.operation === "pack-git" && result.before?.capacities.some(value => value.available === 0)) { result.state = "refused"; result.reason = "no_space"; return; }
       result.state = "running"; result.startedAt = Date.now(); result.outcome = emptyOutcome(); write(result);
@@ -122,7 +122,7 @@ export function createStorageMaintenance(db: Database, options: {
       // A cancelled write can still have committed effects. Its fresh observation is independent.
       if (result.startedAt && options.authorized(principal) && !closed) {
         const after = new AbortController(), deadline = setTimeout(() => after.abort(), 36_000);
-        try { result.after = observation(await options.storage.measure(principal, after.signal), result.scope); } catch { result.after = null; }
+        try { result.after = storageObservation(await options.storage.measure(principal, after.signal), result.scope); } catch { result.after = null; }
         finally { clearTimeout(deadline); }
       }
       result.completedAt = Date.now();

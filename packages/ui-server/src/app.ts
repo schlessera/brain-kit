@@ -1,3 +1,5 @@
+import { createStorageRemoval } from "./storage/removal.js";
+import { createStorageRemovalRoutes } from "./routes/storage-removal.js";
 import { createStorageMaintenance } from "./storage/maintenance.js";
 import { createStorageMaintenanceRoutes } from "./routes/storage-maintenance.js";
 import { createStorageCoordinator } from "./storage/coordinator.js";
@@ -839,6 +841,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => storageMaintenance.close());
   app.route("/api", createStorageMaintenanceRoutes(storageMaintenance));
 
+  const storageRemoval = createStorageRemoval(db, { brainPath: config.brainPath, boundary, journal, gate: hostExecution.gate()!, lock: host.workerLock, storage,
+    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => path === config.brainPath || path.startsWith(config.brainPath + "/")).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+  });
+  bootCleanup.push(() => storageRemoval.close());
+  app.route("/api", createStorageRemovalRoutes(storageRemoval));
+
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
@@ -967,6 +976,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       host.closing = true;
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      await attempt(() => storageRemoval.close());
       await attempt(() => storageMaintenance.close());
       await attempt(() => inbox.close());
       await attempt(() => host.close());

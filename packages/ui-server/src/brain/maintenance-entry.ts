@@ -16,6 +16,7 @@ import { maintenanceDataRoot } from "../config/env.js";
 
 interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown> }
 interface IndexRequest { op: "index"; root: string }
+interface StorageRequest { op: "storage-facts"; root: string; paths: string[] }
 
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 
@@ -34,9 +35,13 @@ function readDocument(root: string, path: string): string | null {
 }
 
 async function main(): Promise<unknown> {
-  const request = JSON.parse(await Bun.stdin.text()) as PlanRequest | IndexRequest;
+  const request = JSON.parse(await Bun.stdin.text()) as PlanRequest | IndexRequest | StorageRequest;
   // Only the trusted launch sets this separate, disposable output root.
   const root = maintenanceDataRoot() ?? request.root;
+  if (request.op === "storage-facts") {
+    const { inspectStorageAttachmentFacts } = await import("@schlessera/brain/storage");
+    return { ok: true, facts: inspectStorageAttachmentFacts(root, request.paths) };
+  }
   const core = await import("@schlessera/brain/internal");
   const context = await core.initContext({ root });
   const db = core.openDatabase(context.dbPath);

@@ -18,7 +18,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
 } = {}): JournalObjectAccounting & {
   write<T>(operation: () => T): T;
   usage(): number;
-  openRead(hash: string): string;
+  openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): void;
 } {
@@ -93,9 +93,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   const usage = (): number => measure().bytes;
   return {
     write, usage,
-    openRead(hash) {
+    openRead(hash, assertOwner) {
       const id = crypto.randomUUID();
       write(() => {
+        assertOwner?.();
         if (!db.query("SELECT 1 FROM turn_journal_objects WHERE hash=? AND state='present'").get(hash)) throw new JournalStorageUnavailable("the retained object is unavailable");
         db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,kind) VALUES (?,0,?,?,?,?,'read')").run(id, SELF.pid, SELF.start, Date.now(), hash);
       }); return id;
