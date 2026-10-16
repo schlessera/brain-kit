@@ -121,7 +121,8 @@ export default mergeConfig(
     }],
     test: {
       sequence: { sequencer: MeasuredBrowserSequencer },
-      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      provide: { proofWorkerMode: "selected-zero-v1" },
+      setupFiles: ["./tests/visual/worker-boundary-setup.ts", "./tests/visual/design-font-setup.ts"],
       browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
@@ -156,6 +157,7 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "ui-react-layout",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Measurements of the real consumer, kept out of Bun's test glob,
             // and the offline fault harness's self-tests (#1016).
             include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
@@ -182,6 +184,7 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "ui-react-endurance",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Real-time native media proof has its own scheduling and discovery;
             // keep the same offline launch, commands and lifecycle as layout.
             include: ["../ui-react/tests/browser/**/*.endurance.tsx"],

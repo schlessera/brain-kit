@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "category": "browser",
+  "identity": "f8a497c017892732a3eeb17c85045081505a070a8b0df8afa84d2d3348954dc2",
+  "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
+  "sourceAudit": {
+    "version": 1,
+    "base": "4ba792473152c89eb74c286fc914e54ca1dae8fc",
+    "selected": 305,
+    "files": 1727,
+    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. The renderer viewport restoration was corrected by #2253 without changing references or assertions."
+  },
+  "historicalDiagnostic": {
+    "base": "b0b4340cd",
+    "observed": 297,
+    "workerAttempts": 0,
+    "passed": 8808,
+    "skipped": 10,
+    "scope": "setup through afterAll; returned cleanup gap retained",
+    "logSha256": "da33e71a8dc26e89f5b5a81762261a62828a660d3bb67968f853d6a8c49de88e",
+    "observerSha256": "5d1760000e759cca123066c3b38b8d23320316e6878896aec4031cd2b2e46303"
+  },
+  "guardedFreshProofRequired": true,
+  "historicalTargetedDiagnostic": {
+    "projects": [
+      "diagrams-chromium",
+      "diagrams-webkit"
+    ],
+    "observed": 2,
+    "passed": 18,
+    "workerAttempts": 0,
+    "logSha256": "282640cec719b3e5940018963f64b383a3eee13c4bc03a69d711fe66965b7fcd",
+    "scope": "Both added project pairs passed all 18 original cases with zero Worker attempts on the audited source at that checkpoint, after the intended resource mutation failed in Chromium and WebKit and originals were restored. This remains two project pairs, not a whole-299-domain observation.",
+    "source": "a0f007ae0f8cbe224c101179a1955044c3d241c3"
+  },
+  "targetedDiagnostic": {
+    "projects": [
+      "diagrams-chromium",
+      "diagrams-webkit"
+    ],
+    "observed": 8,
+    "passed": 102,
+    "workerAttempts": 0,
+    "logSha256": "f23e7fd21eb7a995371825f948b6edb13007eb4949c1ca96da0a62b53f5e4baf",
+    "source": "aab3d5556ad6332eeaae7dceb84dae68806ae48f",
+    "scope": "All four diagram specs in both engines passed 102 unchanged cases under the permanent returned-cleanup Worker boundary and zero-request replay guards, with registry-verified pristine Vitest packages. Source includes the exact viewport restoration from #2253. The intended new-family resource mutation failed in both engines; originals restored. This is eight selected file/project pairs, not a complete 305-pair observation or hosted passing proof."
+  }
+}
