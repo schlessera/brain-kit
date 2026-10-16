@@ -7,7 +7,8 @@ export function validPrefix(p: PromptPrefixFingerprint): boolean {
     && (p.gitStatusIncluded === null || typeof p.gitStatusIncluded === "boolean");
 }
 export function validFirstRequest(u: FirstRequestCacheUsage): boolean {
-  return u && ["claude_root_stream", "pi_main_message"].includes(u.source)
+  return u && (u.source === "claude_root_stream" && u.coverage === "provider_reported"
+    || u.source === "pi_main_message" && u.coverage === "runtime_normalized")
     && [u.inputTokens, u.cacheReadTokens, u.cacheCreationTokens].every(v => v === null || Number.isSafeInteger(v) && v! >= 0);
 }
 

@@ -159,7 +159,7 @@ function windowFromRollups(
     coveredDays,
     detailRetention: { days: retentionDays, cutoffAt, insideWindow: since < cutoffAt },
     detailPrunedRuns: rows.filter((r) => r.detailPruned).length,
-    cacheDiagnostics: { scope: "retained_detail", observedRuns: known.length, unknownRuns: rows.length - known.length,
+    cacheDiagnostics: { scope: "retained_detail", observedRuns: known.length, runtimeNormalizedRuns: known.filter(d => d.firstRequest!.coverage === "runtime_normalized").length, unknownRuns: rows.length - known.length,
       inputTokens: known.reduce((n, d) => n + d.firstRequest!.inputTokens!, 0),
       cacheReadTokens: known.reduce((n, d) => n + d.firstRequest!.cacheReadTokens!, 0),
       cacheCreationTokens: known.reduce((n, d) => n + d.firstRequest!.cacheCreationTokens!, 0),

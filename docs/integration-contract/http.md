@@ -509,10 +509,13 @@ includes envelope records.
 Retained `GET /api/activity/runs/:runId` detail adds optional `cacheDiagnostics`:
 
 - `firstRequest`: nullable `{ inputTokens, cacheReadTokens, cacheCreationTokens,
-  source }`. Each counter is a nonnegative integer or `null` when unreported;
+  source, coverage }`. Each counter is a nonnegative integer or `null` when unreported;
   `source` is `claude_root_stream` or `pi_main_message`. Claude selects the first
   root `message_start`; Pi selects the first completed non-error assistant
-  `message_end`. Later responses, child channels and title-helper evidence
+  `message_end`. `coverage` is `provider_reported` for Claude and
+  `runtime_normalized` for Pi. Installed Pi normalization fills absent provider
+  cache-read/write fields with zero; a Pi zero is a normalized runtime value,
+  not evidence that the provider explicitly reported zero. Later responses, child channels and title-helper evidence
   cannot replace it, including when helper and main use the same model.
 - `prefix`: nullable `{ tools, system, model, thinking, gitStatusIncluded,
   coverage: "assembled_inputs" }`. Each component is a lowercase 64-character
@@ -539,11 +542,12 @@ still alter provider assembly. Neither backend's digest establishes a provider
 cache key, cache eligibility, first-party request equality or savings.
 
 `GET /api/activity/stats` adds optional `window.cacheDiagnostics` with
-`scope: "retained_detail"`, `observedRuns`, `unknownRuns`, sums of first-request
+`scope: "retained_detail"`, `observedRuns`, `runtimeNormalizedRuns`, `unknownRuns`, sums of first-request
 `inputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `suspectedBreaks` and
 `unknownBreakRuns`. Token sums include only runs with all three reported
 counters; old, auxiliary, uninstrumented and pruned runs count as unknown,
-not zero cache usage. Detail pruning removes these diagnostics with the root
+not zero cache usage. `runtimeNormalizedRuns` counts included Pi records so
+normalized zeros remain distinguishable from provider-reported evidence. Detail pruning removes these diagnostics with the root
 span; existing lifetime/window accounting and turn totals retain their meaning.
 No historical rows are backfilled, and these fields do not assert a live cache
 hit. Existing root attributes also expose the hash-only records to Activity's

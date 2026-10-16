@@ -143,6 +143,36 @@ inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
 Two layout shards, per-project serial execution and all deadlines remain unchanged.
 
+Hosted unit partitions use a queue capped at two serial Bun test processes
+(`scripts/unit-workers.ts`), or one when only one file is selected. Native
+Bun `--parallel=2` failed all four hosted partitions in
+[run 38905715338](https://github.com/schlessera/brain-kit/actions/runs/38905715338):
+DOM cleanup, an import initialization cycle and shared build output require
+separate ownership. The queue gives each process a detached source checkout,
+private frozen dependency copies, a private build and its existing workspace
+lease. Its mode-0700 container sits beside the original checkout, outside
+host `/tmp` so native workers can still load their runtime. A private mount
+binds only that process's maintenance ledger; children still share its original
+limits. Setup capabilities are dropped and the caller's umask is restored.
+Discovery, per-test deadlines, offline preload, browser concurrency and the
+outer job budget remain unchanged. Combined JUnit and timings must cover the
+selected files exactly; worker artifacts retain partial failure diagnostics.
+
+[Run 38913463131](https://github.com/schlessera/brain-kit/actions/runs/38913463131)
+at actual source `b8a75225` supplies the serial baseline: 961 files, 13,512 cases,
+28 skips and no TODOs; the longest proof took 1,402.32 seconds, used 2,227.51
+VM CPU seconds and peaked at 5.48 GB on a 16.77 GB runner (11.29 GB headroom).
+All four queued arms failed because their checkout location hid native source
+under `/tmp` and their setup umask changed test file modes. Those timings do
+not establish a speedup. Restoring caller permissions and native source
+visibility has real failing/restored runtime controls. N=2 is the implemented
+bounded candidate; complete queue throughput, same-SHA count equality and the
+two exhaustive/main passes remain verification obligations in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121). An earlier source's
+serial pass is never relabeled as a different source's full pass. Dependency
+copies and private builds count in proof time and sampled VM resources; job
+setup/install and queue cost remain separate step measurements.
+
 Unit weights have the same explicit reviewed path:
 `bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
 successful exhaustive unit jobs and binds actual checkout logs, immutable

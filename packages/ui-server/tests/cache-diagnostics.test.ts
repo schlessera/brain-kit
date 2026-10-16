@@ -22,7 +22,7 @@ test("first main cache receipt survives later root and child responses", () => {
     }
     recorder.finish("success");
     expect(store.getSpan("cache-turn:turn")?.attrs["brain.cache.first_request"], "FIRST_MAIN_CACHE_RECEIPT")
-      .toEqual({ inputTokens: 3, cacheReadTokens: 42, cacheCreationTokens: 7, source: "claude_root_stream" });
+      .toEqual({ inputTokens: 3, cacheReadTokens: 42, cacheCreationTokens: 7, source: "claude_root_stream", coverage: "provider_reported" });
   } finally { db.close(); }
 });
 
@@ -55,9 +55,9 @@ test("resumed diagnostics compare adjacent retained turns and expose sums throug
     const record = (id: string, resumed: boolean, model = inputs.model) => {
       const recorder = createTurnRecorder({ store }, { turnId: id, sessionId: "odyssey" });
       recorder.observeActivity({ kind: "prompt_prefix", resumed, prefix: promptPrefixFingerprint({ ...inputs, model }) });
-      recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 7, source: "claude_root_stream" } });
+      recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 7, source: "claude_root_stream", coverage: "provider_reported" } });
       // Neither a duplicate nor a same-model auxiliary evidence event can replace the first main request.
-      recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: 100, cacheReadTokens: 200, cacheCreationTokens: 300, source: "claude_root_stream" } });
+      recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: 100, cacheReadTokens: 200, cacheCreationTokens: 300, source: "claude_root_stream", coverage: "provider_reported" } });
       recorder.observeActivity({ kind: "claude_session_usage", cumulative: { inputTokens: 103, cacheReadTokens: 200 } });
       recorder.finish("success");
       return cacheDiagnostics(store.getSpan(`${id}:turn`)!.attrs);
@@ -82,7 +82,7 @@ test("missing cache evidence stays unknown and arbitrary prompt text cannot be p
     const store = createActivityStore(db, { writer: "test" });
     const recorder = createTurnRecorder({ store }, { turnId: "unknown", sessionId: "odyssey" });
     recorder.observeActivity({ kind: "prompt_prefix", resumed: true, prefix: { ...promptPrefixFingerprint(inputs), system: "secret prompt" } });
-    recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: null, cacheReadTokens: null, cacheCreationTokens: null, source: "claude_root_stream" } });
+    recorder.observeActivity({ kind: "first_request_cache", usage: { inputTokens: null, cacheReadTokens: null, cacheCreationTokens: null, source: "claude_root_stream", coverage: "provider_reported" } });
     recorder.finish("success");
     expect(cacheDiagnostics(store.getSpan("unknown:turn")!.attrs)).toMatchObject({ prefix: null, suspectedBreak: null, changed: "unknown" });
     expect(JSON.stringify(store.snapshotRun("unknown"))).not.toContain("secret prompt");

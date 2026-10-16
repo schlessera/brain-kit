@@ -79,7 +79,7 @@ export class StreamAdapter {
           // cannot establish provenance; child channels are excluded above.
           this.report({ kind: "first_request_cache", usage: { inputTokens: token(u.input_tokens),
             cacheReadTokens: token(u.cache_read_input_tokens), cacheCreationTokens: token(u.cache_creation_input_tokens),
-            source: "claude_root_stream" } });
+            source: "claude_root_stream", coverage: "provider_reported" } });
         }
 
         if (this.options.autonomousUsage) {

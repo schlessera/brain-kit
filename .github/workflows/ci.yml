@@ -186,6 +186,9 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
+            tmp/unit-worker-*.xml
+            tmp/unit-worker-*.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json

@@ -146,7 +146,7 @@ export function createPiTurnRunner(
           const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
           try { req.bridge.activity?.({ kind: "first_request_cache", usage: {
             inputTokens: token(message.usage?.input), cacheReadTokens: token(message.usage?.cacheRead),
-            cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message",
+            cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message", coverage: "runtime_normalized",
           } }); } catch { /* Observability must not fail the observed turn. */ }
         }
         if (completed) completedUsage.observe(event);

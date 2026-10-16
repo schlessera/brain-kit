@@ -370,7 +370,7 @@ export function createTurnRecorder(
             firstRequestRecorded = true;
             const u = event.usage;
             store.patchSpan(rootSpanId, { attrs: { "brain.cache.first_request": {
-              inputTokens: u.inputTokens, cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens, source: u.source,
+              inputTokens: u.inputTokens, cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens, source: u.source, coverage: u.coverage,
             } } });
             onWrite?.();
             break;

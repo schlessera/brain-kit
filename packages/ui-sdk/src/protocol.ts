@@ -3160,6 +3160,8 @@ export interface FirstRequestCacheUsage {
   cacheReadTokens: number | null;
   cacheCreationTokens: number | null;
   source: "claude_root_stream" | "pi_main_message";
+  /** Pi may normalize absent provider fields to zero; those are not raw reported zeros. */
+  coverage: "provider_reported" | "runtime_normalized";
 }
 
 export interface ActivityCacheDiagnostics {
@@ -3298,6 +3300,7 @@ export interface ActivityRuntimeStats {
     cacheDiagnostics?: {
       scope: "retained_detail";
       observedRuns: number;
+      runtimeNormalizedRuns: number;
       unknownRuns: number;
       inputTokens: number;
       cacheReadTokens: number;
