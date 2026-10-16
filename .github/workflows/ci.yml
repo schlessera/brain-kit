@@ -510,9 +510,14 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Native namespace prerequisites
         run: bash scripts/ci-runtime-setup.sh
+      - name: Pinned offline Docker control prerequisite
+        if: inputs.namespace_only == true
+        run: docker pull mcr.microsoft.com/playwright:v1.63.0-noble
       - name: Immutable namespace source and real controls
         if: inputs.namespace_only == true
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p tmp
           git show -s --format='%H %T %P' HEAD | tee tmp/2121-namespace-source.txt
           sha256sum scripts/unit-workers.ts scripts/unit-worker-entry.sh tests/unit-workers.test.ts tests/helpers/unit-worker-fixture.ts | tee -a tmp/2121-namespace-source.txt
@@ -521,7 +526,9 @@ jobs:
           unshare --user --map-current-user --keep-caps --mount bash scripts/unit-worker-entry.sh "$ledger" bun run test "$PWD/tests/workspace-lease.test.ts" "$PWD/tests/test-network-guard.test.ts" "$PWD/packages/ui-sdk/tests/maintenance-temp-budget.test.ts" "$PWD/packages/ui-sdk/tests/maintenance-worker.test.ts" "$PWD/tests/unit-workers.test.ts" 2>&1 | tee tmp/2121-namespace-controls.log
       - name: Queued-worker external-fetch mutation fails and production source is restored
         if: inputs.namespace_only != true
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p tmp
           set +e
           bun scripts/unit-workers.ts "$PWD/tests/2121-worker-guard.test.ts" "$PWD/tests/2121-worker-control.test.ts" > tmp/2121-offline-worker.log 2>&1
