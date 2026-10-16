@@ -464,7 +464,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 7819ff65794060eef05d1a76221f5377c4f6bff7
+          ref: 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -486,6 +486,8 @@ jobs:
             tmp/proof-resources.json
             tmp/unit-report.xml
             tmp/unit-report-summary.json
+            tmp/unit-worker-*.xml
+            tmp/unit-worker-*.json
             tmp/unit-timings.json
           retention-days: 7
   unit-worker-guard-measurement:
@@ -496,34 +498,35 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: 7819ff65794060eef05d1a76221f5377c4f6bff7
+          ref: 1c8b4366dbc162b2ea535737939375408168009b
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
-      - name: External-fetch mutation fails inside parallel worker and is restored
+      - name: Queued-worker external-fetch mutation fails and production source is restored
         run: |
-          probe=tmp/2121-offline-worker.test.ts
-          trap 'rm -f "$probe"' EXIT
           mkdir -p tmp
-          cat > "$probe" <<'EOF'
-          import {test,expect} from "bun:test";
-          test("2121 external-fetch worker mutation",async()=>{console.log("WORKER_PID",process.pid);await fetch("http://192.0.2.1:9/");expect.unreachable("OFFLINE_GUARD_DID_NOT_REFUSE")});
-          EOF
           set +e
-          bun run test "./$probe" --parallel=2 > tmp/2121-offline-worker.log 2>&1
+          bun scripts/unit-workers.ts "$PWD/tests/2121-worker-guard.test.ts" "$PWD/tests/2121-worker-control.test.ts" > tmp/2121-offline-worker.log 2>&1
           code=$?
           set -e
           cat tmp/2121-offline-worker.log
           test "$code" -ne 0
           grep -q 'Offline test guard: attempted real network access' tmp/2121-offline-worker.log
-          grep -q '2121 external-fetch worker mutation' tmp/2121-offline-worker.log
-          rm "$probe"
-          test ! -e "$probe"
+          grep -q '2121 queued-worker external-fetch mutation' tmp/2121-offline-worker.log
+          grep -q 'QUEUED_WORKER_PID' tmp/2121-offline-worker.log
+          git checkout 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
+          test ! -e tests/2121-worker-guard.test.ts
+          test ! -e tests/2121-worker-control.test.ts
+          test "$(git rev-parse HEAD)" = 81fa6a3228a67ce61f1181b58e46f6feffe6ae50
           git diff --exit-code
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: unit-worker-guard-mutation
-          path: tmp/2121-offline-worker.log
+          path: |
+            tmp/2121-offline-worker.log
+            tmp/unit-worker-checkouts.json
+            tmp/unit-worker-*.xml
+            tmp/unit-worker-*.json
           retention-days: 7
