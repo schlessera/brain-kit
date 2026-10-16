@@ -29,7 +29,7 @@ opaque light/dark/print tokens; amber is focal, all displayed text stays at leas
 9px, print is white. Do not copy upstream colours, alpha ink, or font sizes.
 
 Every example is a standalone YAML document (JSON syntax is valid YAML), dated
-2026-07-12 in the Odysseus example world. Use `brain diagrams check --json` before
+2026-07-12 in the Odysseus example world. Use `brain diagram check homecoming.diagram.yaml --json` before
 rendering. Author `at` and `size` on the 4px grid; the builder routes connectors
 and never moves nodes. Edge order is authored routing priority: reserve self
 loops and outside cycles before crowded later routes. A valid spec may have
