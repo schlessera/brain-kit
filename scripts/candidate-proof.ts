@@ -44,3 +44,13 @@ export async function requireCandidate(root: string, event: any, env: NodeJS.Pro
   const api = env.GH_TOKEN && env.GITHUB_REPOSITORY ? new GitHubProofAPI(env.GITHUB_REPOSITORY, env.GH_TOKEN) : undefined;
   await validateCandidate(root, event, env, api);
 }
+
+if (import.meta.main) {
+  try {
+    const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : {};
+    await requireCandidate(process.cwd(), event, process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}

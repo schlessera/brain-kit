@@ -284,7 +284,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  focused local receipts. Confirmation metadata applies the existing identity
+  guard before product-proof dispatch; draft and synchronize feedback retain
+  their cadence. The final gate repeats validation, since admission does not
+  freeze live refs. The guard validates the actual merge checkout's immutable head/base/tree
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old

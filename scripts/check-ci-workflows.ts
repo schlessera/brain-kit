@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
+type Step = { uses?: string; run?: string; if?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
@@ -65,6 +65,12 @@ export function workflowProblems(text: string, file: string): string[] {
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
     if (!workflow.jobs?.changeset?.steps?.some(step => step.run === "bun scripts/proof-reuse.ts")) fail("metadata: immutable retention validation is missing");
+    const metadata = workflow.jobs?.changeset?.steps ?? [];
+    const admission = metadata.findIndex(step => step.run === "bun scripts/candidate-proof.ts");
+    const planning = metadata.findIndex(step => step.run === "bun scripts/ci-plan.ts");
+    const discovery = metadata.findIndex(step => step.run === "bun scripts/proof-inventory.ts");
+    if (admission <= planning || discovery <= admission || metadata[admission]?.if !== "steps.plan.outputs.cadence == 'confirmation'" ||
+        metadata[admission]?.env?.GH_TOKEN !== "${{ github.token }}") fail("metadata: confirmation admission must validate identity after planning and before product discovery");
   }
   return problems;
 }
