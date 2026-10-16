@@ -1249,12 +1249,12 @@ at most 48 MiB, for at most ten minutes. One scan admits at most 100,000 entries
 32 roots and 35 seconds of collection; child cancellation is awaited. Kernel
 uninterruptible I/O cannot have a hard wall-clock completion guarantee.
 
-The server invokes the installed host core package’s public CLI with an explicit
-root, no executable brain configuration or inherited secrets, and the configured
-exec wrapper. It never launches the brain repository’s selected executable on
-the host. Missing/incompatible inventory support produces partial/unavailable
-evidence rather than weakening that boundary. Metadata workers inspect only
-exact configured stores, reject redirects below roots and mount crossings, and
+The server resolves the installed host core package’s public metadata entry
+outside the brain, with explicit roots and no inherited secrets. It never
+launches the brain repository’s selected executable on the host.
+Missing/incompatible inventory support produces partial/unavailable evidence
+rather than falling back to CLI execution or internal imports. Metadata workers
+inspect only exact configured stores, reject redirects below roots and mount crossings, and
 never read attachment/database/backup contents for sizing. Backend setup is not
 triggered by inventory. Explicit host backup/Git roots are described in server
 configuration; no remote or host-wide filesystem discovery is performed.
