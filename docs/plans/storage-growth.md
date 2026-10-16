@@ -29,7 +29,7 @@ capacity identity or a lifetime byte bound. Caller availability alone
 
 ## Proposed bounded record
 
-Schema `storage_history_v1` stores a ring of at most **128 aggregate samples**,
+Schema `storage_history_v1` stores three bounded tiers totaling at most **128 aggregate samples**,
 with at most **1,792 UTF-8 JSON bytes per sample**. A singleton metadata record
 is capped at 2,048 bytes. Thus retained serialized payload is at most 231,424
 bytes, below the proposed 256 KiB ceiling. Limits apply globally per app, not
@@ -43,6 +43,8 @@ are 32 hexadecimal characters derived from host identities, not paths.
 ```ts
 {
   v: 1,
+  tier: "recent" | "daily" | "weekly",
+  gap: boolean,          // incomplete or incompatible evidence within this bucket
   at: number,             // UTC epoch milliseconds, end of observation
   start: number,          // UTC epoch milliseconds, start of observation
   source: "scheduled" | "refresh" | "operation",
@@ -87,7 +89,7 @@ SQLite page/index/WAL overhead is **outside the serialized-payload bound**;
 it is not claimed to fit in 256 KiB. The operational DB already appears once in
 App storage, including history. Do not add payload bytes to measured DB bytes.
 Report the payload charge separately as explanation. Insufficient operational
-headroom preserves the previous valid ring and reports “History paused.” Never
+headroom preserves the previous valid tiers and reports “History paused.” Never
 force vacuum, truncate WAL, expire journal objects or delete backups to fit
 history. Sampling failure must not destroy recovery.
 
@@ -105,11 +107,53 @@ retain only the newest pending aggregate. A crash loses that pending observation
 not content. A partial observation may be retained only if no complete sample
 exists in the bucket; otherwise expose the failure without erasing good evidence.
 
-Keep the newest 128 bucket samples, replacing within a bucket and dropping the
-oldest on insertion. **No weekly thinning**: an uninterrupted ring spans 32 days.
-Missed buckets shorten usable evidence, rather than extending a misleading line.
+Retain three overlapping UTC tiers, with **128 total slots**, including current
+buckets:
+
+| Tier | Bucket width | Slots | Nominal retained horizon |
+| --- | --- | --- | --- |
+| Recent | Six hours | 64 | 16 days |
+| Daily | One UTC day | 32 | 32 days |
+| Weekly | Seven days, Monday 00:00 UTC | 32 | 224 days (about seven months) |
+
+Each collected observation updates the current bucket in all three tiers in
+**one transaction**. Each tier retains the latest actual observation in its
+bucket, with its original timestamp and values; these are endpoints, not sums,
+averages or peaks. The same observation may occupy three slots. Overlap is
+intentional and included in the 128-slot bound, not added to the horizon.
+No scans run for compaction, and no raw history is retained behind these tiers.
+Updating three bounded records replaces the old single-record write while the
+scan cadence and transaction rate remain unchanged.
+
+Expire buckets by UTC age as well as slot count: retain bucket indexes from
+current index minus (slots minus one) through current index. On restart, prune
+old records during the next eligible transaction without backfilling empty
+buckets. Thus a long outage cannot turn 32 weekly slots into an unbounded age
+claim. Current buckets are labelled provisional; actual endpoint timestamps
+remain visible. Clock reversal pauses persistence until the last accepted time
+is reached, rather than overwriting a newer bucket with an older measurement.
+
+`gap` is sticky within each bucket. Set it when an observation is partial,
+unknown, has a changed scope/basis, or a scheduled six-hour bucket is missing.
+For a bucket first observed after its first six-hour interval, set it immediately.
+When closing a bucket, a missing final interval also sets it. Retaining a prior
+complete endpoint after a failed refresh does not clear this flag. A whole
+missing day/week has no invented record. Reconfiguration never combines values
+across identities; retain the newest endpoint but mark the affected bucket.
+This conservative flag applies to all capacity series in that sample.
+
+The table labels Recent/Daily/Weekly and the actual observation time. Older
+history uses discrete points, without interpolating daily or weekly endpoints
+or implying that peaks between them were retained. Missing buckets and flagged
+buckets are visibly incomplete. The recent rate described below uses only Recent
+samples with `gap: false`; a coarse point cannot fill a recent gap or count as
+additional evidence. Long-term daily/weekly history is available for inspection;
+long-term rates or forecasts are not part of this proposal.
+
 The bounded singleton records schema, last attempted bucket, last persisted
-time and current episode states for four scopes. No unbounded event log.
+time and current episode states for four scopes. Tier indexes derive from
+sample timestamps, and gap flags live in the capped samples. No unbounded event
+log or separate rollup staging buffer.
 
 A full sample reuses inventory budgets: one scan/app, at most two metadata
 workers, finite entries/depth/time/output/errors. No Git maintenance, attachment
@@ -126,14 +170,14 @@ real runtime/cancellation evidence and no-stall proof for concurrent turns.
 ## Comparability and growth
 
 Compare only equal capacity identity, root-set scope, basis version, complete
-coverage and available fields. A collector patch is comparable only when its
+coverage, no gap flag and available fields. A collector patch is comparable only when its
 measurement semantics are unchanged; a basis change starts a new epoch. Unknown
 allocation, unsupported identity, overflow, root changes and partial samples
 create labelled gaps. Never interpolate across them. Reflink allocation is a
 qualified charge, not exclusive physical usage or reclaimable space.
 
 The proposed initial rate is **observed endpoint change divided by elapsed
-time** across the latest contiguous comparable window, at most seven days.
+time** across the latest contiguous comparable Recent window, at most seven days.
 Require five complete samples spanning at least 48 hours and no gap over
 12 hours. Display signed decimal bytes/day, basis and interval:
 “App allocation +120 MB/day observed over 3 days.” Negative values say decreased;
@@ -279,10 +323,14 @@ not production history, shipped policy or a benchmark.
 | Partial/unknown midpoint | Break the window; too little new evidence means no rate. |
 | Retained-only pressure | Low/Critical plus no eligible cleanup; capacity provision is legitimate. |
 | Concurrent unowned writer | Capacity falls while store usage is flat; do not attribute loss to App. |
+| Year of six-hour observations | At most 64/32/32 slots; weekly history reaches approximately seven months without extra scans. |
+| Missing interval inside a daily/weekly bucket | Sticky gap survives replacement by a later complete endpoint. |
+| Long outage | Empty periods remain empty; age-expired buckets disappear without catch-up scans. |
 | Threshold oscillation | Worsen immediately; clear only with two qualifying observations 60 seconds apart. |
 
 The experiment serializes worst-case field lengths and four capacities, checks
-1,792 bytes/sample and the global payload ceiling, and shows the ring cap.
+1,792 bytes/sample and the global payload ceiling, and checks all three tier caps, UTC boundaries, missing buckets, sticky gaps,
+long outages and clock reversal across a year of synthetic observations.
 Physical SQLite/WAL overhead remains an implementation measurement, not an
 invented exact charge in this spike.
 
@@ -290,7 +338,8 @@ invented exact charge in this spike.
 
 The maintainer must choose before implementation:
 
-1. Six-hour sampling, global 128-sample ring, 1,792-byte samples, four historical
+1. Six-hour collection with 64 recent, 32 daily and 32 weekly slots (128 total),
+   1,792-byte samples, four historical
    capacity scopes and these coalescing rules, or explicit refresh only.
 2. Observed endpoint rates with this evidence window and no exhaustion estimate,
    or defer growth display.
