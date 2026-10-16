@@ -93,3 +93,28 @@ test("validated installed asset bytes and mode join immutable source fingerprint
   rmSync(join(root,"node_modules/axe-core/axe.min.js"));
   expect(()=>inclusionInputs(root,"layout",inventory,"fixed-runner")).toThrow("Unresolved immutable");
 });
+
+test("selected Vitest screenshot baselines are immutable proof inputs",()=>{
+ const root=fixture(),baseline="packages/ui-kit/tests/visual/__screenshots__/one.visual.tsx/owned-chromium-linux.png";
+ write(root,spec,'expect(subject).toMatchScreenshot("owned");');write(root,baseline,"first pinned image bytes");commit(root);
+ const original=inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint;
+ write(root,baseline,"changed pinned image bytes");commit(root);
+ expect(inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint,"SCREENSHOT_BASELINE_CONTENT_INVALIDATES_RETAINED_PROOF").not.toBe(original);
+});
+
+test("baseline additions, renames, deletion, mode and immutable source use actual tracked image identity",()=>{
+ const root=fixture(),directory="packages/ui-kit/tests/visual/__screenshots__/one.visual.tsx",baseline=directory+"/owned-chromium-linux.png";
+ write(root,spec,'expect(subject).toMatchScreenshot("owned");');write(root,baseline,"original image");const source=commit(root),original=inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint;
+ write(root,directory+"/added.png","added image");commit(root);const added=inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint;expect(added).not.toBe(original);
+ renameSync(join(root,directory+"/added.png"),join(root,directory+"/renamed.png"));commit(root);expect(inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint).not.toBe(added);
+ rmSync(join(root,directory+"/renamed.png"));commit(root);expect(inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint).toBe(original);
+ chmodSync(join(root,baseline),0o755);commit(root);expect(inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint).not.toBe(original);
+ expect(inclusionInputs(root,"layout",inventory,"fixed-runner",source).fingerprint).toBe(original);
+});
+test("custom screenshot directories, resolvers and computed options stay fresh",()=>{
+ for(const body of ['expect(subject).toMatchScreenshot("owned",{resolveScreenshotPath:()=>"/unowned.png"});','const options=externalOptions;expect(subject).toMatchScreenshot("owned",options);','const options={comparatorOptions:{threshold:0}};Object.assign(options,external);expect(subject).toMatchScreenshot("owned",options);']){const root=fixture();write(root,spec,body);commit(root);expect(()=>inclusionInputs(root,"layout",inventory,"fixed-runner")).toThrow("Unsupported screenshot");}
+ const root=fixture();write(root,spec,'expect(subject).toMatchScreenshot("owned");');write(root,"packages/ui-kit/vitest.config.ts",'export default {test:{browser:{screenshotDirectory:"/unowned"}}};');commit(root);expect(()=>inclusionInputs(root,"layout",inventory,"fixed-runner")).toThrow("Unsupported screenshot");
+});
+test("a screenshot-directory symlink cannot hide an external baseline behind absent tracked children",()=>{
+ for(const suffix of ["", "/one.visual.tsx"]){const root=fixture(),directory="packages/ui-kit/tests/visual/__screenshots__"+suffix;write(root,spec,'expect(subject).toMatchScreenshot("owned");');mkdirSync(dirname(join(root,directory)),{recursive:true});symlinkSync("/tmp/unowned-baselines",join(root,directory));commit(root);expect(()=>inclusionInputs(root,"layout",inventory,"fixed-runner")).toThrow("Screenshot directory");}
+});

@@ -421,7 +421,8 @@ and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
 a new audit. The scene, visual assertions and trace remain unchanged.
 
-Diagram capture binds its exact two call sites, closed SVG primitive producers,
+Diagram capture binds both exact callers and their complete call-site inventories,
+closed SVG primitive producers,
 literal adopted fixture, generated consumer CSS and locked inline-font inputs.
 Its additional replay page contains that source-owned document, aborts and records
 HTTP/websocket requests, and checks the zero-request invariant after document and
@@ -455,6 +456,17 @@ Old or missing admission metadata stays fresh. Its metadata cannot replace
 complete successful guarded fresh jobs or the
 independent retained-proof validator. This bounds the existing PDF constructor
 to no consumed Worker resource; it does not authorize an arbitrary worker URL.
+
+Vitest screenshot references are inputs too. The pinned installed resolver's
+verified defaults locate them under each selected spec's own
+`__screenshots__/<spec basename>` directory. Eligible immutable tracked paths,
+bytes and modes join the closure and capability identity, including added,
+deleted and renamed baselines. A tracked file/symlink at a baseline directory
+cannot hide an external reference. Custom screenshot directories/resolvers,
+matcher aliases and unresolved option objects stay fresh; only closed literal
+comparison settings are supported. The framework asset identity joins the
+locked installed resources. No current output or untracked image enters this
+snapshot, and baseline changes cannot inherit old passing comparisons.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and

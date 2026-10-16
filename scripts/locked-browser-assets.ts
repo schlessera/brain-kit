@@ -13,9 +13,9 @@ export function lockedBrowserAsset(root:string,owner:string,literal:string):Lock
   if(!existsSync(source)||realpathSync(source)!==source||createHash("sha256").update(readFileSync(source)).digest("hex")!==readers[owner]) return undefined;
   return lockedPackageAsset(root,"axe-core","axe.min.js");
 }
-/** Only these two audited installed assets have a supported read boundary. */
+/** Only these audited installed assets have a supported read boundary. */
 export function lockedPackageAsset(root:string,packageName:string,assetName:string):LockedBrowserAsset|undefined {
-  if(!["axe-core/axe.min.js","@tailwindcss/cli/dist/index.mjs"].includes(`${packageName}/${assetName}`))return undefined;
+  if(!["axe-core/axe.min.js","@tailwindcss/cli/dist/index.mjs","@vitest/browser/dist/index.js"].includes(`${packageName}/${assetName}`))return undefined;
   if(!existsSync(join(root,"bun.lock"))||!existsSync(join(root,"package.json"))) return undefined;
   const directory=join(root,"node_modules",packageName),asset=join(directory,assetName),manifest=join(directory,"package.json");
   if(!existsSync(asset)||!existsSync(manifest)) return undefined;

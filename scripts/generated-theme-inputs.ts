@@ -7,7 +7,7 @@ import {generatedCssInputs} from "./generated-build-inputs";
 import {lockedPackageAsset} from "./locked-browser-assets";
 const sources={
   "packages/ui-kit/tests/visual/dictation-motion.ts": "426a9ae556c11ea60ab8563c71ee220a3bb7140638b0ef1062aacf1bb3b65e70",
-  "packages/ui-kit/vitest.config.ts": "a04696e6fb4d0dcf62c3ab2aa8175c30c50d44004884a3bca7406bc04d438c4b",
+  "packages/ui-kit/vitest.config.ts": "81d969b3022e0dfa6d82c59ff2f16ea8de923d650958b6d7f932e85f409a23ce",
   "packages/ui-kit/tests/visual/dictation-theme.css": "dfe3bb18ef30797d9d2ded77a675520035bf0eb8b3d82de180fe640bea84c7c6"
 };
 export function generatedThemeInputs(root:string,files:readonly string[],importers:BrowserImporters){

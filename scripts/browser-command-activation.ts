@@ -210,7 +210,7 @@ export function auditCommandActivation(root: string, config: string, selected: r
 const auditedSources: Record<string,string> = {
   "packages/ui-react/tests/browser/mermaid-proof-command.ts": "df7cc849b743c55c897236cd021793ad489548d780db2d053248116563832d3c",
   "packages/ui-react/tests/browser/offline/scene-commands.ts": "ad76a69e553d1d0208a5a92c8270876403930788964bd75f3887d06a426c17d2",
-  "packages/ui-kit/vitest.config.ts": "a04696e6fb4d0dcf62c3ab2aa8175c30c50d44004884a3bca7406bc04d438c4b",
+  "packages/ui-kit/vitest.config.ts": "81d969b3022e0dfa6d82c59ff2f16ea8de923d650958b6d7f932e85f409a23ce",
   "packages/ui-kit/vite.config.ts": "ffdb82cbcf2fd0106799690580ca7af612a0bcceeacf198ef0e8a77313b4cb91",
   "scripts/visual.mjs": "bcd50892e8631ecb1efe6b9305f9e05726816f0699b2e551abaaefbce81cfe4c",
   "packages/ui-react/tests/browser/hygiene-loop-command.ts": "fd9c5e18f1e374be3657fefd6c7aac76f16794f1ca59f0f038761c75130da35a",

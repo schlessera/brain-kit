@@ -5,7 +5,8 @@ import {resolve} from "node:path";
 import ts from "typescript";
 import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 const config="packages/ui-kit/vitest.config.ts";
-const declarations=[{
+interface DocumentDeclaration { command:string;owner:string;ownerHash:string;caller:string;callerHash:string;calls:number;additionalCallers?:Record<string,{hash:string;calls:number}>;sink:string;producers:Record<string,string>; }
+const declarations:DocumentDeclaration[]=[{
   command:"htmlPreviewFixture",owner:"packages/ui-kit/tests/visual/form-browser.ts",ownerHash:"3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
   caller:"packages/ui-react/tests/browser/destination-press.pointer.tsx",callerHash:"85e9a20f9a15dd38a6479e3dd668e45f6f8324c2e6a97a252172392c1bfb857e",calls:2,
   sink:'route.fulfill(requested === path\n      ? { status: 200, contentType: "text/html", body: html }\n      : { status: 404, contentType: "text/plain", body: "Unknown fixture file" })',
@@ -34,6 +35,7 @@ const declarations=[{
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
   "callerHash": "6546f81e60768d3741bbbee71229fdbf1ac609b5a1e90de54074a35fe550ffb3",
   "calls": 2,
+  "additionalCallers": {"packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {"hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c", "calls": 3}},
   "sink": "page.setContent(`<html data-theme=\"${drawing.theme}\"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`)",
   "producers": {
     "packages/ui-kit/tests/visual/zero-request-replay.ts": "694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
@@ -47,16 +49,22 @@ const declarations=[{
     "packages/ui-kit/.storybook/preview-head.html": "66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7",
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
+    "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
+    "packages/module-diagrams/src/axis-layout.ts": "969b035e0cccb2bb63dabd403561efa41fc597af9b1537c29a3e9f60cd987bb9",
+    "packages/module-diagrams/src/axis-spec.ts": "55bce9fad9e94af099a55fb1f7d282247c4b5f0dbdd9b33679e2903acfc28b93",
+    "packages/module-diagrams/src/shape-svg.ts": "b629406bfec41e3ed9973a395a6271d69f1ce45d823591ab15b5581a0116a29b",
+    "packages/module-diagrams/src/shape.ts": "126cb4f530ea60736764c1237cc33a944ef924d62d74ba404e9b97d9f1e2696e",
+    "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
-    "packages/module-diagrams/src/check.ts": "dbfaae51d097ec8ff18be05a4d97dc71a54b3096f0b05078c17966fd8e3a2261",
-    "packages/module-diagrams/src/svg-model.ts": "a0f79c701080f02372abb18855f97f1502d235387d834f4f12a16863f811e3e2",
-    "packages/module-diagrams/src/geometry.ts": "b09bf7a8cbffc7292a5a258cbfd93a27b3c7e778ec63a906d8ced15b50741818",
+    "packages/module-diagrams/src/check.ts": "dd6e84f52864d2868e37cb8cca2026ea3c9787567fbcafe1a722897eb98accd9",
+    "packages/module-diagrams/src/svg-model.ts": "3a394e6491161a6444d299572b9462f6cc43c11a3c6a0f405ac2358aa0079bef",
+    "packages/module-diagrams/src/geometry.ts": "78a88cb14a00be81ce54bbdb88720da04ff75b6beca36a16e9810d8b05b47ca6",
     "packages/module-diagrams/src/drawing-style.ts": "9d9108f2e8fdf5c416d1deee3ecc8d4f4ad709956a15ffcdb0a1b3a07919cfe5",
-    "packages/module-diagrams/src/ui.tsx": "5ac3becaeb5d6b5992a7b21fa1c822cbc15f6bc960c5f06e517f8c0d5440dd9f",
-    "packages/module-diagrams/src/layout.ts": "1bad93011e3c5e3942ee95dad2c9a26979cc1d656571e9f69af82efc06af811a",
+    "packages/module-diagrams/src/ui.tsx": "99c60be85b9a5f21096c4535eaf7eb0bdcfc67b3ddf9b3f3520089f338f80040",
+    "packages/module-diagrams/src/layout.ts": "0c3c6e84cdfccb4675ceda99f06604a69001f9efde4f9d742265cbd771d7f399",
     "packages/module-diagrams/src/skin.ts": "79b463167bbab59194e9a652da41013d552cf931bd3e9bd062a503926329c0f0",
     "packages/module-diagrams/src/render.ts": "677245cc5b3b7ec4757e5771aecbe80dbd9f1f5e2d53d23b5cac355b7c28c463",
-    "packages/module-diagrams/src/spec.ts": "e65bbc75300d31e8a432be43c45c87b1041e5bd19f214ea7a18bd7cb5e7a2507"
+    "packages/module-diagrams/src/spec.ts": "647500d978198622cc0b4b57d122b2100c87623cbd569ed77a971b56c7d71f0f"
   }
 }];
 export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}
@@ -66,10 +74,11 @@ export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}
 export function boundBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters):Map<string,Map<string,BrowserDocumentInputs>>{
   const result=new Map<string,Map<string,BrowserDocumentInputs>>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"a04696e6fb4d0dcf62c3ab2aa8175c30c50d44004884a3bca7406bc04d438c4b"))return result;
+  if(!matches(config,"81d969b3022e0dfa6d82c59ff2f16ea8de923d650958b6d7f932e85f409a23ce"))return result;
   for(const declaration of declarations){
-    if(![config,declaration.owner,declaration.caller].every(file=>files.includes(file))||!matches(declaration.owner,declaration.ownerHash)||!matches(declaration.caller,declaration.callerHash)||Object.entries(declaration.producers).some(([file,hash])=>!matches(file,hash))||[...(importers.get(declaration.owner)??[])].some(file=>file!==config))continue;
-    let count=0,unsafe=false;
+    const callers=new Map<string,{hash:string;calls:number}>([[declaration.caller,{hash:declaration.callerHash,calls:declaration.calls}],...Object.entries(declaration.additionalCallers??{})]);
+    if(![config,declaration.owner,...callers.keys()].every(file=>files.includes(file))||!matches(declaration.owner,declaration.ownerHash)||[...callers].some(([file,entry])=>!matches(file,entry.hash))||Object.entries(declaration.producers).some(([file,hash])=>!matches(file,hash))||[...(importers.get(declaration.owner)??[])].some(file=>file!==config))continue;
+    const counts=new Map([...callers.keys()].map(file=>[file,0]));let unsafe=false;
     for(const file of files){
       if(!/\.[cm]?[jt]sx?$/.test(file))continue;
       const source=ts.createSourceFile(file,readFileSync(resolve(root,file),"utf8"),ts.ScriptTarget.Latest,true),names=new Set<string>();
@@ -86,7 +95,7 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
       };bindings(source);
       const walk=(node:ts.Node)=>{
         if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&names.has(node.expression.text)&&node.name.text===declaration.command){
-          if(file!==declaration.caller||!ts.isCallExpression(node.parent)||node.parent.expression!==node)unsafe=true;else count++;
+          if(!callers.has(file)||!ts.isCallExpression(node.parent)||node.parent.expression!==node)unsafe=true;else counts.set(file,counts.get(file)!+1);
         }
         ts.forEachChild(node,walk);
       };walk(source);
@@ -95,7 +104,7 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
     // Ghost: argument-free call immediately after the exact Performance story;
     // all replay network attempts abort and fail before/after fonts and trace.
     const producers=Object.keys(declaration.producers);
-    if(!unsafe&&count===declaration.calls)result.set(declaration.owner,new Map([[declaration.sink,{runtime:[declaration.caller,...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
+    if(!unsafe&&[...callers].every(([file,entry])=>counts.get(file)===entry.calls))result.set(declaration.owner,new Map([[declaration.sink,{runtime:[...callers.keys(),...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
   }
   return result;
 }

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "e05f7a6cdf9184d596e199d01023f89903d9768fb49761d759b9cc8d0cc79b6d",
+  "identity": "146f9c078e11efbc5da71895d0bcb25ef487a9b908fcd14b85c460b77a290bd3",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "bbb174e7778266f92e8d9bf4f4767b979e573848",
-    "selected": 299,
-    "files": 1357,
-    "scope": "Complete imported/configured selected inventory plus new Chromium/WebKit diagrams, SVG/fixture/generated CSS/inline-font producers and exact command call/escape inventory audited. Historical 297 diagnostic remains historical with its cleanup gap. Actual complete 299 guarded fresh hosted shards remain required; this capability metadata is not a passing receipt. Host credential exclusion/relay and retained-folder ownership source changes remain in the audited closure; no new selected Worker activation or uncontrolled resource origin. The concrete retained-folder mount verifier is a bounded launch function definition, with no new top-level effects or selected Worker/resource activation. HTTP fixture isolation is outside the selected import closure."
+    "base": "48b4935c06d25517de130421bd1d44a2347ae030",
+    "selected": 301,
+    "files": 1621,
+    "scope": "Complete 301-pair selected source/import/configuration/command inventory audited, including ordered-axis geometry and closed SVG shapes. Both exact capture callers and every renderer/fixture/CSS/inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver now join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical, and actual complete 301 guarded fresh hosted shards remain mandatory. Native/PDF-worker layout/endurance categories stay fresh."
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",

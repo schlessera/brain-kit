@@ -1,5 +1,6 @@
 /** Immutable inclusion fingerprints. Unknown runtime ownership always executes fresh. */
 import ts from "typescript";
+import { includeBrowserScreenshots } from "./browser-screenshot-inputs";
 import { auditedInactiveCommands } from "./browser-command-activation";
 import {hasAuditedWorkerBoundary,pdfWorkerInput} from "./browser-worker-audit";
 import { createHash } from "node:crypto";
@@ -81,7 +82,7 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     const selected = selectedSpecs(category, inventory);
     const inputs = [...required.filter(path => path.startsWith("packages/ui-kit/") || path === "packages/ui-react/src/styles.css"), ...selected.map(spec => spec.file)];
     const activation = category === "browser" ? auditedInactiveCommands(snapshot, selected) : undefined;
-    const closure = discoverInputClosure(snapshot, inputs, declarations, activation);
+    const closure = includeBrowserScreenshots(snapshot, discoverInputClosure(snapshot, inputs, declarations, activation), selected, new Set(paths.keys()));
     // Mandatory for this browser capability, even when a changed source hides
     // the recognizable constructor behind a new alias/realm. Such edits cannot
     // turn an absent audit into a generally closed domain.
