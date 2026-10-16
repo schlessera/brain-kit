@@ -10,8 +10,9 @@ remain the shared worker/permission boundary, independent of prompt text.
 The installed SDK's `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` terminates the custom
 system prefix. The server's `systemPromptAppend` for a restricted turn becomes
 turn context in the user message, before the item prompt. Item state, decision,
-capability, remaining budget and attempt metadata belong there. Interactive and
-nonrestricted nonpersistent turns keep their existing preset/append behavior.
+capability, remaining budget and attempt metadata belong there. Interactive turns retain a [session-stable append](session-prompt-context.md)
+and deliver relevant changed facts only in owned new-tail context.
+Nonrestricted nonpersistent turns keep their existing preset/append behavior.
 The custom prompt needs no preset `excludeDynamicSections`: that option only
 applies to presets. The restricted envelope still disables ambient setting
 sources and project MCP configuration, keeps the credential in the relay and

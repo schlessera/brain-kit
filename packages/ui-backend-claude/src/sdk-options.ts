@@ -1,3 +1,6 @@
+import { toolAvailabilityRefusal } from "./tool-availability.js";
+import { claudePromptContext, acknowledgeClaudeContext } from "./prompt-context.js";
+import { describeClient } from "@schlessera/brain-ui-sdk/internal";
 import { autonomousSystemPrompt } from "./autonomous-prompt.js";
 import { ASK_USER_FORM_TOOL_NAME } from "./ask-user-form-tool.js";
 import type {
@@ -189,7 +192,26 @@ function assembleClaudeSdkTurn(
     },
     req.turnBudgetMs
   );
-  const append = brief ? `${brief}\n\n${sandboxNote}` : sandboxNote;
+  const candidate = brief ? `${brief}\n\n${sandboxNote}` : sandboxNote;
+  const contextId = req.sessionId ?? crypto.randomUUID();
+  const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
+  const append = context ? context.retainAppend([buildAppend(backend, undefined, {
+    policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
+    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true,
+  }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
+  const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
+  const owned = context?.prepare(req.prompt, {
+    device: req.client ? describeClient(req.client) : "Device unknown; hardware probe results are withheld until known.",
+    sandbox: sandboxNote,
+    capabilities: JSON.stringify({ posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
+      askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
+      location: available("get_current_location"), mask: available("request_image_mask"), policyChange: available("propose_policy_change"),
+      activity: available("query_activity"), inbox: { list: available("inbox_list"), get: available("inbox_get"),
+        add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") } }),
+    ...(req.turnBudgetMs && req.turnBudgetMs > 0 ? { timeout: `The host hard budget for this turn is ${req.turnBudgetMs} ms (about ${Math.round(req.turnBudgetMs / 60000)} minutes); finish inside this cap.` } : {}),
+    ...(req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}),
+    ...(req.budgetContext ? { budget: req.budgetContext } : {}),
+  });
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
     ...(req.autonomous ? { persistSession: false } : {}),
@@ -214,6 +236,7 @@ function assembleClaudeSdkTurn(
     systemPrompt: envelope ? autonomousSystemPrompt(allowed, sandboxNote) : {
       type: "preset",
       preset: "claude_code",
+      snapshot: true,
       append,
     },
     // Preserve manual approvals across SDK versions that leave an omitted
@@ -306,6 +329,7 @@ function assembleClaudeSdkTurn(
     };
   }
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
+  else if (context) sdkOptions.sessionId = contextId;
   // Interactive schema membership is deployment-stable, even without a live
   // handler. The mandatory hook refuses unavailable calls; fallback tool
   // bodies also return model-readable errors instead of acquiring authority.
@@ -356,13 +380,18 @@ function assembleClaudeSdkTurn(
     ...(envelope ? { pinnedSettingsEnv: envelope.pinned } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
-      : worker.finish,
+      : async () => {
+        await worker.finish();
+        if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
+      },
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
     workerFailure: worker.failure,
     workerStateRoom: worker.stateRoom,
     /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
     observeAnswerText: (text: string) => { answerText += text; },
-    prompt:
+    prompt: owned ? (async function* () {
+      yield { ...userMessage(owned.text, req.attachments), uuid: owned.id as SDKUserMessage["uuid"] };
+    })() :
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(prompt, req.attachments)
         : prompt,
@@ -387,8 +416,8 @@ function buildAppend(
   },
   turnBudgetMs: number | undefined
 ): string {
-  // An explicit override is used verbatim; the default is rebuilt per turn so
-  // it can describe the device the CURRENT message came from.
+  // The interactive caller snapshots the fixed brief once. Live facts travel
+  // only on the new user message; restricted envelopes keep their own policy.
   return (
     options.systemPromptAppend ??
     buildSystemPromptAppend({

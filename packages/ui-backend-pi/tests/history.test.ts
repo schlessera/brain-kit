@@ -89,7 +89,7 @@ describe("SessionManager-backed history", () => {
 
   beforeAll(() => {
     cwd = mkdtempSync(join(tmpdir(), "pi-backend-cwd-"));
-    sessionDir = join(cwd, ".brain-kit-ui", "sessions");
+    sessionDir = mkdtempSync(join(tmpdir(), "pi-backend-history-"));
     const sm = SessionManager.create(cwd, sessionDir);
     sessionId = sm.getSessionId();
     sm.appendMessage({ role: "user", content: "hello brain", timestamp: 1 } as never);
@@ -107,6 +107,7 @@ describe("SessionManager-backed history", () => {
 
   afterAll(() => {
     rmSync(cwd, { recursive: true, force: true });
+    rmSync(sessionDir, { recursive: true, force: true });
   });
 
   test("listPiSessions returns the created session", async () => {
