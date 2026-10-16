@@ -1,4 +1,4 @@
-# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2096, #2097)
+# Diagram spec v1, check, geometry and skin (additive, 0.44.0, #2089, #2090, #2093, #2096, #2097, #2099)
 
 With `@schlessera/brain-module-diagrams` enabled, `brain diagram check
 <file|-> --json` reads one standalone YAML document or exactly one Markdown
@@ -25,7 +25,7 @@ reference integrity, combined focal roles and geometry rules described below.
 Every object is strict: an unknown field is an error at that field's path.
 Required top-level fields are `schema_version: 1`, `type`, `title` (1–60
 characters), `desc` (nonempty text), `size`, `nodes` and `edges`. Optional fields
-are `groups`, `focal`, `callouts`, `link` and `layouts`. Text fields other than title have
+are `id`, `groups`, `focal`, `callouts`, `link` and `layouts`. Text fields other than title have
 a 2048-character parse limit. All numbers are finite.
 
 | Field | Shape |
@@ -372,3 +372,84 @@ its computed fan-in badge; named canvases refuse a cycle that cannot fit clear o
 the frame, while fit bounds include its outside lane and margin. The `diagramNodeLines` skin helper is internal
 to validation/painters and is not an additional public entry export. Type references and shared
 standalone examples ship under `skills/diagram/references/`.
+
+## Export, derived pairs and hygiene (additive, #2099)
+
+An optional top-level `id` uses the common 80-character ID grammar. It names a
+Markdown fence's derived pair and is independent of its node/edge IDs.
+
+`brain diagram export <file|-> [--theme light|dark|print] [--format svg|png|pdf]
+[--out path] [--json]` validates the same spec, defaults to print/SVG, and writes
+an artifact inside the brain. File defaults replace `.diagram.yaml` (or the
+last extension) with `.theme.format`; stdin defaults to a unique ignored
+scratch file. An explicit output must have the matching extension. Sources,
+symlinks, non-files and paths outside the brain cannot be replaced. SVG export
+uses the static renderer's geometry, resolves the selected canonical palette
+and opaque ink ramps, and contains no dynamic `var(` paint. Authored text is
+escaped without changing its parsed SVG text. Exported SVG and built pairs embed the four painted locked normal kit faces
+as data fonts with their package OFL notices; no host font or external font
+request supplies these roles. SVG needs no browser. PNG/PDF
+use the existing optional `@schlessera/brain-render-puppeteer` package and its
+Chrome discovery, sandbox environment interpretation, offline request policy
+and lifecycle. No API key is needed.
+
+The export JSON envelope is exactly:
+
+```json
+{"schema_version":1,"ok":true,"input":"release.diagram.yaml","output":"release.print.svg","format":"svg","theme":"print","bytes":123,"warnings":[],"errors":[]}
+```
+
+`bytes` is the actual UTF-8 or binary output size. Failure leaves `output: null`
+and `bytes: 0`; validation findings retain their codes and paths, while usage,
+I/O and rendering failures use `export`. Every artifact finding is exactly
+`{code,path,message}`. Unknown theme/format values fail; the error envelope
+retains print/SVG defaults until both selections validate. Exit status is 0
+only for `ok: true`. Human output prints the resulting relative path.
+
+`brain diagram build <markdown file> [--json]` parses actual GFM diagram fences,
+including list/quote containers, without treating fenced Markdown examples as
+diagrams. Each valid fence with an `id` produces `id.light.svg` and
+`id.dark.svg` beside the source, plus an escaped `<picture>` snippet on stdout.
+Unnamed fences emit `missing_id` warnings and produce no pair. Valid checker
+warnings retain source/fence locations. Repeated IDs fail. Every planned spec,
+output path and existing output's ownership is checked before writing any
+pair. A manual SVG or a pair owned by another Markdown file refuses, so two
+source files with the same ID cannot silently replace one another's diagrams.
+Markdown is never rewritten or committed.
+
+The build envelope is exactly:
+
+```json
+{"schema_version":1,"ok":true,"input":"dispatch.md","figures":[{"id":"release","light":"release.light.svg","dark":"release.dark.svg","picture":"<picture>…</picture>","source_sha256":"…"}],"written":["release.light.svg","release.dark.svg"],"warnings":[],"errors":[]}
+```
+
+`figures` contains only complete pairs. `written` records each successful
+atomic artifact write, including a first file if a later write fails;
+`ok: false` and a `build` error then report the partial result honestly.
+Generated SVG metadata contains only a finite generator identity, bounded ID,
+SHA-256 of the GFM fence payload and SHA-256 of the canonical relative source
+path. It contains no absolute machine path. Unrelated Markdown prose edits do
+not invalidate the fence's derived pair; payload changes, missing partners or
+ownership mismatches do.
+
+`brain audit` reports `diagram-module` when an indexed, non-archived Markdown
+file contains real diagram fences and no active diagrams module is configured
+(including a dormant module). Core detects the syntax without importing absent
+or content-owned module code. The enabled module's existing hygiene hook
+reports `diagram-invalid` for invalid specs/repeated IDs and `diagram-stale`
+for an existing derived pair whose identity is stale, incomplete or unrelated.
+A pair that was never built is optional and produces no stale finding.
+Unreadable/out-of-root/over-1-MiB source files report `diagram-source` warnings
+(the missing-module detector requires indexed diagram evidence on read failure).
+Symlink or nonregular derived entries are stale, never treated as absent or
+opened as ordinary files. Inspection refuses source FIFOs/special files too;
+derived files have an 8-MiB inspection bound. These checks inspect current
+Markdown and regenerate from its source, with no authoritative build database.
+
+The concrete `@schlessera/brain/module` helpers `markdownFences(text)` and
+`renderHtmlArtifact({html,format,width?})` share core's existing parser and
+optional renderer. Fence records are `{language,meta,value,line,start,end}`;
+line is one-based and offsets delimit the original GFM code block. The artifact
+helper accepts only PNG/PDF, denies external hosts, and always shuts its
+renderer down after success or failure. It reuses canonical sandbox environment
+aliases and does not introduce a renderer registration interface.

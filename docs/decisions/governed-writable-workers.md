@@ -352,6 +352,18 @@ one command needs. It covers:
 - cron's `brain sync` and `brain index`;
 - every git invocation.
 
+Declared writer admission also applies to asynchronous host fallback before
+the first governed turn. Both complete and streaming commands acquire their
+existing shared/exclusive gate before selecting host or worker execution;
+required missing admission refuses before process creation. A streaming host
+command retains admission through process exit and both output EOFs, including
+inherited descendant output. Credential exclusion follows writer admission.
+Optional missing gates and trusted `gate: none` readers retain their existing
+behavior. A host holder records its planned folders, without claiming physical
+folder pins; an earlier holder missing a newly required folder causes governed
+admission to refuse. No existing writer is killed or made exclusive by that
+refusal.
+
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
 requires the operational database and other private server state outside the
