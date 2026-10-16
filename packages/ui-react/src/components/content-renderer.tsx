@@ -2,6 +2,7 @@ import { createContext, Suspense, useContext, type ReactNode } from "react";
 import { defaultContentRendererRegistry, type ContentRenderer, type ContentRendererProps } from "@schlessera/brain-ui-sdk/client";
 import { useColorScheme } from "../hooks/use-color-scheme.js";
 import { ErrorBoundary } from "./layout/error-boundary.js";
+import { registerBuiltinContentRenderers } from "../content-renderers/index.js";
 
 /** Surface context also reaches nested markdown fences without changing the parser. */
 export const ContentRendererSurface = createContext<{ mode: ContentRendererProps["mode"]; path?: string }>({ mode: "chat" });
@@ -10,6 +11,7 @@ export const ContentRendererDeclarations = createContext<readonly { fences?: rea
 
 /** Longest exact suffix wins, so .diagram.yaml precedes .yaml. */
 export function rendererForPath(path: string): ContentRenderer | null {
+  registerBuiltinContentRenderers();
   const name = path.split("/").pop() ?? path;
   for (let index = name.indexOf("."); index >= 0; index = name.indexOf(".", index + 1)) {
     const renderer = defaultContentRendererRegistry.forExtension(name.slice(index));
@@ -19,6 +21,7 @@ export function rendererForPath(path: string): ContentRenderer | null {
 }
 
 export function ContentRendererView({ source, language, path, fallback }: { source: string; language?: string; path?: string; fallback: ReactNode }) {
+  registerBuiltinContentRenderers();
   const surface = useContext(ContentRendererSurface);
   const declarations = useContext(ContentRendererDeclarations);
   const effectivePath = path ?? surface.path;

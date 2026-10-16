@@ -10,6 +10,7 @@
  */
 
 import { mermaidThemeVariables, type MermaidTheme } from "./mermaid-theme.js";
+import { tokenizedMermaidSvg } from "./mermaid-svg.js";
 
 export type { MermaidTheme };
 
@@ -102,7 +103,8 @@ export async function renderMermaidSvg(
       mermaid.initialize(baseConfig(theme));
       const ok = await mermaid.parse(trimmed, { suppressErrors: true });
       if (!ok) return null;
-      const { svg } = await mermaid.render(`brain-mermaid-${++renderSeq}`, trimmed);
+      const rendered = await mermaid.render(`brain-mermaid-${++renderSeq}`, trimmed);
+      const svg = tokenizedMermaidSvg(rendered.svg, theme);
       if (svgCache.size >= CACHE_MAX) {
         const oldest = svgCache.keys().next().value;
         if (oldest !== undefined) svgCache.delete(oldest);
@@ -239,16 +241,6 @@ export function inlineRenderedFences(
   });
 }
 
-export async function inlineMermaidDiagrams(
-  md: string,
-  theme: MermaidTheme = "light"
-): Promise<string> {
-  const fences = findMermaidFences(md);
-  if (fences.length === 0) return md;
-  const rendered = await Promise.all(fences.map((f) => renderMermaidSvg(f.source, theme)));
-  return inlineRenderedFences(md, rendered);
-}
-
 const SVG_OPEN_TAG_RE = /<svg\b[^>]*>/i;
 const VIEWBOX_RE = /\bviewBox\s*=\s*"\s*[\d.+-]+\s+[\d.+-]+\s+([\d.+-]+)\s+([\d.+-]+)\s*"/i;
 
@@ -284,4 +276,10 @@ export function sizeSvgForExport(svg: string, maxWidth = 1200): string {
 /** Whether a repo path is a standalone mermaid source file (previewable as a diagram). */
 export function isMermaidPath(path: string): boolean {
   return /\.(mmd|mermaid)$/i.test(path);
+}
+
+/** @deprecated Use the generic browser content-renderer preflight. */
+export async function inlineMermaidDiagrams(markdown: string, theme: MermaidTheme = "print"): Promise<string> {
+  const { preRenderBrowserFences } = await import("./content-renderer-share.js");
+  return preRenderBrowserFences(markdown, theme);
 }

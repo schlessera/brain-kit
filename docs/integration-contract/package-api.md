@@ -3328,3 +3328,18 @@ main/cache usage retains its existing completed-response semantics. Missing
 or unjoinable evidence stays unknown/partial, not a free helper or an inferred
 main-model charge. Operator telemetry destinations and opt-outs are preserved;
 without a local receipt, ordinary unattributed accounting still applies.
+
+### Built-in Mermaid content renderer
+
+The built-in browser pack claims `mermaid` / `mmd` fences and `.mermaid` /
+`.mmd` source files through the content-renderer registry. Its static entry
+requires a browser and produces self-contained vector SVG without HTML
+`foreignObject` labels. Shared PNG/PDF output and browser print use the kit's
+opaque white `print` palette. Light and dark screen palettes remain unchanged.
+
+`inlineMermaidDiagrams(markdown, theme?)` remains a compatibility entry point;
+it now dispatches all bundled browser-only content renderers and defaults to
+`print`. An explicit `light` or `dark` argument still selects that palette,
+and `print` is an additive accepted theme. `shareMarkdown` retains its
+`inlineMermaid` dependency name for existing callers. Failed or oversized
+static rendering preserves the source fence and reports a lint warning.

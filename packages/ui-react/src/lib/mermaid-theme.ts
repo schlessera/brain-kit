@@ -1,5 +1,5 @@
 /**
- * Mermaid theme variables for the two schemes a diagram can land on.
+ * Mermaid theme variables for screen schemes and exported paper.
  *
  * Mermaid's stock "dark" theme is a blue-grey palette that reads as foreign
  * next to the app's warm-neutral chrome, and its "neutral" theme is what the
@@ -22,14 +22,14 @@
  *     a FILL, never an ink or a mark: on paper a darkened accent under
  *     near-black text is unreadable.
  *
- * The share pipeline renders in `light`, whatever the screen shows: a share
- * lands in a mail client or a printer, which assume paper.
+ * Every export uses the kit's generated `print` values and white paper.
  */
-import type { TokenName } from "@schlessera/brain-ui-kit/internal";
+import { PRINT_TOKENS, type TokenName } from "@schlessera/brain-ui-kit/internal";
+import type { ContentRendererTheme } from "@schlessera/brain-ui-sdk/render";
 
-import { readToken, type ColorScheme } from "./light-dark.js";
+import { readToken } from "./light-dark.js";
 
-export type MermaidTheme = ColorScheme;
+export type MermaidTheme = ContentRendererTheme;
 
 // These variables reach mermaid through initialize(), NOT through a
 // `%%{init: …}%%` directive: mermaid's directive path rewrites `'` to `"`
@@ -65,8 +65,8 @@ interface DiagramPalette {
   series: string[];
 }
 
-function palette(scheme: ColorScheme): DiagramPalette {
-  const t = (name: TokenName) => readToken(name, scheme);
+function palette(scheme: MermaidTheme): DiagramPalette {
+  const t = (name: TokenName) => scheme === "print" ? PRINT_TOKENS[name] : readToken(name, scheme);
   return {
     bg: t("diagram-bg"),
     node: t("diagram-node"),
@@ -109,7 +109,7 @@ function scale(series: string[], prefix: string, count: number, oneBased = false
  * line — a 1px border at the card-edge value all but disappears against the
  * plate at diagram scale.
  */
-function variables(scheme: ColorScheme, p: DiagramPalette): Record<string, string | boolean> {
+function variables(scheme: MermaidTheme, p: DiagramPalette): Record<string, string | boolean> {
   return {
     darkMode: scheme === "dark",
     background: p.bg,

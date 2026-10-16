@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@schlessera/brain-ui-kit";
 import { Code, ChartNetwork, Expand } from "lucide-react";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
+import type { MermaidTheme } from "../../lib/mermaid-theme.js";
 import { useColorScheme } from "../../hooks/use-color-scheme.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { CopyButton } from "./copy-button.js";
@@ -23,10 +24,12 @@ import { MermaidViewer } from "./mermaid-viewer.js";
  * are literal colours, so a theme switch is a re-render (cached per scheme),
  * not a stylesheet change.
  */
-export function MermaidBlock({ source }: { source: string }) {
+export function MermaidBlock({ source, theme }: { source: string; theme?: MermaidTheme }) {
   const root = useBrainUiRoot();
-  const scheme = useColorScheme();
+  const screenScheme = useColorScheme();
+  const scheme = theme ?? screenScheme;
   const [svg, setSvg] = useState<string | null>(() => peekMermaidSvg(source, scheme));
+  const [printSvg, setPrintSvg] = useState<string | null>(() => peekMermaidSvg(source, "print"));
   const [showSource, setShowSource] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const latest = useRef(0);
@@ -54,6 +57,20 @@ export function MermaidBlock({ source }: { source: string }) {
     return () => clearTimeout(t);
   }, [source, scheme]);
 
+  // Browser printing cannot wait for a render in beforeprint. Prepare the paper
+  // version alongside the displayed diagram, retaining the last good streaming
+  // result just as the screen view does.
+  useEffect(() => {
+    if (scheme === "print") return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void renderMermaidSvg(source, "print").then(result => {
+        if (active && result) setPrintSvg(result);
+      });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [source, scheme]);
+
   const diagramReady = svg !== null;
   const showDiagram = diagramReady && !showSource;
 
@@ -64,7 +81,7 @@ export function MermaidBlock({ source }: { source: string }) {
     <div className="group relative my-3 rounded-lg border border-border bg-surface">
       {showDiagram ? (
         <div
-          className="cursor-zoom-in overflow-x-auto p-4 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          className={`cursor-zoom-in overflow-x-auto p-4 ${scheme !== "print" && printSvg ? "print:hidden" : ""} [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full`}
           // The whole diagram is the affordance: a phone-sized flowchart is
           // unreadable in place, and the hover toolbar is pointer-only.
           onClick={() => setZoomed(true)}
@@ -75,7 +92,11 @@ export function MermaidBlock({ source }: { source: string }) {
           <code>{source}</code>
         </pre>
       )}
-      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-all focus-within:opacity-100 group-hover:opacity-100">
+      {showDiagram && scheme !== "print" && printSvg && (
+        <div data-mermaid-print="" className="hidden p-4 print:block [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          dangerouslySetInnerHTML={{ __html: printSvg }} />
+      )}
+      <div className="print:hidden absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-all focus-within:opacity-100 group-hover:opacity-100">
         {showDiagram && (
           <IconButton size="sm" tone="overlay" name="Open diagram" glyph={<Expand />} onClick={() => setZoomed(true)} />
         )}

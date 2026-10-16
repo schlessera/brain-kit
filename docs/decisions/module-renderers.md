@@ -82,12 +82,11 @@ entry points:
 
 A pack also declares whether its static step needs a browser. Mermaid does,
 because it needs a DOM. The diagrams module does not, because it builds a
-string. The first-party Mermaid support moves onto the same seam. Today it is
-special-cased in three places:
-
-- the markdown fence (`function mermaidSourceFrom`, `packages/ui-react/src/components/chat/brain-markdown-code.tsx:23-32`)
-- the file viewer (`Standalone mermaid source files`, `packages/ui-react/src/components/files/file-viewer.tsx:91-98`)
-- the share pre-render (`export async function inlineMermaidDiagrams`, `packages/ui-react/src/lib/mermaid.ts:242-250`)
+string. The first-party Mermaid support uses the same seam. Its former markdown,
+file-preview and sharing special cases now dispatch through the built-in pack
+(`mermaidContentPack`, `packages/ui-react/src/content-renderers/mermaid.tsx:10-22`).
+The browser preflight runs each bundled browser-only static entry before
+sharing (`export async function preRenderBrowserFences`, `packages/ui-react/src/lib/content-renderer-share.ts:11-39`).
 
 A seam needs a second implementation plausible within a year. This one has
 four: Mermaid, diagrams, the geo and travel map views
@@ -248,12 +247,11 @@ A shared conformance suite in the SDK renders every registered pack in all
 three themes and asserts these properties, as
 [backend conformance](backend-conformance.md) does for agent backends.
 
-Measured reason: the Mermaid share pipeline renders in `light`
-(`The share pipeline renders in`, `packages/ui-react/src/lib/mermaid-theme.ts:25`),
-which puts `--bk-diagram-bg`'s light value `#f8f5ef` on the document shell's
-`#ffffff` paper. A PDF holding a Mermaid chart and a diagram would show two
-different grounds. Mermaid moves to `print` for exports as part of its
-migration onto the seam.
+Measured reason: the former Mermaid share pipeline used the light ground
+`#f8f5ef` against the document shell's `#ffffff` paper. A PDF holding a
+Mermaid chart and a diagram would show two different grounds. Mermaid now
+uses the kit's generated print values and white paper for exports
+(`Every export uses`, `packages/ui-react/src/lib/mermaid-theme.ts:25`).
 
 Rejected:
 - **Leave each pack to choose its export palette.** That is exactly how the
