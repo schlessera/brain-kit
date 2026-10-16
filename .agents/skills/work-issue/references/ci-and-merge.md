@@ -28,7 +28,11 @@ leaves `proof` nonpassing; convert to draft and mark ready after the final push
 to request candidate confirmation. Open/reopen ready events also request it.
 The candidate gate checks actual merge parents/tree against the live head/base.
 A changed base requires a fresh confirmation event even without a rebase;
-valid immutable browser/layout retention remains available. Endurance is fresh
+valid immutable browser/layout retention remains available. Read the actual
+`refs/pull/<number>/merge` commit too: GitHub can retain its old base across a
+draft/ready transition. When that ref still has old parents, refresh the branch
+against live main before requesting confirmation; another same-head event alone
+does not establish a new combined tree. Endurance is fresh
 and separately mandatory whenever selected. Assess relevant base changes before redoing
 heavy work; a new base requires confirmation, with valid browser/layout retention avoiding unnecessary execution.
 Under #1333, a selected browser/layout domain may intentionally skip fresh
