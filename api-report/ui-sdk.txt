@@ -2852,6 +2852,7 @@ signatures (every public export and the types it is made of)
     export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
   ActivityQuery (packages/ui-sdk/src/server/backend.ts)
     export interface ActivityQuery {
+        remedy?: "actionable" | "all" | "guidance" | "capability" | "abandoned";
         scope: "running" | "recent" | "run" | "rollups" | "inbox" | "roadblocks";
         runId?: string;
         hoursBack?: number;
@@ -3834,6 +3835,13 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>>, import("./contract.js").ToolContract<"query_activity", z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";
@@ -6905,6 +6913,13 @@ signatures (every public export and the types it is made of)
     const QUERY_ACTIVITY_CONTRACT: import("./contract.js").ToolContract<"query_activity", z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";
@@ -6921,6 +6936,13 @@ signatures (every public export and the types it is made of)
     const QUERY_ACTIVITY_INPUT_SCHEMA: z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
+        remedy: z.ZodOptional<z.ZodEnum<{
+            abandoned: "abandoned";
+            actionable: "actionable";
+            all: "all";
+            capability: "capability";
+            guidance: "guidance";
+        }>>;
         runId: z.ZodOptional<z.ZodString>;
         scope: z.ZodEnum<{
             inbox: "inbox";

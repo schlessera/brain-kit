@@ -26,7 +26,8 @@ import {
  * target area, the cause) and drops what varies per turn (file names, numbers,
  * ids, absolute roots). `remedy` says which lever removes the roadblock:
  * `guidance` when the turn already had a way that worked, `capability` when
- * it had none, or only a workaround through turn temp.
+ * it had none, or only a workaround through turn temp; `abandoned` for a
+ * single unresolved failure followed by an eligible successful step.
  */
 
 export type RoadblockCategory = GovernanceEventPayload<"roadblock">["category"];
@@ -508,7 +509,7 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
       .map(({ call, index, family }) => ({ at: call.startedAt, order: index, family, failure: null, call })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
 
-  interface Episode { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number }
+  interface Episode { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number; laterSuccess: boolean }
   const open = new Map<string, Episode>();
   const episodes: Episode[] = [];
   for (const step of timeline) {
@@ -516,7 +517,7 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
     if (step.failure) {
       if (episode) episode.failures.push(step.failure);
       else {
-        const opened: Episode = { family: step.family, failures: [step.failure], resolution: null, closedAt: turnEnd };
+        const opened: Episode = { family: step.family, failures: [step.failure], resolution: null, closedAt: turnEnd, laterSuccess: false };
         open.set(step.family, opened);
         episodes.push(opened);
       }
@@ -528,7 +529,16 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
     }
   }
 
-  return episodes.map((episode) => toPayload(episode, trace));
+  return episodes.map((episode) => {
+    // Only unresolved episodes use a cross-family accounting boundary. It
+    // says nothing about whether the failed capability became available.
+    if (episode.resolution === null) {
+      const known = Math.max(...episode.failures.map((failure) => failure.known));
+      const success = timeline.find((step) => step.failure === null && step.at > known);
+      if (success) { episode.closedAt = success.at; episode.laterSuccess = true; }
+    }
+    return toPayload(episode, trace);
+  });
 }
 
 function tokensAt(trace: TurnTrace, at: number, end: boolean): { tokens: number | null; costUsd: number | null } {
@@ -543,7 +553,7 @@ function tokensAt(trace: TurnTrace, at: number, end: boolean): { tokens: number 
 }
 
 function toPayload(
-  episode: { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number },
+  episode: { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number; laterSuccess: boolean },
   trace: TurnTrace
 ): RoadblockPayload {
   const first = episode.failures[0]!;
@@ -570,9 +580,9 @@ function toPayload(
   // Waste runs from the first failed attempt until the working path began
   // (or the turn ended). Unknown usage stays null: never counted as zero.
   const from = first.at;
-  const to = resolution ? resolution.startedAt : trace.endedAt;
+  const to = episode.closedAt;
   const start = tokensAt(trace, from, false);
-  const stop = tokensAt(trace, to, resolution === null);
+  const stop = tokensAt(trace, to, resolution === null && to === trace.endedAt);
   const tokens = start.tokens !== null && stop.tokens !== null && trace.usage.length > 0 ? Math.max(0, stop.tokens - start.tokens) : null;
   const costUsd = start.costUsd !== null && stop.costUsd !== null && trace.usage.length > 0 ? Math.max(0, stop.costUsd - start.costUsd) : null;
   return {
@@ -583,7 +593,8 @@ function toPayload(
     resolution: resolution
       ? { toolCallId: boundedId(resolution.toolCallId), signature: clipTo(`${resolution.tool}|${intentOf(resolution.tool, resolution.input)}`, MAX_SIGNATURE) }
       : null,
-    remedy: resolution !== null && !workaround ? "guidance" : "capability",
+    remedy: resolution !== null ? (workaround ? "capability" : "guidance")
+      : episode.failures.length === 1 && episode.laterSuccess ? "abandoned" : "capability",
     waste: { tokens, costUsd, ms: Math.max(0, Math.round(to - from)) },
     eventIds: [...new Set(episode.failures.flatMap((f) => f.eventIds))].sort((a, b) => a - b).slice(0, MAX_EVENT_IDS),
   };

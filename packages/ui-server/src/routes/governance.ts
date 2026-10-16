@@ -18,7 +18,12 @@ const ID_MAX = 200;
 export function createGovernanceRoutes(deps: { db: Database }): Hono<AppEnv> {
   const { db } = deps;
   return new Hono<AppEnv>().get("/governance/roadblocks", (c) => {
-    const input: Record<string, number> = {};
+    const input: Record<string, number | string> = {};
+    const remedies = c.req.queries("remedy");
+    if (remedies !== undefined) {
+      if (remedies.length !== 1) return c.json({ error: "remedy must be one filter" }, 400);
+      input.remedy = remedies[0]!;
+    }
     for (const name of ["hoursBack", "limit"]) {
       const values = c.req.queries(name);
       if (values === undefined) continue;
@@ -26,7 +31,7 @@ export function createGovernanceRoutes(deps: { db: Database }): Hono<AppEnv> {
       input[name] = Number(values[0]);
     }
     const query = ROADBLOCK_REPORT_QUERY.safeParse(input);
-    if (!query.success) return c.json({ error: "hoursBack must be 1–2160 and limit must be 1–100" }, 400);
+    if (!query.success) return c.json({ error: "hoursBack must be 1–2160, limit 1–100, and remedy actionable/all/guidance/capability/abandoned" }, 400);
     try {
       c.header("Cache-Control", "no-store");
       return c.json(queryRoadblockReport(db, query.data));
