@@ -3275,6 +3275,23 @@ time. Direct unhosted consumers omitting it retain their legacy project MCP
 roster. Existing custom bridges without the field retain the prior `applyBrain`
 presence fallback. Autonomous authority/rosters are unchanged.
 
+### Prompt-cache diagnostic events (additive, #2050)
+
+`BackendActivityEvent` adds `prompt_prefix` (`prefix: PromptPrefixFingerprint`,
+`resumed: boolean`) once before the first request, and `first_request_cache`
+(`usage: FirstRequestCacheUsage`) once for the first main request's receipt.
+Both use the existing `BackendBridge.activity` channel and are observational,
+never permission grants or provider-cache promises. Raw assembly text must be
+hashed within the backend. Missing input components/counters stay `null`.
+The host validates digest/counter shapes, copies only documented fields and
+retains the first receipt; invalid or duplicate evidence cannot overwrite it.
+Title helpers and child channels must never be reported as the first main
+request. Their separately retained accounting remains independent.
+
+`PromptPrefixFingerprint`, `FirstRequestCacheUsage` and `ActivityCacheDiagnostics`
+are additive protocol types; their HTTP meaning and retention limits are in
+[cache diagnostics](http.md#prompt-cache-diagnostics-additive-2050).
+
 ## Module content renderer declarations
 
 `ModuleContribution.renderers?: Record<string, ModuleRenderer>` is an additive

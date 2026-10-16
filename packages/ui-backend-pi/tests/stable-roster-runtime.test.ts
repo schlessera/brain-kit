@@ -15,6 +15,13 @@ test("Pi native workers retain full schemas across no-grant, typed and missing-h
     for (const capture of captures) {
       expect(JSON.stringify(capture.tools), `PI_BYTE_IDENTICAL_PROVIDER_TOOLS_${capture.mode}`).toBe(JSON.stringify(captures[0].tools));
       expect(capture.cards).toBe(0);
+      const prefix = capture.activity.filter((e: any) => e.kind === "prompt_prefix");
+      expect(prefix, "PI_NATIVE_WORKER_PREFIX_ONCE").toHaveLength(1);
+      for (const key of ["tools", "system", "model", "thinking"]) expect(prefix[0].prefix[key], `PI_NATIVE_PREFIX_${key}`).toMatch(/^[a-f0-9]{64}$/);
+      expect(prefix[0].prefix, "PI_NATIVE_PREFIX_STABLE").toEqual(captures[0].activity.find((e: any) => e.kind === "prompt_prefix").prefix);
+      expect(prefix[0].resumed).toBe(capture.mode !== "no-grant");
+      expect(capture.activity.filter((e: any) => e.kind === "first_request_cache"), "PI_NATIVE_FIRST_CACHE_ONCE")
+        .toEqual([{ kind: "first_request_cache", usage: { inputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 0, source: "pi_main_message", coverage: "runtime_normalized" } }]);
       const results = capture.frames.filter((frame: any) => frame.type === "tool_result");
       if (capture.mode === "typed") { expect(capture.calls).toEqual(["askUserList"]); expect(results[0].isError).not.toBe(true); continue; }
       expect(capture.calls).toEqual([]); expect(results.length).toBe(names.length + (capture.mode === "missing" ? 4 : 0));

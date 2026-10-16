@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createPolicyProposalTool } from "./policy-tool.js";
 import { registerInboxTools } from "./inbox-tools.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
@@ -92,6 +93,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  * refusals; autonomous callers retain the exact handler-based membership.
  */
 export function createBrainUiMcpServer(handlers: {
+  observeTools?: (tools: unknown[]) => void;
   /** Interactive sessions expose the full fixed roster, including unavailable handlers. */
   stableRoster?: boolean;
   proposePolicyChange?: BackendBridge["proposePolicyChange"];
@@ -137,6 +139,16 @@ export function createBrainUiMcpServer(handlers: {
     tools.push(createActivityQueryTool(handlers.queryActivity));
   }
   if (handlers.turnTemp) tools.push(handlers.turnTemp);
+  const roster: unknown[] = [];
+  let rosterComplete = true;
+  const observe = (name: string, description: string, schema: z.ZodObject) => {
+    if (!handlers.observeTools) return;
+    try { roster.push({ name, description, schema: z.toJSONSchema(schema, { target: "draft-7", io: "input" }) }); }
+    catch { rosterComplete = false; }
+  };
+  // Use the same schemas/order handed to MCP; its installed converter uses
+  // draft-7 input semantics. Conversion failure leaves coverage unknown.
+  for (const definition of tools) observe(definition.name, definition.description, z.object(definition.inputSchema));
   const server = createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
@@ -160,8 +172,11 @@ export function createBrainUiMcpServer(handlers: {
     // MEASURED_RUNTIME names by scripts/measure-claude-runtime.ts.
     alwaysLoad: true,
   });
-  if (handlers.inbox) registerInboxTools(server.instance, handlers.inbox);
-  if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster);
+  if (handlers.inbox) registerInboxTools(server.instance, handlers.inbox, observe);
+  if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster, observe);
+  if (rosterComplete) {
+    try { handlers.observeTools?.(roster); } catch { /* Observability must not fail the observed turn. */ }
+  }
   return server;
 }
 

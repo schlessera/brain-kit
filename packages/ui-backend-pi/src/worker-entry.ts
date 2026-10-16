@@ -1,3 +1,4 @@
+import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 /** Imported only after the shared launcher's descriptor and namespace gate. */
 import { existsSync, mkdirSync, readFileSync, statfsSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -237,6 +238,11 @@ try {
       controller.abort();
       await session!.abort();
     } else if (msg.type === "prompt") {
+      send({ type: "prompt_prefix", prefix: promptPrefixFingerprint({
+        tools: session!.agent?.state.tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),
+        system: session!.systemPrompt, model: session!.model?.id, thinking: session!.thinkingLevel,
+        gitStatusIncluded: null,
+      }) });
       void session!.prompt(msg.text, msg.options).then(async () => {
         await syncAuth();
         if (snapshot()) send({ type: "done", cost: session!.getSessionStats().cost });

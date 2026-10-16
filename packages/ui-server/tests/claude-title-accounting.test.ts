@@ -64,6 +64,12 @@ test("real dispatch separates same-model title/main/child and retains unmatched 
       { cost_usd: 20, input_tokens: 5, cache_read_tokens: 5 }, { cost_usd: 40, input_tokens: 10, cache_read_tokens: 10 },
       { cost_usd: 80, input_tokens: 20, cache_read_tokens: 20 },
     ]);
+    const firstCache = (db.query("SELECT attrs FROM activity_spans WHERE parent_span_id IS NULL").all() as { attrs: string }[])
+      .map(row => JSON.parse(row.attrs)["brain.cache.first_request"]).filter(Boolean).sort((a, b) => a.inputTokens - b.inputTokens);
+    expect(firstCache, "TITLE_HELPER_CANNOT_REPLACE_FIRST_ROOT_CACHE_RECEIPT").toEqual([3, 6, 12].map(tokens => ({
+      inputTokens: tokens, cacheReadTokens: tokens, cacheCreationTokens: tokens,
+      source: "claude_root_stream", coverage: "provider_reported",
+    })));
     expect(db.query("SELECT cost_usd,input_tokens FROM activity_run_rollups WHERE run_id LIKE ?").all("%:claude-title:%"), "TITLE_ACTIVITY_MEASURED_ONCE")
       .toEqual([{ cost_usd: 4, input_tokens: 1 }]);
     expect(db.query("SELECT cost_usd,input_tokens FROM activity_run_rollups WHERE run_id LIKE ? ORDER BY run_id").all("%:claude-unstreamed"), "UNMATCHED_AUXILIARY_RETAINED")

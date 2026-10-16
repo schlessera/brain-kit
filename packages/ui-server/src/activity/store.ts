@@ -351,6 +351,8 @@ export interface ActivityStore {
   /** The run's high-water seq — what a full snapshot carries, without the reads. */
   runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
+  /** Immediately preceding retained conversation root, not an older convenient baseline. */
+  previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
   openRootSpans(): SpanRow[];
   /**
    * The run's rollup row, or null. Rollups are written at the terminal and
@@ -621,6 +623,19 @@ export function createActivityStore(
   };
   return {
     writer,
+    previousSessionRoot(spanId, sessionId) {
+      const row = db.query(`SELECT * FROM activity_spans WHERE parent_span_id IS NULL AND COALESCE(session_id, json_extract(attrs, '$."session.id"')) = ?
+        AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId);
+      if (!row) return null;
+      const prior = rowToSpan(row);
+      // A pruned newer turn is a gap, never permission to compare an older
+      // convenient prefix. Equal timestamps conservatively remain unknown.
+      const gap = db.query(`SELECT 1 FROM activity_run_rollups WHERE session_id = ? AND name = 'invoke_agent'
+        AND detail_pruned = 1 AND started_at >= ? AND started_at <=
+          (SELECT started_at FROM activity_spans WHERE span_id = ?) LIMIT 1`).get(sessionId, prior.startedAt, spanId);
+      return gap ? null : prior;
+    },
     lifecycle,
     lifecycles(sessionId, limit = 100) {
       const rows = sessionId === undefined

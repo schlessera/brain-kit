@@ -251,6 +251,9 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { kind: "prompt_prefix"; prefix: import("../protocol.js").PromptPrefixFingerprint; resumed: boolean }
+  | { kind: "first_request_cache"; usage: import("../protocol.js").FirstRequestCacheUsage }
+
   | {
       /** Executing main model, never inferred from helper usage. Scoped to this startTurn bridge. */
       kind: "main_model";

@@ -18,6 +18,11 @@ import type { TurnContext } from "./turn-context.js";
  * surface for the cross-backend contract tests (no live model needed).
  */
 export interface PiSessionLike {
+  readonly reportsPromptPrefix?: boolean;
+  /** Native assembly state; absent in older injected sessions means unknown coverage. */
+  readonly systemPrompt?: string;
+  readonly agent?: { state: { tools: ReadonlyArray<{ name: string; description: string; parameters: unknown }> } };
+
   /** Production worker's actual admitted resumed-state observation; absent in older doubles. */
   readonly stateRoom?: import("@schlessera/brain-ui-sdk/protocol").StateRoomObservation;
   readonly sessionId: string;

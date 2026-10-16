@@ -84,3 +84,5 @@ export { describeClient } from "./server/system-prompt.js";
 
 export { sessionReplay } from "./server/session-replay.js";
 export type { ReplayReceipt } from "./server/session-replay.js";
+
+export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
