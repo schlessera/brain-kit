@@ -10,7 +10,7 @@ function rate(samples: Sample[]): number | null {
   const window: Sample[] = [last];
   for (let i = samples.length - 2; i >= 0; i--) {
     const value = samples[i], next = window[0];
-    if (!value.complete || value.bytes === null || value.scope !== last.scope || value.basis !== last.basis || next.at - value.at > 12 * hour || last.at - value.at > 7 * day) break;
+    if (!value.complete || value.bytes === null || value.scope !== last.scope || value.basis !== last.basis || next.at <= value.at || next.at - value.at > 12 * hour || last.at - value.at > 7 * day) break;
     window.unshift(value);
   }
   const first = window[0], span = last.at - first.at;
@@ -27,6 +27,7 @@ const concurrent = trace(() => 1_000_000_000).map((s, i) => ({ ...s, available: 
 assert.equal(rate(steady), 120_000_000);
 assert.equal(rate(burst), 200_000_000);
 assert.equal(rate(reclaim), -40_000_000);
+assert.equal(rate(steady.map((sample, i) => ({ ...sample, at: i === 10 ? start + 80 * hour : sample.at }))), null);
 assert.equal(rate(changed), null); assert.equal(rate(partial), null); assert.equal(rate(unknown), null);
 assert.equal(rate(concurrent), 0); assert.equal(concurrent[0].available! - concurrent.at(-1)!.available!, 1_200_000_000);
 
