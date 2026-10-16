@@ -138,9 +138,14 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     expect(cli.result.output, "brain CLI write refuses visibly; nothing is staged").toContain("read_only_brain");
     expect(r.added, "no capture was staged or written").toEqual([]);
     if (adapter === "claude") {
-      // Hosted turns withhold the raw file tools; the subagent's shell is confined too.
-      expect(r.receipt.unavailable.sort()).toEqual(["Edit", "NotebookEdit", "Write"]);
-      for (const name of ["Write", "Edit", "NotebookEdit"]) for (const c of calls(r, name)) expect(c.result.isError).toBe(true);
+      // Strict turns retain native registration but refuse execution; the
+      // subagent's shell is confined too.
+      expect(r.receipt.unavailable).toEqual([]);
+      for (const name of ["Write", "Edit", "NotebookEdit"]) for (const c of calls(r, name)) {
+        expect(c.result.isError).toBe(true);
+        // The runtime may reject NotebookEdit's unread input before hooks.
+        if (name !== "NotebookEdit") expect(c.result.output).toContain("Native file writes are unavailable");
+      }
       const sub = shells.filter(c => c.subagent);
       expect(sub.length, "the subagent issued its own shell write").toBe(1);
       expect(sub[0]!.result.output).toContain("Read-only file system");
@@ -195,7 +200,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     passed.push(`${adapter}:race`);
   }, TIMEOUT);
 
-  test("voice: the narrower membership cannot grant or write policy; an authorized capture still lands", async () => {
+  test("voice: the narrower authority cannot grant or write policy; an authorized capture still lands", async () => {
     const r = await probe(adapter, "voice");
     if (adapter === "pi") {
       // pi declares no voice posture: refused before any writer initializes.
@@ -213,7 +218,11 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     expect(r.added[0]).toMatch(/^notes\/.+\.md$/);
     expect(r.receipt.frames.filter((f: any) => f.type === "tool_approval_request"), "voice never surfaces a grant").toEqual([]);
     expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
-    expect(r.receipt.unavailable.sort(), "raw writes and the mask editor are outside voice").toEqual(["Write", "mcp__brain-ui__request_image_mask"]);
+    expect(r.receipt.unavailable, "voice retains registered definitions").toEqual([]);
+    for (const name of ["Write", "mcp__brain-ui__request_image_mask"]) {
+      for (const c of calls(r, name)) expect(c.result.isError, `${name} is refused on voice`).toBe(true);
+    }
+    expect(calls(r, "Write")[0]!.result.output).toContain("Native file writes are unavailable");
     expect(code(calls(r, route("write_file"))[0]!.result.output), "raw write is outside the voice membership").toBe("membership_denied");
     expect(code(calls(r, route("brain_update"))[0]!.result.output)).toBe("policy_denied");
     const adds = calls(r, route("brain_add"));
@@ -289,10 +298,13 @@ test("two governed Pi sessions hold the same server Git lock through commit", as
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);
 
-test("governed voice retains its narrow roster and captures through the authoritative route", async () => {
+test("governed voice retains native registration, refuses its authority and captures through the authoritative route", async () => {
   const r = await probe("claude", "governed-voice");
   expect(calls(r, "Bash")[0]!.result.output).toContain("cannot be approved here and did not run");
-  expect(r.receipt.unavailable).toContain("Write");
+  expect(r.receipt.unavailable).not.toContain("Write");
+  const native = calls(r, "Write")[0]!;
+  expect(native.result.isError).toBe(true);
+  expect(native.result.output).toContain("Native file writes are unavailable");
   expect(r.receipt.posture).toBe("voice");
   const capture = calls(r, "mcp__brain-ui__brain_add", input => input.title === "Voice raft")[0]!;
   expect(capture.result.isError, capture.result.output).toBe(false);

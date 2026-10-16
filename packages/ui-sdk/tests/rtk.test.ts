@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resetRtkProbe, rtkRewriteCommand } from "../src/server/rtk.js";
+import { resetRtkProbe, rtkRewriteCommand, RTK_WORKER_ENV } from "../src/server/rtk.js";
 
 let directory: string | undefined;
 
@@ -24,6 +24,18 @@ afterEach(() => {
 });
 
 describe("rtk subprocess environment", () => {
+  test("an absent optional rtk preserves and executes the original command", async () => {
+    directory = mkdtempSync(join(tmpdir(), "ui-sdk-rtk-absent-"));
+    const env = { PATH: directory, HOME: directory, ...RTK_WORKER_ENV };
+    const original = "printf 'Odysseus sails'";
+    const command = await rtkRewriteCommand(original, env);
+    expect(command).toBe(original);
+    const child = Bun.spawn(["/bin/bash", "-c", command], { env, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).toBe(0);
+    expect(out).toBe("Odysseus sails");
+  });
+
   test("an oracle closing stdin keeps the parent alive and falls back before its late reply", async () => {
     directory = mkdtempSync(join(tmpdir(), "ui-sdk-rtk-pipe-"));
     const binary = join(directory, "rtk");

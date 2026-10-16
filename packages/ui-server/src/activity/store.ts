@@ -1,3 +1,5 @@
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+import { lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
@@ -287,6 +289,11 @@ export interface PruneOptions {
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 
 export interface ActivityStore {
+  writeLifecycle(record: ActivityTurnLifecycle): void;
+  lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
+  lifecycle(turnId: string): ActivityTurnLifecycle | null;
+  lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+
   readonly writer: string;
   startSpan(input: StartSpanInput): SpanRow;
   /**
@@ -515,7 +522,7 @@ export function createActivityStore(
     // SDK's modelUsage) already includes subagent consumption — summing the
     // tree would double-count every fan-out. Verified empirically (plan U3
     // smoke test).
-    const failure =
+    const failure = root.outcome === "success" ? null :
       spans.find(
         (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
@@ -608,8 +615,36 @@ export function createActivityStore(
     if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
+  const lifecycle = (id: string): ActivityTurnLifecycle | null => {
+    const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
+    return row ? lifecycleTiming(JSON.parse(row.record)) : null;
+  };
   return {
     writer,
+    lifecycle,
+    lifecycles(sessionId, limit = 100) {
+      const rows = sessionId === undefined
+        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
+        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
+      return (rows as { record: string }[]).map(row => lifecycleTiming(JSON.parse(row.record)));
+    },
+    lifecycleChangesSince(cursor, limit = 500) {
+      const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
+        JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
+        WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
+      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:lifecycleTiming(JSON.parse(r.record))}));
+    },
+    writeLifecycle(record) {
+      inWrite(() => {
+        const previous = lifecycle(record.turnId);
+        if (previous?.endedAt !== null && previous !== null) return;
+        const value = lifecycleTiming(record);
+        db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)
+          .run(value.turnId, value.sessionId, value.acceptedAt, value.endedAt, JSON.stringify(value));
+        logChange(value.lifecycleId, nextSeq(value.lifecycleId), value.lifecycleId);
+      });
+    },
 
     startSpan(input) {
       return inWrite(() => {
@@ -725,7 +760,14 @@ export function createActivityStore(
       const open = db
         .query(ACTIVITY_SQL.openSessionRuns)
         .all() as Array<{ run_id: string }>;
-      if (open.length === 0) return 0;
+      // Same single-server recovery ownership as session spans, including
+      // admission-only records with no backend root to discover.
+      const envelopes = db.query("SELECT record FROM activity_turn_lifecycles WHERE ended_at IS NULL").all() as { record: string }[];
+      for (const row of envelopes) {
+        const record: ActivityTurnLifecycle = JSON.parse(row.record);
+        this.writeLifecycle({ ...record, endedAt: Date.now(), outcome: "interrupted", reason: "server restarted" });
+      }
+      if (open.length === 0) return envelopes.length;
       getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;

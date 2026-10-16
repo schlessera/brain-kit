@@ -18,7 +18,7 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test"],
+  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
   if (plan.local.browser || plan.local.layout || plan.local.endurance) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });

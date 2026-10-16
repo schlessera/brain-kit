@@ -1,3 +1,5 @@
+import { sessionPromptContext, sessionReplay } from "@schlessera/brain-ui-sdk/internal";
+import { dirname } from "node:path";
 /**
  * Session listing + history normalization for the pi backend.
  *
@@ -62,17 +64,51 @@ export async function getPiHistory(
 ): Promise<SessionHistoryMessage[]> {
   const infos = await SessionManager.list(cwd, sessionDir);
   const info = infos.find((i) => i.id === sessionId);
-  if (!info) return [];
+  if (!info && !sessionDir) return [];
 
-  const sm = SessionManager.open(info.path, sessionDir);
+  // A committed direct effect may be the session's only retained history.
+  // Reading host metadata must not manufacture a provider transcript to find it.
   // getBranch() returns the active path root → leaf (chronological order).
-  const branch = sm.getBranch();
+  const branch = info ? SessionManager.open(info.path, sessionDir).getBranch() : [];
   const omitted = retriedAttempts(branch);
+  const context = sessionDir ? sessionPromptContext(sessionDir, cwd, sessionId) : undefined;
+  const display = sessionReplay(sessionDir ?? dirname(info!.path), cwd, sessionId);
+  const displayText = display.texts();
   const messages: AgentMessage[] = [];
+  const anchors = new Map<string, number>();
+  let visible = -1;
   for (const entry of branch) {
-    if (entry.type === "message" && !omitted.has(entry.id)) messages.push(entry.message);
+    if (entry.type === "message" && !omitted.has(entry.id)) {
+      const message = structuredClone(entry.message);
+      if (context && message.role === "user") {
+        const content = message.content;
+        const wire = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => (part as { text: string }).text).join("");
+        const text = context.userText(entry.id, wire);
+        message.content = typeof content === "string" ? text : [
+          { type: "text", text }, ...content.filter(part => part.type !== "text"),
+        ];
+      }
+      if (message.role === "assistant") message.content.forEach((part, index) => {
+        if (part.type === "text") part.text = displayText(entry.id, index, part.text);
+      });
+      messages.push(message);
+      if (message.role === "user" || message.role === "assistant") visible++;
+      anchors.set(entry.id, visible);
+    }
   }
-  return normalizeMessages(messages);
+  const history = normalizeMessages(messages);
+  const extra: Array<{ after: number; receipt: ReturnType<typeof display.receipts>[number] }> = [];
+  for (const receipt of display.receipts()) {
+    const call = receipt.anchor ? history[anchors.get(receipt.anchor) ?? -1]?.toolCalls.find(call => call.id === receipt.id) : undefined;
+    if (call) { call.output = receipt.output; call.isError = receipt.isError; }
+    else if (receipt.anchor == null) extra.push({ after: -1, receipt });
+    else if (anchors.has(receipt.anchor)) extra.push({ after: anchors.get(receipt.anchor)!, receipt });
+  }
+  // Insert in reverse chronology so native positions keep their meaning.
+  for (const { after, receipt } of extra.sort((a, b) => a.after - b.after).reverse()) history.splice(after + 1, 0,
+    { role: "assistant", content: "", toolCalls: [{ id: receipt.id, name: receipt.name, input: receipt.input,
+      output: receipt.output, isError: receipt.isError }], parts: [{ kind: "tool", toolIndex: 0 }] });
+  return history;
 }
 
 /**

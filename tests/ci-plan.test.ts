@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -141,6 +141,91 @@ describe("affected CI checks", () => {
       expect(file, file).not.toMatch(/-runtime\.test|\/browser\/|\.visual\.|\.offline\./);
     }
   });
+});
+
+
+describe("root consumer proof selection", () => {
+  const emptyLocal = { fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false };
+  test.each([
+    ["tests/owned.test.ts", []],
+    ["scripts/captures/x.ts", ["captures"]],
+    ["scripts/native-proof/x.sh", ["runtime"]],
+    ["scripts/prove-native-host.ts", ["runtime"]],
+    ["scripts/visual.mjs", ["browser", "layout", "endurance"]],
+    ["scripts/browser-shards.ts", ["browser", "layout", "endurance"]],
+    ["scripts/ci-example.ts", []],
+    ["scripts/proof-example.ts", []],
+    ["scripts/candidate-proof.ts", []],
+    ["website/example.html", []],
+    ["experiments/foo.ts", []],
+  ] as const)("maps %s to exact consumers and categories", (path, categories) => {
+    const f = fixture(); f.write(path, "// owned input\n");
+    f.write("tests/consumer.test.ts", `// consumes ${path}\n`);
+    f.write("tests/unrelated.test.ts", "// unrelated\n"); f.git("add", ".");
+    const plan = planChecks([path], workspaces(f.dir), f.dir);
+    expect(plan.global, "ROOT_CONSUMER_NOT_GLOBAL").toBe(false);
+    expect(plan.affected).toEqual([]);
+    const consumers = path.startsWith("tests/") ? [path] : ["tests/consumer.test.ts"];
+    expect(plan.unitTests, "ROOT_CONSUMER_EXACT_FILES").toEqual([...new Set([...FAST_TESTS.tooling!, ...consumers])].sort());
+    expect(plan.local, "ROOT_CONSUMER_EXACT_CATEGORIES").toEqual({ ...emptyLocal, ...Object.fromEntries(categories.map(category => [category, true])) });
+    expect(plan.pack).toBe(false);
+  });
+
+  test("helper references propagate through relative imports and fixture strings", () => {
+    const f = fixture(); f.write("tests/fixtures/tide.json", "{}");
+    f.write("tests/helpers/tide.ts", 'const fixture = "../fixtures/tide.json";');
+    f.write("packages/core/tests/helper.test.ts", 'import "../../../tests/helpers/tide";');
+    f.write("tests/unrelated.test.ts", "// unrelated"); f.git("add", ".");
+    const plan = planChecks(["tests/fixtures/tide.json"], workspaces(f.dir), f.dir);
+    expect(plan.global, "HELPER_CONSUMER_SCAN_REQUIRED").toBe(false);
+    expect(plan.unitTests, "HELPER_CONSUMER_SCAN_REQUIRED").toContain("packages/core/tests/helper.test.ts");
+    expect(plan.unitTests).not.toContain("tests/unrelated.test.ts");
+  });
+
+  test("unknown inputs, unreadable files, outside symlinks and conflicting mappings remain global", () => {
+    const f = fixture(); f.write("scripts/new.ts", "export {};"); f.git("add", ".");
+    expect(planChecks(["scripts/new.ts"], workspaces(f.dir), f.dir).global, "UNKNOWN_INPUT_GLOBAL").toBe(true);
+    f.write("scripts/captures/x.ts", "export {};"); f.git("add", ".");
+    chmodSync(join(f.dir, "scripts/captures/x.ts"), 0);
+    expect(planChecks(["scripts/captures/x.ts"], workspaces(f.dir), f.dir).global, "UNREADABLE_INPUT_GLOBAL").toBe(true);
+    chmodSync(join(f.dir, "scripts/captures/x.ts"), 0o644);
+    const outside = fixture(); symlinkSync(join(outside.dir, "packages/core/src/note.ts"), join(f.dir, "scripts/captures/outside.ts")); f.git("add", ".");
+    expect(planChecks(["scripts/captures/outside.ts"], workspaces(f.dir), f.dir).global, "OUTSIDE_SYMLINK_GLOBAL").toBe(true);
+    rmSync(join(f.dir, "scripts/captures/outside.ts")); f.git("add", ".");
+    expect(rootConsumers(f.dir, ["scripts/captures/x.ts"], [...ROOT_CONSUMERS,
+      { prefix: "scripts/", categories: ["runtime"] }]).global, "CONFLICTING_PREFIX_GLOBAL").toBe(true);
+  });
+
+  test("package changes retain complete root discovery alongside selected consumers", () => {
+    const f = fixture(); f.write("tests/owned.test.ts", "// owned"); f.git("add", ".");
+    const plan = planChecks(["tests/owned.test.ts", "packages/core/src/note.ts"], workspaces(f.dir), f.dir);
+    expect(plan.unitTests).toBeUndefined(); expect(plan.affected).toContain("ui-server");
+  });
+});
+
+
+test("main pushes preserve previous global root selection while PRs map consumers", () => {
+  const f = fixture(); f.write("tests/owned.test.ts", "// owned"); f.git("add", "."); f.git("commit", "-qm", "root test");
+  const env = { BASE_SHA: f.base, BEFORE_SHA: f.base, HEAD_SHA: "HEAD" };
+  expect(planFromEnvironment(f.dir, { ...env, GITHUB_EVENT_NAME: "push" }).global).toBe(true);
+  expect(planFromEnvironment(f.dir, { ...env, GITHUB_EVENT_NAME: "pull_request" }).global).toBe(false);
+});
+
+
+test("exported tests remain helpers and ordinary leaves do not expand through runner inventories", () => {
+  const f = fixture(); f.write("tests/helper.test.ts", "export const tide = 1;");
+  f.write("tests/consumer.test.ts", 'import { tide } from "./helper.test";');
+  f.write("scripts/runner.ts", 'const files = ["tests/consumer.test.ts"];'); f.git("add", ".");
+  expect(rootConsumers(f.dir, ["tests/helper.test.ts"]).tests, "EXPORTED_TEST_CONSUMERS_REQUIRED").toEqual(["tests/consumer.test.ts", "tests/helper.test.ts"]);
+  const leaf = rootConsumers(f.dir, ["tests/consumer.test.ts"]);
+  expect(leaf.global).toBe(false); expect(leaf.tests).toEqual(["tests/consumer.test.ts"]);
+});
+
+test("internal symlink aliases retain target and transitive test consumers", () => {
+  const f = fixture(); f.write("tests/fixtures/tide.json", "{}");
+  symlinkSync("fixtures/tide.json", join(f.dir, "tests/tide-alias.json"));
+  f.write("tests/alias.test.ts", 'const fixture = "./tide-alias.json";'); f.git("add", ".");
+  expect(rootConsumers(f.dir, ["tests/fixtures/tide.json"]).tests, "SYMLINK_TARGET_CONSUMER_REQUIRED").toEqual(["tests/alias.test.ts"]);
 });
 
 test("category closure selection preserves full commands and independent exhaustive cadence", () => {

@@ -48,7 +48,7 @@ export interface MaintenanceCommand {
   home?: string;
   /** More host paths the command needs below a masked directory. */
   readPaths?: readonly string[];
-  /** More host directories to mask, such as the server's database directory. */
+  /** More private host directories or regular files to mask, such as the server's database directory. */
   maskPaths?: readonly string[];
   /** Existing host files the command may append to, such as a span sink. */
   writeFiles?: readonly string[];

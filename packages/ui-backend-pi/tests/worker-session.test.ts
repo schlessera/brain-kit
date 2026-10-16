@@ -8,6 +8,7 @@ import * as worker from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 import { createPiBackend } from "../src/backend.js";
 import { openPiWorkerSession } from "../src/worker-session.js";
+import { getPiHistory } from "../src/history.js";
 import { savePiSession } from "../src/session-storage.js";
 import { PI_PIPE_MAX_BYTES, PI_WORKER_STATE, sendPipe, sessionReserveBytes, SessionTooLargeError } from "../src/worker-protocol.js";
 
@@ -136,7 +137,7 @@ test("snapshot overflow reaches the terminal TurnFailure", async () => {
   expect(result.stateRoom).toBeUndefined();
   expect(launch).toHaveBeenCalledTimes(1);
 });
-test("a turn's linked turn-temp file is promoted into scratch and the saved answer links the copy (#1655)", async () => {
+test("turn-temp promotion preserves native answer bytes and reloads promoted UI links (#2049)", async () => {
   const turnId = "0b7e3c1a-4f2d-4c6b-8a9e-1d2c3b4a5f60";
   const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
   // Stands in for the worker's private /tmp, as the server holds it (#1703).
@@ -189,8 +190,11 @@ test("a turn's linked turn-temp file is promoted into scratch and the saved answ
   const destination = `.brain/scratch/turns/${turnId}/report.pdf`;
   expect(readFileSync(join(brain, destination), "utf8")).toBe("Odysseus: the voyage report.");
   const saved = readFileSync(join(sessionDir, readdirSync(sessionDir).find(name => name.endsWith(".jsonl"))!), "utf8");
-  expect(saved).toContain(`The voyage report is [ready](${destination}).`);
-  expect(saved).not.toContain("[ready](/tmp/");
+  expect(saved, "PI_NATIVE_ASSISTANT_TEXT_UNCHANGED").toContain(answer);
+  const nativeId = JSON.parse(saved.split("\n")[0]!).id;
+  const replay = await getPiHistory(brain, nativeId, sessionDir);
+  expect(replay.find(message => message.role === "assistant")?.content, "PI_RELOADED_DISPLAY_LINK").toContain(`[ready](${destination})`);
+  expect(replay.find(message => message.role === "assistant")?.parts).toContainEqual({ kind: "text", text: answer.replace("/tmp/brain-worker-scratch/report.pdf", destination) });
   // Runtime state in turn temp (the login) is never promoted.
   expect(saved).toContain("[this](/tmp/brain-worker-scratch/pi-state/auth.json)");
   expect(events).toEqual([{ kind: "promotion", source: "/tmp/brain-worker-scratch/report.pdf", destination, bytes: 28,
@@ -303,4 +307,71 @@ test.each(["id", "cwd"])("canonical transcript refuses a mismatched %s before wo
   await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false } }, undefined, ID))
     .rejects.toThrow("Cannot resume unknown session");
   expect(launch).not.toHaveBeenCalled();
+});
+
+
+for (const mode of ["result", "orphan", "direct"] as const) test(`Pi authoritative ${mode} receipt is replay metadata without rewriting runtime entries`, async () => {
+  const input = { operation: "write", path: "notes/raft.md", content: "Odysseus repairs the raft.", expectedBaseHash: null };
+  const receipt = { ok: true, message: "Server committed the raft plan.", changes: [{ path: input.path, contentHash: "a".repeat(64) }] };
+  let runtime: any[] = [];
+  launch.mockImplementation(() => {
+    const stdout = new PassThrough(), stderr = new PassThrough(), exited = Promise.withResolvers<number>();
+    const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
+    children.push(stop);
+    let sessionId = "";
+    const snapshot = () => sendPipe(stdout, { type: "snapshot", entries: runtime });
+    const stdin = new Writable({ write(chunk, _encoding, callback) {
+      const message = JSON.parse(String(chunk));
+      if (message.type === "init") {
+        sessionId = message.sessionId;
+        sendPipe(stdout, { type: "ready", sessionId, levels: [], cost: 0 });
+      } else if (message.type === "prompt") {
+        runtime = [
+          { type: "session", version: 3, id: sessionId, cwd: brain, timestamp: "2026-07-12T00:00:00.000Z" },
+          { type: "message", id: "u1", parentId: null, timestamp: "2026-07-12T00:00:00.000Z", message: { role: "user", content: "Repair the raft", timestamp: 0 } },
+        ];
+        if (mode !== "direct") runtime.push({ type: "message", id: "a1", parentId: "u1", timestamp: "2026-07-12T00:00:01.000Z",
+          message: { role: "assistant", content: [{ type: "toolCall", id: "raft-call", name: "write_file", arguments: input }],
+            model: "odysseus-1", stopReason: "toolUse", timestamp: 1,
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } });
+        snapshot();
+        sendPipe(stdout, { type: "rpc", id: 1, method: "apply", toolCallId: "raft-call", toolName: "write_file", input });
+      } else if (message.type === "answer") {
+        expect(message.error).toBeUndefined();
+        if (mode === "result") runtime.push({ type: "message", id: "r1", parentId: "a1", timestamp: "2026-07-12T00:00:02.000Z",
+          message: { role: "toolResult", toolCallId: "raft-call", toolName: "write_file", content: [{ type: "text", text: "Runtime wrote these exact result bytes." }], isError: false, timestamp: 2 } });
+        snapshot();
+        sendPipe(stdout, { type: "done", cost: 0 });
+      }
+      callback();
+    } });
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+  });
+  const frames: ServerMessage[] = [];
+  await createPiBackend({ brainPath: brain, sessionDir }).startTurn({ prompt: "Repair the raft", signal: new AbortController().signal,
+    bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }), applyBrain: async () => receipt } });
+  const result = terminal(frames);
+  expect(result).toMatchObject({ outcome: "success" });
+  const bytes = readFileSync(join(sessionDir, result.sessionId + ".jsonl"), "utf8");
+  const runtimeBytes = runtime.map(entry => JSON.stringify(entry)).join("\n") + "\n";
+  if (mode === "orphan") {
+    expect(bytes, "PI_ORPHAN_ONLY_APPENDS_MISSING_RESULT").toStartWith(runtimeBytes);
+    const appended = bytes.slice(runtimeBytes.length).trim().split("\n").map(line => JSON.parse(line));
+    expect(appended).toHaveLength(1);
+    expect(appended[0].message).toMatchObject({ role: "toolResult", toolCallId: "raft-call", content: [{ type: "text", text: JSON.stringify(receipt) }] });
+  } else expect(bytes, "PI_RUNTIME_TRANSCRIPT_UNCHANGED").toBe(runtimeBytes);
+  const replay = await getPiHistory(brain, result.sessionId, sessionDir);
+  const calls = replay.flatMap(message => message.toolCalls);
+  expect(calls, "PI_SERVER_RECEIPT_REPLAYED_ONCE").toHaveLength(1);
+  expect(calls[0]).toMatchObject({ id: "raft-call", name: "write_file", output: JSON.stringify(receipt), isError: false });
+  if (mode === "direct") {
+    const later = { type: "message", id: "u2", parentId: "u1", timestamp: "2026-07-12T00:00:03.000Z", message: { role: "user", content: "Next voyage", timestamp: 3 } };
+    savePiSession(sessionDir, result.sessionId, [...runtime, later]);
+    const resumed = await getPiHistory(brain, result.sessionId, sessionDir);
+    expect(resumed.map(message => message.role), "DIRECT_RECEIPT_STAYS_WITH_ITS_TURN").toEqual(["user", "assistant", "user"]);
+    savePiSession(sessionDir, result.sessionId, [runtime[0], { ...later, parentId: null }]);
+    const branched = await getPiHistory(brain, result.sessionId, sessionDir);
+    expect(branched.flatMap(message => message.toolCalls), "UNRELATED_BRANCH_HAS_NO_RECEIPT").toEqual([]);
+  }
+
 });

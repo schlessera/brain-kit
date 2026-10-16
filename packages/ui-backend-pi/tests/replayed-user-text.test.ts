@@ -59,7 +59,8 @@ function resizeNote(): string {
 async function replayUserText(content: unknown[]): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), "pi-replayed-text-"));
   roots.push(cwd);
-  const sessionDir = join(cwd, "sessions");
+  const sessionDir = mkdtempSync(join(tmpdir(), "pi-replayed-sessions-"));
+  roots.push(sessionDir);
   const manager = SessionManager.create(cwd, sessionDir);
   manager.appendMessage({ role: "user", content, timestamp: 1 } as never);
   manager.appendMessage({

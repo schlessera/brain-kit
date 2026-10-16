@@ -1,3 +1,4 @@
+import { turnTimingText } from "./turn-timing.js";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -28,19 +29,23 @@ export function LiveRow({
   const children = useActivityStore(
     useShallow((s) => Object.values(s.spans[span.runId] ?? {}).filter((x) => x.parentSpanId))
   );
+  const lifecycle = useActivityStore(s => s.lifecycles[span.runId]);
   const now = useNow();
   const current = children.filter((c) => c.outcome === undefined).at(-1);
   return (
+    <div>
     <LiveRunCard
       name={span.jobName ?? span.name}
       // A span-only run (plain cron job) has no current step — name+elapsed
       // is its whole live story.
       current={current ? spanToolLabel(current) : null}
-      elapsed={formatDuration(now - span.startedAt)}
+      elapsed={`Backend: ${formatDuration(now - span.startedAt)}`}
       tools={children.map((c) => ({ label: spanToolLabel(c), state: toolState(c.outcome) }))}
       selected={selected}
       onOpen={() => onOpen({ runId: span.runId, origin: span.origin, sessionId: span.sessionId })}
     />
+    <p className="px-3 pb-2 text-xs text-muted-foreground">{turnTimingText(lifecycle)}</p>
+    </div>
   );
 }
 
@@ -60,13 +65,15 @@ export function RunRow({
   // Effective cost only — list price lives on the Spend card and the detail
   // view. "—" is unknown, never $0.00 (AE3); a pre-pricing server that never
   // sent the field keeps the original list-cost span instead (see runCostText).
+  const lifecycle = useActivityStore(s => s.lifecycles[run.runId]) ?? run.lifecycle;
   const cost = runCostText(run);
   const when = formatRelativeTime(run.startedAt);
-  const meta = [cost, run.durationMs !== null ? formatDuration(run.durationMs) : null, when]
+  const meta = [cost, run.durationMs !== null ? `Backend: ${formatDuration(run.durationMs)}` : null, when]
     .filter((s): s is string => Boolean(s))
     .join(" · ");
   const name = run.jobName ?? run.name;
   const row = (
+    <div>
     <HistoryRow
       name={name}
       cron={run.origin === "cron"}
@@ -75,6 +82,8 @@ export function RunRow({
       selected={selected}
       onOpen={() => onOpen(run)}
     />
+    <p className="px-3 pb-2 text-xs text-muted-foreground">{turnTimingText(lifecycle)}</p>
+    </div>
   );
   if (!onReport || !isFailureOutcome(run.outcome)) return row;
   // Siblings, never nested: the row keeps its own navigation and target.

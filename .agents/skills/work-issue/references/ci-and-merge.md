@@ -83,6 +83,15 @@ tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
 
+A fresh ready event can still carry GitHub's cached `pull_request.base.sha`.
+Compare the metadata job's `BASE_SHA` with the actual checkout's first parent,
+as well as the live base; checking only the checkout against live main misses
+this mismatch. If the requested base is stale, merge fetched `origin/main`
+into the issue branch, run the required preflight, push while draft and request
+confirmation again. Verify the refreshed metadata before spending the rest of
+the run. Do not weaken the candidate identity gate or call the earlier tests
+proof of a differently requested candidate.
+
 Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
 `project-sync.yml`, plus the merge requirements, for expected checks. GitHub
 Actions is the sole CI provider for main, same-repository PRs and forks under

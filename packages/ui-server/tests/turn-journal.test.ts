@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
+import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
@@ -275,4 +276,87 @@ test("opaque configuration input limitations survive replay without executing co
       expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
     } finally { await replay.close(); }
   } finally { await f.close(); }
+});
+
+
+test("native capture journals consumed nested configuration and ordinary excluded project edits", async () => {
+  const f = fixture();
+  try {
+    const inputs = {
+      "bunfig.toml": 'preload = ["./config/navigator/start.ts"]\n',
+      "package.json": '{"name":"ithaca"}\n',
+      "config/navigator/start.ts": 'export const route = "Ithaca";\n',
+      "config/navigator/package.json": '{"type":"module","scripts":{"unused":"bun ./unused.ts"}}\n',
+      "config/navigator/unused.ts": 'throw new Error("unused");\n',
+      "node_modules/a/package.json": '{"name":"incidental"}\n',
+      "workspaces/odyssey-tools/package.json": '{"scripts":{"start":"bun ./start.ts"}}\n',
+      "workspaces/odyssey-tools/start.ts": 'throw new Error("unused clone");\n',
+    };
+    writeFileSync(join(f.brain, ".gitignore"), "node_modules/\n");
+    for (const [path, text] of Object.entries(inputs)) { mkdirSync(join(f.brain, path, ".."), {recursive:true}); writeFileSync(join(f.brain, path), text); }
+    await f.begin("consumer-seeds");
+    for (const [path, text] of Object.entries(inputs)) writeFileSync(join(f.brain, path), text + "\n");
+    await f.journal.finish("consumer-seeds");
+    const details = f.journal.details("ithaca", "consumer-seeds")!;
+    for (const path of ["bunfig.toml", "package.json", "config/navigator/start.ts", "config/navigator/package.json"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_CONSUMED_CONFIGURATION_${path}`).toBe("steering");
+    for (const path of ["config/navigator/unused.ts", "workspaces/odyssey-tools/package.json", "workspaces/odyssey-tools/start.ts"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_UNUSED_CONFIGURATION_${path}`).toBe("content");
+    expect(details.missing.filter(item => item.path.startsWith("node_modules/") || item.path.startsWith("workspaces/")), "NATIVE_INCIDENTAL_CONFIG_NOT_COVERAGE_NOISE").toEqual([]);
+    expect(details.changes.find(change => change.path === "node_modules/a/package.json")?.after?.ignored).toBe(true);
+  } finally { await f.close(); }
+});
+test("native journal excludes the resolved index and sidecars while preserving input-role events", async () => {
+  const index = "brain.db", f = fixture();
+  try {
+    mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
+    const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
+    writeFileSync(join(f.brain,".gitignore"), ignored.join("\n"));
+    writeFileSync(join(f.brain,"brain.config.ts"), `export default { db: "${index}", output: "./ordinary" };`);
+    writeFileSync(join(f.brain,"bunfig.toml"), `preload = ["./startup.ts", ${ignored.map(path=>JSON.stringify(`./${path}`)).join(", ")}]`);
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"};');
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]}}));
+    const genuine = ["startup.ts","instructions","resources/brain.db","hook.ts",".claude/settings.json"];
+    for (const path of [...ignored,"instructions","resources/brain.db","hook.ts","ordinary"]) writeFileSync(join(f.brain,path), "initial");
+    await f.begin("index-only");
+    for (const path of ignored) writeFileSync(join(f.brain,path), "index changed");
+    await f.journal.finish("index-only");
+    const details = f.journal.details("ithaca","index-only")!;
+    expect(details.changes.map(change=>change.path).sort()).toEqual(ignored.sort());
+    expect(details.changes.every(change=>change.class === "content"), "NATIVE_INDEX_HAS_NO_STEERING_CLASS").toBe(true);
+    expect(queryGovernanceEvents(f.db,{turnId:"index-only",kinds:["steering_change"],limit:100}), "NATIVE_INDEX_HAS_NO_STEERING_EVENTS").toEqual([]);
+    expect(details.summary.steeringFiles).toBe(0);
+    await f.begin("inputs");
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"}; // edited');
+    writeFileSync(join(f.brain,"hook.ts"), 'export {}; // edited');
+    writeFileSync(join(f.brain,"instructions"), "Athena guides the return.");
+    writeFileSync(join(f.brain,"resources/brain.db"), "A genuine text input, despite its basename.");
+    writeFileSync(join(f.brain,"ordinary"), "data changed");
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]},model:"voyage"}));
+    await f.journal.finish("inputs");
+    const controls = f.journal.details("ithaca","inputs")!;
+    expect(controls.changes.filter(change=>change.class === "steering").map(change=>change.path).sort(), "NATIVE_GENUINE_INPUT_ROLE_CONTROLS").toEqual(genuine.sort());
+    expect(controls.changes.find(change=>change.path === "ordinary")?.class, "NATIVE_ORDINARY_ARGUMENT_IS_DATA").toBe("content");
+    expect(queryGovernanceEvents(f.db,{turnId:"inputs",kinds:["steering_change"],limit:100}).map(event=>event.payload.path).sort()).toEqual(genuine.sort());
+  } finally { await f.close(); }
+});
+
+
+test("native capture excludes an alternate trusted index identity without a public configuration option", async () => {
+  const f = fixture();
+  const capture = createNativeJournalCapture(f.native.manager, async () => { throw Error("ignored versions must not be retained"); }, {resolvedIndexPaths:["cache/voyage.sqlite"]});
+  try {
+    mkdirSync(join(f.brain,"cache")); mkdirSync(join(f.brain,"resources"));
+    const indexes = ["", "-wal", "-shm", "-journal"].map(suffix=>`cache/voyage.sqlite${suffix}`);
+    writeFileSync(join(f.brain,".gitignore"),indexes.join("\n"));
+    writeFileSync(join(f.brain,"bunfig.toml"),`preload = [${[...indexes,"resources/brain.db"].map(path=>JSON.stringify(`./${path}`)).join(",")}]`);
+    for (const path of [...indexes,"resources/brain.db"]) writeFileSync(join(f.brain,path),"initial");
+    await capture.initialize(); const policy = await capture.policy();
+    for (const path of indexes) writeFileSync(join(f.brain,path),"changed");
+    const observed = await capture.observe(new Map([["alternate",policy]]));
+    try {
+      expect(observed.changes.get("alternate")!.map(change=>change.path).sort()).toEqual(indexes.sort());
+      for (const path of indexes) expect(observed.steering.paths.has(path),"NATIVE_ALTERNATE_INDEX_IDENTITY_EXCLUDED").toBe(false);
+      expect(observed.steering.paths.has("resources/brain.db"),"NATIVE_UNRELATED_BASENAME_REMAINS_INPUT").toBe(true);
+      await observed.commit();
+    } catch (error) { await observed.abort(); throw error; }
+  } finally { await capture.close(); await f.close(); }
 });

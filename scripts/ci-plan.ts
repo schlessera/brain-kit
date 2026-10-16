@@ -1,6 +1,6 @@
 /** Repository-only check selection. Product CLI/MCP contracts are unaffected. */
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 
 export interface Workspace {
@@ -74,6 +74,8 @@ export interface CheckPlan {
   typecheck: boolean;
   tests: string[];
   pack: boolean;
+  /** Root consumer-only plans execute this exact discovered unit inventory. */
+  unitTests?: string[];
   // Complete proof categories, shared by hosted CI and opt-in full local checks.
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
 }
@@ -107,7 +109,97 @@ export function affectedWorkspaces(changed: readonly string[], packages: readonl
   return [...selected].sort();
 }
 
-export function planChecks(changed: readonly string[], packages: readonly Workspace[], root?: string): CheckPlan {
+/** Reviewed non-package consumers. Overlapping rules must agree, otherwise global. */
+export const ROOT_CONSUMERS = [
+  { prefix: "scripts/captures/", categories: ["captures"] },
+  { prefix: "scripts/capture", categories: ["captures"] },
+  { prefix: "scripts/native-proof/", categories: ["runtime"] },
+  { prefix: "scripts/prove-native-host.ts", categories: ["runtime"] },
+  { prefix: "scripts/visual.mjs", categories: ["browser", "layout", "endurance"] },
+  { prefix: "scripts/browser-shards.ts", categories: ["browser", "layout", "endurance"] },
+  { prefix: "scripts/browser-shard-costs.json", categories: ["browser", "layout", "endurance"] },
+  { prefix: "scripts/ci-", categories: [] },
+  { prefix: "scripts/proof-", categories: [] },
+  { prefix: "scripts/candidate-proof.ts", categories: [] },
+  { prefix: "website/", categories: [] },
+] as const;
+type RootCategory = "browser" | "layout" | "endurance" | "captures" | "runtime";
+interface ConsumerSelection { tests: string[]; categories: Set<RootCategory>; global: boolean; reason?: string; }
+/** Conservative reverse string/import closure, including helpers and symlink targets.
+ * Any unreadable tracked input or escaping link invalidates the entire scan.
+ */
+export function rootConsumers(root: string, changed: readonly string[],
+  rules: readonly { prefix: string; categories: readonly RootCategory[] }[] = ROOT_CONSUMERS): ConsumerSelection {
+  const categories = new Set<RootCategory>(), selected = new Set<string>();
+  try {
+    const paths = git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
+    // Include local, not-yet-added inputs in local preflight as well.
+    paths.push(...git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean));
+    const texts = new Map<string, string>();
+    for (const path of new Set(paths)) {
+      const full = join(root, path), stat = lstatSync(full);
+      if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error("Unknown consumer input");
+      const target = realpathSync(full);
+      if (relative(root, target).startsWith("..") || !relative(root, target)) throw new Error("Escaping consumer input");
+      // Permission bits are checked too: root can otherwise read chmod(000) files.
+      if (!(lstatSync(target).mode & 0o444)) throw new Error("Unreadable consumer input");
+      const text = stat.isSymbolicLink() ? readlinkSync(full) : readFileSync(full, "utf8");
+      texts.set(path, text.includes("\0") ? "" : text);
+    }
+    // Index path/name tokens once; extensionless imports and basename/string
+    // references deliberately overinclude colliding names rather than omit them.
+    const references = new Map<string, Set<string>>();
+    const imports = new Map<string, Set<string>>();
+    for (const [path, text] of texts) {
+      for (const literal of text.matchAll(/["'`]([^"'`\r\n]+)["'`]/g)) {
+        const name = basename(literal[1]!);
+        const owners = imports.get(name) ?? new Set<string>(); owners.add(path); imports.set(name, owners);
+      }
+      for (const token of text.matchAll(/[A-Za-z0-9_@.-]+/g)) {
+        const key = token[0].replace(/^[.]+|[.]+$/g, "");
+        if (!key) continue;
+        const owners = references.get(key) ?? new Set<string>(); owners.add(path); references.set(key, owners);
+      }
+    }
+    for (const input of changed) {
+      if (!texts.has(input)) throw new Error(`Missing changed consumer input: ${input}`);
+      const matches = rules.filter(rule => input.startsWith(rule.prefix));
+      if (new Set(matches.map(rule => JSON.stringify([...rule.categories].sort()))).size > 1) throw new Error("Conflicting consumers");
+      for (const rule of matches) for (const category of rule.categories) categories.add(category);
+      const closure = new Set([input]);
+      const pending = [input];
+      for (let index = 0; index < pending.length; index++) {
+        const dependency = pending[index]!;
+        // Test consumers are execution leaves. Referencing a test inventory
+        // from a runner/config does not make that runner a consumer of its code.
+        if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(dependency) && !/(?:\bmodule\.exports\b|\bexports\.|\bexport\s+(?:\{|\*|(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)|default))/m.test(texts.get(dependency) ?? "")) continue;
+        const name = basename(dependency);
+        if (!/^[A-Za-z0-9_@.-]+$/.test(name)) throw new Error(`Unknown reference spelling: ${dependency}`);
+        const owners = new Set([...(references.get(name) ?? []), ...(imports.get(name.replace(/\.[^. /]+$/, "")) ?? [])]);
+        for (const path of owners) {
+          if (closure.has(path)) continue;
+          closure.add(path); pending.push(path);
+        }
+      }
+      // A root input used by shipped package code has no reviewed narrow
+      // category ownership here; keep complete proof instead of guessing it.
+      const shipped = [...closure].find(path => /^packages\/[^/]+\/(?:src|assets|skills|migrations)\//.test(path));
+      if (shipped) throw new Error(`Unmapped shipped consumer: ${input} → ${shipped}`);
+      for (const path of closure) {
+        const owners = rules.filter(rule => path.startsWith(rule.prefix));
+        if (new Set(owners.map(rule => JSON.stringify([...rule.categories].sort()))).size > 1) throw new Error("Conflicting consumers");
+        for (const rule of owners) for (const category of rule.categories) categories.add(category);
+      }
+      const consumers = [...closure].filter(path => /^(?:tests\/|packages\/).*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path));
+      // A known category or a real test consumer is required, never an empty skip.
+      if (!matches.length && !consumers.length) throw new Error(`Unmapped consumer input: ${input}`);
+      for (const test of consumers) selected.add(test);
+    }
+    return { tests: [...selected].sort(), categories, global: false };
+  } catch (error) { return { tests: [], categories, global: true, reason: String(error) }; }
+}
+
+export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), mapRoots = true): CheckPlan {
   const dirs = new Set(packages.map(p => p.dir));
   const packagePaths = changed.filter(path => path.startsWith("packages/"));
   const direct = packagePaths.map(path => path.split("/")[1]!);
@@ -116,21 +208,23 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   const prose = (path: string) => /\.(md|mdx|txt)$/.test(path) ||
     path.startsWith(".changeset/") || path.startsWith("docs/") ||
     path.startsWith(".github/ISSUE_TEMPLATE/") || path === "LICENSE";
-  const global = changed.some(path =>
-    path === "bun.lock" || path === "package.json" || path === ".changeset/config.json" ||
+  const rootPaths = mapRoots ? changed.filter(path => /^(?:scripts|tests|experiments|website)\//.test(path)) : [];
+  const consumers = rootPaths.length ? rootConsumers(root, rootPaths) : { tests: [], categories: new Set<RootCategory>(), global: false };
+  const global = consumers.global || changed.some(path =>
+    path.startsWith(".github/workflows/") || path === "bun.lock" || path === "package.json" || path === ".changeset/config.json" ||
     (!path.startsWith("packages/") && !path.startsWith("template/") &&
-      !path.startsWith("api-report/") && !prose(path))) || direct.some(dir => !dirs.has(dir));
+      !path.startsWith("api-report/") && !rootPaths.includes(path) && !prose(path))) || direct.some(dir => !dirs.has(dir));
   const affected = global ? [...dirs].sort() : affectedWorkspaces(direct, packages);
   // Fixture Markdown and shipped skills are behavioral inputs too; only
   // package prose outside those domains can avoid the affected checks.
   const packageCode = packagePaths.some(path => !/\.(md|mdx|txt)$/.test(path) ||
     /^packages\/[^/]+\/(src|fixtures|tests|skills|migrations|assets)\//.test(path));
   const typedInputs = packagePaths.some(path => /\.(?:[cm]?[jt]sx?|json|toml)$/.test(path));
-  const tooling = global || changed.some(path => path.startsWith("api-report/") || path.startsWith("template/") || path.startsWith("docs/decisions/"));
+  const tooling = global || rootPaths.length > 0 || changed.some(path => path.startsWith("api-report/") || path.startsWith("template/") || path.startsWith("docs/decisions/"));
   const contract = global || packagePaths.some(path => /^packages\/[^/]+\/(src\/|package\.json$)/.test(path)) ||
     changed.some(path => path.startsWith("api-report/"));
   const groups = [...(tooling ? ["tooling"] : []), ...(contract ? ["contract"] : []), ...(packageCode || global ? affected : [])];
-  const tests = [...new Set(groups.flatMap(group => FAST_TESTS[group] ?? []))].sort();
+  const tests = [...new Set([...groups.flatMap(group => FAST_TESTS[group] ?? []), ...consumers.tests])].sort();
   const ships = packagePaths.some(path => {
     const [, dir, ...rest] = path.split("/");
     const relative = rest.join("/");
@@ -141,13 +235,15 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   const ui = affected.some(dir => ["ui-sdk", "ui-kit", "ui-react", "ui-server", "render-template", "geo"].includes(dir));
   const captureInputs = changed.some(path => path === "docs/process/feature-captures.md" || path.startsWith("scripts/capture") || path.startsWith("scripts/captures/"));
   const plan: CheckPlan = { changed: [...changed].sort(), affected, global,
-    typecheck: global || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
+    ...(rootPaths.length && !global && !packageCode ? { unitTests: [...new Set([...tests, ...consumers.tests])].sort() } : {}),
+    typecheck: global || rootPaths.some(path => /\.[cm]?[jt]sx?$/.test(path)) || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
     tests, pack: global || ships,
-    local: { fullTests: global || packageCode || changed.some(path => path.startsWith("template/") && !prose(path)), browser: (global || packageCode) && ui,
-      layout: (global || packageCode) && ui, captures: captureInputs || ((global || packageCode) && ui),
-      endurance: (global || packageCode) && ui,
-      runtime: global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
-  return root && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+    local: { fullTests: global || packageCode || consumers.tests.length > 0 || changed.some(path => path.startsWith("template/") && !prose(path)), browser: consumers.categories.has("browser") || ((global || packageCode) && ui),
+      layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
+      endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
+      runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+  // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
+  return arguments.length >= 3 && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
 }
 
 /** Global dependency/tooling changes remain exhaustive; selected categories remain complete. */
@@ -204,11 +300,11 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
 }
 
 export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): CheckPlan {
-  if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root));
+  if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
   const pr = env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
-  return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root);
+  return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root, pr);
 }
 
 if (import.meta.main) {

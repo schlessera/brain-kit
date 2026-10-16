@@ -24,6 +24,7 @@ export "." (./src/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -396,6 +397,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -885,10 +887,13 @@ export "./internal" (./src/internal.ts)
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type QuestionObservation
+  RTK_WORKER_ENV
+  type ReplayReceipt
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
+  type SessionPromptFacts
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -961,6 +966,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   createWorkerStartupView
   denyWorkerCommand
+  describeClient
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1014,6 +1020,8 @@ export "./internal" (./src/internal.ts)
   retainWorkerStartupView
   runMaintenanceWorker
   runMaintenanceWorkerSync
+  sessionPromptContext
+  sessionReplay
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
@@ -1080,6 +1088,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -1595,6 +1604,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnLifecycle
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
@@ -2874,6 +2884,8 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunDetail (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunDetail {
+        lifecycleSeq?: number;
+        lifecycle?: ActivityTurnLifecycle;
         runId: string;
         detailPruned: boolean;
         spans?: ActivitySpan[];
@@ -2883,6 +2895,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunRollup (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunRollup {
+        lifecycle?: ActivityTurnLifecycle;
         origin: string;
         name: string;
         sessionId: string | null;
@@ -2903,6 +2916,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunSummary (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunSummary {
+        lifecycle?: ActivityTurnLifecycle;
         runId: string;
         origin: ActivitySpanOrigin;
         name: string;
@@ -3019,6 +3033,40 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
+  ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnLifecycle {
+        hostEvents: Array<{
+            principalId: string;
+            kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
+            observedAt: number;
+        }>;
+        skippedPhases: Array<"governed" | "budget" | "journal">;
+        lifecycleId: string;
+        turnId: string;
+        sessionId: string | null;
+        backendRunId: string | null;
+        acceptedAt: number;
+        dequeuedAt: number | null;
+        governedStartedAt: number | null;
+        governedAcquiredAt: number | null;
+        budgetStartedAt: number | null;
+        budgetAdmittedAt: number | null;
+        journalStartedAt: number | null;
+        journalBeganAt: number | null;
+        backendInvokedAt: number | null;
+        firstFrameAt: number | null;
+        failureObservedAt: number | null;
+        endedAt: number | null;
+        outcome: ActivitySpanOutcome | null;
+        reason: string | null;
+        totalElapsedMs: number | null;
+        timeToFirstFrameMs: number | null;
+        queueWaitMs: number | null;
+        governedAdmissionMs: number | null;
+        budgetAdmissionMs: number | null;
+        journalBeginMs: number | null;
+        backendStartupMs: number | null;
+    }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
   AgentBackend (packages/ui-sdk/src/server/backend.ts)
@@ -8585,6 +8633,7 @@ signatures (every public export and the types it is made of)
     export type ScopeDimension = "files_changed" | "minutes" | "tool_calls" | "turn_bytes" | "free_space_floor";
   ServerActivityDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivityDelta {
+        lifecycle?: ActivityTurnLifecycle;
         type: "activity_delta";
         runId: string;
         seq: number;
@@ -8593,6 +8642,7 @@ signatures (every public export and the types it is made of)
     }
   ServerActivitySnapshot (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivitySnapshot {
+        lifecycles?: ActivityTurnLifecycle[];
         type: "activity_snapshot";
         view: ActivityView;
         sessionId?: string;
@@ -9159,6 +9209,7 @@ signatures (every public export and the types it is made of)
         turnBudgetMs?: number;
         maxBudgetUsd?: number;
         bridge: BackendBridge;
+        applicationAuthority?: "server";
         client?: ClientEnvironment;
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;
@@ -13095,6 +13146,55 @@ signatures (every public export and the types it is made of)
             truncated: z.ZodOptional<z.ZodBoolean>;
             ts: z.ZodNumber;
         }, z.core.$loose>>;
+        lifecycle: z.ZodOptional<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
         runId: z.ZodString;
         seq: z.ZodNumber;
         span: z.ZodOptional<z.ZodObject<{
@@ -13159,6 +13259,55 @@ signatures (every public export and the types it is made of)
             ts: z.ZodNumber;
         }, z.core.$loose>>;
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
+        lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -15335,6 +15484,55 @@ signatures (every public export and the types it is made of)
             ts: z.ZodNumber;
         }, z.core.$loose>>;
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
+        lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>>;
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         spans: z.ZodArray<z.ZodObject<{
@@ -15399,6 +15597,55 @@ signatures (every public export and the types it is made of)
             spanId: z.ZodString;
             truncated: z.ZodOptional<z.ZodBoolean>;
             ts: z.ZodNumber;
+        }, z.core.$loose>>;
+        lifecycle: z.ZodOptional<z.ZodObject<{
+            acceptedAt: z.ZodNumber;
+            backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendRunId: z.ZodNullable<z.ZodString>;
+            backendStartupMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
+            budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            dequeuedAt: z.ZodNullable<z.ZodNumber>;
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            failureObservedAt: z.ZodNullable<z.ZodNumber>;
+            firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
+            governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
+            governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
+            journalBeganAt: z.ZodNullable<z.ZodNumber>;
+            journalBeginMs: z.ZodNullable<z.ZodNumber>;
+            journalStartedAt: z.ZodNullable<z.ZodNumber>;
+            lifecycleId: z.ZodString;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            queueWaitMs: z.ZodNullable<z.ZodNumber>;
+            reason: z.ZodNullable<z.ZodString>;
+            sessionId: z.ZodNullable<z.ZodString>;
+            skippedPhases: z.ZodArray<z.ZodEnum<{
+                budget: "budget";
+                governed: "governed";
+                journal: "journal";
+            }>>;
+            timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
+            totalElapsedMs: z.ZodNullable<z.ZodNumber>;
+            turnId: z.ZodString;
         }, z.core.$loose>>;
         runId: z.ZodString;
         seq: z.ZodNumber;
