@@ -1686,3 +1686,14 @@ stays in the original turn. The states, exact hashes/diffs and authenticated
 same-request read are specified in the [HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
 No client field grants authority or activates policy. Approval writes only the
 reviewed server-held bytes; changed input requires a new proposal.
+
+### Claude title-helper accounting (#2052)
+
+No WebSocket field changes. Root result/live usage remains completed main/child
+response usage and excludes title-helper calls. Supported title-helper
+receipts become separate `Claude session title` Activity runs within the
+existing cumulative reconciliation transaction; overall/session totals retain
+helper spend once, and unmatched auxiliary usage remains unattributed. Export
+loss or unavailable attribution does not assign a helper to a model by guess
+or imply zero cost. The additive server-only evidence event is documented in
+[the package API contract](package-api.md#claude-title-helper-evidence-additive-2052).

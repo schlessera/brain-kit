@@ -4631,6 +4631,15 @@ signatures (every public export and the types it is made of)
         model: string;
         sessionId: string;
     } | {
+        kind: "claude_title_usage";
+        coverage: "observed" | "partial" | "unknown";
+        receipts: Array<{
+            receiptId: string;
+            source: "generate_session_title";
+            usage: import("../protocol.js").TurnUsage;
+            costUsd?: number;
+        }>;
+    } | {
         kind: "claude_session_usage";
         completed?: import("../protocol.js").TurnUsage;
         cumulative?: import("../protocol.js").TurnUsage;

@@ -389,7 +389,10 @@ export function makeBridge(
           && (!turn.sessionId || turn.sessionId === event.sessionId)) mainModel?.bind(event.model);
         return;
       }
-      if (event.kind === "claude_session_usage" && turn.turnId === turnId) {
+      if (event.kind === "claude_title_usage" && turn.turnId === turnId) {
+        claudeUsage = { ...claudeUsage, title: { receipts: event.receipts, coverage: event.coverage } };
+      }
+      else if (event.kind === "claude_session_usage" && turn.turnId === turnId) {
         claudeUsage = { ...claudeUsage, completed: event.completed,
           ...(event.cumulative ? { cumulative: event.cumulative, cumulativeCompleted: event.completed,
             reportedCostUsd: event.reportedCostUsd } : {}) };

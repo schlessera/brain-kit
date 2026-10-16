@@ -299,8 +299,9 @@ describe("a turn under the voice posture", () => {
     expect(turn.activity.map((event) => event.kind)).toEqual([
       "outward_classification", "permission_denied", "outward_classification",
       "outward_classification", "permission_denied", "outward_classification",
-      "permission_denied", "outward_classification",
+      "permission_denied", "outward_classification", "claude_title_usage",
     ]);
+    expect(turn.activity.at(-1)).toEqual({ kind: "claude_title_usage", receipts: [], coverage: "unknown" });
   });
 
   test("missing application handlers refuse brain_add and brain_update without cards", async () => {
@@ -391,7 +392,8 @@ for (const mode of ["voice", "chat"] as const) {
         expect(db.query("SELECT review_status FROM jobs ORDER BY id").all()).toEqual([
           { review_status: "queued" }, { review_status: "queued" },
         ]);
-        expect(turn.activity.map((event) => event.kind)).toEqual(["outward_classification", "outward_classification", "permission_denied", "outward_classification"]);
+        expect(turn.activity.map((event) => event.kind)).toEqual(["outward_classification", "outward_classification", "permission_denied", "outward_classification", "claude_title_usage"]);
+        expect(turn.activity.at(-1)).toEqual({ kind: "claude_title_usage", receipts: [], coverage: "unknown" });
       }
     } finally {
       db.close();
