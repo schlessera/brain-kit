@@ -3214,7 +3214,7 @@ brain-specific live/archive leaves; Pi supplies its already resolved session roo
 ### Host Storage reader (additive, #2010)
 
 `@schlessera/brain/storage` supports host-shell authors who need bounded live
-physical metadata without evaluating a content repository. Its sole operation
+physical metadata without evaluating a content repository. The operation
 `readStorageInventory({brainPath, gitRoots?, signal?})` returns a promise of the
 version-1 Storage inventory envelope, with the existing 100,000-entry/30-second
 limits and isolated/reaped filesystem worker. `brainPath` is absolute;
@@ -3222,7 +3222,7 @@ limits and isolated/reaped filesystem worker. `brainPath` is absolute;
 Invalid roots reject before traversal. The host must enforce user authorization;
 this is not an agent-facing filesystem browser.
 
-This entry executes neither Git nor the brain CLI, and loads no repository
+This inventory operation executes neither Git nor the brain CLI, and loads no repository
 configuration/providers. It reads only fixed Git location markers (`.git`,
 `commondir`, `objects/info/alternates`) through bounded non-followed descriptors,
 approving external stores before reading their markers. It supports ordinary
@@ -3252,3 +3252,34 @@ independent store/capacity measurements in the
 [maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
 They do not add an agent tool or generic executor. Existing automatic retention
 and owner APIs retain their previous defaults.
+
+### Selected attachment application (additive, 0.44.0, #2012)
+
+`@schlessera/brain/storage` additionally exports `STORAGE_ATTACHMENT_LIMITS`,
+`StorageAttachmentRefusal`, `storageAttachmentPath`, `inspectStorageAttachment`,
+`removeStorageAttachment`, `restoreStorageAttachment`, `storageAttachmentVacant`,
+`inspectStorageAttachmentFacts`, and the `StorageAttachmentVersion` and
+`StorageAttachmentFacts` types. The inventory reader keeps its existing contract.
+
+Raw-file operations bind an absolute canonical Linux root, relative path and
+exact descriptor-derived version (hash, size, mode, inode/stamp and parent chain).
+They refuse symlinks, aliases, nested mounts and executable/protected targets.
+The caller must own exclusive writer coordination, current human authorization,
+verified durable recovery and intent before calling removal. Its optional final
+`assertCurrent` callback revalidates authority immediately before unlink or restore;
+restoration uses a caller-leased verified original and never overwrites a present
+entry. These primitives neither provide a journal nor change its retention policy.
+Raw hashing supports cancellation and bounded file size/time.
+
+`inspectStorageAttachmentFacts(root, paths, signal?)` evaluates Git and bounded
+current Markdown. Hosted consumers must run it inside their qualified maintenance
+worker and discard outputs. It is not a privileged host-side Git reader, and its
+unchecked scopes prevent interpreting an empty reference list as proof of no
+consumers. Core semantics have no dependency on the UI database. Server contracts
+and bounds are defined by the [removal HTTP contract](../http-api.md#recoverable-attachment-removal-additive-2012).
+
+`@schlessera/brain-ui-sdk/protocol` exports `StorageRemovalReviewRequest`,
+`StorageRemovalStartRequest`, `StorageRemovalUndoRequest`, `StorageRemovalFile`,
+`StorageRemovalReview`, `StorageRemovalItem`, `StorageRemovalReceipt` and
+`StorageRemovalCapability`. They contain relative paths and opaque identities,
+never private recovery roots, executable choices or credentials.

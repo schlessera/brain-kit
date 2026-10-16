@@ -501,3 +501,12 @@ Hierarchy pages separate per-subtree object-union `totals` from disjoint sibling
 `area`, preserve alias names and unknown coverage, and bind cursors to the tree
 operation and its search/order/ownership criteria. Projection uses retained scan
 evidence only. Entry search/order is additive; absent options preserve ordering.
+
+### Recoverable attachment removal (additive, #2012)
+
+The six [attachment removal operations](../http-api.md#recoverable-attachment-removal-additive-2012)
+and SDK `StorageRemoval*` review/capability/receipt types are additive contracts.
+They bind current human-owner authority, exact versioned selections and durable
+identities to charged retained originals. Unknown outcomes never authorize
+replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
+with actual journal detail. Existing Markdown application semantics are unchanged.

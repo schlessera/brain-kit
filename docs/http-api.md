@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 145 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 151 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -26,6 +26,12 @@ client code has a gap. Source owners are listed after the table.
 
 | Method | Path | Class | Purpose | Consumers, existing promise and reason |
 | --- | --- | --- | --- | --- |
+| GET | `/api/storage/removals` | S | Read removal capability and latest receipt | Current human-owner authority; exact canonical attachments only. |
+| POST | `/api/storage/removals/reviews` | S | Review exact attachment paths | Bound versions, consequences and recovery coverage before confirmation. |
+| POST | `/api/storage/removals/undo-reviews` | S | Review retained originals for Undo | New identity and current absent-target checks. |
+| POST | `/api/storage/removals` | S | Confirm one reviewed selection | Durable intent and verified originals precede unlink. |
+| GET | `/api/storage/removals/:id` | S | Read a removal or Undo receipt | Principal-bound readback never replays effects. |
+| DELETE | `/api/storage/removals/:id` | S | Cancel remaining selected items | Current acknowledgement finishes; completed effects remain. |
 | GET | `/api/storage/maintenance` | S | Read approved maintenance rows and latest receipts | Current human-owner authority; three fixed owners only. |
 | POST | `/api/storage/maintenance` | S | Admit one identified maintenance operation | Durable owner-bound identity and credential-free worker execution. |
 | GET | `/api/storage/maintenance/:id` | S | Read the original operation receipt | Readback never replays an effect. |
@@ -178,7 +184,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 145 declared endpoints are mounted regardless of backend, renderer or
+All 151 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1367,3 +1373,95 @@ Packing alone requires content core 0.44.0 or newer. Older installations produce
 an explicit refusal; the ordinary server CLI minimum remains 0.42.0. Hosted CLI
 operations use only the qualified credential-free maintenance worker; unsupported
 hosts do not fall back to executing repository code on the host.
+
+## Recoverable attachment removal (additive, #2012)
+
+The six `/api/storage/removals` operations require current owner/ambient human
+access and return private, no-store responses. Missing authentication is 401;
+delegated callers are 403. Receipts belong to their initiating principal and an
+unknown or another principal's identity returns 404. Origin protections apply
+to writes; JSON is mandatory for POST. No agent tool gains deletion authority.
+
+GET returns SDK `StorageRemovalCapability`: `available`, `reason`, fixed limits
+and `latest` receipt or null. Unsupported native recovery/worker hosts report
+unavailable. POST `/reviews` accepts exactly `{id, paths}` and POST
+`/undo-reviews` exactly `{id, sourceId, paths}`. IDs use 16–96 ASCII letters,
+digits, `_` or `-`; at most 32 distinct canonical relative paths, 4096 bytes per
+path, 32 components, 64 MiB per file and 128 MiB of eligible file bytes are
+admitted. Review bodies are bounded to 140,000 bytes. Paths do not choose roots,
+executables, commands, sidecars or a wider scope. One review per coordinator
+runs at a time, with a 60-second deadline and a ten-minute confirmation window.
+
+Review returns a durable `StorageRemovalReceipt` in `review` state. Its review
+contains the identity, action, optional source identity, opaque fingerprint,
+observation/expiry times, selected logical file bytes, unchecked scopes and
+per-file eligibility/reason, raw hash/size, Git state, current reference evidence
+and recovery state. File bytes are not promised freed space. Originals are
+`requires-retention` until execution actually retains them; Undo reviews say
+`retained` only for an available original. Excluded targets remain visible.
+
+Eligibility is limited to ordinary single-link non-executable attachments with
+supported media, PDF, office/archive or ebook suffixes. Hidden paths, policies,
+scripts, workspaces, configured other-owner stores, symlinks, hard links and
+nested mounts remain ineligible. Unknown protection or current recovery coverage
+refuses effects. Ordinary journal exclusions are preserved, including ignored
+files. Filename eligibility does not establish document validity or safe preview.
+
+The consequence worker scans at most 10,000 directory entries, 2000 Markdown
+files, 8 MiB of Markdown overall and 512 KiB per file; it records up to 200
+reference sources per selected file. Git subprocesses have two-second/1 MiB
+bounds; the enclosing credential-free worker has a 30-second/256 KiB output
+bound. It does not initialize brain config and discards every output, including
+incidental Git writes. Current parsed Markdown references are independent of
+index freshness. Retained conversations, external consumers, hidden/symlinked
+content, other workspaces and unsupported link syntax remain unchecked. Incomplete
+local evidence is ineligible; absence of observed links never proves no consumers.
+
+POST at `/api/storage/removals` accepts `{id, fingerprint}` in at most 4096 bytes
+and returns 202. It confirms exactly that review; mismatched or expired reviews
+are 409. Repeating an admitted identity reads its receipt without repeating any
+file effect. Removal and Undo serialize across processes through the existing
+exclusive writer gate and brain/Git locks. Active turns finish before validation;
+nested shared maintenance can still finish while removal waits. Current
+principal authority, selected versions, topology, protection, ordinary retention
+coverage and consequences are rechecked after admission and before effects.
+Unknown external writers outside the managed admission system are not coordinated
+by these locks; this is not an arbitrary filesystem cleanup service.
+
+Verified before-bytes use the existing charged native journal/CAS. The original
+and durable item intent precede unlink; admission, quota or ENOSPC refusal leaves
+the source intact. No new ignore override, retention policy, Git-history removal,
+reference rewriting, sidecar cascade, commit or push is introduced. Undo gets a
+new review/identity and uses retained bytes only while their owner still provides
+them. It checks the reviewed parent chain and creates only an absent destination;
+a replacement is never overwritten. A failed copy removes only its own incomplete
+inode, preserving the retained original.
+
+GET `/:id` returns the original receipt. DELETE `/:id` requests cancellation and
+returns 202; later items stop while the current critical acknowledgement finishes.
+Receipts distinguish `not-started`, `applying`, `removed`, `restored`, `changed`,
+`protected`, `failed` and `unknown` items. Operation states are `review`, `waiting`,
+`running`, `complete`, `partial`, `refused`, `cancelled` and `unknown`. A killed
+owner or lost acknowledgement remains explicit uncertainty, never inferred
+success or a replay. Confirmed successes survive mixed batches. `undoAvailable`
+and `undoReason` are recomputed from the original's current retention ownership;
+expired or unavailable detail visibly removes the Undo offer.
+
+Before/after observations separately record current content, journal, Git,
+operational database and volume availability, with timestamp, basis, coverage and
+concurrent-writer qualification. `index` is separately `not-requested`, `complete`
+or `unavailable`; refresh publication is restricted to the fixed disposable
+`brain.db` files, so configuration code cannot publish changes to unselected
+content through this refresh. Commit/sync remain `not-requested`, Git history unchanged by
+this operation and backups unmeasured. Deletion can initially increase allocation.
+
+The operation's queue and effects have a five-minute cancellation deadline;
+index refresh and after-measurement each have an independent 36-second bound.
+Individual raw hashes have a 15-second deadline. Kernel uninterruptible I/O cannot
+guarantee a hard return time. Public receipt and private version metadata each
+reserve 256 KiB through the existing journal allocation owner. The per-brain
+admission ceiling is 128 identities; reaching it refuses new reviews with 503 and
+retains existing receipts. This is an admission bound, not a new retention expiry.
+Invalid requests are 400, oversized bodies 413, wrong content type 415, contention
+409 and unavailable evaluation/recovery/admission 503 or an explicit refused/failed
+receipt. The Storage pane is delivered by its complete UI issue.

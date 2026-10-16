@@ -1320,6 +1320,7 @@ signatures (every public export and the types it is made of)
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): Promise<void>;
         finishReserved(turnId: string): void;
+        hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
         isHeld(): boolean;
         observe(): Promise<void>;
@@ -1332,7 +1333,9 @@ signatures (every public export and the types it is made of)
             after(completed: boolean): void;
             before(): void;
         }): () => boolean;
+        removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
+        retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
             bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
@@ -1342,6 +1345,7 @@ signatures (every public export and the types it is made of)
                 bytes: number;
             };
         };
+        withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): T;
         withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T;
         writeOperation<T>(write: () => T): T;
     };

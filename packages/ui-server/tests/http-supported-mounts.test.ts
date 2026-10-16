@@ -16,6 +16,12 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // More detailed existing behavior checks are linked by the coverage matrix;
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
+  "GET /api/storage/removals": { verify: async r => { const value = await r.json(); expect(value).toHaveProperty("available"); expect(value.limits.items).toBe(32); } },
+  "POST /api/storage/removals/reviews": { init: json("POST", { id: "odysseus-mounted-review", paths: [] }), status: 400, body: {error:"Select bounded attachment paths and a new review identity."} },
+  "POST /api/storage/removals/undo-reviews": { init: json("POST", {}), status: 400, body: {error:"Select retained originals from one removal and a new Undo identity."} },
+  "POST /api/storage/removals": { init: json("POST", {id:"odysseus-mounted-missing",fingerprint:"a".repeat(64)}), status:404, body:{error:"Attachment review unavailable."} },
+  "GET /api/storage/removals/:id": {path:"/api/storage/removals/missing",status:404,body:{error:"Attachment receipt unavailable."}},
+  "DELETE /api/storage/removals/:id": {path:"/api/storage/removals/missing",init:{method:"DELETE"},status:404,body:{error:"Attachment receipt unavailable."}},
   "GET /api/storage/maintenance": { verify: async r => { const value = await r.json(); expect(value.operations.map((operation: {id: string}) => operation.id)).toEqual(["pack-git", "prune-scratch", "cleanup-staging"]); } },
   "POST /api/storage/maintenance": { init: json("POST", { id: "odysseus-mounted-001", operation: "pack-git" }), status: 202, body: { id: "odysseus-mounted-001", operation: "pack-git" } },
   "GET /api/storage/maintenance/:id": { path: "/api/storage/maintenance/missing", status: 404, body: { error: "Maintenance receipt unavailable." } },

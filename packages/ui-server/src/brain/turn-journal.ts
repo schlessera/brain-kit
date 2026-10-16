@@ -34,8 +34,8 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number }>();
-  const capture = createNativeJournalCapture(options.nativeManager, async (source, bytes) => {
-    const hash = await retainAsync(() => objects.putFileAsync(source, bytes));
+  const capture = createNativeJournalCapture(options.nativeManager, async (source, bytes, signal) => {
+    const hash = await retainAsync(() => objects.putFileAsync(source, bytes, signal));
     // Pin the shared observation before another admission can collect objects.
     retain(() => accounting.write(() => {
       for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
@@ -298,6 +298,28 @@ export function createTurnJournal(db: Database, options: {
         collectObjects(); publish(turnId);
       }
     }); },
+    /** Ordinary current coverage only; never adds selected paths to ignored content. */
+    removalCoverage(paths: readonly string[], signal?: AbortSignal, absent = false): Promise<boolean[]> { return held(async () => {
+      if (paths.length > 32) throw new JournalStorageUnavailable("Too many selected attachments.");
+      await capture.initialize(signal); await observe(); signal?.throwIfAborted();
+      const policy = await capture.policy();
+      return paths.map(path => absent ? capture.allowed(path, policy) : capture.eligible(path, policy));
+    }); },
+    /** Targeted user removal retains its original before effects; no ignore/retention override. */
+    retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null> { return held(async () => {
+      const turn = active.get(turnId);
+      if (!turn || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("A complete active journal is required before removal.");
+      const before = version(await capture.retainBefore(path, turn.policy, signal));
+      if (!before || before.ignored || before.kind !== "file" || !before.hash) return null;
+      accounting.write(() => pin(turnId, before));
+      if (!objects.verify(before.hash, before.bytes)) throw new JournalStorageUnavailable("The retained original could not be verified.");
+      return before;
+    }); },
+    hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
+      if (!selected.hash || selected.ignored || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
+      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
+      try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
+    },
     /** All operation metadata uses the journal's existing physical allocation owner. */
     writeOperation<T>(write: () => T): T { return accounting.write(write); },
     reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]) {
@@ -315,6 +337,15 @@ export function createTurnJournal(db: Database, options: {
         db.query("UPDATE turn_journal_turns SET ended_at=?,state='partial',failure='revert_not_observed' WHERE turn_id=? AND ended_at IS NULL").run(now(), turnId);
         db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
       }); collectObjects();
+    },
+    /** Acquire the read lease while the selected source still owns its original. */
+    withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): T {
+      if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained original is unavailable");
+      const lease = accounting.openRead(selected.hash, () => {
+        if (!db.query("SELECT 1 FROM turn_journal_object_refs r JOIN turn_journal_turns t ON t.turn_id=r.turn_id WHERE r.turn_id=? AND r.hash=? AND t.state IN ('complete','partial') AND t.ended_at IS NOT NULL").get(turnId, selected.hash!)) throw new JournalStorageUnavailable("original retention ownership expired before admission");
+      });
+      try { return objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
+      finally { try { accounting.releaseRead(lease); } catch { pendingReadReleases.add(lease); } }
     },
     withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T {
       if (!selected || selected.kind === "symlink") return apply(() => {});
