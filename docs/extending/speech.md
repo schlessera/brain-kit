@@ -227,3 +227,32 @@ The public conformance probe's optional `recording()` observes actual forwarded
 bytes, content type, keyterms and returned text; it is required when this method
 is implemented. The [saved-audio tests](../../packages/ui-server/tests/saved-transcription.test.ts)
 exercise a fake provider through the real mounted routes without service keys.
+
+## Live conversation with Gemini
+
+Conversation is separate from dictation. Register the fixed Gemini adapter
+explicitly; the server receives the API key as a value, without adding a new
+environment variable or sending a credential to client discovery:
+
+```ts
+import { createApp, createGeminiConversationProvider } from "@schlessera/brain-ui-server";
+
+const app = await createApp({
+  // Supply the remaining host options as usual.
+  conversationProvider: createGeminiConversationProvider(serverOwnedApiKey),
+});
+```
+
+`serverOwnedApiKey` comes from the host's protected credential source. The
+adapter publishes model/API/audio formats and destination disclosure. Host
+work stays on the normal backend bridge, so chat progress and interactive
+cards continue while the native async request awaits its result. Audio input
+can continue during that work; a previous input needs its transcription finish
+marker before a new utterance can be attributed safely. Missing finalization
+ends the epoch rather than guessing from model completion.
+
+This does not enable a client conversation UI or certify live provider/device
+behavior. Exact permission audio, acoustic echo isolation and word alignment
+remain unproven until separate qualification. See the
+[conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
+and [qualification plan](../investigations/live-conversation-investigation.md#bounded-live-verification-plan).
