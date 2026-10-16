@@ -319,8 +319,6 @@ signatures (every public export and the types it is made of)
         toleranceM: number;
         attribution: string;
     }
-  ColorScheme (packages/ui-react/src/lib/light-dark.ts)
-    export type ColorScheme = "light" | "dark";
   ConnectionGate (packages/ui-react/src/components/connectivity/connection-gate.tsx)
     export function ConnectionGate({ children }: {
         children: ReactNode;
@@ -518,7 +516,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   MermaidTheme (packages/ui-react/src/lib/mermaid-theme.ts)
-    export type MermaidTheme = ColorScheme;
+    export type MermaidTheme = ContentRendererTheme;
   MessageAttachment (packages/ui-react/src/stores/chat-state.ts)
     export interface MessageAttachment {
         previewUrl: string;
@@ -1248,7 +1246,7 @@ signatures (every public export and the types it is made of)
   hasUnsentText (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function hasUnsentText(): boolean;
   inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
-    export function inlineMermaidDiagrams(md: string, theme?: MermaidTheme): Promise<string>;
+    export function inlineMermaidDiagrams(markdown: string, theme?: MermaidTheme): Promise<string>;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
