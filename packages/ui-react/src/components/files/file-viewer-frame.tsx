@@ -84,7 +84,7 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
 
 export function ViewerLoading() {
   return (
-    <div className="px-6 py-6" aria-label="Loading file">
+    <div className="px-6 py-6" role="group" aria-label="Loading file">
       <Placeholder variant="loading" lines={5} bordered={false} pad={0} />
     </div>
   );
