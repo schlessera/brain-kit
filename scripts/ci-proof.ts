@@ -1,4 +1,7 @@
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
+import { requireCandidate, validateSelections } from "./candidate-proof";
+import { cpus, freemem, totalmem } from "node:os";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
@@ -8,8 +11,8 @@ import { resolveBrowserPin } from "./captures/provenance";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "endurance"] as const;
+export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "endurance";
 
 /** Aggregate requires passed selected jobs; missing/false-looking output is not proof. */
 export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>, retained: ReadonlySet<string> = new Set()): string[] {
@@ -45,13 +48,15 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     "--timings=tmp/unit-timings.json", "--update-timings"], env: { BRAIN_REQUIRE_CHROME: "1" } }];
   const names: Record<Exclude<ProofCategory, "unit">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
-    layout: ["workspace build for real browser checks", "complete pinned layout/offline/endurance suite"],
+    layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
+    endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
     captures: ["editorial provenance and reproducibility"],
     runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "shared-process Chrome then child cleanup"],
   };
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
   if (category === "captures") selected.unshift({ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] });
+  if (category === "browser" || category === "layout" || category === "endurance") selected.at(-1)!.argv.push("--proof-report");
   if (shard && (category === "browser" || category === "layout")) selected.at(-1)!.argv.push(`--shard=${shard}`);
   return selected;
 }
@@ -62,6 +67,8 @@ if (import.meta.main) {
       const needs = JSON.parse(process.env.PROOF_NEEDS ?? "null");
       const root = resolve(import.meta.dir, "..");
       const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : {};
+      if (process.env.GITHUB_ACTIONS === "true") validateSelections(root, event, process.env, needs?.changeset?.outputs);
+      await requireCandidate(root, event, process.env);
       const context = contextFromEvent(event, process.env);
       const value = needs?.changeset?.outputs?.reuse;
       const retained = value ? await retainedCategories(root, JSON.parse(value), context,
@@ -75,7 +82,7 @@ if (import.meta.main) {
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime"].includes(category)) throw new Error("Unknown proof category");
+      if (!["unit", "browser", "layout", "captures", "runtime", "endurance"].includes(category)) throw new Error("Unknown proof category");
       const shard = process.argv[3]?.replace(/^--shard=/, "");
       if (process.argv.length > 4 || (process.argv[3] && !process.argv[3].startsWith("--shard="))) throw new Error("Unexpected proof argument");
       const plan = await Bun.file(process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json")).json() as CheckPlan;
@@ -106,7 +113,33 @@ if (import.meta.main) {
         const { image } = await resolveBrowserPin(root);
         commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
       }
-      await runCommands(commands, root, 1);
+      const started = performance.now();
+      const cpu = () => cpus().reduce((sum, core) => sum + core.times.user + core.times.nice + core.times.sys + core.times.irq, 0) / 1000;
+      const cpuStart = cpu();
+      let samples = 0, peakUsedBytes = 0;
+      const sample = () => {
+        const available = process.platform === "linux" ? Number(/^MemAvailable:\s+(\d+)/m.exec(readFileSync("/proc/meminfo", "utf8"))?.[1]) * 1024 : freemem();
+        if (!Number.isFinite(available)) return;
+        samples++; peakUsedBytes = Math.max(peakUsedBytes, totalmem() - available);
+      };
+      sample(); const sampler = setInterval(sample, 1000);
+      const phases: { name: string; elapsedSeconds: number; success: boolean }[] = [];
+      try {
+        for (const command of commands) {
+          const start = performance.now(); let success = false;
+          try { await runCommands([command], root, 1); success = true; }
+          finally { phases.push({ name: command.name, elapsedSeconds: (performance.now() - start) / 1000, success }); }
+        }
+      } finally {
+        clearInterval(sampler); sample();
+        const resources = { category, shard, checkout: { sha, tree, parents },
+          elapsedSeconds: (performance.now() - started) / 1000, phases,
+          machine: { logicalCpus: cpus().length, totalBytes: totalmem(), sampledPeakUsedBytes: peakUsedBytes,
+            activeCpuSeconds: cpu() - cpuStart, samples, samplingSeconds: 1 },
+          scope: "VM-wide during proof commands, including container work; setup/install and queue are measured separately by job steps. Sampling is not an exact process peak." };
+        await Bun.write(join(root, "tmp/proof-resources.json"), JSON.stringify(resources, null, 2));
+        console.log(`BRAIN_RESOURCE_RECEIPT ${JSON.stringify(resources)}`);
+      }
       if (inputs) {
         if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Reusable execution changed tracked inputs");
         console.log(RECEIPT_MARKER + JSON.stringify({ version: 1, category, shard, checkout: checkout(root), inputs }));
