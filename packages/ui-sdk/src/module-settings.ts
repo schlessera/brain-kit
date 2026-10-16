@@ -65,6 +65,8 @@ export interface ModuleSettingsFailure {
 }
 
 export interface ConfiguredModule {
+  /** Renderer metadata only; server consumers never import these specifiers. */
+  renderers?: Record<string, { fences?: string[]; extensions?: string[]; client: string; static?: string }>;
   name: string;
   key: string;
   description: string | null;
