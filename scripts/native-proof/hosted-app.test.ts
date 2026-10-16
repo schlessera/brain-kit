@@ -8,6 +8,7 @@ import { observeIndexDescendants } from "./native-worker-lifetime.js";
 import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
+import { proveRecoveryInventory } from "./recovery-inventory.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -431,3 +432,8 @@ if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor rele
     try { await client.release(id); } finally { await service.close(); }
   }
 }, 90_000);
+
+
+if (BACKEND === "claude" && APP_UID === 1000) test("native recovery pages bound indexed work across retained identity growth (#1792)", async () => {
+  await proveRecoveryInventory(ARTIFACTS);
+}, 120000);

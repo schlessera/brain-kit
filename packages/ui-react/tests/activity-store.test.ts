@@ -2,8 +2,10 @@
  * The client activity mirror: seq-discard (AE6 client half), idempotent
  * delta application, and the selectors the timeline and drill-in render from.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
-import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { ActivitySpan, ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+
+import { serverActivitySnapshotSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 import {
   useActivityStore,
@@ -26,18 +28,43 @@ function span(overrides: Partial<ActivitySpan> & { spanId: string; runId: string
   };
 }
 
-beforeEach(() => {
-  useActivityStore.setState({
-    supported: false,
-    lifecycles: {},
-    subscribed: {},
-    spans: {},
-    events: {},
-    highWater: {},
-    deltaSeq: {},
-    spanRun: {},
-  });
+function resetActivityStore() {
+  const store = useActivityStore.getState();
+  store.setSupported(false);
+  store.clear();
+  useActivityStore.setState({ subscribed: {}, inbox: [], connectionEpoch: 0 });
+}
+
+beforeEach(resetActivityStore);
+afterEach(resetActivityStore);
+afterAll(() => {
+  expect(useActivityStore.getState().lifecycles, "LIFECYCLE_TESTS_LEAVE_DEFAULT_STORE_EMPTY").toEqual({});
+  expect(useActivityStore.getState().highWater).toEqual({});
+  expect(useActivityStore.getState().deltaSeq).toEqual({});
 });
+
+function lifecycleFixture(overrides: Partial<ActivityTurnLifecycle> = {}): ActivityTurnLifecycle {
+  return {
+    lifecycleId: "lifecycle:ithaca-turn", turnId: "ithaca-turn", sessionId: null,
+    backendRunId: null, acceptedAt: 100, dequeuedAt: null,
+    governedStartedAt: null, governedAcquiredAt: null,
+    budgetStartedAt: null, budgetAdmittedAt: null,
+    journalStartedAt: null, journalBeganAt: null,
+    backendInvokedAt: null, firstFrameAt: null, failureObservedAt: null,
+    endedAt: null, outcome: null, reason: null,
+    totalElapsedMs: null, timeToFirstFrameMs: null, queueWaitMs: null,
+    governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null,
+    backendStartupMs: null, hostEvents: [], skippedPhases: [],
+    ...overrides,
+  };
+}
+
+function expectValidLifecycle(lifecycle: ActivityTurnLifecycle) {
+  expect(serverActivitySnapshotSchema.safeParse({
+    type: "activity_snapshot", view: "index", spans: [], events: [],
+    lifecycles: [lifecycle], highWaterSeq: {},
+  }).success, "LIFECYCLE_FIXTURE_SATISFIES_WIRE_SCHEMA").toBe(true);
+}
 
 describe("snapshot-then-delta (AE6 client half)", () => {
   test("a delta at or below the snapshot high-water is discarded", () => {
@@ -460,7 +487,8 @@ describe("selectors", () => {
 
 test("lifecycle sequencing is independent of backend state and stale snapshots cannot reopen terminal admission",()=>{
   const s=useActivityStore.getState();
-  const lifecycle={lifecycleId:"lifecycle:ithaca-turn",turnId:"ithaca-turn",acceptedAt:100,endedAt:null,outcome:null} as import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle;
+  const lifecycle = lifecycleFixture();
+  expectValidLifecycle(lifecycle);
   s.applySnapshot({type:"activity_snapshot",view:"run",runId:"ithaca-turn",spans:[],events:[],lifecycles:[lifecycle],highWaterSeq:{[lifecycle.lifecycleId]:2}});
   const terminal={...lifecycle,endedAt:300,outcome:"denied" as const};
   s.applyDelta({type:"activity_delta",runId:lifecycle.lifecycleId,seq:3,lifecycle:terminal});
@@ -474,7 +502,8 @@ test("lifecycle sequencing is independent of backend state and stale snapshots c
 
 test("terminal lifecycle eviction also bounds its independent sequence indexes",()=>{
   const s=useActivityStore.getState();
-  const lifecycles=Array.from({length:101},(_,index)=>({lifecycleId:`lifecycle:ithaca-${index}`,turnId:`ithaca-${index}`,acceptedAt:index,endedAt:index+1,outcome:"success"} as import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle));
+  const lifecycles=Array.from({length:101},(_,index)=>lifecycleFixture({lifecycleId:`lifecycle:ithaca-${index}`,turnId:`ithaca-${index}`,acceptedAt:index,endedAt:index+1,outcome:"success",totalElapsedMs:1}));
+  for (const lifecycle of lifecycles) expectValidLifecycle(lifecycle);
   s.applySnapshot({type:"activity_snapshot",view:"index",spans:[],events:[],lifecycles,highWaterSeq:Object.fromEntries(lifecycles.map(item=>[item.lifecycleId,1]))});
   const held=useActivityStore.getState();expect(Object.keys(held.lifecycles)).toHaveLength(100);
   expect(held.highWater["lifecycle:ithaca-0"]).toBeUndefined();expect(held.lifecycles["ithaca-100"]).toBeDefined();
