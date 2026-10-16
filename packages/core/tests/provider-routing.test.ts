@@ -87,10 +87,11 @@ test("the actual Gemini SDK recipient is resolved from its fixed transport and c
     if(calls.length!==1||!calls[0].startsWith("https://generativelanguage.googleapis.com/"))throw Error("allowed recipient did not execute actual SDK request");
     if(db.query("SELECT count(*) AS n FROM vec_chunks").get().n<2)throw Error("allowed multi-chunk SDK embeddings were not persisted");
     if(completions)throw Error("allowed embedding identity authorized a separate completion route");
+    db.run("DELETE FROM vec_chunks"); // Force the substituted method to execute if admission is broken.
     const originalEmbed=provider.embed;let substituted=0;
     provider.embed=async texts=>{substituted++;return texts.map(()=>new Float32Array(16));};
     await indexAll(db,{...options,force:true});
-    if(substituted)throw Error("substituted method borrowed installed factory authority");
+    if(substituted)throw Error("SUBSTITUTED_PROVIDER_METHOD_RECEIVED_PROTECTED_CONTENT");
     provider.embed=originalEmbed;
     process.env.GOOGLE_GEMINI_BASE_URL="https://proxy.invalid";
     if(await geminiEmbeddingRecipient(provider)!=="google")throw Error("constructed client borrowed later environment");
