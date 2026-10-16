@@ -734,7 +734,11 @@ records the approved request boundary and override policy.
 The concrete synchronous `@schlessera/brain/queries` entry supports
 `readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
 `readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
-`readVoiceVocabulary`, `listIndexDocuments` and `findIndexDocuments`.
+`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments` and
+`readStorageReferences`. The additive Storage operation takes `{brainPath, path}`
+and returns the common query envelope with `{sources: [{path, indexedAt}], truncated}`.
+It limits resolved incoming sources to 200, reads index metadata only, and refuses
+a symlinked index. Zero observed sources never establishes that a file is unused.
 Its [complete API specification](../content-index-queries.md) is part of this
 contract: signatures/reachable exports, validation/defaults/caps/order,
 detached result and safe error envelopes, feature compatibility, read-only
@@ -3196,3 +3200,43 @@ explanation. `showActions={false}` and closed exchanges still omit actions.
 The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
+
+### Backend Storage roots (additive, #2010)
+
+`AgentBackend.storageRoots?()` is a synchronous host-only observation of already
+owned transcript/archive roots: `readonly {kind: "transcripts" | "archive";
+path: string}[]`. It performs no setup or provider discovery. The server consults
+only already initialized owners, never passes these paths to a worker bridge,
+and converts them into opaque root IDs before transport. Older backends remain
+valid and report unavailable transcript accounting. Claude supplies its exact
+brain-specific live/archive leaves; Pi supplies its already resolved session root.
+
+### Host Storage reader (additive, #2010)
+
+`@schlessera/brain/storage` supports host-shell authors who need bounded live
+physical metadata without evaluating a content repository. Its sole operation
+`readStorageInventory({brainPath, gitRoots?, signal?})` returns a promise of the
+version-1 Storage inventory envelope, with the existing 100,000-entry/30-second
+limits and isolated/reaped filesystem worker. `brainPath` is absolute;
+`gitRoots` contains at most sixteen explicitly approved absolute external stores.
+Invalid roots reject before traversal. The host must enforce user authorization;
+this is not an agent-facing filesystem browser.
+
+This entry executes neither Git nor the brain CLI, and loads no repository
+configuration/providers. It reads only fixed Git location markers (`.git`,
+`commondir`, `objects/info/alternates`) through bounded non-followed descriptors,
+approving external stores before reading their markers. It supports ordinary
+worktrees and linked-worktree/alternate layouts; unsupported markers, redirects,
+mount transitions and encodings remain partial evidence. It does not implement
+Git configuration semantics or discover a repository from parent directories.
+Host-selected root aliases retain the inventory's canonical-root semantics.
+
+The ordinary standalone `brain storage inventory` CLI retains its existing Git
+resolver contract and must run through the maintenance boundary when invoked by
+a governed server. The HTTP inventory uses the public metadata reader so it
+measures the canonical live objects, not a maintenance worker's native copy.
+The same structural inventory schema is consumed; available allocation is still
+a qualified charge and never a reclaimability guarantee. Bun/types/default
+exports resolve source/declarations/build from the same release. Older core
+installations without this entry produce unavailable inventory, with no CLI or
+internal-import fallback.

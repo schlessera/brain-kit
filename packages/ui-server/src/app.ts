@@ -1,3 +1,6 @@
+import { createStorageCoordinator } from "./storage/coordinator.js";
+import { createStorageRoutes } from "./routes/storage.js";
+import type { StorageStore } from "./storage/collect.js";
 import { recordGovernanceEvent } from "./governance/events.js";
 import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
@@ -801,6 +804,34 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
   app.route("/api", createJournalRoutes({ journal }));
+  const storageStores: StorageStore[] = [{ path: journalRoot, label: "Retained file history", category: "journal", owner: "app", recursive: true }];
+  for (const [path, label] of [[config.dbPath, "Operational database"], [nativeLeasePath, "Native lease database"]] as const) {
+    if (!path || path === ":memory:") continue;
+    for (const suffix of ["", "-wal", "-shm", "-journal"]) storageStores.push({ path: resolve(path + suffix), label: label + suffix, category: "database", owner: "app", recursive: false, optional: suffix !== "" });
+  }
+  for (const [index, path] of (config.storage?.backupRoots ?? []).entries()) storageStores.push({ path, label: `Backup store ${index + 1}`, category: "backup", owner: "operator", recursive: true });
+  const storage = createStorageCoordinator({ brainPath: config.brainPath, stores: storageStores, gitRoots: [...config.storage?.gitRoots ?? []],
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+    unavailable: [
+      { label: "Native checkpoints and output", category: "native", owner: "app", reason: "shared-native-allocation-unavailable" },
+      { label: "Live temporary stores", category: "temporary", owner: "app", reason: "private-runtime-usage-unavailable" },
+    ],
+    storesNow() {
+      const stores: StorageStore[] = [], unavailable: Array<{ label: string; category: "transcripts"; owner: "app"; reason: string }> = [];
+      const quarantine = hostExecution.quarantinePath();
+      if (quarantine) stores.push({ path: quarantine, label: "Quarantined changes", category: "journal", owner: "app", recursive: true, optional: true });
+      const backends = registry.peekBackends?.();
+      if (!backends) unavailable.push({ label: "Backend transcripts", category: "transcripts", owner: "app", reason: "backend-owner-not-initialized" });
+      for (const backend of backends ?? []) {
+        if (!backend.storageRoots) { unavailable.push({ label: `${backend.id} transcripts`, category: "transcripts", owner: "app", reason: "backend-storage-unsupported" }); continue; }
+        try { for (const location of backend.storageRoots()) stores.push({ path: location.path, label: `${backend.id} ${location.kind}`, category: "transcripts", owner: "app", recursive: true, optional: true }); } catch { unavailable.push({ label: `${backend.id} transcripts`, category: "transcripts", owner: "app", reason: "backend-roots-unavailable" }); }
+      }
+      return { stores, unavailable };
+    },
+  });
+  bootCleanup.push(() => storage.close());
+  app.route("/api", createStorageRoutes(storage));
+
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
@@ -934,6 +965,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
+      await attempt(() => storage.close());
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());

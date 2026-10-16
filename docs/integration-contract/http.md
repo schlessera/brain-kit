@@ -481,3 +481,23 @@ Both effects remain user journal entries, with existing conflict-safe Undo.
 Partial writes or unavailable storage remain partial/unknown, not an atomic
 merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
 and cross-session restrictions remain binding.
+
+### Human-only Storage inventory (additive, #2010)
+
+The six [Storage inventory operations](../http-api.md#storage-inventory) and
+SDK `StorageStatus`, `StorageSnapshot`, `StoragePage`, `StorageFileEntry`,
+`StorageReferenceEvidence`, `StorageTreePage`, `StorageTreeNode` and related types are additive contracts. They bind
+authorization, configured-root scope, bounded output/lifetime, opaque cursors,
+object/capacity deduplication and explicit partial/unknown semantics. This
+transport foundation does not register a pane or authorize cleanup.
+
+Storage pages distinguish `fileLogicalTotal` (logical bytes per matching regular-file
+entry, including aliases) from `totals` (the deduplicated physical-object union).
+Empty unavailable ownership views carry null bytes, not zero. Capacity `kind`
+identifies `tmpfs` as memory-backed; `filesystem` does not promise exclusive disk
+ownership and `unknown` cannot be drawn as healthy capacity.
+
+Hierarchy pages separate per-subtree object-union `totals` from disjoint sibling
+`area`, preserve alias names and unknown coverage, and bind cursors to the tree
+operation and its search/order/ownership criteria. Projection uses retained scan
+evidence only. Entry search/order is additive; absent options preserve ordering.
