@@ -58,6 +58,12 @@ requested runtime remains free to install its own handlers. A host needs
 GNU `env` with this option; a missing or unsupported binary fails the real
 worker probe and refuses agent turns.
 
+On Btrfs, the trusted Python filesystem filter runs after that bootstrap
+reset. After installing its seccomp rules it restores every catchable signal
+disposition again, preserving the signal mask, before executing the worker.
+This removes Python's own SIGPIPE and SIGXFSZ ignores without weakening the
+Btrfs management ioctl denial (#2066).
+
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts the host root read-only, and replaces `/proc` and `/dev`.
 The brain mount follows the resolved profile: governed permits direct writes
