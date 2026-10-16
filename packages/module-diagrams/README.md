@@ -8,7 +8,7 @@ lists the common type families and envelope. The pure `buildDiagram(spec, option
 `DiagramTree` with rounded orthogonal paths, crossing hops and measured label
 masks. Axis types derive their geometry from order and authored dates. The `ui` entry exports `diagramsContentPack` for trusted app builds;
 `render` exports `diagramsStaticPack` and browser-free `toStatic`. The authoring
-skill and the other specialized family grammars remain separate work.
+skill and node-link specialized grammars remain separate work.
 
 Enable the module in a brain configuration:
 
@@ -79,3 +79,15 @@ names, optional authored tags, message labels, notes and self-messages fit. A
 semantic summary and Open diagram viewer. Swimlane handoffs use the shared
 connector router; timeline distances and Gantt durations use honest date
 intervals. Per-type editorial overruns warn and suggest overview/detail.
+
+## Positional diagrams
+
+Quadrant, layer-stack, pyramid, funnel, loop, flywheel and Venn accept an
+optional strict `positional` block. Common semantic nodes remain authoritative;
+the selected family supplies axes, bands, proportional trapezoids, circular
+rings or overlapping circles. Existing v1 forms remain accepted. Each
+[type reference](skills/diagram/references/quadrant.md) links a shipped Odysseus
+example; the [contract](../../docs/integration-contract/diagrams.md#positional-families-additive-2097)
+lists all fields and geometry rules. Editorial excess warns; ambiguous
+references, misleading geometry and text below 9px refuse. Missing authored
+narrow placement uses the semantic summary and readable viewer.

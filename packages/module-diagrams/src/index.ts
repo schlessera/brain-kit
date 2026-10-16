@@ -7,3 +7,5 @@ export { buildDiagram, DiagramGeometryError, type DiagramTree, type DiagramEleme
 
 export { DIAGRAM_PALETTE, DIAGRAM_TOKEN_CSS, DIAGRAM_TYPE, type DiagramTheme, type DiagramTypeStyle, type DiagramTypeRole, typeWidthBudget, fitDiagramText, diagramNodePaint, diagramEdgePaint, contrastRatio, checkDiagramSkin, diagramInkRamp, type DiagramPaint, type DiagramEdgePaint, type DiagramSkinFinding } from "./skin.js";
 export { diagramLayout, buildDiagramLayout, checkDiagramLayouts, type DiagramLayoutFinding } from "./layout.js";
+export { positionalSchema, type PositionalSpec } from "./positional-spec.js";
+export type { DiagramShape, DiagramShapePaint, DiagramShapeBase } from "./shape.js";

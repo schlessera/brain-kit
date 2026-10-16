@@ -25,6 +25,9 @@ export "." (./src/index.ts)
   type DiagramPaint
   type DiagramPoint
   type DiagramPort
+  type DiagramShape
+  type DiagramShapeBase
+  type DiagramShapePaint
   type DiagramSide
   type DiagramSkinFinding
   type DiagramSpec
@@ -33,6 +36,7 @@ export "." (./src/index.ts)
   type DiagramTypeRole
   type DiagramTypeStyle
   type DiagramsConfig
+  type PositionalSpec
   buildDiagram
   buildDiagramLayout
   checkDiagram
@@ -48,6 +52,7 @@ export "." (./src/index.ts)
   diagramSpecSchema
   fitDiagramText
   manifest
+  positionalSchema
   typeWidthBudget
 
 export "./module" (./src/module.ts)
@@ -293,6 +298,8 @@ signatures (every public export and the types it is made of)
     }
   DiagramsConfig (packages/module-diagrams/src/module.ts)
     export type DiagramsConfig = z.infer<typeof configSchema>;
+  PositionalSpec (packages/module-diagrams/src/positional-spec.ts)
+    export type PositionalSpec = z.infer<typeof positionalSchema>;
   buildDiagram (packages/module-diagrams/src/geometry.ts)
     export function buildDiagram(input: DiagramSpec, options?: DiagramGeometryOptions): DiagramTree;
   buildDiagramLayout (packages/module-diagrams/src/layout.ts)
@@ -564,6 +571,57 @@ signatures (every public export and the types it is made of)
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
         }, z.core.$strict>>;
+        positional: z.ZodOptional<z.ZodObject<{
+            loop: z.ZodOptional<z.ZodObject<{
+                hub: z.ZodString;
+                spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    station: z.ZodString;
+                    text: z.ZodString;
+                }, z.core.$strict>>>;
+                stations: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>;
+            pyramid: z.ZodOptional<z.ZodObject<{
+                layers: z.ZodArray<z.ZodObject<{
+                    annotation: z.ZodOptional<z.ZodString>;
+                    node: z.ZodString;
+                    value: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            quadrant: z.ZodOptional<z.ZodObject<{
+                points: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                }, z.core.$strict>>;
+                xAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+                yAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
+            stack: z.ZodOptional<z.ZodObject<{
+                direction: z.ZodOptional<z.ZodEnum<{
+                    down: "down";
+                    up: "up";
+                }>>;
+                directionLabel: z.ZodOptional<z.ZodString>;
+                order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            venn: z.ZodOptional<z.ZodObject<{
+                intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    focal: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    members: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>>>;
+                sets: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    weight: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         schema_version: z.ZodLiteral<1>;
         size: z.ZodEnum<{
             "doc-inline": "doc-inline";
@@ -826,6 +884,57 @@ signatures (every public export and the types it is made of)
             sub: z.ZodOptional<z.ZodString>;
             tag: z.ZodOptional<z.ZodString>;
         }, z.core.$strict>>;
+        positional: z.ZodOptional<z.ZodObject<{
+            loop: z.ZodOptional<z.ZodObject<{
+                hub: z.ZodString;
+                spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    station: z.ZodString;
+                    text: z.ZodString;
+                }, z.core.$strict>>>;
+                stations: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>;
+            pyramid: z.ZodOptional<z.ZodObject<{
+                layers: z.ZodArray<z.ZodObject<{
+                    annotation: z.ZodOptional<z.ZodString>;
+                    node: z.ZodString;
+                    value: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            quadrant: z.ZodOptional<z.ZodObject<{
+                points: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                }, z.core.$strict>>;
+                xAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+                yAxis: z.ZodObject<{
+                    negative: z.ZodString;
+                    positive: z.ZodString;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
+            stack: z.ZodOptional<z.ZodObject<{
+                direction: z.ZodOptional<z.ZodEnum<{
+                    down: "down";
+                    up: "up";
+                }>>;
+                directionLabel: z.ZodOptional<z.ZodString>;
+                order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            venn: z.ZodOptional<z.ZodObject<{
+                intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    focal: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    members: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>>>;
+                sets: z.ZodArray<z.ZodObject<{
+                    node: z.ZodString;
+                    weight: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         schema_version: z.ZodLiteral<1>;
         size: z.ZodEnum<{
             "doc-inline": "doc-inline";
@@ -851,6 +960,58 @@ signatures (every public export and the types it is made of)
   fitDiagramText (packages/module-diagrams/src/skin.ts)
     export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number;
   manifest (packages/module-diagrams/src/module.ts) exported name of diagramsModule
+  positionalSchema (packages/module-diagrams/src/positional-spec.ts)
+    const positionalSchema: z.ZodObject<{
+        loop: z.ZodOptional<z.ZodObject<{
+            hub: z.ZodString;
+            spokeLabels: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                station: z.ZodString;
+                text: z.ZodString;
+            }, z.core.$strict>>>;
+            stations: z.ZodArray<z.ZodString>;
+        }, z.core.$strict>>;
+        pyramid: z.ZodOptional<z.ZodObject<{
+            layers: z.ZodArray<z.ZodObject<{
+                annotation: z.ZodOptional<z.ZodString>;
+                node: z.ZodString;
+                value: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        quadrant: z.ZodOptional<z.ZodObject<{
+            points: z.ZodArray<z.ZodObject<{
+                node: z.ZodString;
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+            }, z.core.$strict>>;
+            xAxis: z.ZodObject<{
+                negative: z.ZodString;
+                positive: z.ZodString;
+            }, z.core.$strict>;
+            yAxis: z.ZodObject<{
+                negative: z.ZodString;
+                positive: z.ZodString;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        stack: z.ZodOptional<z.ZodObject<{
+            direction: z.ZodOptional<z.ZodEnum<{
+                down: "down";
+                up: "up";
+            }>>;
+            directionLabel: z.ZodOptional<z.ZodString>;
+            order: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        venn: z.ZodOptional<z.ZodObject<{
+            intersections: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                focal: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                members: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>>>;
+            sets: z.ZodArray<z.ZodObject<{
+                node: z.ZodString;
+                weight: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
   toStatic (packages/module-diagrams/src/render.ts)
     export function toStatic(source: string, options: {
         theme: ContentRendererTheme;
