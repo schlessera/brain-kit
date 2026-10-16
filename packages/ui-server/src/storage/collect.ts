@@ -3,7 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { z } from "zod";
 import type { StorageFileEntry, StorageRoot, StorageSnapshot, StorageOwner, StorageBytes } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { serverMetadata, coreMetadata } from "./process.js";
+import { serverMetadata, coreMetadata, type StorageWorkerLease } from "./process.js";
 import type { MetadataEntry, MetadataRoot } from "./metadata.js";
 export const STORAGE_SERVER_LIMITS = Object.freeze({ entries: 100_000, page: 200, roots: 32, milliseconds: 35_000, cacheBytes: 96 * 1024 * 1024 });
 const bytes = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable();
@@ -19,6 +19,7 @@ export interface StorageCollectOptions {
   /** Unknown private owner stores are explicit rows, never scans of host /tmp or broker state. */
   unavailable?: Array<{ label: string; category: StorageRoot["category"]; owner: StorageOwner; reason: string }>;
   salt: string;
+  workerLease?: StorageWorkerLease;
 }
 const validPath = (path: string) => path === "" || (!path.startsWith("/") && path.split("/").every(piece => piece !== "." && piece !== ".." && piece !== "") && !path.includes("\0"));
 export function storageTotals(entries: readonly Pick<StorageFileEntry, "objectId" | "kind" | "logical" | "allocated">[], complete = true): StorageBytes {
@@ -49,7 +50,7 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
   const rawEntries: MetadataEntry[] = [];
   const coreRootMappings = new Map<string, { path: string; root: StorageRoot }>();
   try {
-    const raw = coreInventory.parse(await coreMetadata(options.brainPath, options.gitRoots ?? [], signal));
+    const raw = coreInventory.parse(await coreMetadata(options.brainPath, options.gitRoots ?? [], signal, options.workerLease));
     if (raw.status !== "complete") fail(brain.id, "core-inventory-partial");
     for (const value of raw.errors) fail(brain.id, value.reason);
     omittedErrors += raw.omittedErrors;
@@ -93,7 +94,7 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
   const capacities: StorageSnapshot["capacities"] = [];
   const capacityByRoot = new Map<string, string>();
   try {
-    const measured = await serverMetadata([...appSources, ...probes], signal, Math.max(1, STORAGE_SERVER_LIMITS.entries - rawEntries.length));
+    const measured = await serverMetadata([...appSources, ...probes], signal, Math.max(1, STORAGE_SERVER_LIMITS.entries - rawEntries.length), options.workerLease);
     for (const error of measured.errors) fail(error.rootId, error.reason);
     omittedErrors += measured.omittedErrors;
     if (measured.omittedErrors) for (const source of sources.values()) fail(source.root.id, "metadata-errors-omitted");

@@ -20,7 +20,7 @@ test("mounted Storage routes reject delegated and revoked principals and arbitra
     const agent = createPrincipal(fixture.app.db, { authMethod: "delegated", createdBy: owner.id, label: "Athena", ttlSeconds: 3600 });
     const cookie = async (id: string) => (await generateSignedCookie("brain_ui_session", id, secret)).split(";")[0]!;
     const ownerCookie = await cookie(owner.id), agentCookie = await cookie(agent.id);
-    for (const [method, path] of [["GET", "/api/storage"], ["POST", "/api/storage/scans"], ["DELETE", "/api/storage/scans/unknown"], ["GET", "/api/storage/scans/unknown/entries"], ["GET", "/api/storage/scans/unknown/tree"], ["GET", "/api/storage/scans/unknown/entries/unknown/references"]]) {
+    for (const [method, path] of [["GET", "/api/storage/history"], ["GET", "/api/storage/guidance"], ["GET", "/api/storage"], ["POST", "/api/storage/scans"], ["DELETE", "/api/storage/scans/unknown"], ["GET", "/api/storage/scans/unknown/entries"], ["GET", "/api/storage/scans/unknown/tree"], ["GET", "/api/storage/scans/unknown/entries/unknown/references"]]) {
       const response = await fixture.fetch(path!, { method, headers: { cookie: agentCookie, "content-type": "application/json" }, ...(method === "POST" ? { body: "{}" } : {}) });
       expect(response.status, "STORAGE_DELEGATED_DENIED").toBe(403);
       expect((await fixture.fetch(path!, { method, ...(method === "POST" ? { headers: { "content-type": "application/json" }, body: "{}" } : {}) })).status).toBe(401);

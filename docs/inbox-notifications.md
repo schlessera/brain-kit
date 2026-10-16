@@ -42,7 +42,7 @@ deadline opens the next window. Thread identity is kept on each constituent,
 not in the grouping key. Unmarked below-cutoff decisions and FYIs never join a window.
 
 Delivery runs after activity intents on the same reentrancy guard
-(`deliverActions`, `packages/ui-server/src/activity/push-sender.ts:287-336`).
+(`deliverActions`, `packages/ui-server/src/activity/push-sender.ts:321-370`).
 Each destination is evaluated on its own. `beginAttempt()` rechecks, in one
 transaction, that the subscription is still bound to the principal and the
 principal is usable, that the device reported a usable zone and is outside

@@ -510,3 +510,15 @@ They bind current human-owner authority, exact versioned selections and durable
 identities to charged retained originals. Unknown outcomes never authorize
 replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
 with actual journal detail. Existing Markdown application semantics are unchanged.
+
+### Storage history and pressure guidance (additive, #2058)
+
+The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)
+and SDK `StorageHistoryResponse`, `StorageGuidanceResponse`, named observation,
+pressure, rate and scenario types are version 1 additive contracts. They retain
+current human-owner authorization, nullable unknown quantities, actual endpoint
+and window times, independent causes, explicit stale/scope gaps and transport
+uncertainty. Public types do not expose compact persistence tuples or host paths.
+The next compatible server/SDK minor includes these endpoints; clients must
+retain an unavailable state when an older host does not provide them. No core
+CLI, MCP, frontmatter, config or content-index contract changes.

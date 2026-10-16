@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:753`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:761`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -387,7 +387,7 @@ Stated before the requirements because five of them derive from it.
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`), and the sender emits one push per
-  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`). Reuse subscriptions, retry budget, and delivery
+  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:197-244`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. The
   [2026-10-02 Action notification decision](../decisions/action-notifications.md)
