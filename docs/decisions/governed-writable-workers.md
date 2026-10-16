@@ -806,7 +806,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:183-207`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:183-210`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after

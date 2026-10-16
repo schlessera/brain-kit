@@ -187,6 +187,7 @@ export function createPolicyProposals(options: {
                   // callback only. Both journal observations are outside its
                   // lifetime; no path/prefix ignore can hide real worker files.
                   const staging = `/proc/self/fd/${target!.chain.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
+                  let publicationFailed = false, publicationError: unknown;
                   try {
                     const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
                     temp = staging; // Only a successfully created inode belongs to this operation.
@@ -194,15 +195,17 @@ export function createPolicyProposals(options: {
                     authority(); verify(target!, review.baseHash);
                     if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
                     committed = true;
-                  } finally {
-                    // First publication uses link rather than an overwriting
-                    // rename; unlink its remaining name before observation.
-                    if (temp) {
-                      try { unlinkSync(temp); }
-                      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-                      temp = undefined;
+                  } catch (error) { publicationFailed = true; publicationError = error; }
+                  // First publication uses link rather than an overwriting
+                  // rename; unlink its remaining name before observation.
+                  if (temp) {
+                    try { unlinkSync(temp); temp = undefined; }
+                    catch (error) {
+                      if ((error as NodeJS.ErrnoException).code === "ENOENT") temp = undefined;
+                      else { if (!publicationFailed) publicationError = error; publicationFailed = true; }
                     }
                   }
+                  if (publicationFailed) throw publicationError;
                   fsyncSync(target!.chain.at(-1)!.fd);
                 });
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
