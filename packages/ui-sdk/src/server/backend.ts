@@ -249,6 +249,12 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | {
+      /** Executing main model, never inferred from helper usage. Scoped to this startTurn bridge. */
+      kind: "main_model";
+      model: string;
+      sessionId: string;
+    }
   | { kind: "budget_backstop" }
   | {
       /** Cumulative completed-response inference usage for interactive and voice turns. */

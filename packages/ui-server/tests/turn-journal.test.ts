@@ -276,3 +276,22 @@ test("opaque configuration input limitations survive replay without executing co
     } finally { await replay.close(); }
   } finally { await f.close(); }
 });
+
+
+test("runtime main-model binding only updates the correlated active journal", async () => {
+  const f = fixture();
+  try {
+    await f.begin("odysseus");
+    await f.journal.begin("athena", { sessionId: "troy", actor: "voice", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+    expect(f.journal.bindModel("odysseus", "troy", "main-model"), "MODEL_WRONG_SESSION_REJECTED").toBe(false);
+    expect(f.journal.bindModel("odysseus", "ithaca", "main-model"), "MODEL_ACTIVE_BINDING").toBe(true);
+    expect(f.journal.summary("odysseus").model, "MODEL_ACTIVE_SUMMARY").toBe("main-model");
+    expect(f.journal.summary("athena").model, "MODEL_CONCURRENT_ISOLATION").toBeNull();
+    expect(f.journal.bindModel("athena", "ithaca", "wrong-model"), "MODEL_TWO_SESSIONS_CROSS_BIND_REJECTED").toBe(false);
+    expect(f.journal.bindModel("athena", "troy", "voice-model")).toBe(true);
+    expect(f.journal.summary("athena").model).toBe("voice-model");
+    await f.journal.finish("odysseus");
+    expect(f.journal.bindModel("odysseus", "ithaca", "late-model"), "MODEL_FINISHED_REJECTED").toBe(false);
+    expect(f.journal.summary("odysseus").model).toBe("main-model");
+  } finally { await f.close(); }
+});

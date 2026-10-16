@@ -241,6 +241,28 @@ paths, are listed in [the boundary decision](../decisions/public-export-boundary
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.
 
+<a id="interactive-main-model-identity-additive-2037"></a>
+
+## Interactive main-model identity (additive, #2037)
+
+`ProviderInfo.model?: string` carries only the explicitly configured main-model
+id. An absent value means the runtime chooses it; a profile id is not a model.
+The additive server-only `BackendActivityEvent` variant
+`{ kind: "main_model", model: string, sessionId: string }` reports the executing
+main model through the current `startTurn` bridge. Claude uses root initialization
+identity, excluding helper/subagent initialization; Pi uses the runtime session's
+model. Per-model usage never selects the interactive or voice main model.
+
+The host admits the journal before executing the backend. Known configured
+identity populates admission metadata; runtime identity binds only the correlated
+active turn's summary. Cancelled/finished turns and stale bridges from resumed
+turns cannot bind. Concurrent sessions retain independent identity. Subsequent
+governance events use the identity known at emission. Earlier null snapshots stay
+null in storage and all reads/exports; binding does not amend or enrich them, and
+historical turns are never backfilled. Pre-runtime refusals remain unknown unless
+the resolved profile explicitly supplies a model. Nullable governance field shapes
+are unchanged. This additive public interface requires a minor release.
+
 <a id="explicit-autonomous-backend-turns-675"></a>
 
 ## Explicit autonomous backend turns (#675)

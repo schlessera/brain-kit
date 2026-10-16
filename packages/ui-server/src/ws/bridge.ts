@@ -49,7 +49,8 @@ export function makeBridge(
   /** Frozen policy protection captured after this turn's gate admission. */
   protectedPaths?: readonly string[],
   workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
-  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void
+  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void,
+  mainModel?: { current(): string | null; bind(model: string): void }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -109,7 +110,7 @@ export function makeBridge(
     const { kind, ...payload } = event.kind === "promotion" ? (({ aliases: _aliases, ...rest }) => rest)(event) : event;
     catalog.recordGovernanceEvent?.({
       kind, payload, turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive",
-      model: null, profile: null,
+      model: mainModel?.current() ?? null, profile: null,
       // One record per linked file and turn, however often a backend reports it.
       dedupeKey: `${turnId}:${createHash("sha256").update(event.source).digest("hex")}`,
     });
@@ -204,7 +205,7 @@ export function makeBridge(
           catalog.recordStateRoom?.(msg.sessionId, msg.stateRoom);
           if (stateRoomWarning(msg.stateRoom)) catalog.recordGovernanceEvent?.({
             kind: "state_room_warning", sessionId: msg.sessionId, turnId,
-            actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null,
+            actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null,
             payload: { usedBytes: msg.stateRoom.usedBytes, allowanceBytes: msg.stateRoom.allowanceBytes, observedAt: msg.stateRoom.observedAt },
             dedupeKey: `state-room:${backendId}:${msg.sessionId}:${msg.stateRoom.allowanceBytes}`,
           });
@@ -374,12 +375,17 @@ export function makeBridge(
     },
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
+      if (event.kind === "main_model") {
+        if (turn.turnId === turnId && turn.backendStarted && !signal.aborted && !turn.cancelled && event.model
+          && (!turn.sessionId || turn.sessionId === event.sessionId)) mainModel?.bind(event.model);
+        return;
+      }
       if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
       else if (event.kind === "turn_temp_purge") {
         // Each purge of turn temp (#1703), kept with the session history and never shown.
         const { kind, ...payload } = event;
         catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
-          actor: work?.posture === "voice" ? "voice" : "interactive", model: null, profile: null });
+          actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null });
       }
       else if (event.kind === "budget_backstop" && turn.turnId === turnId) onUsage?.({},true);
       else {

@@ -147,6 +147,11 @@ export function createPiTurnRunner(
           catch { /* Observability must not fail the observed turn. */ }
         }
       }));
+      // Runtime session identity is authoritative, including resumed sessions.
+      if (!req.autonomous && session.model?.id) {
+        try { req.bridge.activity?.({ kind: "main_model", model: session.model.id, sessionId }); }
+        catch { /* Observability must not fail the observed turn. */ }
+      }
       // session_info must precede any content frames for a new session.
       if (req.autonomous) {
         try {

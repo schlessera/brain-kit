@@ -4551,6 +4551,10 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "main_model";
+        model: string;
+        sessionId: string;
+    } | {
         kind: "budget_backstop";
     } | {
         kind: "usage";
@@ -6856,6 +6860,7 @@ signatures (every public export and the types it is made of)
     }
   ProviderInfo (packages/ui-sdk/src/protocol.ts)
     export interface ProviderInfo {
+        model?: string;
         id: string;
         label: string;
         vendor?: string;

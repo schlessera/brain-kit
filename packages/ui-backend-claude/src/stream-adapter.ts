@@ -259,6 +259,7 @@ export class StreamAdapter {
 
       case "system": {
         if (msg.subtype === "init") {
+          if (!parentToolUseId && msg.model) this.report({ kind: "main_model", model: msg.model, sessionId: msg.session_id });
           messages.push({
             type: "status",
             status: "thinking",

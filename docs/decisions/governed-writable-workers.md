@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:554-558`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:560-564`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1042,7 +1042,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:433`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,
@@ -1190,7 +1190,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:274`).
 
 **What changes:**
 
@@ -1875,6 +1875,24 @@ every kind's payload. Each event also carries the attribution: the actor, the
 model and the profile. An event whose turn never named a session, such as a
 new conversation refused at admission, has no catalog row to live with and is
 kept for 90 days.
+
+### Main-model attribution timing
+
+The maintainer's 2026-10-16 ruling (#2037) chooses additive runtime main-model
+identity propagation and guarded active-turn journal binding. Admission remains
+before worker execution: explicitly configured identity is usable immediately;
+runtime defaults remain unknown until the backend reports its executing main
+model. Helper/subagent usage and mixed-model totals cannot choose that identity.
+Runtime reports are scoped to the current turn and session; cancellation,
+completion and a reused bridge cannot revive or change a finished turn.
+
+Governance records are snapshots of identity known at emission. Earlier nulls
+remain null in stored, live, replayed and exported evidence. Only the correlated
+active journal summary gains the reported identity; there is no backfill,
+amendment stream or read-time enrichment. This deliberately accepts incomplete
+early attribution rather than rewriting emitted evidence or introducing an
+unselected provenance representation. An admission refusal cannot acquire an
+invented runtime identity. See the [interface contract](../integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
 
 ### Roadblocks
 

@@ -1303,6 +1303,7 @@ signatures (every public export and the types it is made of)
             profile: "governed" | "strict";
             sessionId: null | string;
         }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
+        bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): void;
         close(): Promise<void>;
         coverPaths(turnId: string, paths: readonly string[]): void;
