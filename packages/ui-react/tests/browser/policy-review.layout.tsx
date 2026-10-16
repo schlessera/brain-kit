@@ -32,15 +32,19 @@ afterEach(async () => { observer?.disconnect(); observer = undefined; if (render
   if (fixture) await commands.policyServer({ op: "stop", id: fixture.id }); fixture = undefined; sent.length = 0; received.length = 0;
   if (themeBefore === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = themeBefore;
 });
-const patch = (value: Record<string, unknown> = {}) => commands.policyServer({ op: "set", id: fixture!.id, patch: value }) as Promise<{ bytes: string; original: string; proposed: string; writes: number; reads: number; receiptTimeline: Array<{ stage: string; ms: number; requestId: number; method: string; path: string; status?: number; principal: string }>; policy: { hash: string }; journalChanges: Array<{path: string;actor:string;class:string}>; journalPolicies: Array<{policy_hash:string|null}>; admitted: Array<{hash: string | null}>; events: Array<{actor:string;kind:string}> }>;
+const patch = (value: Record<string, unknown> = {}) => commands.policyServer({ op: "set", id: fixture!.id, patch: value }) as Promise<{ bytes: string; original: string; proposed: string; writes: number; reads: number; publicationTimeline: Array<Record<string, unknown>>; receiptTimeline: Array<{ stage: string; ms: number; requestId: number; method: string; path: string; status?: number; principal: string }>; policy: { hash: string }; journalChanges: Array<{path: string;actor:string;class:string}>; journalPolicies: Array<{policy_hash:string|null}>; admitted: Array<{hash: string | null}>; events: Array<{actor:string;kind:string}> }>;
 // Browser evidence must describe the failed poll, before the fixture RPC yields.
-async function readinessFailure(error: unknown, readFixture = patch) {
-  record("readiness-failed");
+async function policyFailure(error: unknown, readFixture = patch, boundary = "readiness") {
+  record(`${boundary}-failed`);
   const browser = `${String(error)}\nTimeline (browser milliseconds from scene start): ${JSON.stringify(timeline)}\nFrames: ${JSON.stringify(received)}\nChat: ${JSON.stringify(activeChat(ui!.stores.chat.getState()).messages)}\nDOM: ${host!.textContent}`;
   const started = performance.now() - sceneStarted;
   const fixtureState = await readFixture();
   const completed = performance.now() - sceneStarted;
   return new Error(`${browser}\nFixture (sampled after browser snapshot): ${JSON.stringify(fixtureState)}\nFixture sample (browser milliseconds from scene start): ${JSON.stringify({ started, completed })}`);
+}
+async function waitForPolicyUpdate(element: HTMLDivElement) {
+  try { await expect.poll(() => element.querySelector('[data-policy-state="updated"]')).not.toBeNull(); }
+  catch (error) { throw await policyFailure(error, patch, "publication"); }
 }
 async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectReceipt = false) {
   timeline.length = 0; sceneStarted = performance.now(); record("scene", { width, theme, zoom, mode });
@@ -68,9 +72,12 @@ async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectRec
       const tool = activeChat(ui!.stores.chat.getState()).messages.flatMap(m => m.toolCalls).find(t => t.id === toolUseId);
       message = { ...message, turnId: tool?.policyChange?.turnId };
     }
+    if (message.type === "tool_approval" || message.type === "tool_denial") record("approval-dispatch", {
+      type: message.type, toolUseId: message.toolUseId, turnId: message.turnId,
+    });
     sent.push(message); socket.send(JSON.stringify(message)); return true;
   };
-  socket.onmessage = event => { const frame = JSON.parse(event.data); record("frame", { type: frame.type, sessionId: frame.sessionId }); received.push(frame); const parsed = parseServerMessage(event.data); if (!parsed.ok) throw new Error(parsed.error); ui!.connection.handleServerMessage(parsed.message); };
+  socket.onmessage = event => { const frame = JSON.parse(event.data); record("frame", { type: frame.type, sessionId: frame.sessionId, policyState: frame.policyChange?.state }); received.push(frame); const parsed = parseServerMessage(event.data); if (!parsed.ok) throw new Error(parsed.error); ui!.connection.handleServerMessage(parsed.message); };
   await expect.poll(() => socket!.readyState).toBe(WebSocket.OPEN);
   ui.stores.chat.setState({ activeSessionId: "policy-session" });
   ui.stores.chat.getState().addUserMessage("policy-session", "Propose strict for the voyage.", "voice-dictate");
@@ -83,6 +90,11 @@ async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectRec
   host = document.createElement("div"); host.style.cssText = `width:${Math.min(720, width / zoom)}px;zoom:${zoom};background:var(--bk-color-canvas);color:var(--bk-color-ink)`;
   document.body.append(host); renderer = createRoot(host); flushSync(() => renderer!.render(<BrainUiProvider root={ui}><View /></BrainUiProvider>));
   host.querySelector<HTMLTextAreaElement>("textarea")!.focus();
+  for (const type of ["pointerdown", "pointerup", "click"]) host.addEventListener(type, event => {
+    const target = event.target instanceof Element ? event.target.closest('[data-kit-approval-actions] [role="button"]') : null;
+    if (target) record("approval-native-event", { type, phase: "capture", target: target.textContent, trusted: event.isTrusted,
+      defaultPrevented: event.defaultPrevented, connected: target.isConnected, inert: !!target.closest("[inert]") });
+  }, { capture: true, passive: true });
   let lastDom = "";
   // DOM delivery is observed after mutation; it is not the React passive-effect boundary.
   observer = new MutationObserver(() => {
@@ -97,7 +109,7 @@ async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectRec
   ui.connection.send({ type: "chat_message", text: "Propose strict for the voyage.", source: "voice-dictate" });
   if (mode !== "bad-proposal") {
     try { await expect.poll(() => host!.querySelector(approvalSelector)).not.toBeNull(); }
-    catch (error) { throw await readinessFailure(error); }
+    catch (error) { throw await policyFailure(error); }
   }
   return host;
 }
@@ -113,7 +125,8 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (con
   const controls = [...host.querySelectorAll<HTMLElement>('[data-kit-approval-actions] [role="button"]')];
   for (const control of controls) { expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44); expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44); }
   expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
-  await approve.click(); await expect.poll(() => host.querySelector('[data-policy-state="updated"]')).not.toBeNull();
+  record("approval-click-start"); await approve.click(); record("approval-click-settled");
+  await waitForPolicyUpdate(host);
   await expect.poll(() => document.activeElement).toBe(host.querySelector("[data-policy-receipt]"));
   const receipt = await patch(); expect(receipt.bytes).toBe(receipt.proposed); expect(receipt.writes).toBe(1); expect(receipt.policy.hash).toMatch(/^[a-f0-9]{64}$/);
   expect(receipt.receiptTimeline).toEqual([
@@ -201,7 +214,7 @@ test("readiness evidence stays at the failure boundary while fixture diagnostics
   const host = await scene();
   const chatBefore = JSON.stringify(activeChat(ui!.stores.chat.getState()).messages);
   const domBefore = host.textContent;
-  const failure = await readinessFailure(new Error("Controlled snapshot boundary"), async () => {
+  const failure = await policyFailure(new Error("Controlled snapshot boundary"), async () => {
     const state = await patch();
     ui!.stores.chat.getState().addUserMessage("policy-session", "Later diagnostic message.");
     host.append(document.createTextNode("Later diagnostic DOM."));
@@ -221,4 +234,32 @@ test("readiness evidence stays at the failure boundary while fixture diagnostics
     expect.objectContaining({ stage: "request", method: "GET" }),
     expect.objectContaining({ stage: "response", status: 200 }),
   ]);
+});
+
+
+// The existing dropped-result mode withholds native completion frames after a
+// real write. It validates the evidence path, not the historical cause of #2004.
+test("publication diagnostics retain a missed completion after a successful host write", async () => {
+  const element = await scene(320, "dark", 1, "drop-result");
+  record("approval-click-start");
+  await page.getByRole("button", { name: "Approve and write", exact: true }).click();
+  record("approval-click-settled");
+  let failure: unknown;
+  try { await waitForPolicyUpdate(element); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Error);
+  const message = (failure as Error).message;
+  expect(message).toContain('"stage":"publication-failed"');
+  expect(message).toContain("DOM: Writing the policy");
+  const timelineLine = message.split("\n").find(line => line.startsWith("Timeline (browser milliseconds from scene start): "))!;
+  const frozenTimeline = JSON.parse(timelineLine.slice(timelineLine.indexOf(": ") + 2));
+  expect(frozenTimeline).toContainEqual(expect.objectContaining({ stage: "approval-native-event", type: "click", phase: "capture", trusted: true, connected: true, inert: false }));
+  expect(frozenTimeline).toContainEqual(expect.objectContaining({ stage: "approval-dispatch", type: "tool_approval", session: "policy-session", epoch: 0 }));
+  const fixtureLine = message.split("\n").find(line => line.startsWith("Fixture (sampled after browser snapshot): "))!;
+  const state = JSON.parse(fixtureLine.slice(fixtureLine.indexOf(": ") + 2));
+  expect(state.bytes).toBe(state.proposed);
+  expect(state.writes).toBe(1);
+  expect(state.publicationTimeline).toContainEqual(expect.objectContaining({ stage: "write-complete", writes: 1 }));
+  expect(state.publicationTimeline).toContainEqual(expect.objectContaining({ stage: "observation-settled", outcome: "complete" }));
+  expect(state.publicationTimeline).toContainEqual(expect.objectContaining({ stage: "outgoing-frame", type: "tool_result", policyState: "updated", suppressed: true }));
+  expect(received.some(frame => (frame as { type: string }).type === "tool_result")).toBe(false);
 });
