@@ -8,7 +8,7 @@ export const workerAuditFile="scripts/browser-worker-audit.json";
 export const pdfWorkerInput='Undeclared constructed input packages/ui-react/src/lib/pdf.ts: new Worker(url, { type: "module" })';
 const guards=["packages/ui-kit/tests/visual/worker-boundary-setup.ts","scripts/browser-worker-boundary.ts"];
 const enforcement:Record<string,string>={
-  "packages/ui-kit/vitest.config.ts":"81d969b3022e0dfa6d82c59ff2f16ea8de923d650958b6d7f932e85f409a23ce",
+  "packages/ui-kit/vitest.config.ts":"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
   "scripts/browser-worker-boundary.ts":"fe7b63742370e3a6f2d8f99a77d23ce538d905744ad34d34e99ce342ff62d31b",
   "packages/ui-kit/tests/visual/worker-boundary-setup.ts":"80ba88b24fc1f0269d0f8a6b58520d715375b8af21ca636112f3294ffd7ad60f"
 };

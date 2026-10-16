@@ -28,3 +28,16 @@ test("reader, caller and pinned font data drift fail fresh rather than trusting 
   }
   const {root,write}=fixture();write("scripts/browser-sequencer.ts",readFileSync(join(root,"scripts/browser-sequencer.ts"),"utf8").replace("readBrowserCosts()","readBrowserCosts(externalPath)"));expect(boundBrowserRuntimeInputs(root,files).has("scripts/browser-shards.ts")).toBe(false);
 });
+
+const diagramOwner="packages/module-diagrams/src/fonts.ts",diagramCaller="packages/ui-react/tests/browser/diagram-export-command.ts";
+const diagramFonts=[2,4,6,7].map(face=>`packages/module-diagrams/assets/fonts/${face}.ttf`);
+function diagramFixture(){const {root,write}=fixture();for(const file of [diagramOwner,diagramCaller,...diagramFonts]){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),readFileSync(join(repo,file)));}return{root,write};}
+test("argument-free diagram font producer binds all four exact bundled font blobs",()=>{
+ const {root}=diagramFixture(),selected=[diagramOwner,diagramCaller];
+ expect([...boundBrowserRuntimeInputs(root,selected).get(diagramOwner)!.values()]).toEqual([diagramFonts]);
+});
+test("diagram font, reader, caller, symlink and new importer drift refuse the binding",()=>{
+ for(const file of [diagramOwner,diagramCaller,...diagramFonts]){const {root}=diagramFixture();writeFileSync(join(root,file),Buffer.concat([readFileSync(join(root,file)),Buffer.from("drift")]));expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller]).has(diagramOwner)).toBe(false);}
+ const {root}=diagramFixture();rmSync(join(root,diagramFonts[0]!));symlinkSync(join(repo,diagramFonts[0]!),join(root,diagramFonts[0]!));expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller]).has(diagramOwner)).toBe(false);
+ for(const source of [`import {diagramFontCss as css} from "./${diagramOwner}";`,`export * from "./${diagramOwner}";`,`await import("./${diagramOwner}");`]){const {root,write}=diagramFixture();write("extra.ts",source);expect(boundBrowserRuntimeInputs(root,[diagramOwner,diagramCaller,"extra.ts"]).has(diagramOwner)).toBe(false);}
+});

@@ -43,3 +43,15 @@ test("diagram caller, renderer, fixture, guard and font drift or extra caller re
  for(const file of [diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx","packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml","packages/module-diagrams/src/svg-model.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",guard,"scripts/captures/fonts.css"]){const {root,write}=fixture(diagramFiles),selected=[...files,...diagramFiles];write(file,readFileSync(join(root,file),"utf8")+"\n/* drift */\n");expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram)).toBe(false);}
  const {root,write}=fixture(diagramFiles);write("extra.ts",'import {commands as api} from "vitest/browser"; api.diagramCapture("figure","new");');const selected=[...files,...diagramFiles,"extra.ts"];expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram)).toBe(false);
 });
+
+const exportOwner="packages/ui-react/tests/browser/diagram-export-command.ts",exportCaller="packages/ui-react/tests/browser/diagrams-export.layout.tsx";
+const exportFiles=[...diagramFiles,exportOwner,exportCaller,...[2,4,6,7].map(face=>`packages/module-diagrams/assets/fonts/${face}.ttf`)];
+function exportFixture(){const {root,write}=fixture();for(const file of exportFiles){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),readFileSync(join(repo,file)));}return{root,write};}
+test("export raster replay binds actual flattening, SVG inputs and four bundled font blobs",()=>{
+ const {root}=exportFixture(),selected=[...files,...exportFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
+ const input=[...bound.get(exportOwner)!.values()][0]!;expect(input.runtime).toContain(exportCaller);expect(input.runtime).toContain("packages/module-diagrams/src/flatten.ts");for(const face of [2,4,6,7])expect(input.bytes).toContain(`packages/module-diagrams/assets/fonts/${face}.ttf`);
+});
+test("raster argument producer, font bytes and additional or escaped command callers fail fresh",()=>{
+ for(const file of [exportOwner,exportCaller,"packages/module-diagrams/src/flatten.ts","packages/module-diagrams/assets/fonts/2.ttf"]){const {root}=exportFixture();writeFileSync(join(root,file),Buffer.concat([readFileSync(join(root,file)),Buffer.from("drift")]));const selected=[...files,...exportFiles];expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(exportOwner)).toBe(false);}
+ for(const extra of ['import {commands as api} from "vitest/browser"; api.diagramRasterComparison("new",external,external);','import {commands} from "vitest/browser"; const invoke=commands.diagramRasterComparison;']){const {root,write}=exportFixture();write("extra.ts",extra);const selected=[...files,...exportFiles,"extra.ts"];expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(exportOwner)).toBe(false);}
+});
