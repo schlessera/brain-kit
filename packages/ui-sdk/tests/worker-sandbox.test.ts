@@ -438,3 +438,15 @@ for (const profile of ["governed", "strict"] as const) test(`${profile} sandbox 
     expect(workerSandboxNote({ ...sandbox, restricted: true, profile: "restricted" }), "RESTRICTED_HAS_NO_CLI_ADVERTISEMENT").not.toContain("CLI");
   } finally { f.cleanup(); }
 });
+
+
+test("separate-UID notes use qualified identity facts in both ordinary profiles", () => {
+  const sandbox: WorkerSandbox = {brain:"/fixture/ithaca",restricted:false,profile:"strict",areas:[],scratchAliasesRemoved:[]};
+  for (const profile of ["strict","governed"] as const) {
+    const note = workerSandboxNote({...sandbox,profile},{identity:{kind:"separate_uid",workerUid:21002}});
+    expect(note,"QUALIFIED_IDENTITY_NOTE_NAMES_ACTUAL_WORKER_UID").toContain("verified separate non-root uid (21002)");
+    expect(note,"SEPARATE_UID_NOTE_NEVER_CLAIMS_SHARED_UID").not.toContain("shares the server's uid");
+    expect(note).toContain("external references may outlive that tree");
+  }
+  expect(workerSandboxNote(sandbox,{identity:{kind:"separate_uid",workerUid:0}}),"ROOT_UID_IS_NOT_VERIFIED_NONROOT").not.toContain("verified separate non-root uid");
+});

@@ -65,13 +65,18 @@ async function run(f: ReturnType<typeof fixture>, program: string, extra: { stat
 describe("turn temp (#1655, #1703)", () => {
   test.skipIf(!LINUX)("the held-root gate refuses the host tmpfs even when its size equals admission", () => {
     const f = fixture();
-    // Hold a fake launcher before any pivot. Its only child still sees the
-    // outer /tmp, deliberately a tmpfs of exactly the admitted size.
+    // Keep real status and private PID-namespace proof, but deliberately
+    // rebind the outer /tmp, a tmpfs of exactly the admitted size.
     const program = `import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox } from ${JSON.stringify(join(ROOT, "packages/ui-sdk/tests/helpers/worker-startup-view-fixture.ts"))};
       const spawn = Bun.spawn.bind(Bun);
-      Bun.spawn = (command, options) => options?.env?.BRAIN_WORKER_LAUNCH
-        ? spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options)
-        : spawn(command, options);
+      Bun.spawn = (command, options) => {
+        if (options?.env?.BRAIN_WORKER_LAUNCH) {
+          const launch = JSON.parse(options.env.BRAIN_WORKER_LAUNCH);
+          launch.argv.splice(launch.argv.indexOf('--size'), 4, '--bind', '/tmp', '/tmp');
+          options = {...options, env:{...options.env,BRAIN_WORKER_LAUNCH:JSON.stringify(launch)}};
+        }
+        return spawn(command, options);
+      };
       let worker;
       try {
         worker = launchAgentWorker({brainPath:${JSON.stringify(f.brain)},command:['/bin/true'],env:{},turnTempBytes:${ALLOWANCE}});

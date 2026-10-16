@@ -352,10 +352,12 @@ async function runRetainedSession(
       turn.work = work;
       next = null;
 
+      let workerIdentity: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
       // Before transcript/source/failure recording or any runtime initialization.
       // Every queued interactive or voice turn repeats the actual host check.
       try {
-        requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime);
+        const workerHost = requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime);
+        if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) workerIdentity = { kind: "separate_uid", workerUid: workerHost.workerUid };
         // Pi turn-runner declares no voice tool posture. Keep this early
         // admission refusal aligned with that direct-consumer guard if Pi
         // gains a voice posture, before any native maintenance workers start.
@@ -653,6 +655,7 @@ async function runRetainedSession(
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
             ...governedHold.sandbox.noteFacts,
+            ...(workerIdentity ? { identity: workerIdentity } : {}),
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
               userRevert: Boolean(host.turnReverts && host.journal && host.journal.summary(turn.turnId).state === "recording" && work?.posture !== "voice") },
           } }, workerLock: host.workerLock } : {}),

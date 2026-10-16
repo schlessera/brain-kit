@@ -1,3 +1,6 @@
+import { createWorkerStatusPipe } from "./worker-status.js";
+import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
+import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,14 +35,14 @@ export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
 export const WORKER_STATE = "/tmp/brain-worker-state";
 const TMPFS_MAGIC = 0x01021994;
 /**
- * Runs first inside a worker with runtime state, before any agent code: it
- * reads one line from the worker's stdin, which only the server writes, once
- * the private tmpfs is populated, then becomes the worker's command. Closed
- * stdin or any other line ends the worker unstarted. Only the absolute shell
- * and its builtins run here, never a `PATH` lookup the worker's environment
- * could steer; the shell reads a pipe a byte at a time, so nothing past the
- * line is consumed. bubblewrap's own `--block-fd` cannot be used: Bun's
- * `execve` in the trusted bootstrap closes every descriptor above 2.
+ * Fallback start gate for direct argv consumers and synchronous host probes:
+ * reads one server-owned stdin line before becoming the worker command.
+ * Closed stdin or any other line ends the worker unstarted. Only the
+ * absolute shell and its builtins run here, never a PATH lookup. Reads are
+ * byte-sized, so nothing past the gate line is consumed. Live launches use
+ * bubblewrap's --block-fd instead: workerBootstrap reopens its trusted gate
+ * after Bun execve and the inherited-descriptor filter, preserving payload
+ * stdin and leaving no gate descriptor in the sandbox command.
  */
 const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"', "brain-worker-state-gate"];
 /** What the server writes to open the gate. */
@@ -700,12 +703,26 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
  * Private trusted bootstrap. It validates/clears descriptors, joins the
  * worker's cgroup when it has one, then resets signal dispositions and execs the launcher.
  */
-export function workerBootstrap(input: WorkerLaunch, cgroup?: string): { command: string[]; env: Record<string, string> } {
+export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string }): { command: string[]; env: Record<string, string> } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
+  let argv = workerCommand(input);
+  if (status !== undefined) {
+    if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
+    const bwrap = argv.indexOf(Bun.which("bwrap")!);
+    if (bwrap < 0) throw new WorkerHostError("worker status requires the trusted bubblewrap launch");
+    argv.splice(bwrap + 1, 0, "--json-status-fd", "3", "--block-fd", "4");
+    // Every status-qualified launch waits, including commands without state.
+    // The PID cannot exit/recycle before verification and freezer setup.
+    if (gated(input)) argv.splice(argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+    // Bun execve closes descriptors above stdio. Reopen only these host-owned
+    // FIFOs after the unchanged bootstrap filter. bubblewrap closes both
+    // descriptors in its sandbox child before any payload can run.
+    argv = ["/bin/sh", "-c", 'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"', "brain-worker-status", status.source, status.gateSource, ...argv];
+  }
   return { command: [process.execPath, entry], env: {
-    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv: workerCommand(input), ...(cgroup ? { cgroup } : {}) }),
+    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv, ...(cgroup ? { cgroup } : {}) }),
   } };
 }
 
@@ -873,14 +890,36 @@ function openPrivateTurnTemp(bwrap: number, pid: number, bytes: number, deadline
 }
 
 /** A held private tmpfs, as `LaunchedWorker.state` and `.turnTemp` expose it. */
-function heldTmpfs(fd: number): WorkerStateHandle {
+function heldTmpfs(fd: number, onClose?: () => void): WorkerStateHandle {
   const root = `/proc/self/fd/${fd}`;
   let open = true;
+  let released = false;
   return {
     root,
     space() { const fs = statfsSync(root); return { total: fs.blocks * fs.bsize, free: fs.bavail * fs.bsize }; },
-    close() { if (open) { open = false; closeSync(fd); } },
+    close() {
+      if (released) return;
+      if (open) { closeSync(fd); open = false; }
+      // A failed owned-tree cleanup can be retried, but only a new successful
+      // cleanup receipt releases ownership/accounting. The FD closes once.
+      onClose?.();
+      released = true;
+    },
   };
+}
+
+/** Populate as the server, then grant the configured shared group access before payload start. */
+function shareInitialWorkerState(root: string): void {
+  const visit = (path: string, depth: number) => {
+    if (depth > 128) throw new WorkerHostError("runtime state exceeds its directory bound");
+    for (const name of readdirSync(path)) {
+      const file = join(path, name), info = lstatSync(file);
+      if (info.isDirectory()) { chmodSync(file, 0o2770); visit(file, depth + 1); }
+      else if (info.isFile() && info.nlink === 1) chmodSync(file, 0o660);
+      else throw new WorkerHostError("runtime state contains an alias or special file");
+    }
+  };
+  visit(root, 0);
 }
 
 /**
@@ -948,7 +987,8 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
     // resolved inside the keeper namespace, then masked by their own /tmp.
     const root = `/proc/${process.pid}/fd/${owned}`;
     void child.exited.finally(() => pipes!.cleanup());
-    return { root, mount, namespacePid, allowanceBytes: reservation.outputStagingBytes,
+    const namespaceStart = readFileSync(`/proc/${namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+    return { root, mount, namespacePid, namespaceStart, allowanceBytes: reservation.outputStagingBytes,
       retain() { if (closed) throw new Error("output staging is closed"); refs++; },
       release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
     };
@@ -1003,6 +1043,17 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let stateFd: number | undefined, tempFd: number | undefined;
+  let status: ReturnType<typeof createWorkerStatusPipe> | undefined;
+  let identityBroker: ReturnType<typeof prepareWorkerIdentity> | undefined;
+  let identityFinished = false, identityReferences = 0;
+  const identityHandles: WorkerStateHandle[] = [];
+  const identityReaders: ReturnType<typeof registerIdentityReadRoot>[] = [];
+  const releaseIdentity = () => {
+    if (identityFinished && identityReferences === 0) {
+      identityBroker?.close();
+      for (const reader of identityReaders) reader.confirmCleanup();
+    }
+  };
   try {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
@@ -1015,30 +1066,68 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         worker: input.sandbox?.profile === "governed" ? join(brain, area.rel) : join(WORKER_AREA_ROOT, area.name),
         host: input.areaOutput ? join(input.areaOutput.source, area.rel) : area.mount.path }] : []), maskPaths: input.sandbox?.maskPaths });
     pipes = createWorkerPipes();
-    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path);
+    const helper = workerIdentityHelper();
+    if (!helper) status = createWorkerStatusPipe();
+    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path, status);
+    if (helper) {
+      const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
+      if (gated(input)) payload.argv.splice(payload.argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+      identityBroker = prepareWorkerIdentity(helper, payload.argv, [
+        ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
+        ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
+      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage);
+      payload.argv = identityBroker.command;
+      // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
+      delete payload.cgroup;
+      boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
+    }
     child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
-    if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, child.exited);
     pipes.closeChild();
     let state: WorkerStateHandle | undefined, turnTemp: WorkerStateHandle | undefined;
-    if (gated(input)) {
-      const deadline = Date.now() + STATE_SETUP_MS;
-      const pid = sandboxPid(child.pid, deadline);
-      if (input.stateBytes !== undefined) {
-        // Runtime state is bubblewrap's last mount, so once it is there the sandbox is complete.
-        stateFd = openPrivateState(child.pid, pid, input.stateBytes, deadline);
-        state = heldTmpfs(stateFd);
-        input.populateState?.(state.root);
-      }
-      if (input.turnTempBytes !== undefined) {
-        tempFd = openPrivateTurnTemp(child.pid, pid, input.turnTempBytes, deadline);
-        turnTemp = heldTmpfs(tempFd);
-      }
-      // Release the gate: the worker's command starts only now.
-      writeSync(pipes.parent[0], STATE_GATE_OPEN);
-      stateFd = tempFd = undefined;
+    const deadline = Date.now() + STATE_SETUP_MS;
+    let pid: number;
+    let identityReady: ReturnType<NonNullable<typeof identityBroker>["ready"]> | undefined;
+    try { identityReady = identityBroker?.ready(child.pid, deadline); }
+    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+    try { pid = identityReady?.worker.pid ?? status!.childPid(child.pid, deadline); }
+    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+    status?.closeWriter();
+    const statusChannel = status;
+    void child.exited.finally(() => statusChannel?.close());
+    const freezer = identityBroker ? {
+      freeze: () => identityBroker!.request("signal", { signal: "STOP" }),
+      resume: () => identityBroker!.request("signal", { signal: "CONT" }),
+    } : createWorkerFreezer(pid);
+    const openIdentityRoot = (name: "state" | "temp") => {
+      const receipt = identityReady!.roots[name]!;
+      return openSync(`/proc/${child!.pid}/fd/${receipt.fd}`, constants.O_RDONLY | constants.O_DIRECTORY);
+    };
+    const holdIdentityRoot = (fd: number, name: "state" | "temp") => {
+      identityReferences++;
+      const reader = registerIdentityReadRoot(`/proc/self/fd/${fd}`, name, name === "state" ? input.stateBytes! : input.turnTempBytes!, identityBroker!.request, identityBroker!.requestAsync);
+      identityReaders.push(reader);
+      let released = false;
+      const handle = heldTmpfs(fd, () => { if (!released) { released = true; reader.close(); identityReferences--; } releaseIdentity(); });
+      identityHandles.push(handle);
+      return handle;
+    };
+    if (input.stateBytes !== undefined) {
+      // Runtime state is bubblewrap's last mount, so once it is there the sandbox is complete.
+      stateFd = identityBroker ? openIdentityRoot("state") : openPrivateState(child.pid, pid, input.stateBytes, deadline);
+      state = identityBroker ? holdIdentityRoot(stateFd, "state") : heldTmpfs(stateFd);
+      if (identityBroker) stateFd = undefined;
+      input.populateState?.(state.root);
+      if (identityBroker) shareInitialWorkerState(state.root);
     }
-    const freezer = createWorkerFreezer(sandboxPid(child.pid, Date.now() + STATE_SETUP_MS));
+    if (input.turnTempBytes !== undefined) {
+      tempFd = identityBroker ? openIdentityRoot("temp") : openPrivateTurnTemp(child.pid, pid, input.turnTempBytes, deadline);
+      turnTemp = identityBroker ? holdIdentityRoot(tempFd, "temp") : heldTmpfs(tempFd);
+      if (identityBroker) tempFd = undefined;
+    }
+    // Release the gate: the worker's command starts only now.
+    if (identityBroker) identityBroker.request("release"); else status!.release();
+    stateFd = tempFd = undefined;
     const streams = pipes.streams();
     let killed = false;
     let final: WorkerLimitReport | undefined;
@@ -1070,7 +1159,23 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       return { hits, fatal };
     };
     const spawned = child;
-    const exited = spawned.exited.then(async code => {
+    const workerExit = identityBroker ? new Promise<number>((resolve, reject) => {
+      const timer = setInterval(() => {
+        try {
+          const result = identityBroker!.request<{ exited: boolean; code: number | null; failure?: string }>("status");
+          if (!result.exited) return;
+          clearInterval(timer); identityFinished = true;
+          if (result.failure) reject(new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`));
+          else resolve(result.code !== null && result.code < 0 ? 128 - result.code : result.code ?? 1);
+          releaseIdentity();
+        } catch (error) { clearInterval(timer); identityFinished = true; reject(error); }
+      }, 100);
+      void spawned.exited.then(code => {
+        if (!identityFinished) { clearInterval(timer); identityFinished = true; reject(new WorkerHostError(`worker_identity_supervisor_lost (${code})`)); }
+      });
+    }) : spawned.exited;
+    if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
+    const exited = workerExit.then(async code => {
       clearInterval(memoryWatch);
       final = report(code);
       if (cgroup) final.peak = cgroup.peak();
@@ -1081,18 +1186,43 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       }
       finally { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }
       return code;
+    }, async error => {
+      clearInterval(memoryWatch);
+      // A failed supervisor/control path is never eligible for publication.
+      // Independently authorized termination precedes owned output cleanup.
+      identityBroker?.terminate();
+      releaseIdentity();
+      cgroup?.remove();
+      try { await areaOutput?.cleanup(); }
+      finally { if (!input.preparedOutput) await startupView?.cleanup(); }
+      throw error;
     });
     return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
-      kill: (signal?: NodeJS.Signals) => { killed = true; return spawned.kill(signal); }, ...(state ? { state } : {}),
+      kill: (signal?: NodeJS.Signals) => { killed = true;
+        if (identityBroker) identityBroker.request("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });
+        else spawned.kill(signal);
+      }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
   } catch (error) {
+    identityFinished = false;
+    for (const handle of identityHandles) handle.close();
+    let cleanupFailure: unknown;
+    try { identityBroker?.close(); } catch (failure) { cleanupFailure = failure; }
+    if (!cleanupFailure) for (const reader of identityReaders) reader.confirmCleanup();
     child?.kill("SIGKILL");
+    status?.close();
     if (stateFd !== undefined) closeSync(stateFd);
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
-    pipes?.cleanup(); cgroup?.remove();
+    pipes?.cleanup();
+    if (cleanupFailure) {
+      // Keep native ownership/recovery intent and admission held: cleanup
+      // was not verified, so no publication or successful release is implied.
+      throw new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`);
+    }
+    cgroup?.remove();
     if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
     else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
@@ -1104,7 +1234,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   }
 }
 
-export type WorkerHostProbe = { ok: true } | { ok: false; requirement: string };
+export type WorkerHostProbe = { ok: true; identity?: "separate_uid"; workerUid?: number } | { ok: false; requirement: string };
 
 /**
  * bubblewrap's own refusal when the kernel will not mount a fresh procfs for
@@ -1117,6 +1247,8 @@ const FRESH_PROC_REQUIREMENT = "the kernel refused the worker a fresh /proc beca
   + " in Docker, run the container with --security-opt systempaths=unconfined";
 
 export interface WorkerHostProbeOptions {
+  /** Trusted database parent for the ownership sentinel; never supplied by repository content. */
+  identitySentinelDirectory?: string;
   profile?: "governed" | "strict";
   /** Also establish the restricted envelope: a private network namespace and an explicit read envelope. */
   restricted?: boolean;
@@ -1138,6 +1270,15 @@ export interface WorkerHostProbeOptions {
 const NO_TMPFS_SIZE = /--size/;
 /** Brains whose ordinary worker boundary a real probe has proven in this process. */
 const proven = new Set<string>();
+const verifiedIdentities = new Map<string, { helper: string; workerUid: number }>();
+
+/** Facts from actual successful qualification, never a configured or inferred UID. */
+export function verifiedWorkerIdentity(brainPath: string): { identity: "separate_uid"; workerUid: number } | undefined {
+  const helper = workerIdentityHelper();
+  if (!helper) return undefined;
+  const verified = verifiedIdentities.get(realpathSync(brainPath));
+  return verified?.helper === helper ? { identity: "separate_uid", workerUid: verified.workerUid } : undefined;
+}
 
 /**
  * Whether a real probe has passed for this brain in this process. The host
@@ -1152,12 +1293,22 @@ export function workerHostProven(brainPath: string): boolean {
 export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): WorkerHostProbe {
   let fixture: string | undefined;
   let relayDir: string | undefined;
+  let identitySentinel: string | undefined;
+  let verifiedWorkerUid: number | undefined;
+  let identityRelay: ReturnType<typeof Bun.spawn> | undefined;
   try {
     if (process.platform !== "linux") throw new Error("Linux namespaces are required");
     brainPath = realpathSync(brainPath);
+    const identityHelper = workerIdentityHelper();
+    if (identityHelper) {
+      identitySentinel = mkdtempSync(join(options.identitySentinelDirectory ?? brainPath, ".worker-identity-sentinel-"));
+      chmodSync(identitySentinel, 0o700);
+      writeFileSync(join(identitySentinel, "sentinel"), "Odysseus: private server bytes.\n", { mode: 0o600 });
+    }
     // The host owns this disposable sentinel on the configured brain filesystem.
     // Even a broken launcher can only change these newly minted fixture bytes.
     fixture = mkdtempSync(join(brainPath, ".worker-host-probe-"));
+    if (identityHelper) chmodSync(fixture, 0o2770);
     const target = join(fixture, "sentinel");
     const golden = "Odysseus: authoritative bytes.\n";
     writeFileSync(target, golden);
@@ -1166,13 +1317,25 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       brain: brainPath, restricted: false, profile: options.profile, areas: [], scratchAliasesRemoved: [],
       protection: { ancestors: [normalize(fixture.slice(brainPath.length + 1))], paths: [
         { rel: target.slice(brainPath.length + 1), reason: "probe sentinel", mode: "read_only" },
-      ] }, readPaths: [process.execPath],
+      ] }, readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])],
     } : undefined;
     let restricted: RestrictedEnvelope | undefined;
-    if (options.restricted) {
+    if (options.restricted || identityHelper) {
       relayDir = mkdtempSync(join(tmpdir(), "brain-inference-probe-"));
-      chmodSync(relayDir, 0o700);
-      restricted = { readPaths: [process.execPath], inferenceDir: relayDir };
+      chmodSync(relayDir, identityHelper ? 0o750 : 0o700);
+      if (options.restricted) restricted = { readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])], inferenceDir: relayDir };
+      if (identityHelper) {
+        const python = ["/usr/bin/python3", "/bin/python3"].find(existsSync);
+        if (!python) throw new WorkerHostError("worker_identity_requires_system_python");
+        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
+          { env: {}, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+        const relayDeadline = Date.now() + STATE_SETUP_MS;
+        while (!existsSync(join(relayDir, "relay.sock"))) {
+          if (Date.now() >= relayDeadline) throw new WorkerHostError("worker_identity_relay_probe_unavailable");
+          Bun.sleepSync(1);
+        }
+        if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
+      }
     }
     // The worker must see each rlimit the plan sets, as its hard limit (#1660).
     const limits = launchLimits({});
@@ -1180,6 +1343,11 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     const expected = limits.rlimits.map(({ limit, value }) => [rows[limit], value] as const);
     const program = `import {writeFileSync,readFileSync,existsSync} from "node:fs";
       const table=readFileSync("/proc/self/limits","utf8").split("\\n");
+      ${identitySentinel ? `if(process.getuid()===0||process.getuid()===${process.getuid?.()}) process.exit(8);
+      let privateDenied=false;try{readFileSync(${JSON.stringify(join(identitySentinel, "sentinel"))})}catch(error){privateDenied=error.code==='EACCES'}
+      if(!privateDenied)process.exit(9);` : ""}
+      ${identityHelper ? `const relayResponse=await fetch('http://relay/probe',{unix:${JSON.stringify(options.restricted ? `${WORKER_INFERENCE_DIR}/relay.sock` : join(relayDir!, "relay.sock"))}});
+      if(relayResponse.status!==200||await relayResponse.text()!=='ithaca')process.exit(10);` : ""}
       for(const [row,value] of ${JSON.stringify(expected)}){
         const fields=(table.find(l=>l.startsWith(row))??"").slice(row.length).trim().split(/\\s+/);
         if(fields[0]!==String(value)||fields[1]!==String(value)) process.exit(5);
@@ -1189,26 +1357,53 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       writeFileSync(scratch,"Odysseus: scratch works.");
       if(!denied || readFileSync(scratch,"utf8")!=="Odysseus: scratch works.") process.exit(1);
       ${options.profile === "governed" && !options.restricted ? `writeFileSync(${JSON.stringify(writableTarget)},"Odysseus: governed works.");` : ""}
+      ${options.profile === "strict" && !options.restricted ? `let strictDenied=false;try{writeFileSync(${JSON.stringify(writableTarget)},'unexpected')}catch(error){strictDenied=error.code==='EROFS'}if(!strictDenied)process.exit(11);` : ""}
       ${options.restricted ? `const links=readFileSync("/proc/net/dev","utf8").split("\\n").slice(2).map(l=>l.split(":")[0].trim()).filter(Boolean);
       if(links.join()!=="lo") process.exit(2);
       if(!existsSync(${JSON.stringify(WORKER_INFERENCE_DIR)})) process.exit(4);` : ""}
       ${options.stateBytes !== undefined ? `const state=require("node:fs").statfsSync(${JSON.stringify(WORKER_STATE)});
-      if(state.type!==${TMPFS_MAGIC}||state.blocks*state.bsize!==${Number(options.stateBytes)}) process.exit(6);` : ""}
+      if(state.type!==${TMPFS_MAGIC}||state.blocks*state.bsize!==${Number(options.stateBytes)}) process.exit(6);
+      writeFileSync(${JSON.stringify(`${WORKER_STATE}/identity-positive`)},'ithaca');
+      if(readFileSync(${JSON.stringify(`${WORKER_STATE}/identity-positive`)},'utf8')!=='ithaca')process.exit(6);` : ""}
       ${options.turnTempBytes !== undefined ? `const temp=require("node:fs").statfsSync(${JSON.stringify(TURN_TEMP_ROOT)});
       if(temp.type!==${TMPFS_MAGIC}||temp.blocks*temp.bsize!==${Number(options.turnTempBytes)}) process.exit(7);` : ""}
       console.log("worker-boundary-pass");`;
     // The probe starts outside the brain and loads no `.env`: the brain's own
     // `bunfig.toml` or `.env` must never decide whether the boundary holds (#1648).
-    const boot = workerBootstrap({ brainPath, command: ["/bin/sh", "-c", 'cd / && exec "$0" --no-env-file -e "$1"', process.execPath, program], env: {}, restricted, limits, sandbox,
+    const probeCommand = ["/bin/sh", "-c", 'cd / && exec "$0" --no-env-file -e "$1"', process.execPath, program];
+    const boot = workerBootstrap({ brainPath, command: probeCommand, env: {}, restricted, limits, sandbox,
       ...(options.stateBytes !== undefined ? { stateBytes: options.stateBytes } : {}),
       ...(options.turnTempBytes !== undefined ? { turnTempBytes: options.turnTempBytes } : {}) });
 
     const pipes = createWorkerPipes();
+    let broker: ReturnType<typeof prepareWorkerIdentity> | undefined;
     try {
       // Opens the start gate up front; the probe has nothing to copy in.
-      if (gated(options)) writeSync(pipes.parent[0], STATE_GATE_OPEN);
-      const child = Bun.spawnSync(boot.command, { env: boot.env, stdin: pipes.child[0],
-        stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
+      let child: { exitCode: number | null };
+      if (identityHelper) {
+        const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[] };
+        if (gated(options)) payload.argv.splice(payload.argv.length - probeCommand.length - STATE_GATE.length, STATE_GATE.length);
+        broker = prepareWorkerIdentity(identityHelper, payload.argv, [
+          ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
+          ...(options.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: options.turnTempBytes }]),
+        ]);
+        payload.argv = broker.command; boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
+        const supervisor = Bun.spawn(boot.command, { env: boot.env, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+        const deadline = Date.now() + 10_000;
+        verifiedWorkerUid = broker.ready(supervisor.pid, deadline).workerUid; broker.request("release");
+        for (;;) {
+          const result = broker.request<{ exited: boolean; code: number | null; failure?: string }>("status");
+          if (result.failure) throw new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`);
+          if (result.exited) { child = { exitCode: result.code }; break; }
+          if (Date.now() >= deadline) throw new WorkerHostError("worker_identity_probe_timed_out");
+          Bun.sleepSync(10);
+        }
+        broker.close(); broker = undefined;
+      } else {
+        if (gated(options)) writeSync(pipes.parent[0], STATE_GATE_OPEN);
+        child = Bun.spawnSync(boot.command, { env: boot.env, stdin: pipes.child[0],
+          stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
+      }
       pipes.closeChild(); pipes.closeInput();
       const output = readFileSync(pipes.parent[1], "utf8");
       const errors = readFileSync(pipes.parent[2], "utf8");
@@ -1226,24 +1421,32 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
           : child.exitCode === 5 ? "the worker's resource limits (prlimit)"
           : child.exitCode === 6 ? "a private, size-limited runtime-state tmpfs"
           : child.exitCode === 7 ? "a private, size-limited turn-temp /tmp"
+          : child.exitCode === 8 ? "worker_identity_wrong_uid"
+          : child.exitCode === 9 ? "worker_identity_private_sentinel_readable"
+          : child.exitCode === 10 ? "worker_identity_relay_unreachable"
+          : child.exitCode === 11 ? "worker_identity_strict_brain_writable"
           : "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation";
         throw new Error(`${what} failed (${detail})`);
       }
-    } finally { pipes.cleanup(); }
+    } finally { try { broker?.close(); } finally { pipes.cleanup(); } }
     if (!options.restricted) proven.add(brainPath);
-    return { ok: true };
+    if (identityHelper && verifiedWorkerUid !== undefined) verifiedIdentities.set(brainPath, { helper: identityHelper, workerUid: verifiedWorkerUid });
+    return { ok: true, ...(verifiedWorkerUid === undefined ? {} : { identity: "separate_uid" as const, workerUid: verifiedWorkerUid }) };
   } catch (error) {
+    verifiedIdentities.delete(brainPath);
     return { ok: false, requirement: error instanceof WorkerHostError ? error.requirement
       : error instanceof Error ? error.message : String(error) };
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
+    identityRelay?.kill("SIGKILL");
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });
+    if (identitySentinel) rmSync(identitySentinel, { recursive: true, force: true });
   }
 }
 
 /** Concrete probe object permits test spies, with no production disable flag. */
 export const workerHostBoundary = { probe: probeWorkerHost };
-export function requireWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): void {
+export function requireWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): Extract<WorkerHostProbe, { ok: true }> {
   let result: WorkerHostProbe;
   try {
     result = workerHostBoundary.probe(brainPath, options);
@@ -1252,6 +1455,7 @@ export function requireWorkerHost(brainPath: string, options: WorkerHostProbeOpt
     throw new WorkerHostError(error instanceof Error ? error.message : String(error));
   }
   if (!result.ok) throw new WorkerHostError(result.requirement);
+  return result;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { sessionPromptContext, describeClient } from "@schlessera/brain-ui-sdk/internal";
+import { workerCleanupUnconfirmed, sessionPromptContext, describeClient } from "@schlessera/brain-ui-sdk/internal";
 import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
@@ -123,9 +123,11 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     names: { allowance: "turnTemp.allowanceBytes", budget: "turnTemp.budgetBytes" } });
   let reservation: Reservation | undefined;
   let admissionObservation: StateRoomObservation;
+  let identity: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   try {
     admissionObservation = checkSessionSize(init);
-    requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
+    const workerHost = requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
+    if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) identity = { kind: "separate_uid", workerUid: workerHost.workerUid };
     // Admitted against the same per-process ledger as Claude workers; a busy
     // budget refuses as worker_state_busy before anything launches.
     reservation = processStateLedger().reserve(undefined, turnTempLimits);
@@ -162,7 +164,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), cachedNpmModules] };
     }
     const limits = launchLimits({});
-    sandboxNote = [workerSandboxNote(sandbox, { hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
+    sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
       outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
@@ -189,23 +191,25 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // A post-launch callback can fail before the ordinary lifecycle handlers
     // exist. Stop and drain this owned child before deleting its native stage.
     const cleanupErrors: unknown[] = [];
-    const attempt = async (cleanup: () => unknown | Promise<unknown>) => { try { await cleanup(); } catch (failure) { cleanupErrors.push(failure); } };
+    const attempt = async (cleanup: () => unknown | Promise<unknown>): Promise<boolean> => { try { await cleanup(); return true; } catch (failure) { cleanupErrors.push(failure); return false; } };
+    let workerStorageReleased = !workerCleanupUnconfirmed(error);
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
-      await attempt(() => launchedChild!.turnTemp?.close());
+      workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.close());
     }
-    await attempt(() => preparedOutput?.cleanup());
+    if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
     await attempt(() => envelope?.relay.stop());
-    await attempt(() => reservation.release());
+    if (workerStorageReleased) await attempt(() => reservation.release());
     if (cleanupErrors.length) {
       try { backend.log?.("warn", `Pi startup cleanup retained failures after its original refusal: ${cleanupErrors.map(String).join("; ")}`); } catch { /* Reporting cannot replace the startup error. */ }
     }
     throw error;
   }
   const held = reservation;
+  let turnTempClosed = false;
   /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
-  const closeTurnTemp = () => { try { turnTemp?.close(); } finally { held.release(); } };
+  const closeTurnTemp = () => { if (turnTempClosed) return; turnTemp?.close(); held.release(); turnTempClosed = true; };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
   void child.exited.finally(() => { workerLive = false; }).catch(() => {});
@@ -309,7 +313,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
    * temp into scratch, retains display mappings outside the transcript, and reports each
    * linked file to the host (#1655). Turn temp is removed either way.
    */
-  function promote(): void {
+  async function promote(): Promise<void> {
     try {
       persist(true);
       if (!turnTemp || env.autonomous) return;
@@ -321,6 +325,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
         for (const [index, part] of (message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
           if (part?.type !== "text" || typeof part.text !== "string") continue;
+          await promoter.prepareRecovery(part.text, turnContext.signal ?? undefined);
           const next = promoter.rewrite(part.text);
           if (typeof entry.id === "string") display.retainText(entry.id, index, part.text, next);
         }
@@ -605,7 +610,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       try { send({ type: "prompt", text: ownedPrompt?.text ?? text, options }); await done.promise; }
       finally {
         child.stdin.end(); child.kill("SIGKILL");
-        try { await child.exited; } finally { await received; promote(); }
+        try { await child.exited; await received; await promote(); }
+        finally { closeTurnTemp(); }
       }
       if (error) throw error;
     },

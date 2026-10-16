@@ -6,7 +6,7 @@ sudo apt-get install --yes bubblewrap iproute2
 # Unit partitions retain their existing prerequisites; the runtime job alone
 # prepares the native image before entering its network-disabled proof.
 if [ "${1:-}" = "--native" ]; then
-  sudo apt-get install --yes btrfs-progs
+  sudo apt-get install --yes btrfs-progs build-essential
   sudo modprobe loop
   sudo modprobe btrfs
   docker build --file scripts/native-proof/Dockerfile --tag brain-kit-native-runtime:1 scripts/native-proof

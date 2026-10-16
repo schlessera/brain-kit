@@ -1,5 +1,9 @@
 /** Data-only environment descriptors, safe for the SDK's browser-facing root. */
 export const ENV_VARS = [{
+  name: "BRAIN_UI_WORKER_IDENTITY_HELPER",
+  description: "Optional absolute root-owned executable implementing the version-1 authenticated worker identity broker protocol. It is invoked before the worker's filesystem filter and bubblewrap, never as a shell prefix. Requires a non-root server, distinct nonzero worker UID, shared group and qualified narrow host helpers. A configured helper that fails qualification refuses execution without same-UID fallback. Omit to retain the explicitly disclosed shared-UID mask boundary.",
+  required: false,
+}, {
   name: "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
   description: "Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC.",
   default: "268435456",

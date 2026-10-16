@@ -285,6 +285,7 @@ jobs:
           name: runtime-host-proof
           path: |
             tmp/native-host-proof/
+            tmp/worker-identity-proof/
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml

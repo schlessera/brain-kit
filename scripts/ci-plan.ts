@@ -116,6 +116,7 @@ export const ROOT_CONSUMERS = [
   { prefix: "scripts/capture", categories: ["captures"] },
   { prefix: "scripts/native-proof/", categories: ["runtime"] },
   { prefix: "scripts/prove-native-host.ts", categories: ["runtime"] },
+  { prefix: "scripts/prove-worker-identity.ts", categories: ["runtime"] },
   { prefix: "scripts/visual.mjs", categories: ["browser", "layout", "endurance"] },
   { prefix: "scripts/browser-shards.ts", categories: ["browser", "layout", "endurance"] },
   { prefix: "scripts/browser-shard-costs.json", categories: ["browser", "layout", "endurance"] },
