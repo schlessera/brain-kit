@@ -5,6 +5,7 @@ import { focusFileEntryHeading } from "../../lib/file-entry-focus.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { FileViewerMarkdown } from "./file-viewer-markdown.js";
 import { FileViewerHtml } from "./file-viewer-html.js";
+import { SvgSource } from "./svg-source.js";
 import { FileViewerRaw } from "./file-viewer-raw.js";
 import { FileViewerBinary } from "./file-viewer-binary.js";
 import { ShareMenu, type ShareOption } from "../share/share-menu.js";
@@ -45,6 +46,7 @@ export function FileViewer() {
   const previewAvailable =
     content?.kind === "markdown" ||
     content?.kind === "html" ||
+    (content?.kind === "binary" && content.mime === "image/svg+xml") ||
     (content?.kind === "text" && isMermaidPath(content.path));
 
   return (
@@ -77,6 +79,7 @@ export function FileViewer() {
 function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["currentContent"]>; viewMode: "preview" | "raw" }) {
   const root = useBrainUiRoot();
   if (content.kind === "binary") {
+    if (viewMode === "raw" && content.mime === "image/svg+xml") return <SvgSource key={`${content.path}@${content.mtime}`} content={content} />;
     return <FileViewerBinary content={content} onCheckFailure={() => root.stores.file.getState().checkPreview(content)} />;
   }
   // Standalone mermaid source files (.mmd / .mermaid) preview as a diagram.

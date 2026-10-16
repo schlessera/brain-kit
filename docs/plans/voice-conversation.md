@@ -186,7 +186,7 @@ existing pronunciation overrides only as disclosed text correction, retaining
 the distinction between recognized words and submitted text. The present
 `AsrEvent` carries partial/final text and `endsTurn`, not confidence, overlap
 evidence or an output transcript (`AsrEvent`,
-`packages/ui-sdk/src/protocol.ts:1834`). #317 must resolve those gaps rather
+`packages/ui-sdk/src/protocol.ts:1836`). #317 must resolve those gaps rather
 than pretending that dictation supplies them.
 
 Assistant text remains the generated answer; playback progress is a separate
@@ -346,7 +346,7 @@ once, using the host outcome as truth.
 
 Silence produces no reminder. At expiry the server denies and removes pending
 requests (`drainPendingForTurn`,
-`packages/ui-server/src/ws/turns.ts:702-736`). Clear the correlated card's
+`packages/ui-server/src/ws/turns.ts:704-738`). Clear the correlated card's
 actionable state on the host terminal outcome even if no `tool_result` arrives;
 the current terminal-frame contract is (`ServerResultMessage`,
 `packages/ui-sdk/src/protocol.ts:1108-1118`). Keep the existing card/receipt in

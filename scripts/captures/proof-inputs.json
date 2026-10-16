@@ -1,0 +1,90 @@
+[
+  {
+    "owner": "scripts/captures/runtime-server.ts",
+    "inputs": [
+      {
+        "expression": "Bun.build({ entrypoints: [resolve(root, \"scripts/captures/runtime-client.ts\")], target: \"browser\", outdir: assets, naming: \"client.js\" })",
+        "targets": [
+          "scripts/captures/runtime-client.ts"
+        ]
+      },
+      {
+        "expression": "writeFile(resolve(assets, \"kit.css\"), await readFile(resolve(root, \"packages/ui-kit/dist/styles.css\")))",
+        "targets": [
+          "packages/ui-kit/src"
+        ]
+      },
+      {
+        "expression": "readFile(resolve(root, \"packages/ui-kit/dist/styles.css\"))",
+        "targets": [
+          "packages/ui-kit/src"
+        ]
+      },
+      {
+        "expression": "resolve(root, \"packages/ui-kit/dist/styles.css\")",
+        "targets": [
+          "packages/ui-kit/src"
+        ]
+      },
+      {
+        "expression": "writeFile(resolve(assets, \"app.css\"), await readFile(resolve(root, \"packages/ui-react/dist/styles.css\")))",
+        "targets": [
+          "packages/ui-react/src"
+        ]
+      },
+      {
+        "expression": "readFile(resolve(root, \"packages/ui-react/dist/styles.css\"))",
+        "targets": [
+          "packages/ui-react/src"
+        ]
+      },
+      {
+        "expression": "resolve(root, \"packages/ui-react/dist/styles.css\")",
+        "targets": [
+          "packages/ui-react/src"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "scripts/captures/core-fixture.ts",
+    "inputs": [
+      {
+        "expression": "Bun.spawn([process.execPath, \"--preload\", resolve(root, \"scripts/captures/clock.ts\"), resolve(root, \"packages/core/src/cli/brain.ts\"), ...args, \"--json\"], {\n      cwd: directory, env: { PATH: process.env.PATH ?? \"\", BRAIN_ROOT: directory, TZ: \"Etc/GMT-2\", XDG_BIN_HOME: resolve(directory, \".bin\") },\n      stdout: \"pipe\", stderr: \"pipe\", stdin: \"ignore\",\n    })",
+        "targets": [
+          "packages/core/src/cli/brain.ts",
+          "scripts/captures/clock.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "scripts/captures/runtime.ts",
+    "inputs": [
+      {
+        "expression": "spawn(\"/capture-bun\", [\"--preload\", resolve(root,\"scripts/captures/clock.ts\"), resolve(root,\"scripts/captures/runtime-server.ts\"),scratch,recipe.id], {\n    cwd:root,env:{ PATH:process.env.PATH, TZ:catalogue.environment.timezone },stdio:[\"ignore\",\"pipe\",\"pipe\"],\n  })",
+        "targets": [
+          "scripts/captures/runtime-server.ts",
+          "scripts/captures/clock.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "scripts/captures/fonts.ts",
+    "inputs": [
+      {
+        "expression": "readFile(resolve(root, \"scripts/captures/font-lock.json\"))",
+        "targets": [
+          "scripts/captures/font-lock.json"
+        ]
+      },
+      {
+        "expression": "readFile(resolve(root, \"packages/ui-kit/.storybook/preview-head.html\"), \"utf8\")",
+        "targets": [
+          "packages/ui-kit/.storybook/preview-head.html"
+        ]
+      }
+    ]
+  }
+]

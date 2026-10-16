@@ -88,10 +88,12 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
 /**
  * The in-process MCP server for this backend's own tools. Registered under the
  * `brain-ui` name, so its tools are exposed to Claude as `mcp__brain-ui__*`.
- * Tools are registered only when the host supplies the matching handler;
- * `show_block` needs none, so it is always registered.
+ * Interactive callers select the full stable roster with unavailable-handler
+ * refusals; autonomous callers retain the exact handler-based membership.
  */
 export function createBrainUiMcpServer(handlers: {
+  /** Interactive sessions expose the full fixed roster, including unavailable handlers. */
+  stableRoster?: boolean;
   proposePolicyChange?: BackendBridge["proposePolicyChange"];
   inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction" | "completeShare">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
@@ -108,6 +110,19 @@ export function createBrainUiMcpServer(handlers: {
   /** Required alongside requestMask: the mask is written into this repo. */
   brainPath?: string;
 }) {
+  // Missing handlers are executable refusals, never schema removals. The
+  // permission hook additionally refuses before SDK/settings auto-allow paths.
+  if (handlers.stableRoster) {
+    const unavailable = async () => { throw new Error("This tool has no available host handler in this turn."); };
+    handlers = { ...handlers,
+      proposePolicyChange: handlers.proposePolicyChange ?? unavailable,
+      getLocation: handlers.getLocation ?? unavailable,
+      askUser: handlers.askUser ?? unavailable, askUserList: handlers.askUserList ?? unavailable,
+      askUserRank: handlers.askUserRank ?? unavailable, askUserForm: handlers.askUserForm ?? unavailable,
+      requestMask: handlers.requestMask ?? unavailable, queryActivity: handlers.queryActivity ?? unavailable,
+      inbox: handlers.inbox ?? {}, application: handlers.application ?? {},
+    };
+  }
   const tools: SdkMcpToolDefinition<any>[] = [createShowBlockTool()];
   if (handlers.proposePolicyChange) tools.push(createPolicyProposalTool(handlers.proposePolicyChange));
   if (handlers.getLocation) tools.push(createLocationTool(handlers.getLocation));
@@ -146,7 +161,7 @@ export function createBrainUiMcpServer(handlers: {
     alwaysLoad: true,
   });
   if (handlers.inbox) registerInboxTools(server.instance, handlers.inbox);
-  if (handlers.application?.applyBrain) registerBrainApplicationTools(server.instance, handlers.application);
+  if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster);
   return server;
 }
 

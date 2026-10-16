@@ -34,6 +34,7 @@ jobs:
       layout: ${{ steps.plan.outputs.layout }}
       browser: ${{ steps.plan.outputs.browser }}
       unit: ${{ steps.plan.outputs.unit }}
+      unit_shards: ${{ steps.plan.outputs.unit_shards }}
       verify: ${{ steps.plan.outputs.verify }}
       pack: ${{ steps.plan.outputs.pack }}
       run_browser: ${{ steps.reuse.outputs.run_browser }}
@@ -153,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: ${{ fromJSON(needs.changeset.outputs.unit_shards) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -173,7 +174,9 @@ jobs:
       - name: Real Chrome and offline Linux namespace prerequisites
         run: bash scripts/ci-runtime-setup.sh
       - name: Complete unit proof
-        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/4
+        env:
+          UNIT_SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7

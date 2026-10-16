@@ -99,6 +99,7 @@ export function listPiProfiles(options: CreatePiBackendOptions): ProviderInfo[] 
       }
       return {
         id: p.id,
+        model: p.model,
         label: p.label,
         vendor: p.vendor,
         ...(model?.reasoning ? {

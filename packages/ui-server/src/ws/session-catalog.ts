@@ -1,3 +1,8 @@
+import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
+import { createModelPricing } from "../pricing/model-pricing.js";
+import { resolveStandalonePricingConfig } from "../config/env.js";
+import { reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
+import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
@@ -32,6 +37,11 @@ import { bindTurnEvents, recordGovernanceEvent, type GovernanceEventInput } from
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
+  /** Claude cumulative totals are evidence only; returns this turn's priced
+   * completed responses and retains newly measured unstreamed usage once. */
+  accountClaudeUsage?(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence,
+    resumed: boolean, context?: { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }): number | undefined;
+
   recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
   readStateRoom?(sessionId: string): StateRoomObservation | undefined;
   /** Scratch links in backend-persisted answers, before next-turn pruning. */
@@ -151,7 +161,13 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
      backend_id = COALESCE(excluded.backend_id, backend_id)`;
 
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
-export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void }): SessionCatalog {
+export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void },
+  accounting?: { pricing: RollupPricing; store: ActivityStore }): SessionCatalog {
+  let accountingDeps = accounting;
+  const getAccounting = () => accountingDeps ??= (() => {
+    const pricing = createModelPricing(resolveStandalonePricingConfig());
+    return { pricing, store: createActivityStore(db(), { pricing }) };
+  })();
   // Persistence stays non-throwing — losing one accounting row must not kill
   // the turn — but never silent: a full disk or locked database would
   // otherwise drop every session record with nothing anywhere.
@@ -166,6 +182,48 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     });
   };
   return {
+    accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
+      let mainCost: number | undefined;
+      try {
+        const { pricing, store } = getAccounting();
+        mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
+        db().transaction(() => {
+          if (db().query("SELECT 1 FROM claude_usage_turns WHERE turn_id=?").get(turnId)) return;
+          const row = db().query("SELECT state_json FROM claude_session_usage WHERE session_id=? AND backend_id=?")
+            .get(sessionId, backendId) as { state_json: string } | null;
+          const previous = row ? JSON.parse(row.state_json) as ClaudeUsageState : undefined;
+          const result = reconcileClaudeUsage(previous, evidence.completed, evidence.cumulative, resumed, evidence.cumulativeCompleted);
+          const auxiliaryCost = result.auxiliary?.perModel ? priceUsage(result.auxiliary.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
+          // An independent run keeps main conversation/cache metrics clean.
+          // Unavailable coverage remains visible as an unpriced run; this is
+          // unstreamed usage, not a claim that a model was a title helper.
+          if (result.auxiliary || result.state.partial && !previous?.partial) {
+            const runId = `${turnId}:claude-unstreamed`, spanId = `${runId}:root`;
+            store.startSpan({ runId, spanId, sessionId, principalId: context?.principalId, kind: "turn", origin: "session",
+              name: "Unstreamed Claude usage", attrs: { "brain.backend.id": backendId } });
+            store.endSpan(spanId, { outcome: "success", usage: result.auxiliary ? {
+              inputTokens: result.auxiliary.inputTokens, outputTokens: result.auxiliary.outputTokens,
+              cacheReadTokens: result.auxiliary.cacheReadTokens, cacheCreationTokens: result.auxiliary.cacheCreationTokens,
+              ...(auxiliaryCost !== undefined ? { costUsd: auxiliaryCost } : {}),
+            } : undefined, attrs: {
+              "brain.usage.source": "claude_session_cumulative_remainder",
+              "brain.usage.attribution": "unattributed",
+              "brain.usage.coverage": result.state.partial ? "partial" : "observed",
+              ...(result.auxiliary?.perModel ? { "gen_ai.usage.per_model": result.auxiliary.perModel } : {}),
+              ...(result.auxiliary && context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
+              ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
+              ...(evidence.reportedCostUsd !== undefined ? { "brain.usage.reported_session_cost_usd": evidence.reportedCostUsd } : {}),
+            } });
+            store.rollupRun(runId);
+            if (auxiliaryCost !== undefined) db().query("UPDATE sessions SET total_cost_usd=total_cost_usd+? WHERE id=?").run(auxiliaryCost, sessionId);
+          }
+          db().query("INSERT INTO claude_session_usage VALUES (?,?,?) ON CONFLICT(session_id,backend_id) DO UPDATE SET state_json=excluded.state_json")
+            .run(sessionId, backendId, JSON.stringify(result.state));
+          db().query("INSERT INTO claude_usage_turns VALUES (?,?,?)").run(turnId, sessionId, backendId);
+        }).immediate();
+      } catch (error) { reportWriteFailure(sessionId, error); }
+      return mainCost;
+    },
     recordStateRoom(sessionId, observation) {
       try {
         const parsed = stateRoomObservationSchema.parse(observation);
