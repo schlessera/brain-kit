@@ -1154,3 +1154,65 @@ the documented setting avoids relying on that undocumented switch.
 and does not meet the absence requirement. These receipts establish assembly
 at a local origin, not first-party request bytes, subscription eligibility or
 provider cache hits. No live-provider measurement is implied.
+
+
+### Host-owned stored-login refresh (2026-10-16 amendment)
+
+The maintainer approved host-held Claude OAuth resolution, including ownership
+of stored-login refresh, in #1665 (comment 6222696632) and #1666 (comment
+6222698058). This supersedes the earlier placement of all refresh inside the
+native worker. Login acquisition and account selection remain native; the host
+resolver uses the selected stored record without creating a replacement account
+or changing billing mode. Pi keeps its supported native authentication runtime.
+Command-sourced credentials still execute only inside credentialed maintenance,
+never through host shell evaluation.
+
+The bounded server-only implementation reads the trusted host config directory,
+not a public request path (`resolveClaudeHostOAuth`,
+`packages/ui-backend-claude/src/host-oauth.ts:74-196`). It rereads the record for
+every resolution, respects an explicitly supplied setup token, and refreshes
+stored OAuth within five minutes of expiry. The measured production protocol is
+JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
+`client_id`, and the record's scopes. The record's client ID wins over the
+per-request environment override and the native production default. An alternate
+OAuth authority is refused rather than sending its refresh token to production.
+The returned access token and optional rotated refresh token are saved atomically
+in the host-owned record, preserving unrelated data and existing subscription
+and rate-limit metadata. These retained fields are not a newly fetched account
+profile or evidence that a subscription is valid.
+
+The source qualification resolves the executable relative to the SDK entry,
+matching the SDK's own module resolution. SDK `0.3.293` resolves its nested
+Linux x64 platform package `0.3.293`, whose executable reports `2.1.293` and
+matches the bundled download manifest SHA-256
+`8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978`.
+A separate hoisted platform package `0.3.292` also exists in the frozen install;
+it is not this SDK's selected executable. The refresh shape, expiry margin and
+client ID were inspected in the selected executable; the offline test pins its
+actual bytes and makes the native CLI read a fictional refreshed store inside
+a fresh private network namespace. This qualifies record compatibility and
+the bounded refresh HTTP exchange, not paid inference, a real subscription,
+or a different runtime's behavior. Earlier runtime measurements keep their
+recorded executable identities.
+
+Credential files must be private, owner-held, regular, unaliased and bounded;
+links and permissive files refuse. Refresh has a bounded response and timeout,
+never follows redirects, and exposes fixed error messages instead of provider
+responses, credentials or filesystem paths. Cancellation leaves the prior record
+intact and releases owned staging. A private exclusive lock serializes host
+resolvers; a second refresh reports busy and must resolve again after the owner
+finishes. A crash-abandoned lock requires host maintenance and is never removed
+by guessing that an owner is dead. Atomic publication compares current bytes
+before replacing the record and holds its directory descriptor. Native CLI
+commands do not participate in this private lock: activation must additionally
+serialize credential maintenance and native login/logout with host resolution.
+The byte comparison detects observed changes; it is not an atomic cross-process
+compare-and-swap against an independently launched native command.
+
+This internal resolver does not activate the ordinary worker relay. Before that
+activation, offline native inference must preserve new/resumed/changed/expired
+login, per-request endpoint and model selection, account and observed billing,
+concurrent refresh and cancellation, and prove that worker environment, files,
+logs and reachable sockets contain no provider credential. The broader network,
+policy, socket masking and first-party tool qualification in #1665 also remains
+required. No acceptance criterion is waived by delivering this resolver first.

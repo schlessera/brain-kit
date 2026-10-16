@@ -2291,3 +2291,16 @@ adapters and bounded offline worker evidence. The
 reserves the executor choice until that comparison is reviewed. Neither this
 amendment nor a successful plain-search prototype selects an executor or grants
 additional host model, UI, browser, shell or credential-command authority.
+
+
+#### Approved host OAuth refresh placement (2026-10-16)
+
+The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to
+the host, replacing the earlier native-worker ownership of that operation.
+The [runtime amendment](claude-code-runtime.md#host-owned-stored-login-refresh-2026-10-16-amendment)
+binds the bounded protocol, credential-maintenance serialization, offline
+qualification and activation gate. Native login acquisition, Pi's supported
+native auth runtime, per-request provider identity and billing, and the ban on
+provider credentials in governed worker files/environment remain binding.
+Delivering the internal resolver does not activate the ordinary worker relay or
+qualify the remaining egress paths and socket isolation.
