@@ -3309,3 +3309,22 @@ requires the static entry's named `toStatic` export to be a function. Ordinary
 loading does not execute renderer entries. No runtime browser loading is added.
 See [modules](../modules.md#content-renderers) and the
 [renderer decision](../decisions/module-renderers.md).
+
+## Claude title-helper evidence (additive, #2052)
+
+The server-only `BackendActivityEvent` gains `claude_title_usage` with
+`coverage: "observed" | "partial" | "unknown"` and `receipts`, an array of
+`{ receiptId: string; source: "generate_session_title"; usage: TurnUsage;
+costUsd?: number }`. It follows worker/exporter shutdown and precedes release
+of the held terminal result. It does not replace or add to the existing
+`claude_session_usage.completed` root/child receipt.
+
+Purpose comes from the installed runtime's supported OTLP API-request event,
+not a model name. Receipt identity deduplicates exports/replays; measured
+helper usage is allocated only against the matching newly reconciled auxiliary
+delta in the session transaction. A separate `Claude session title` Activity
+run retains that usage/cost, while unmatched usage remains unattributed and
+main/cache usage retains its existing completed-response semantics. Missing
+or unjoinable evidence stays unknown/partial, not a free helper or an inferred
+main-model charge. Operator telemetry destinations and opt-outs are preserved;
+without a local receipt, ordinary unattributed accounting still applies.

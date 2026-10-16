@@ -21,7 +21,8 @@
       "@schlessera/brain-module-travel",
       "@schlessera/brain-geo",
       "@schlessera/brain-module-video",
-      "@schlessera/brain-common"
+      "@schlessera/brain-common",
+      "@schlessera/brain-module-diagrams"
     ]
   ],
   "linked": [],

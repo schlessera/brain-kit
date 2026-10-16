@@ -13,7 +13,7 @@ test("first main cache receipt survives later root and child responses", () => {
     // Title provenance arrives on its own channel, even when it shares the main model.
     recorder.observeActivity({ kind: "claude_title_usage", coverage: "observed", receipts: [{ receiptId: "title",
       source: "generate_session_title", usage: { inputTokens: 100, cacheReadTokens: 900, perModel: { "same-model": { inputTokens: 100 } } },
-    }] } as any);
+    }] });
     for (const [id, parent, read, write] of [["child", "agent", 900, 800], ["first", null, 42, 7], ["later", null, 99, 88]] as const) {
       adapter.adapt({ type: "stream_event", parent_tool_use_id: parent, event: { type: "message_start", message: {
         id, model: "same-model", usage: { input_tokens: 3, output_tokens: 0, cache_read_input_tokens: read, cache_creation_input_tokens: write },

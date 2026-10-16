@@ -170,3 +170,51 @@ A label run raises no failure or stuck notification (`const isPillLabel`,
 pill on its fallback, and its failure intent would carry the session's tag,
 `failure:<sessionId>`, so the session's next real turn failure would be
 deduplicated against it and never delivered.
+
+## Claude generated titles and helper provenance (#2052)
+
+The maintainer selected D / original B on 2026-10-16: retain Claude's generated
+session titles and existing custom-title → generated-summary → first-prompt
+list fallback. Do not pass a placeholder title, substitute optional pill labels,
+or retitle existing sessions to avoid a helper call. Suppression changes session
+naming; pill labels have a separate optional role and cost boundary above.
+
+A title helper's measured usage belongs separately from main-conversation and
+first-main-request cache diagnostics, while overall spend retains it exactly
+once. Model names cannot identify that purpose: legitimate main and subagent
+calls may use the same model. Cumulative remainders cannot identify it either.
+Missing evidence remains unknown; unseen helper usage is not zero.
+
+The [offline installed-runtime capture](../../experiments/2052-title-provenance/README.md)
+uses production interactive SDK options for a new and resumed session under
+network isolation. SDK 0.3.293 / CLI 2.1.293 sends a title-schema request before
+main when `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is unset. Setting that flag
+to `1` suppresses the helper in the control. Main and helper can use the same
+model. The SDK iterator omits the helper's stream receipt while per-model
+result totals include its usage cumulatively. A generated title alone provides
+no measured-usage attribution.
+
+The documented [OTLP API-request log](https://code.claude.com/docs/en/monitoring-usage#api-request-event)
+supplies request-purpose provenance, usage and estimated cost. The measured
+source is `generate_session_title`; main uses `sdk`. A local authenticated
+collector observes the helper without prompt/body logging or beta tracing.
+This is a local-runtime observation, not a first-party invoice/cache claim.
+A classifier must consume that supported identity, never infer it from model
+names or a fixture-only split. Export loss and disabled/unavailable telemetry
+preserve unknown/partial coverage.
+
+#2025 owns completed-response pricing and cumulative reconciliation, including
+unknown auxiliary remainders without recharging resumed high-water marks.
+Its transaction is the accounting allocation boundary: a measured helper
+claims its portion of newly reconciled auxiliary usage, leaving unmatched
+usage unattributed. Recording it again outside that boundary would double-count
+spend. The production collector publishes supported
+`claude_title_usage` receipts after worker/exporter shutdown and before the
+held result. The transaction creates a separate `Claude session title` Activity
+run and remembers receipt identities across restarts; unmatched or unjoinable
+usage retains unattributed/partial coverage. It neither adds helper spend twice
+nor rewrites the main root/child receipt. Existing operator telemetry env and
+opt-outs are preserved; without local receipts attribution stays unknown.
+#2050 owns first-main-request cache diagnostics, and #2053 owns the broader
+provider-history record. The additive server-only evidence event is recorded
+in the package API contract; no WebSocket field or total meaning changes.
