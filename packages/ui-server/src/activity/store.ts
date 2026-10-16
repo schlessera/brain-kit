@@ -307,6 +307,8 @@ export interface ActivityStore {
   patchSpan(
     spanId: string,
     patch: {
+      /** Bind an unnamed active span once; a different established identity is refused. */
+      sessionId?: string;
       principalId?: string;
       attrs?: Record<string, unknown>;
       usage?: SpanUsage;
@@ -475,7 +477,7 @@ export function createActivityStore(
   function endSpanInTx(spanId: string, input: EndSpanInput): boolean {
     const existing = db
       .query(ACTIVITY_SQL.spanStateById)
-      .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
+      .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null; session_id: string | null } | null;
     if (!existing || existing.outcome !== null) return false;
 
     const endedAt = input.endedAt ?? Date.now();
@@ -692,13 +694,16 @@ export function createActivityStore(
       return inWrite(() => {
         const existing = db
           .query(ACTIVITY_SQL.spanStateById)
-          .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
+          .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null; session_id: string | null } | null;
         if (!existing || existing.outcome !== null) return false;
+        if (patch.sessionId !== undefined && (typeof patch.sessionId !== "string" || !patch.sessionId
+          || (existing.session_id !== null && existing.session_id !== patch.sessionId))) return false;
         const attrs = patch.attrs
           ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...patch.attrs })
           : existing.attrs;
         const u = patch.usage ?? {};
         db.query(ACTIVITY_SQL.patchSpan).run(
+          patch.sessionId ?? null,
           patch.principalId ?? null,
           attrs,
           patch.waitUntil ?? null,
