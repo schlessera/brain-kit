@@ -152,7 +152,15 @@ payload fields. A kind no release emits yet may still change its version 1
 payload before its emitter ships.
 
 The server emits `roadblock` from #1671 on, so its version 1 payload is now
-fixed. Its `signature` is a grouping key whose format the HTTP specification
+extended additively by #2034 with remedy `abandoned`; existing values and stored
+version-1 evidence retain their meaning and are never rewritten. Unresolved
+waste now stops at the first success starting strictly after the last failure
+was known, without inventing semantic resolution. A single such failure with
+no retry is abandoned; repeated unresolved failures remain capability.
+The report's optional `remedy` filter matches `query_activity`: `actionable`
+(default, excludes abandoned before aggregation), `all`, or one of `guidance`,
+`capability`, `abandoned`. Counts add `abandoned`. This is an approved breaking meaning/default change before 1.0, shipped in a
+minor under the recorded #2034 maintainer ruling. Its `signature` is a grouping key whose format the HTTP specification
 defines, so readers such as a roadblock report can group episodes across
 sessions by comparing signatures for equality.
 
@@ -481,3 +489,17 @@ Both effects remain user journal entries, with existing conflict-safe Undo.
 Partial writes or unavailable storage remain partial/unknown, not an atomic
 merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
 and cross-session restrictions remain binding.
+
+### Activity host timing envelopes (additive)
+
+`GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by
+its list limit and filtered by session when supplied. Backend live/history
+summaries add optional `lifecycle`; existing list membership, filtering,
+backend durations and costs remain unchanged. Envelope-only attempts are in
+`lifecycles`, never disguised as backend runs. `GET /api/activity/runs/:runId`
+adds optional `lifecycle` plus its `lifecycleSeq` high-water, also on its rollup, and resolves an envelope-only
+turn with no spans/rollup and `detailPruned: false`. Historical records omit
+it. The agent Activity query returns the same envelope on run/recent reads.
+See [host turn lifecycle](wire.md#host-turn-lifecycle-additive) for timestamp,
+terminal, missing-phase and historical semantics. No inference aggregation
+includes envelope records.

@@ -131,6 +131,11 @@ host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 
 ## Local feedback and hosted proof
 
+For stacked PRs, use the immediate parent branch as `--base` on upper layers;
+the bottom layer uses `origin/main`. Each layer must meet the same proof and
+metadata requirements. See [Stacked pull requests](docs/process/github.md#stacked-pull-requests)
+for branch ownership, issue closure and merge verification.
+
 Run from the contribution checkout using the relevant base:
 
 ```sh
@@ -158,8 +163,11 @@ real Chrome and required namespaces may not silently skip. The final `proof`
 check requires every selected category to pass. Scheduled/manual exhaustive
 runs supplement affected PR proof; they do not replace it.
 
-Drafts stay on cheap gates. Batch intermediate pushes, then mark ready for
-hosted proof. Independent packaging, types, unit and browser/runtime jobs start
+Drafts stay on cheap gates. Opening/reopening a ready PR or marking it ready
+requests full affected candidate confirmation. Subsequent pushes run fast
+feedback only and leave `proof` nonpassing. Convert to draft and mark ready
+after the final push to request confirmation again. Main remains full affected;
+scheduled/manual proof remains exhaustive. Independent packaging, types, unit and browser/runtime jobs start
 together after cheap rejection gates. Complete unit proof includes the curated
 subset once. Each PR cancels only its own obsolete heads; main SHA groups remain
 independent. The browser image, per-project concurrency bounds and failure
@@ -168,8 +176,9 @@ before adding shards or changing timeouts.
 
 Record actual head/base, job/attempt IDs, checkout logs and focused local
 receipts in the PR. Missing tools, failed/cancelled jobs and unexpected skips
-leave proof incomplete. Assess new main commits before refreshing; unrelated
-advancement alone does not require rebasing or repeating long suites. Preserve
+leave proof incomplete. The candidate gate requires the live head/base to match the tested merge
+checkout; a base advance requires a new confirmation request, without inherently
+requiring a rebase. Admitted immutable browser-domain retention remains available. Preserve
 the earlier tested tree rather than attributing it to a new base. Relevant
 input/dependency/harness changes require fresh proof; unknown changes expand
 conservatively. There is no generic cache of passing tests. Respect branch rules
@@ -223,6 +232,12 @@ decoding took 10ms. The control took 92ms/4ms respectively. Browser
 launch/connection and dispatch-to-collection delays also fell. This evidence
 supports reducing load; it does not isolate every timeout's cause, promise
 faster total runs, or establish the cause of [#559](https://github.com/schlessera/brain-kit/issues/559).
+
+`bun run test:endurance` runs the separately discovered `.endurance.tsx` scenarios
+in the pinned offline browser. Selected final confirmation, main, scheduled and
+manual proof require it alongside ordinary proof. `bun run test:inventory`
+reports ownership and source assertion locations; see
+[proof domains](docs/process/proof-domains.md) for the mapping and limitations.
 
 `bun run test:layout` runs the real ui-react chat overlay measurements after
 `bun run build`. It uses the existing Vitest browser runner and the same pinned

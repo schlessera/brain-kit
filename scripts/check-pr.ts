@@ -18,12 +18,13 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test"],
+  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
-  if (plan.local.browser || plan.local.layout) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });
+  if (plan.local.browser || plan.local.layout || plan.local.endurance) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });
   if (plan.local.browser) checks.push({ name: "complete pinned visual/accessibility/pointer suite", argv: [bun, "run", "test:browser"] });
-  if (plan.local.layout) checks.push({ name: "complete pinned layout/offline/endurance suite", argv: [bun, "run", "test:layout"] });
+  if (plan.local.layout) checks.push({ name: "complete pinned layout/offline suite", argv: [bun, "run", "test:layout"] });
+  if (plan.local.endurance) checks.push({ name: "complete pinned endurance suite", argv: [bun, "run", "test:endurance"] });
   if (plan.local.captures) checks.push({ name: "editorial provenance and reproducibility", argv: [bun, "run", "capture:verify"] });
   if (plan.local.runtime) {
     // Retain the production probes which used to run automatically, in the
@@ -46,7 +47,7 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
 export function requireRuntimeTools(plan: CheckPlan): string | undefined {
   if (!Bun.semver.satisfies(Bun.version, ">=1.4.0")) throw new Error("Local checks require Bun >=1.4.0 (CI pins 1.4.2)");
   if (!Bun.which("flock")) throw new Error("Local checks require flock for workspace output coordination");
-  if (plan.local.browser || plan.local.layout || plan.local.captures) {
+  if (plan.local.browser || plan.local.layout || plan.local.captures || plan.local.endurance) {
     if (!Bun.which("docker")) throw new Error("Pinned local browser checks require Docker");
   }
   if (!plan.local.fullTests) return undefined;
@@ -77,7 +78,7 @@ if (import.meta.main) {
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
-    const plan = planChecks(changed, workspaces(root));
+    const plan = planChecks(changed, workspaces(root), root);
     const commands = localChecks(plan, full);
     console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);

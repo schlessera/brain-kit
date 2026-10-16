@@ -27,11 +27,13 @@ interface Init {
   cachedNpmModules?: string;
   /** Rendered by the server from this worker's resolved mounts (#1626). */
   sandboxNote?: string;
+  fixedAppend?: string;
   governed?: boolean;
   sharedLock?: boolean;
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
 }
+sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: 0 });
 let session: PiSessionLike | undefined;
 let manager: SessionManager | undefined;
 let turn: SessionToolkit;
@@ -49,6 +51,7 @@ function rpc(method: Extract<PiWorkerMessage, { type: "rpc" }>["method"], toolNa
     send({ type: "rpc", id, method, toolName, toolCallId, input });
   });
 }
+let renderedAppend: string | undefined;
 let snapshotFailed = false;
 function snapshot(): boolean {
   if (snapshotFailed) return false;
@@ -85,6 +88,8 @@ function turnTempPressure(env: SessionEnv): (() => string | undefined) | undefin
 }
 
 async function initialize(init: Init): Promise<void> {
+  const started = performance.now();
+  const timing = (phase: string, durationMs: number) => send({ type: "startup_timing", phase, durationMs });
   const state = PI_WORKER_STATE;
   mkdirSync(state, { recursive: true });
   authPath = join(state, "auth.json"); originalAuth = init.agentFiles["auth.json"];
@@ -128,6 +133,7 @@ async function initialize(init: Init): Promise<void> {
       await rpc("fileObservation", scope.name, id, { phase, path });
     } }) } : { shellCwd: WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
+    fixedAppend: init.fixedAppend, observeAppend: append => { renderedAppend = append; },
     permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
       pi.on("tool_call", async event => {
         if (controller.signal.aborted) return { block: true, reason: "Turn cancelled" };
@@ -144,6 +150,11 @@ async function initialize(init: Init): Promise<void> {
       void holder;
     } }),
   });
+  const buildResources = resources.build;
+  resources.build = async (...args) => {
+    const start = performance.now();
+    try { return await buildResources(...args); } finally { timing("resources", performance.now() - start); }
+  };
   const buildToolkit = resources.buildToolkit;
   resources.buildToolkit = caps => {
     turn = buildToolkit(caps);
@@ -177,7 +188,10 @@ async function initialize(init: Init): Promise<void> {
     sessionId: init.sessionId, entries: init.entries, observeManager: sm => { manager = sm; },
     modelRuntimeOptions: { authPath: join(state, "auth.json"), modelsPath: join(state, "models.json"), modelsStorePath: join(state, "models-cache.json") },
   });
+  const opening = performance.now();
   const opened = init.resume ? await runtime.openSession(init.sessionId, init.env) : await runtime.newSession(init.profileId, init.env);
+  timing("session", performance.now() - opening);
+  timing("initialize", performance.now() - started);
   session = opened.session;
   session.subscribe(event => {
     if (snapshotFailed) return;
@@ -189,7 +203,7 @@ async function initialize(init: Init): Promise<void> {
     if (event.type === "entry_appended") snapshot();
     else if (event.type === "message_end" || event.type === "tool_execution_end") queueMicrotask(snapshot);
   });
-  send({ type: "ready", sessionId: session.sessionId, ...(session.model ? { model: session.model } : {}),
+  send({ type: "ready", sessionId: session.sessionId, append: renderedAppend, ...(session.model ? { model: session.model } : {}),
     ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
     levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost });
 }

@@ -157,6 +157,7 @@ export function createActivityRoutes(deps: {
           .filter((s) => !job || s.jobName === job)
           .filter((s) => !session || s.sessionId === session)
           .map((s) => ({
+            lifecycle: store.lifecycle(s.runId) ?? undefined,
             runId: s.runId,
             origin: s.origin,
             name: s.name,
@@ -212,13 +213,14 @@ export function createActivityRoutes(deps: {
           // a summary adds only its identity and liveness fields on top.
           .map((r) => ({
             ...toWireRollup(r),
+            lifecycle: store.lifecycle(r.runId) ?? undefined,
             origin: r.origin,
             runId: r.runId,
             running: false,
             detailPruned: r.detailPruned,
           }));
 
-        return c.json({ live, history });
+        return c.json({ live, history, lifecycles: store.lifecycles(session, limit) });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to list activity" },
@@ -234,6 +236,8 @@ export function createActivityRoutes(deps: {
         const row = db
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
+        const lifecycle = store.lifecycle(runId) ?? undefined;
+        const lifecycleSeq = lifecycle ? store.runHighWaterSeq(lifecycle.lifecycleId) : undefined;
         if (snapshot) {
           // Tool payload events (up to 16 KB each) dominate a run's byte
           // size, and the history list opens details eagerly — so the REST
@@ -253,18 +257,19 @@ export function createActivityRoutes(deps: {
           // it exists (finished runs) so the detail view can show cost facts
           // without waiting for detail pruning to force the rollup-only path.
           const detail: ActivityRunDetail = {
+            lifecycle, lifecycleSeq,
             runId,
             detailPruned: false,
             spans: snapshot.spans.map(toWireSpan),
             events: events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,
-            ...(row ? { rollup: toWireRollup(rowToRunRollup(row)) } : {}),
+            ...(row ? { rollup: { ...toWireRollup(rowToRunRollup(row)), lifecycle } } : {}),
           };
           return c.json(detail);
         }
-        if (!row) return c.json({ error: "Unknown run" }, 404);
+        if (!row) return lifecycle ? c.json({ runId, detailPruned: false, lifecycle, lifecycleSeq }) : c.json({ error: "Unknown run" }, 404);
         const r = rowToRunRollup(row);
-        const detail: ActivityRunDetail = { runId, detailPruned: true, rollup: toWireRollup(r) };
+        const detail: ActivityRunDetail = { lifecycle, lifecycleSeq, runId, detailPruned: true, rollup: { ...toWireRollup(r), lifecycle } };
         return c.json(detail);
       } catch (err) {
         return c.json(

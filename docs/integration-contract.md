@@ -237,6 +237,8 @@ Original fragment identities remain available at this entry point.
 
 - [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
 
+- [Interactive main-model identity (additive, #2037)](integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
+
 <a id="governance-events-additive-1651"></a>
 
 - [Governance events (additive, #1651)](integration-contract/http.md#governance-events-additive-1651).

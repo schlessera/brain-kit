@@ -65,8 +65,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3622-3628`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1785-1787`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3661-3667`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1813-1815`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -95,7 +95,11 @@ frame, authenticated history and HTTP journal summary. Its facts are
 `policySource`, `limits` (`files_changed`, `minutes`, `tool_calls`, `turn_bytes`),
 `hardTimeoutMs`, `calls`, `minutes`, nullable `changedPaths`/`observedBytes`,
 `coverage` (`observed_versions` or `partial`), `observedAt` and `receipts`.
-The byte count is a sum of captured changed regular-file versions, not a
+The byte count sums captured changed hashed regular-file versions. Ignored
+regular files have no content hash and contribute their largest observed after-size
+once per turn per path, rather than their full size on every observation (#2027).
+This corrects repeated metadata observations inflating the existing observed-write
+counter; field shapes and scope decisions are unchanged. The counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.
@@ -429,6 +433,61 @@ coverage are unchanged.
 
 <a id="activity-stream-rev-3-additive"></a>
 
+### Host turn lifecycle (additive)
+
+`ActivityTurnLifecycle` is a persisted host envelope, independent of the existing
+backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `turnId` is the host turn identity; `sessionId`
+is null until observed, and `backendRunId` is null until a backend root is
+actually recorded. It never owns tokens, costs, spans or rollups. Inference
+aggregation continues to read backend rollups exactly once.
+
+`acceptedAt` is the observed host acceptance time, before routing/admission.
+Queued requests retain their observed queue acceptance and `dequeuedAt`;
+`queueWaitMs` is null when no queue interval was observed. Milestones are
+`governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
+`journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
+All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+governed/budget/journal phases not configured for this turn. Other null
+milestones mean not reached or unavailable; they never claim zero-duration
+success. A started phase whose completion is null is pending, or incomplete
+when the enclosing record is terminal.
+
+`totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
+acceptance to the first observed backend frame/Activity event or backend bridge
+operation that opens its root. Host cancellation/revocation/follow-up decisions
+do not count as backend observations. Governed, budget and journal
+phase durations measure their paired milestones; an incomplete terminal phase
+measures its observed start to `failureObservedAt` (the caught failure
+boundary), or terminal time after interruption when no failure was observed. `backendStartupMs` measures
+backend invocation to the first frame, or the observed failure boundary
+when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
+values do not redefine backend-run `startedAt` or `durationMs`.
+
+The envelope terminates once with the existing outcome vocabulary: `success`,
+`error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
+in nullable `reason`. Admission refusal, cancellation/revocation and failures
+before any frame persist an envelope without fabricating a backend run or
+first frame. Pre-backend cancellation actors, kinds and observed times remain
+in `hostEvents` (also pre-root revocation and follow-up actors); after a
+backend root exists the existing cancellation
+events remain on that root. Terminal time follows host cleanup. The existing boot recovery
+owner interrupts unfinished session envelopes, including admission-only
+records; late observations cannot reopen a terminal record. Recording/fanout
+failures never fail the observed turn. Existing historical runs have no
+envelope and their outer timing remains unknown; no timestamps are backfilled.
+
+Activity snapshots add optional `lifecycles`; deltas add optional `lifecycle`,
+using the same global change cursor, with independent per-lifecycle sequence
+numbers under `lifecycleId` (the delta `runId`). Backend-run sequences remain
+unchanged.
+Snapshot high-water entries cover envelope-only identities too. Index/session
+snapshots include recent envelopes; run snapshots may contain an envelope
+without spans. Old clients may ignore these additions. Envelopes survive
+backend detail pruning alongside rollups. Retained evidence consumers must
+include the envelope as separate host evidence when present, report absence
+as unknown, and preserve its backend link without treating it as inference
+usage. The retained export planned in #1767 is not a shipped surface here.
+
 ### Activity stream (rev 3, additive)
 
 Hosts that record agent activity advertise `capabilities.activity` on
@@ -441,7 +500,11 @@ deltas at or below the snapshot's high-water for that run. Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
-never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+never zero). Claude main-turn usage/cost uses completed root and child
+responses, including resumed turns. Newly observed session-cumulative usage
+outside those receipts is retained separately as unattributed Activity work;
+unknown/imported coverage never becomes a zero-cost claim. `tool_use_start`
+additionally carries an optional `parentToolUseId` marking tool
 calls that ran inside a subagent. Activity spans may carry the additive
 `principalId` of the actor responsible for them; absence means unattributed.
 Each human tool response also appends an `approval_decision` event whose payload

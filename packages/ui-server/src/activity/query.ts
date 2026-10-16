@@ -47,6 +47,7 @@ export function runActivityQuery(
         windowHours: hoursBack,
         running: store.openRootSpans().map(liveSummary),
         finished: rows.map((r) => ({
+          lifecycle: store.lifecycle(r.runId) ?? undefined,
           runId: r.runId,
           origin: r.origin,
           name: r.name,
@@ -71,6 +72,7 @@ export function runActivityQuery(
 
     case "run": {
       if (!query.runId) return { error: "scope 'run' needs runId" };
+      const lifecycle = store.lifecycle(query.runId) ?? undefined;
       const snapshot = store.snapshotRun(query.runId);
       if (snapshot) {
         // The cost facts live on the rollup, not the spans — attach them here
@@ -83,6 +85,7 @@ export function runActivityQuery(
           .get(query.runId) as any;
         const liveRollup = rollupRow ? rowToRunRollup(rollupRow) : null;
         return {
+          lifecycle,
           runId: query.runId,
           costUsd: liveRollup?.costUsd ?? null,
           effectiveCostUsd: liveRollup?.effectiveCostUsd ?? null,
@@ -110,10 +113,11 @@ export function runActivityQuery(
       const row = db
         .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
         .get(query.runId) as any;
-      if (!row) return { error: `unknown run ${query.runId}` };
+      if (!row) return lifecycle ? { lifecycle, runId: query.runId } : { error: `unknown run ${query.runId}` };
       const rollup = rowToRunRollup(row);
       return {
         runId: query.runId,
+        lifecycle,
         detailPruned: true,
         rollup: {
           name: rollup.name,

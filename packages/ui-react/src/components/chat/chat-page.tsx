@@ -658,7 +658,7 @@ export function ChatPage() {
             )}
             {messages.length === 0 && restoring ? (
               <div className="h-full overflow-y-auto">
-                <div className="px-4 md:px-6"><div className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
             ) : messages.length === 0 ? (
@@ -668,7 +668,7 @@ export function ChatPage() {
                 </div>
                 {/* A tracked session whose history came back empty can still be acknowledged. */}
                 {unlinked && <MarkAsSeen onMark={markSeen} />}
-                <div className="px-4 md:px-6"><div className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
               </div>
             ) : (

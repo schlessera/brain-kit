@@ -240,14 +240,17 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
 
 - Contract tests assert the `--json` envelopes. Automatic CI runs cheap
   metadata gates and complete affected hosted unit/integration/runtime,
-  keyless funnel, pinned browser proof, strict types and packaging on ready
-  PRs. Agents keep focused local behavioral proof.
+  keyless funnel, pinned browser proof, strict types and packaging on explicit
+  ready-candidate confirmation events. Agents keep focused local behavioral proof.
 - Run `bun run check:pr --base origin/main` before opening or marking ready.
+  For an upper stack layer, substitute its verified immediate parent ref;
+  see [stack rules](github.md#stacked-pull-requests). Each included PR needs
+  its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
   inputs. Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
-- Ready PR CI supplies complete repeatable proof for affected workspaces and
+- Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
   reverse dependencies plus root tests. Global/unknown changes expand to full
   discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
   endurance, editorial, real Claude/Chrome and cleanup categories remain
@@ -261,20 +264,35 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
+- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+  events request full affected confirmation. Ready `synchronize` runs affected
+  fast invariants and types only; `proof` remains nonpassing until the author
+  converts to draft and marks ready after the final push. A push invalidates
+  the request. Main pushes retain full affected proof; scheduled/manual runs
+  remain exhaustive and have a distinct aggregate name.
 - Keep drafts cheap and batch intermediate pushes. After cheap gates, run
   independent proof categories concurrently. Preserve per-browser file bounds;
   measure queue/elapsed time and cancellation/repeated work before adding
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. Assess base changes before rebasing; unrelated main
-  advancement alone does not require repeated long proof. Relevant
+  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  and live PR readiness/head plus the independent live base ref. Any base advance
+  requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
   receipt a new combined-tree pass. Under #1333, complete browser/layout
   domains may retain validated equivalent successful automatic receipts. Read
   the current retention ledger and aggregate; original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
-  parent/tree and automatic main-push proof. Respect branch rules.
+  parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
+  agents still require passing candidate proof and must re-read head/base before
+  matching-head merge. This change does not alter repository protection.
+- Endurance runs separately with `bun run test:endurance` and its own mandatory
+  selected job. Ordinary layout shards exclude `.endurance.tsx`; their real-time
+  cost cannot distort ordinary weights. Keep per-browser concurrency unchanged.
+  `bun run test:inventory` emits discovered execution ownership and source
+  navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
+  counts and passing assertions come from actual suite reports, not AST counts.
 
 ## GitHub Actions CI
 

@@ -153,7 +153,7 @@ export interface MaintenanceEnvelope {
   home?: { path: string; overlay: boolean };
   /** Host files and directories bound back read-only after the masks: the runtime, the entry and its packages. */
   readPaths: readonly string[];
-  /** Host directories masked in addition to {@link HOST_MASKS}, such as the server's database directory. */
+  /** Private host directories or regular files masked in addition to {@link HOST_MASKS}. */
   maskPaths?: readonly string[];
   /** Existing host files bound read-write at their own path, such as a cron job's span sink. */
   writeFiles?: readonly string[];
@@ -314,19 +314,22 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
  */
 function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string[] {
   const masks: string[] = [];
+  const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
   for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
     try { path = realpathSync(requested); } catch { continue; }
-    if (!statSync(path).isDirectory()) continue;
+    const info = statSync(path);
+    if (!info.isDirectory() && !info.isFile()) continue;
     if (path === "/" || within(brain, path)) {
       throw new WorkerHostError(`a maintenance worker cannot mask ${path}: it is the brain, inside it or the root`);
     }
     // Host /tmp is already absent behind the worker's private tmpfs. A
     // second operational mask would replace its capacity and writable mode.
     if (within(TURN_TEMP_ROOT, path)) continue;
+    if (info.isFile()) { fileMasks.add(path); continue; }
     resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
     for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
@@ -386,6 +389,10 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     }
     argv.push("--bind", real, real);
   }
+  // Required private regular files (including native loop backing) need a
+  // file mount, not tmpfs. Apply after every permitted bind-back so neither
+  // HOME nor a runtime directory can restore their original bytes.
+  for (const file of fileMasks) argv.push("--ro-bind", "/dev/null", file);
   if (envelope.readOnlyMasks || envelope.tempBytes !== undefined) {
     for (const mask of readOnlyMasks) argv.push("--remount-ro", mask);
   }

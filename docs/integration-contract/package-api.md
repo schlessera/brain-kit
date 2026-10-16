@@ -241,6 +241,28 @@ paths, are listed in [the boundary decision](../decisions/public-export-boundary
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.
 
+<a id="interactive-main-model-identity-additive-2037"></a>
+
+## Interactive main-model identity (additive, #2037)
+
+`ProviderInfo.model?: string` carries only the explicitly configured main-model
+id. An absent value means the runtime chooses it; a profile id is not a model.
+The additive server-only `BackendActivityEvent` variant
+`{ kind: "main_model", model: string, sessionId: string }` reports the executing
+main model through the current `startTurn` bridge. Claude uses root initialization
+identity, excluding helper/subagent initialization; Pi uses the runtime session's
+model. Per-model usage never selects the interactive or voice main model.
+
+The host admits the journal before executing the backend. Known configured
+identity populates admission metadata; runtime identity binds only the correlated
+active turn's summary. Cancelled/finished turns and stale bridges from resumed
+turns cannot bind. Concurrent sessions retain independent identity. Subsequent
+governance events use the identity known at emission. Earlier null snapshots stay
+null in storage and all reads/exports; binding does not amend or enrich them, and
+historical turns are never backfilled. Pre-runtime refusals remain unknown unless
+the resolved profile explicitly supplies a model. Nullable governance field shapes
+are unchanged. This additive public interface requires a minor release.
+
 <a id="explicit-autonomous-backend-turns-675"></a>
 
 ## Explicit autonomous backend turns (#675)
@@ -877,6 +899,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
 | `AsrClient` | `@schlessera/brain-ui-sdk/client` |
 | `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
+| `ContentRenderer` | `@schlessera/brain-ui-sdk/client` |
 | `SiteAdapter` | `@schlessera/brain-scrape` |
 
 `tests/seam-list.test.ts` fails when this table, the one in
@@ -3196,3 +3219,58 @@ explanation. `showActions={false}` and closed exchanges still omit actions.
 The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
+
+### Claude cumulative usage evidence (additive, #2025)
+
+The server-only `BackendActivityEvent` variant `claude_session_usage` carries
+optional `completed: TurnUsage`, `cumulative: TurnUsage` and
+`reportedCostUsd: number`. `completed` is this host turn's completed root/child
+response usage; `cumulative` and `reportedCostUsd` are source-qualified runtime
+session totals, never turn receipts. Repeated events refine one host turn;
+they do not represent additional spend. An absent cumulative total or completed
+receipt stays unknown. The host persists a conservative auxiliary high-water
+reconciliation separately from main usage, without assigning title-helper
+provenance or relying on a model name. Direct backend consumers receive own
+completed token counts on `result`; its absent cost remains unknown until a
+host prices those counts. Autonomous Queue semantics are unchanged.
+
+## Content-renderer entries (additive #2081)
+
+The experimental `@schlessera/brain-ui-sdk/client` content seam exports
+`ContentRenderer`, `ContentRendererProps`, `ContentRendererPack`,
+`ContentRendererRegistry`, `ContentRendererTheme`, `createContentRendererRegistry`,
+`defaultContentRendererRegistry` and `registerContentRenderers`.
+Components receive source, optional path, mode (`chat | file | share`) and
+theme (`light | dark | print`). Exact, case-sensitive language and extension
+claims resolve first-registration-wins. Extensions include the leading dot.
+Pack object identity dedupes registration; reset clears claims and identities.
+A missing lookup returns null.
+
+The React/DOM-independent `@schlessera/brain-ui-sdk/render` exports
+`StaticRenderer`, `StaticRendererPack`, `StaticRendererRegistry`,
+`ContentRendererTheme`, `createStaticRendererRegistry`, `registerStaticRenderers`
+and `staticRendererFor`. Static entries carry claims, `needsBrowser`, and
+`toStatic(source, { theme, path? }): Promise<string>`. The default lookup checks
+language before extension on ambiguity. Client and static builds register
+independently; neither loads code named by content/runtime configuration.
+
+The experimental `@schlessera/brain-ui-sdk/testing` exports
+`contentRendererConformance(pack, fixtures)`, `ContentRendererFixture` and
+`ContentRendererFixtures`. A real-browser mount harness lets the suite exercise
+client components in every mode/theme and static output in every theme.
+The [authoring guide](../extending/content-renderers.md) specifies the token
+block/root ground convention. Conformance tests trusted bundled code; it is
+not a sanitizer. Dispatch, manifests and concrete packs are separate epic work.
+
+### Stable hosted application roster (#2048)
+
+The additive, trusted `StartTurnRequest.applicationAuthority?: "server"` field
+identifies a deployment whose authoritative mutations use the server route.
+The UI server supplies it on every interactive turn, independent of posture,
+strict fallback or temporary bridge handler availability. It is session-stable
+host configuration, never client/model input or a grant. Claude uses it to keep
+legacy project MCP writers shadowed even when `applyBrain` is temporarily absent;
+its fixed in-process application tools then refuse unavailable routes at call
+time. Direct unhosted consumers omitting it retain their legacy project MCP
+roster. Existing custom bridges without the field retain the prior `applyBrain`
+presence fallback. Autonomous authority/rosters are unchanged.

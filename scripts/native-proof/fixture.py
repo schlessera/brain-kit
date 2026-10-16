@@ -12,7 +12,7 @@ STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")
 MINOR = 1790
 CAPACITY = 4 * 1024 ** 3
-BACKING = pathlib.Path("/native-runtime/fixture.img")
+BACKING = pathlib.Path("/native-backing/fixture.img")
 receipts = []
 
 def interrupted(signum, _frame):
@@ -79,6 +79,11 @@ try:
         raise RuntimeError("Native proof loop does not match its exclusively created backing")
     record("owned-loop", identity=identity, bytes=info.st_size, allocated=info.st_blocks*512)
     run(["mkfs.btrfs", "-K", "-f", str(DEVICE)])
+    os.fchmod(image, 0o644)
+    marker = b"Odysseus fictional native backing marker."
+    os.pwrite(image, marker, 0)
+    os.fsync(image)
+    record("alternate-backing", path=str(BACKING), uid=os.fstat(image).st_uid, mode=oct(os.fstat(image).st_mode & 0o777), parentMode=oct(BACKING.parent.stat().st_mode & 0o777), marker=marker.decode())
     STORE.mkdir(mode=0o755)
     run(["mount", "-t", "btrfs", "-o", "nosuid,nodev,nodiscard", str(DEVICE), str(STORE)]); mounted = True
     run(["btrfs", "subvolume", "create", str(STORE / "brain")])

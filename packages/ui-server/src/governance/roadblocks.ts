@@ -26,7 +26,8 @@ import {
  * target area, the cause) and drops what varies per turn (file names, numbers,
  * ids, absolute roots). `remedy` says which lever removes the roadblock:
  * `guidance` when the turn already had a way that worked, `capability` when
- * it had none, or only a workaround through turn temp.
+ * it had none, or only a workaround through turn temp; `abandoned` for a
+ * single unresolved failure followed by an eligible successful step.
  */
 
 export type RoadblockCategory = GovernanceEventPayload<"roadblock">["category"];
@@ -57,6 +58,10 @@ export interface UsageSample {
 }
 
 export interface TurnTrace {
+  /** Host cancellation request time; absent when no turn cancellation was observed. */
+  cancelledAt?: number | null;
+  /** Calls actually in flight at that request, disambiguating equal millisecond timestamps. */
+  cancelledCallIds?: readonly string[];
   startedAt: number;
   endedAt: number;
   /** Calls in the order they started. */
@@ -108,6 +113,10 @@ const SUBCOMMAND_PROGRAMS = new Set(["git", "gh", "brain", "npm", "npx", "pnpm",
 const COMMAND_PREFIXES = new Set(["sudo", "env", "time", "timeout", "nice", "nohup", "command", "exec", "builtin", "stdbuf"]);
 /** Segments that set up a command rather than being it. */
 const SETUP_COMMANDS = new Set(["cd", "export", "set", "source", ".", "pushd", "popd", "true", "unset", "umask"]);
+/** Headers describe control flow; their condition/iteration words are not body intent. */
+const SHELL_HEADERS = new Set(["for", "select", "while", "until", "if", "elif"]);
+/** Reserved words that introduce or close a compound-command body. */
+const SHELL_BODY_WORDS = new Set(["then", "else", "do", "done", "fi", "esac", "{", "}", "!"]);
 /** Wrapper options that take a value (`sudo -u <user>`), so the value is not read as the program. */
 /** Global options that take a value, before a multi-command program's subcommand. */
 const PROGRAM_VALUE_OPTIONS: Record<string, Set<string>> = {
@@ -177,9 +186,39 @@ function commandOf(input: unknown): string | null {
 
 /** The program (and its subcommand, for multi-command tools) a shell line ran first. */
 export function commandIntent(command: string): string {
-  const segments = command.split(/&&|\|\||[;|\n]/);
+  const segments = command.split(/(;;)|&&|\|\||[;|\n]/);
+  let inCase = false;
+  let caseArm = false;
   for (const segment of segments) {
-    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    if (!segment) continue;
+    if (segment === ";;") { caseArm = inCase; continue; }
+    let tokens = segment.trim().split(/\s+/).filter(Boolean);
+    // Only unquoted leading reserved words are structural. As with the
+    // existing segment splitter, this is a heuristic, not a shell parser.
+    while (tokens.length) {
+      const first = tokens[0]!;
+      if (SHELL_BODY_WORDS.has(first)) {
+        if (first === "esac") { inCase = false; caseArm = false; }
+        tokens.shift();
+        continue;
+      }
+      if (SHELL_HEADERS.has(first)) { tokens = []; break; }
+      if (first === "case") {
+        const inWord = tokens.indexOf("in", 2);
+        tokens = inWord < 0 ? [] : tokens.slice(inWord + 1);
+        inCase = true;
+        caseArm = true;
+        continue;
+      }
+      if (caseArm) {
+        const patternEnd = tokens.findIndex((token) => token.endsWith(")"));
+        if (patternEnd < 0) { tokens = []; break; }
+        tokens = tokens.slice(patternEnd + 1);
+        caseArm = false;
+        continue;
+      }
+      break;
+    }
     let i = 0;
     let wrapper: string | null = null;
     let awaitingDuration = false;
@@ -425,7 +464,15 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
   const failures: Failure[] = [];
   const failureByCall = new Map<string, Failure>();
   // Calls are the timeline's backbone; a success is a step that can resolve.
-  const steps = trace.calls.map((call, index) => ({ call, index, family: familyOf(call.tool, call.input) }));
+  const cancelledCalls = trace.cancelledCallIds ? new Set(trace.cancelledCallIds) : null;
+  const endedByCancellation = (call: TracedCall): boolean => trace.cancelledAt != null
+    && call.startedAt <= trace.cancelledAt
+    && (call.endedAt === null || call.endedAt >= trace.cancelledAt)
+    && (cancelledCalls === null || cancelledCalls.has(call.toolCallId));
+  // A stopped call is neither a failure nor a path that successfully resolved
+  // an earlier failure. Completed failures remain on the timeline.
+  const steps = trace.calls.map((call, index) => ({ call, index, family: familyOf(call.tool, call.input) }))
+    .filter(({ call }) => !endedByCancellation(call));
   for (const { call, index, family } of steps) {
     const cause = failureCause(call);
     if (!cause) continue;
@@ -508,7 +555,7 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
       .map(({ call, index, family }) => ({ at: call.startedAt, order: index, family, failure: null, call })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
 
-  interface Episode { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number }
+  interface Episode { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number; laterSuccess: boolean }
   const open = new Map<string, Episode>();
   const episodes: Episode[] = [];
   for (const step of timeline) {
@@ -516,7 +563,7 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
     if (step.failure) {
       if (episode) episode.failures.push(step.failure);
       else {
-        const opened: Episode = { family: step.family, failures: [step.failure], resolution: null, closedAt: turnEnd };
+        const opened: Episode = { family: step.family, failures: [step.failure], resolution: null, closedAt: turnEnd, laterSuccess: false };
         open.set(step.family, opened);
         episodes.push(opened);
       }
@@ -528,7 +575,16 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
     }
   }
 
-  return episodes.map((episode) => toPayload(episode, trace));
+  return episodes.map((episode) => {
+    // Only unresolved episodes use a cross-family accounting boundary. It
+    // says nothing about whether the failed capability became available.
+    if (episode.resolution === null) {
+      const known = Math.max(...episode.failures.map((failure) => failure.known));
+      const success = timeline.find((step) => step.failure === null && step.at > known);
+      if (success) { episode.closedAt = success.at; episode.laterSuccess = true; }
+    }
+    return toPayload(episode, trace);
+  });
 }
 
 function tokensAt(trace: TurnTrace, at: number, end: boolean): { tokens: number | null; costUsd: number | null } {
@@ -543,7 +599,7 @@ function tokensAt(trace: TurnTrace, at: number, end: boolean): { tokens: number 
 }
 
 function toPayload(
-  episode: { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number },
+  episode: { family: string; failures: Failure[]; resolution: TracedCall | null; closedAt: number; laterSuccess: boolean },
   trace: TurnTrace
 ): RoadblockPayload {
   const first = episode.failures[0]!;
@@ -570,9 +626,9 @@ function toPayload(
   // Waste runs from the first failed attempt until the working path began
   // (or the turn ended). Unknown usage stays null: never counted as zero.
   const from = first.at;
-  const to = resolution ? resolution.startedAt : trace.endedAt;
+  const to = episode.closedAt;
   const start = tokensAt(trace, from, false);
-  const stop = tokensAt(trace, to, resolution === null);
+  const stop = tokensAt(trace, to, resolution === null && to === trace.endedAt);
   const tokens = start.tokens !== null && stop.tokens !== null && trace.usage.length > 0 ? Math.max(0, stop.tokens - start.tokens) : null;
   const costUsd = start.costUsd !== null && stop.costUsd !== null && trace.usage.length > 0 ? Math.max(0, stop.costUsd - start.costUsd) : null;
   return {
@@ -583,7 +639,8 @@ function toPayload(
     resolution: resolution
       ? { toolCallId: boundedId(resolution.toolCallId), signature: clipTo(`${resolution.tool}|${intentOf(resolution.tool, resolution.input)}`, MAX_SIGNATURE) }
       : null,
-    remedy: resolution !== null && !workaround ? "guidance" : "capability",
+    remedy: resolution !== null ? (workaround ? "capability" : "guidance")
+      : episode.failures.length === 1 && episode.laterSuccess ? "abandoned" : "capability",
     waste: { tokens, costUsd, ms: Math.max(0, Math.round(to - from)) },
     eventIds: [...new Set(episode.failures.flatMap((f) => f.eventIds))].sort((a, b) => a - b).slice(0, MAX_EVENT_IDS),
   };
