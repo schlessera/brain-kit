@@ -134,3 +134,5 @@ export type {
 
 // Explicit live-conversation adapter; no provider is auto-selected.
 export { createGeminiConversationProvider } from "./voice/gemini-conversation.js";
+// Explicit primary Live API adapter with host-owned client delegation.
+export { createGptLiveConversationProvider } from "./voice/gpt-live-conversation.js";
