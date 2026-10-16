@@ -313,6 +313,20 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+Hosted unit partitions run up to two serial Bun test processes through
+`scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
+install, build output and workspace lease. The wrapper preserves the caller's
+umask, drops setup capabilities and binds a private maintenance ledger without
+changing within-worker child limits or hiding the host's `/tmp` from Docker.
+Its checkout container lives outside host `/tmp`, which native workers replace
+with private storage. Namespace setup is a real prerequisite, never a skipped
+runtime. JUnit and timings must each match the complete discovered file set;
+combined reports and per-worker diagnostics are uploaded. Local `bun run test`
+and `check:pr` defaults keep their existing behavior. Use the internal unit
+proof `--workers=1` diagnostic for a serial measurement, preserving the actual
+source identity; performance qualification and remaining evidence live in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121).
+
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
