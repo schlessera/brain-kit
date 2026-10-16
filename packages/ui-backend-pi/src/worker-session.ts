@@ -62,7 +62,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const sessionId = resumeId ?? randomUUID();
   const promptContext = env.autonomous ? undefined : sessionPromptContext(sessionDir, backend.brainPath, sessionId);
   let ownedPrompt: { id: string; text: string; images: boolean } | undefined;
-  const nativeVersions = nativeSessions.get(sessionId) ?? new NativeFileVersions();
+  const observationStorage = { directory: join(sessionDir, "native-observations"), brainPath: backend.brainPath, sessionId };
+  const nativeVersions = nativeSessions.get(sessionId)
+    ?? (!env.autonomous && resumeId ? NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
+  if (!env.autonomous && !resumeId) nativeVersions.retain(observationStorage);
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
   /** Entries saved before this turn: only their own turn owns their display mappings. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
@@ -388,6 +391,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       else if (phase === "write_check") {
         const refusal = nativeVersions.check(observed.key, observed.version);
         if (refusal) throw new Error(refusal);
+        nativeVersions.beginWrite(observed.key);
       } else nativeVersions.finishWrite(observed.key, observed.version);
       return { ok: true };
     }
