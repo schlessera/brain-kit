@@ -340,6 +340,13 @@ function assembleClaudeSdkTurn(
     sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env } };
   }
 
+  if (!envelope) {
+    // A resumed preset must extend the same cached prefix even after Git
+    // changes. This also removes the CLI's commit/PR guidance; a brain can
+    // keep its own guidance in CLAUDE.md. Apply after both billing branches.
+    sdkOptions.settings = { ...sdkOptions.settings as object, includeGitInstructions: false };
+  }
+
   // The selected relay origin makes the CLI coalesce custom system blocks.
   // Keep all per-item context in the user message, after the marked prefix.
   const prompt = envelope ? `${req.autonomous!.systemPromptAppend}\n\n${req.prompt}` : req.prompt;
