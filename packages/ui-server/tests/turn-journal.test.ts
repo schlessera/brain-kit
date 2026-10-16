@@ -4,17 +4,18 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
+import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 
-function fixture(capBytes?: number, resolvedIndexPaths?: readonly string[]) {
+function fixture(capBytes?: number) {
   const root = mkdtempSync(join(tmpdir(), "turn-journal-odysseus-")), brain = join(root, "brain"), path = join(root, "ui.db");
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, ".gitignore"), "ignored.txt\n");
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
   const native = createNativeJournalFixture(brain, root);
-  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes, resolvedIndexPaths });
+  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
@@ -278,8 +279,8 @@ test("opaque configuration input limitations survive replay without executing co
 });
 
 
-for (const index of ["brain.db", "cache/voyage.sqlite"]) test(`native journal excludes resolved index ${index} and sidecars while preserving input-role events`, async () => {
-  const f = fixture(undefined, index === "brain.db" ? undefined : [index]);
+test("native journal excludes the resolved index and sidecars while preserving input-role events", async () => {
+  const index = "brain.db", f = fixture();
   try {
     mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
     const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
@@ -311,4 +312,26 @@ for (const index of ["brain.db", "cache/voyage.sqlite"]) test(`native journal ex
     expect(controls.changes.find(change=>change.path === "ordinary")?.class, "NATIVE_ORDINARY_ARGUMENT_IS_DATA").toBe("content");
     expect(queryGovernanceEvents(f.db,{turnId:"inputs",kinds:["steering_change"],limit:100}).map(event=>event.payload.path).sort()).toEqual(genuine.sort());
   } finally { await f.close(); }
+});
+
+
+test("native capture excludes an alternate trusted index identity without a public configuration option", async () => {
+  const f = fixture();
+  const capture = createNativeJournalCapture(f.native.manager, async () => { throw Error("ignored versions must not be retained"); }, {resolvedIndexPaths:["cache/voyage.sqlite"]});
+  try {
+    mkdirSync(join(f.brain,"cache")); mkdirSync(join(f.brain,"resources"));
+    const indexes = ["", "-wal", "-shm", "-journal"].map(suffix=>`cache/voyage.sqlite${suffix}`);
+    writeFileSync(join(f.brain,".gitignore"),indexes.join("\n"));
+    writeFileSync(join(f.brain,"bunfig.toml"),`preload = [${[...indexes,"resources/brain.db"].map(path=>JSON.stringify(`./${path}`)).join(",")}]`);
+    for (const path of [...indexes,"resources/brain.db"]) writeFileSync(join(f.brain,path),"initial");
+    await capture.initialize(); const policy = await capture.policy();
+    for (const path of indexes) writeFileSync(join(f.brain,path),"changed");
+    const observed = await capture.observe(new Map([["alternate",policy]]));
+    try {
+      expect(observed.changes.get("alternate")!.map(change=>change.path).sort()).toEqual(indexes.sort());
+      for (const path of indexes) expect(observed.steering.paths.has(path),"NATIVE_ALTERNATE_INDEX_IDENTITY_EXCLUDED").toBe(false);
+      expect(observed.steering.paths.has("resources/brain.db"),"NATIVE_UNRELATED_BASENAME_REMAINS_INPUT").toBe(true);
+      await observed.commit();
+    } catch (error) { await observed.abort(); throw error; }
+  } finally { await capture.close(); await f.close(); }
 });

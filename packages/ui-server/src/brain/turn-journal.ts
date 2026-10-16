@@ -22,7 +22,7 @@ const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null
 const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(entry ? { ...version(entry), ...(entry.ignored ? { stamp: entry.stamp } : {}) } : null);
 
 export function createTurnJournal(db: Database, options: {
-  brainPath: string; resolvedIndexPaths?: readonly string[]; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
+  brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
   nativeManager: NativeJournalManager;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
 }) {
@@ -41,7 +41,7 @@ export function createTurnJournal(db: Database, options: {
       for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
     }));
     return hash;
-  }, { resolvedIndexPaths: options.resolvedIndexPaths });
+  });
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const work = tail.then(operation);
