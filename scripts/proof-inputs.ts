@@ -78,6 +78,7 @@ export async function browserInventory(root: string): Promise<Spec[]> {
 }
 export function runnerIdentity(env: NodeJS.ProcessEnv = process.env): string {
   // No externally hosted Storybook or alternate runtime context can be retained.
-  if (env.SB_URL || env.NODE_OPTIONS || !env.ImageVersion || env.RUNNER_OS !== "Linux" || env.RUNNER_ARCH !== "X64") return "";
-  return `ubuntu-24.04/${env.ImageVersion}/Linux/X64/bun-${Bun.version}`;
+  if (["BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT"].some(name => env[name] !== undefined) ||
+      env.SB_URL || env.NODE_OPTIONS || !env.ImageVersion || env.RUNNER_OS !== "Linux" || env.RUNNER_ARCH !== "X64") return "";
+  return `ubuntu-24.04/${env.ImageVersion}/Linux/X64/bun-${Bun.version}/brain-roots-absent-v1`;
 }

@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { browserInventory, checkout, git, normalizeInventory, proofInputs, type Inputs, type Spec } from "../scripts/proof-inputs";
+import { browserInventory, checkout, git, normalizeInventory, proofInputs, runnerIdentity, type Inputs, type Spec } from "../scripts/proof-inputs";
 import { boundedLedger, contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
 const roots: string[] = [];
@@ -209,4 +209,14 @@ test("large receipts fall back to fresh proof before crossing the native environ
   });
   const [out, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   expect(code).toBe(0); expect(out.trim()).toBe("fresh"); expect(bounded.checkout).toEqual(ledger.checkout);
+});
+
+
+test("root-redirect environment overrides refuse retention before generated fixture binding", () => {
+  const env = { ImageVersion: "fixed", RUNNER_OS: "Linux", RUNNER_ARCH: "X64" };
+  expect(runnerIdentity(env)).toContain("brain-roots-absent-v1");
+  for (const name of ["BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT"]) {
+    expect(runnerIdentity({ ...env, [name]: "/untrusted/redirect" })).toBe("");
+    expect(runnerIdentity({ ...env, [name]: "" })).toBe("");
+  }
 });

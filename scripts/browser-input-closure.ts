@@ -11,6 +11,10 @@ export interface IndirectInput {
   /** Exact call expression: a source edit invalidates its declaration. */
   expression: string;
   targets: string[];
+  /** Exact lexical function path disambiguates identical expressions. */
+  scope?: string;
+  /** Only literal, bounded kernel identity observations; never repository data. */
+  observation?: "linux-proc-self-identity";
 }
 export interface InputDeclaration { owner: string; inputs: IndirectInput[]; }
 export interface InputClosure { files: string[]; directories?: string[]; unresolved: string[]; }
@@ -27,14 +31,15 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   root = realpathSync(root);
   const unresolved = new Set<string>(), files = new Set<string>(), directories = new Set<string>();
   const declared = new Map<string, Map<string, IndirectInput>>();
+  const inputKey = (input: IndirectInput) => input.scope ? `${input.scope}\0${input.expression}` : input.expression;
   for (const declaration of declarations) {
     if (!declaration || typeof declaration.owner !== "string" || !/\.(?:[cm]?[jt]sx?|css)$/.test(declaration.owner) || !Array.isArray(declaration.inputs) || declared.has(declaration.owner) || !inside(root, resolve(root, declaration.owner)) || !existsSync(join(root, declaration.owner))) {
       unresolved.add(`Invalid declaration owner: ${declaration?.owner}`); continue;
     }
     const inputs = new Map<string, IndirectInput>();
     for (const input of declaration.inputs) {
-      if (!input || typeof input.expression !== "string" || !Array.isArray(input.targets) || !input.targets.length || input.targets.some(target => typeof target !== "string" || resolve(root, target) === resolve(root, declaration.owner)) || new Set(input.targets).size !== input.targets.length || inputs.has(input.expression))  { unresolved.add(`Invalid declaration: ${declaration.owner}`); continue; }
-      inputs.set(input.expression, input);
+      if (!input || typeof input.expression !== "string" || !Array.isArray(input.targets) || (!input.targets.length && !input.observation) || (input.observation !== undefined && (input.observation !== "linux-proc-self-identity" || input.targets.length !== 0)) || (input.scope !== undefined && (typeof input.scope !== "string" || !/^[A-Za-z_$][\w$]*(?:\/[A-Za-z_$][\w$]*)*$/.test(input.scope))) || input.targets.some(target => typeof target !== "string" || resolve(root, target) === resolve(root, declaration.owner)) || new Set(input.targets).size !== input.targets.length || inputs.has(inputKey(input)))  { unresolved.add(`Invalid declaration: ${declaration.owner}`); continue; }
+      inputs.set(inputKey(input), input);
     }
     declared.set(declaration.owner, inputs);
   }
@@ -65,6 +70,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       for (const input of css.inputs) {
         const declaration = input.kind === "import" && !input.value?.startsWith(".") ? declared.get(normalized)?.get(input.expression) : undefined;
         if (declaration) {
+          if (declaration.observation || declaration.scope) unresolved.add(`Invalid CSS input declaration ${normalized}: ${input.expression}`);
           if (uses.has(input.expression)) unresolved.add(`Ambiguous declaration site ${normalized}: ${input.expression}`);
           uses.add(input.expression);
           for (const target of declaration.targets) visit(target);
@@ -74,7 +80,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           else visit(target, input.kind === "source");
         } else unresolved.add(`Undeclared CSS input ${normalized}: ${input.expression}`);
       }
-      for (const expression of declared.get(normalized)?.keys() ?? []) if (!uses.has(expression)) unresolved.add(`Stale declaration ${normalized}: ${expression}`);
+      for (const [key, declaration] of declared.get(normalized) ?? []) if (!uses.has(key)) unresolved.add(`Stale declaration ${normalized}: ${declaration.expression}`);
       return;
     }
     if (!sourceExtension.test(file)) return;
@@ -82,14 +88,17 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     if (/\bGITHUB_[A-Z_]+\b/.test(source)) unresolved.add(`Git-dependent execution input: ${normalized}`);
     if ((ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) unresolved.add(`Invalid source: ${normalized}`);
     const uses = new Set<string>(), sites = new Set<string>();
-    const aliases = new Map<string, string>(), namespaces = new Set<string>();
+    const aliases = new Map<string, string>(), namespaces = new Set<string>(), filesystemAliases = new Set<string>(), shadowedBindings = new Set<string>();
     for (const statement of ast.statements) if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const specifier = statement.moduleSpecifier.text.replace(/^node:/, "");
       if (["fs", "fs/promises", "child_process"].includes(specifier)) {
         if (statement.importClause?.name) namespaces.add(statement.importClause.name.text);
         const bindings = statement.importClause?.namedBindings;
         if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
-        if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) aliases.set(element.name.text, element.propertyName?.text ?? element.name.text);
+        if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
+          aliases.set(element.name.text, element.propertyName?.text ?? element.name.text);
+          if (specifier === "fs" || specifier === "fs/promises") filesystemAliases.add(element.name.text);
+        }
       }
     }
     const edge = (specifier: string, typeOnly = false) => {
@@ -106,6 +115,35 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       if (!target) { unresolved.add(`External workspace input ${normalized}: ${specifier}`); return; }
       visit(target, typeOnly);
     };
+    const lexicalScope = (node: ts.Node): string => {
+      const names: string[] = [];
+      for (let parent = node.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) {
+        if (ts.isFunctionDeclaration(parent) && parent.name) names.unshift(parent.name.text);
+        else if ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) && ts.isVariableDeclaration(parent.parent) && ts.isIdentifier(parent.parent.name)) names.unshift(parent.parent.name.text);
+      }
+      return names.join("/");
+    };
+    const declarationAt = (node: ts.Node): IndirectInput | undefined => {
+      const expression = node.getText(ast), candidates = declared.get(normalized);
+      const general = candidates?.get(expression), scoped = candidates?.get(`${lexicalScope(node)}\0${expression}`);
+      if (general && scoped) { unresolved.add(`Ambiguous declaration scope ${normalized}: ${expression}`); return undefined; }
+      return scoped ?? general;
+    };
+    const collectBindings = (node: ts.Node) => {
+      if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node) || ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name && ts.isIdentifier(node.name)) shadowedBindings.add(node.name.text);
+      ts.forEachChild(node, collectBindings);
+    };
+    collectBindings(ast);
+    const kernelObservation = (node: ts.Node, declaration: IndirectInput): boolean => {
+      if (!declaration.observation) return false;
+      if (!ts.isCallExpression(node) || !node.arguments.length || !ts.isStringLiteral(node.arguments[0]!)) return false;
+      const name = node.expression.getText(ast);
+      if (!filesystemAliases.has(name) || shadowedBindings.has(name)) return false;
+      const callee = aliases.get(name);
+      const path = node.arguments[0]!.text;
+      return (callee === "readFileSync" || callee === "readFile") && ["/proc/sys/kernel/random/boot_id", "/proc/self/status"].includes(path) ||
+        ["readlinkSync", "readlink", "statSync", "stat"].includes(callee ?? "") && path === "/proc/self/ns/pid";
+    };
     // Result transformations can be declared exactly, but only along the
     // direct receiver chain of a recognised input call. An arbitrary outer
     // function cannot conceal unrelated input operations.
@@ -113,7 +151,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       const matches: IndirectInput[] = [];
       let current = node;
       for (;;) {
-        const declaration = declared.get(normalized)?.get(current.getText(ast));
+        const declaration = declarationAt(current);
         if (declaration) matches.push(declaration);
         const property = current.parent;
         if (!property || !ts.isPropertyAccessExpression(property) || property.expression !== current ||
@@ -125,9 +163,11 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
     const walk = (node: ts.Node) => {
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
         const expression = node.getText(ast);
-        if (declared.get(normalized)?.has(expression)) {
-          if (sites.has(expression)) unresolved.add(`Ambiguous declaration site ${normalized}: ${expression}`);
-          sites.add(expression);
+        const matching = declarationAt(node);
+        if (matching) {
+          const key = inputKey(matching);
+          if (sites.has(key)) unresolved.add(`Ambiguous declaration site ${normalized}: ${expression}`);
+          sites.add(key);
         }
       }
       if (ts.isIdentifier(node) && aliases.has(node.text) && readOperations.has(aliases.get(node.text)!)) {
@@ -147,6 +187,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           if (node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0]!)) edge(node.arguments[0]!.text);
           else {
             const declaration = declared.get(normalized)?.get(expression);
+            if (declaration?.observation) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
             if (!declaration) unresolved.add(`Computed import ${normalized}: ${expression}`);
             else { uses.add(expression); for (const target of declaration.targets) visit(target); }
           }
@@ -154,19 +195,21 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           [...namespaces].some(name => originalCallee.startsWith(name + ".") && readOperations.has(originalCallee.split(".").at(-1)!)) ||
           /^(?:require|Bun\.(?:file|spawn|spawnSync|build|resolveSync)|import\.meta\.glob)$/.test(originalCallee) || ts.isElementAccessExpression(node.expression) || /\.(?:fulfill|setContent)$/.test(originalCallee)) {
           const matching = inputDeclarations(node);
+          if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
           if (!matching.length) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
-          else for (const declaration of matching) { uses.add(declaration.expression); for (const target of declaration.targets) visit(target); }
+          else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
       if (ts.isNewExpression(node) && /^(?:Worker|SharedWorker|Bun\.Glob)$/.test(node.expression.getText(ast))) {
         const expression = node.getText(ast), declaration = declared.get(normalized)?.get(expression);
+        if (declaration?.observation) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
         if (!declaration) unresolved.add(`Undeclared constructed input ${normalized}: ${expression}`);
         else { uses.add(expression); for (const target of declaration.targets) visit(target); }
       }
       ts.forEachChild(node, walk);
     };
     walk(ast);
-    for (const expression of declared.get(normalized)?.keys() ?? []) if (!uses.has(expression)) unresolved.add(`Stale declaration ${normalized}: ${expression}`);
+    for (const [key, declaration] of declared.get(normalized) ?? []) if (!uses.has(key)) unresolved.add(`Stale declaration ${normalized}: ${declaration.expression}`);
   };
   for (const file of entrypoints) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);

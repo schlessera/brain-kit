@@ -89,5 +89,28 @@
         ]
       }
     ]
+  },
+  {
+    "owner": "packages/ui-sdk/src/server/maintenance-temp-budget.ts",
+    "inputs": [
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "identity",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readlinkSync(\"/proc/self/ns/pid\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      }
+    ]
   }
 ]

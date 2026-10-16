@@ -270,6 +270,21 @@ unavailable discovery and invalid declarations require fresh execution.
 Directory ownership includes added descendants; missing and symbolic inputs
 remain conservative failures until fully supported.
 
+Identical indirect expressions can name exact lexical function scopes; stale,
+ambiguous or shadowed bindings remain unresolved. A narrow runner observation
+class admits literal Linux boot identity, self status and self PID-namespace
+queries through unshadowed imported filesystem readers. It rejects descriptor
+paths, dynamic PID/path expressions, arbitrary files and non-reader constructs.
+Those values are runner observations, never Git blobs or provider/repository
+payloads. Other process/filesystem inputs still need supported ownership.
+
+Generated fixture roots additionally require the root-redirect environment
+variables `BRAIN_ROOT`, `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT`
+to be absent, including empty overrides. The versioned runner condition is
+checked when making fresh receipts and revalidating current/source evidence.
+A verified literal producer in an owned temporary root alone does not bind a
+consumer reached through CLI arguments, cwd or configuration redirection.
+
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
 runner identity. It also includes every proof/tooling script and workflow,
