@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:864-892`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:885-913`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1268,9 +1268,12 @@ Inside the worker, a small loopback listener forwards to the socket, and
 **Measured facts and gaps:**
 
 - **Claude CLI.** The bundled CLI (0.3.292) reads `HTTPS_PROXY`.
-- **Bun.** Bun's `fetch` ignores proxy variables, as an existing comment in the
-  scrape package records. Pi's inference must therefore use the relay socket,
-  as restricted turns already do.
+- **Bun.** The earlier source observation that fetch ignored proxy variables
+  is historical. Offline 2026-10-16 qualification with installed Bun 1.4.2
+  captures automatic HTTP_PROXY forwarding through the Unix transport in real
+  governed and strict workers, alongside explicit-proxy and curl controls.
+  This does not supply ordinary inference authentication, endpoint or billing
+  qualification; those still require their native relay proof.
 - **SSH remotes.** They need a `ProxyCommand` helper that tunnels through
   `CONNECT`.
 
@@ -1291,7 +1294,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:189`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:195`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1303,7 +1306,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1468`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1489`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1544,11 +1547,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:831-859`;
+`packages/ui-sdk/src/server/worker-launcher.ts:852-880`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:864-890`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:885-911`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1023-1082`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1044-1103`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker

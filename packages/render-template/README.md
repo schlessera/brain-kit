@@ -136,3 +136,5 @@ that final check. The CLI does not opt into this policy by default.
 `@schlessera/brain-render-template/links` exports the existing pure classifiers
 and their types/constants without Markdown, DOM, React or I/O imports. The
 UI-kit's public `./links` entry re-exports the same implementation.
+
+CLI and API exports prepare configured module fences in the print theme before building this shell. Throwing or unsafe static entries remain code with a diagnostic; browser-only entries require client preparation. CLI markdown local SVG images are inlined after containment and resource checks.

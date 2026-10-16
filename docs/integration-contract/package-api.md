@@ -3476,3 +3476,13 @@ it now dispatches all bundled browser-only content renderers and defaults to
 and `print` is an additive accepted theme. `shareMarkdown` retains its
 `inlineMermaid` dependency name for existing callers. Failed or oversized
 static rendering preserves the source fence and reports a lint warning.
+
+### Deployment renderer registration (additive, #2087)
+
+`@schlessera/brain-ui-react` exports experimental
+`registerContentRendererPack(pack, { name, version })`, accepting the SDK's
+`ContentRendererPack` plus the bundled module manifest name and package version.
+Call it before mounting. Registration is build-time trusted code, identity
+idempotent, with first-claim dispatch. It never imports server-named code.
+`@schlessera/brain-ui-sdk` exports `ContentRendererDeclaration` for the
+[authenticated bootstrap metadata](http.md#content-renderer-bootstrap-declarations-additive-2087).

@@ -66,6 +66,7 @@ export "." (./src/index.ts)
   hasPendingShare
   hasUnsentText
   inlineMermaidDiagrams
+  registerContentRendererPack
   registerUpdateHold
   renderBlockHtml
   runStats
@@ -1130,6 +1131,7 @@ signatures (every public export and the types it is made of)
         }>;
         status: () => Promise<{
             activeSession: boolean;
+            contentRenderers?: ContentRendererDeclaration[];
             cronJobs: Array<{
                 lastRunAt: null | number;
                 lastStatus: null | string;
@@ -1253,6 +1255,11 @@ signatures (every public export and the types it is made of)
     function receipt(frame: ServerAskAnswerReceipt): void;
   reconnectWebSocketNow (packages/ui-react/src/connection.ts)
     function reconnectWebSocketNow(): void;
+  registerContentRendererPack (packages/ui-react/src/content-renderers/register.ts)
+    export function registerContentRendererPack(pack: ContentRendererPack, module: {
+        name: string;
+        version: string;
+    }): void;
   registerUpdateHold (packages/ui-react/src/lib/update-holds.ts)
     export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void;
   renderBlockHtml (packages/ui-react/src/components/chat/share-document.tsx)
@@ -1536,6 +1543,7 @@ signatures (every public export and the types it is made of)
         }>;
         status: () => Promise<{
             activeSession: boolean;
+            contentRenderers?: import("@schlessera/brain-ui-sdk").ContentRendererDeclaration[];
             cronJobs: Array<{
                 lastRunAt: null | number;
                 lastStatus: null | string;

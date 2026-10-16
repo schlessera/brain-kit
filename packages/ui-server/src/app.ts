@@ -32,6 +32,7 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
@@ -784,6 +785,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createStatusRoutes({
       sourceCommit: config.sourceCommit,
+      getContentRenderers: async () => brain.modules ? declaredContentRenderers((await brain.modules()).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
       // Undefined when the injected consumer cannot be read back (a real OTel
@@ -907,7 +909,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: observability.logger("share"),
     })
   );
-  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render")));
+  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render"), brain));
   app.route("/api", createProviderRoutes({ registry }));
   app.route(
     "/api",

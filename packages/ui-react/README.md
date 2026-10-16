@@ -734,3 +734,35 @@ including when the screen theme is explicitly dark. An SVG embedded as an
 image can use that scheme to choose its light palette; its own `@media print`
 rules do not run inside the image. The share document shell already selects
 light for exports.
+
+### Bundle module content renderers
+
+Import trusted UI entries in the deployment build and register them before the
+first UI root renders. The import is ordinary bundled application code:
+
+```ts
+import { registerContentRendererPack } from "@schlessera/brain-ui-react";
+import { contentRenderers } from "@odysseus/voyage-module/ui";
+import moduleInfo from "@odysseus/voyage-module/package.json";
+
+registerContentRendererPack(contentRenderers, {
+  name: "voyage", // the module manifest name
+  version: moduleInfo.version,
+});
+```
+
+The pack implements the SDK `ContentRendererPack` interface. Its heavy components
+may use `React.lazy` with a literal build-time import. Registering is idempotent
+by pack identity; the first renderer claiming a language or extension wins.
+
+Authenticated `/api/status` supplies configured active module declarations.
+A declared fence or file whose pack is absent keeps its source code and shows
+“Renderer not bundled.” An older server without declarations keeps the ordinary
+code fallback. Roots discard declarations on account changes and reconnect.
+With the root's explicit `config.devTools` enabled, a differing known module
+version warns once per bundled/server version pair per root. Version warnings
+do not change rendering. Production roots do not warn.
+
+Content configuration supplies metadata only. It cannot select a URL or cause a
+client import; rebuild the deployment to add a renderer. Static server entries
+are registered independently through the SDK's trusted static registry.

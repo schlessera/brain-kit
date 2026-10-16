@@ -610,3 +610,18 @@ span; existing lifetime/window accounting and turn totals retain their meaning.
 No historical rows are backfilled, and these fields do not assert a live cache
 hit. Existing root attributes also expose the hash-only records to Activity's
 span/query consumers.
+
+## Content renderer bootstrap declarations (additive, #2087)
+
+Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
+`{ module, version, name, fences, extensions }`. `module` is the manifest name,
+`version` is the installed package version or `null` when unknown, `name` is the
+renderer contribution key, and `fences`/`extensions` are arrays of declared
+strings. Only active configured modules contribute. An empty array means the
+server knows there are no declarations; absence means its CLI cannot report
+metadata or the lookup failed. Clients retain code fallback in either case.
+
+The payload contains no client/static entry specifier and authorizes no imports.
+The build registers trusted client packs. Missing packs retain source with a
+“Renderer not bundled.” note. Explicit development mode warns once per root and
+known differing version pair; unknown versions do not imply a mismatch.

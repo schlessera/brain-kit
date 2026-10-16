@@ -349,6 +349,7 @@ Reads whose variable *name* is configuration rather than code:
 
 | Name comes from | What the value is used for |
 | --- | --- |
+| egress worker subprocess environment | The trusted loopback bootstrap preserves only the worker environment already cleared and selected by the launcher, replacing proxy routing before its child starts. It admits no host environment or new operator setting. |
 | maintenance Git subprocess environment | Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential. |
 
 Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
