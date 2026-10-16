@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:497`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:336`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:350`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -454,9 +454,9 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:70-76`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:409`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:423`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:280`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:294`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1352,3 +1352,45 @@ ordinary SDK/turn lifecycle, or complete first-party transport/socket/privacy
 qualification. Those limits remain open and do not create a dependency on
 closing every other acceptance criterion of #1665 before #1666 can consume
 this concrete delivered prerequisite.
+
+
+### Prepared transport through ordinary SDK assembly
+
+The existing SDK turn builder accepts the same concrete host-prepared proxy
+directory as the ordinary spawn adapter (`hostInference?:`,
+`packages/ui-backend-claude/src/sdk-options.ts:85`). The explicit selection pins
+the inference OAuth placeholder and Unix socket in both the child environment
+and native flag settings, using the existing subscription credential-clearing
+policy. It does not remove other providers' CLI command environment. Only an
+ordinary subscription turn can select this input; API and autonomous turns
+retain their existing paths (`const inferenceEnv`,
+`packages/ui-backend-claude/src/sdk-options.ts:218-224`). The worker note derives
+its active-proxy description from that same selection and retains per-use
+outward approvals.
+
+The native qualification now constructs the full SDK turn, including its MCP
+server, system prompt, per-turn context and permission hooks, rather than
+constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:157-178`).
+Strict and governed controls retain history, model changes, host login
+rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
+call still reaches the existing per-use refusal: removing the assembled
+PreToolUse hook creates the refused file. Native managed Unix-socket overrides
+and project API credentials withhold the prompt through the existing
+subscription settings check, before provider contact or host credential
+resolution (`settingsRefusal(settings`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:188-193`).
+The actual process state ledger is observed admitted while the worker is live
+and empty after teardown.
+
+This input supplies transport, not destination authority or automatic ordinary
+selection. Its trusted caller must bind the actual native-selected upstream,
+its host authorization and the relay lifetime before releasing a prompt. A
+fresh native settings report is not evidence of the client's cached startup
+endpoint: the qualified runtime can report changed project settings while
+still dispatching to its earlier endpoint. Project/managed endpoint precedence
+and live changes therefore require dispatch binding before activation; the
+assembly control does not claim that problem solved. Default turn-runner
+selection remains unchanged. Complete credentialed-command compatibility,
+ordinary credential cutover and remaining socket/privacy qualification stay
+separate from this explicit prepared SDK composition.
