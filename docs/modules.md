@@ -383,6 +383,11 @@ regenerated; `skills sync` alone only refreshes skill discovery and emitter outp
 
 ## First-party modules
 
+The opt-in `@schlessera/brain-module-diagrams` scaffold currently contributes
+`brain diagram --help` and [upstream review tooling](../packages/module-diagrams/UPSTREAM.md).
+Its client/static entries are reserved stubs; no diagram renderer or authoring
+skill is registered yet.
+
 This list follows `main`. Travel and module-contributed MCP tools join the
 next release (0.40.0); they are absent from published 0.39.0. Speaking's travel
 ownership changes with that release, so use the linked migration guide when
