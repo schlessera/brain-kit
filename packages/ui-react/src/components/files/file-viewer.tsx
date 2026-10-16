@@ -14,8 +14,8 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { fetchAsFile, shareFile, renderAndShare } from "../../lib/share.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
-import { inlineMermaidDiagrams, isMermaidPath } from "../../lib/mermaid.js";
-import { MermaidBlock } from "../chat/mermaid-block.js";
+import { isMermaidPath } from "../../lib/mermaid.js";
+import { preRenderBrowserFences } from "../../lib/content-renderer-share.js";
 import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
@@ -49,7 +49,7 @@ export function FileViewer() {
     content?.kind === "markdown" ||
     content?.kind === "html" ||
     (content?.kind === "binary" && content.mime === "image/svg+xml") ||
-    (content?.kind === "text" && (isMermaidPath(content.path) || rendererForPath(content.path) !== null || declarations.some(entry => entry.extensions?.some(extension => content.path.endsWith(extension)))));
+    (content?.kind === "text" && (rendererForPath(content.path) !== null || declarations.some(entry => entry.extensions?.some(extension => content.path.endsWith(extension)))));
 
   return (
     <div ref={viewer} className="flex h-full min-w-0 flex-col">
@@ -87,14 +87,6 @@ function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["cur
   }
   if (viewMode === "preview" && (rendererForPath(content.path) || declarations.some(entry => entry.extensions?.some(extension => content.path.endsWith(extension))))) {
     return <ContentRendererSurface.Provider value={{mode:"file",path:content.path}}><ContentRendererView path={content.path} source={content.content ?? ""} fallback={<FileViewerRaw content={content.content ?? ""} fileName={content.path} />} /></ContentRendererSurface.Provider>;
-  }
-  // Standalone mermaid source files (.mmd / .mermaid) preview as a diagram.
-  if (viewMode === "preview" && content.kind === "text" && isMermaidPath(content.path)) {
-    return (
-      <div className="brain-prose max-w-none px-6 py-4">
-        <MermaidBlock source={content.content ?? ""} />
-      </div>
-    );
   }
   if (viewMode === "raw" || (content.kind !== "markdown" && content.kind !== "html")) {
     return <FileViewerRaw content={content.content ?? ""} fileName={content.path} />;
@@ -216,7 +208,7 @@ function buildFileShareOptions(root: BrainUiRoot, content: FileContentResponse, 
           renderAndShare(root, {
             // The render page runs without JavaScript — mermaid fences are
             // pre-rendered to inline SVG on the client.
-            content: await inlineMermaidDiagrams(body),
+            content: await preRenderBrowserFences(body),
             contentType: "markdown",
             format: "png",
             filename: baseName(fileName),
@@ -229,7 +221,7 @@ function buildFileShareOptions(root: BrainUiRoot, content: FileContentResponse, 
         hint: "Vector PDF, A4",
         run: async () =>
           renderAndShare(root, {
-            content: await inlineMermaidDiagrams(body),
+            content: await preRenderBrowserFences(body),
             contentType: "markdown",
             format: "pdf",
             filename: baseName(fileName),
