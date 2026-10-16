@@ -532,12 +532,12 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const runtimeEntries = input.command.filter(path => isAbsolute(path) && existsSync(path));
-  const runtimePaths = input.restricted?.readPaths ?? transport?.readPaths ?? maintenance?.readPaths
-    ?? input.sandbox?.readPaths ?? [...restrictedReadPaths(runtimeEntries), ...runtimeEntries];
   const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
+  const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
+  const runtimePaths = input.restricted?.readPaths ?? transport?.readPaths ?? maintenance?.readPaths
+    ?? input.sandbox?.readPaths ?? [...restrictedReadPaths(runtimeEntries), ...runtimeEntries];
   // Validate names before stat/mount planning too: a missing executable under
   // a reserved mount needs an actionable refusal, never a later exit 127.
   for (const path of [...runtimePaths, ...(isAbsolute(input.command[0] ?? "") ? [input.command[0]!] : [])]) {
