@@ -39,7 +39,7 @@ test("inherited setup roots retain normal runtime reads and declared input bytes
 test("activating dormant command through selected project, spec or inherited setup rejects nonactivation", () => {
   for(const activation of ["project","spec","setup"]) {
     const {write,audit,config}=fixture();
-    if(activation==="project") write("config.ts",config.replace('name:"layout"','name:"browser"'));
+    if(activation==="project") write("config.ts",config.replace('name:"layout"','name:"browser"')+"\nheavy();");
     else write(activation==="spec"?"spec.ts":"setup.ts",`import {commands} from "vitest/browser"; await commands.heavy();`);
     expect(audit().unresolved.some(value=>/Active or ambiguous|Selected command invocation/.test(value))).toBe(true);
   }
@@ -114,4 +114,15 @@ test("real runner config import executes an inactive command module's transitive
   expect(exit,error).toBe(0); expect(output.trim()).toBe("top-level-ran");
   const activation={config:"config.ts",selected:[{project:"browser",file:"spec.ts"}],candidates:[{owner:"command.ts",name:"heavy"}]};
   expect(discoverInputClosure(root,["config.ts"],[],activation).unresolved.some(value=>value.includes("Undeclared input dependency.ts"))).toBe(true);
+});
+
+// A registered callback still needs complete nonactivation evidence.
+test("registered selected-project callback stays dormant only with a complete sealed call inventory",()=>{
+ const {root,write,audit,config}=fixture();write("config.ts",config.replace('name:"layout"','name:"browser"'));
+ expect(audit().unresolved,"SELECTED_REGISTRATION_WITHOUT_INVOCATION_IS_DORMANT").toEqual([]);
+ const activation={config:"config.ts",selected:[{project:"browser",file:"spec.ts"}],candidates:[{owner:"command.ts",name:"heavy"}]};
+ expect(discoverInputClosure(root,["config.ts"],[],activation).unresolved).toEqual([]);
+ write("spec.ts",'import {commands} from "vitest/browser"; await commands.heavy();');
+ expect(audit().unresolved,"ACTUAL_DORMANT_CALLBACK_ACTIVATION_REQUIRES_FRESH").toContain("Selected command invocation spec.ts: heavy");
+ expect(discoverInputClosure(root,["config.ts"],[],activation).unresolved.length).toBeGreaterThan(0);
 });

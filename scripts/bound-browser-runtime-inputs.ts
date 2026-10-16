@@ -7,8 +7,8 @@ const declarations = [
   {
     "owner": "scripts/browser-shards.ts",
     "caller": "scripts/browser-sequencer.ts",
-    "ownerHash": "67c10cd1f90174c2c8b20440a1998b0f321bf0f4a7a87bd84787fafa4042f78f",
-    "callerHash": "480ae6e0f74bff30f5cfc96809b97361b769a58fa3586b99f9562c74f6c782dd",
+    "ownerHash": "958aeecec0f2552037163345a560116718b928fd334ddf9c61c398bc8f691071",
+    "callerHash": "fd6a75b71fba29a169f0c84f488a1d1d9927e87c0612dc939122750368cbb77c",
     "sites": {
       "readFileSync(path, \"utf8\")": [
         "scripts/browser-shard-costs.json"

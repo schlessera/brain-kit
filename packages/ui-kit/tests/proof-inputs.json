@@ -133,5 +133,16 @@
         ]
       }
     ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
+    "inputs": [
+      {
+        "expression": "readFile(resolve(\"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml\"),\"utf8\")",
+        "targets": [
+          "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml"
+        ]
+      }
+    ]
   }
 ]

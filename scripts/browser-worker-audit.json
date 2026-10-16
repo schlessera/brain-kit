@@ -1,8 +1,16 @@
 {
-  "version": 1,
+  "version": 2,
   "category": "browser",
-  "identity": "87fe1b8e4b329668298dfd1cee24fa16de21b977d3e9b343e89225a4d3330595",
-  "diagnostic": {
+  "identity": "95d1ec054755c9fd5acdb1f6b61df5fc149fd04db05bc4959b57f3f804579c20",
+  "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
+  "sourceAudit": {
+    "version": 1,
+    "base": "05399315e147bfb9d4259e5e67dd4367c1b8ee4f",
+    "selected": 299,
+    "files": 1356,
+    "scope": "Complete imported/configured selected inventory plus new Chromium/WebKit diagrams, SVG/fixture/generated CSS/inline-font producers and exact command call/escape inventory audited. Historical 297 diagnostic remains historical with its cleanup gap. Actual complete 299 guarded fresh hosted shards remain required; this capability metadata is not a passing receipt."
+  },
+  "historicalDiagnostic": {
     "base": "b0b4340cd",
     "observed": 297,
     "workerAttempts": 0,
@@ -12,11 +20,16 @@
     "logSha256": "da33e71a8dc26e89f5b5a81762261a62828a660d3bb67968f853d6a8c49de88e",
     "observerSha256": "5d1760000e759cca123066c3b38b8d23320316e6878896aec4031cd2b2e46303"
   },
-  "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
-  "sourceAudit": {
-    "base": "fbff319c4256c7670f0fac6aa138bfb1d5c7aaf4",
-    "selected": 297,
-    "files": 1337,
-    "scope": "Immutable production discovery entrypoints and unchanged selected inventory/import/resource membership. Changed shared tokens, protected-output and activity-recorder/store sources re-audited; no new runtime resources or Worker realms/hooks. Old audit rejected this combined tree before update. Declaration bytes remain separate ordinary harness fingerprint material. The original diagnostic cleanup gap remains; complete guarded hosted proof is still mandatory."
+  "guardedFreshProofRequired": true,
+  "targetedDiagnostic": {
+    "projects": [
+      "diagrams-chromium",
+      "diagrams-webkit"
+    ],
+    "observed": 2,
+    "passed": 18,
+    "workerAttempts": 0,
+    "logSha256": "71b20259c89a251c19fe8146931ce59817024b760ae386e0172ee6e0f47c4d7d",
+    "scope": "Dirty prototype over 053993 integration, two new selected project pairs only; no claim to cover all 299."
   }
 }

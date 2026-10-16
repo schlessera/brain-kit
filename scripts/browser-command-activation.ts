@@ -90,7 +90,7 @@ export function auditCommandActivation(root: string, config: string, selected: r
       ts.forEachChild(node, walk);
     };
     walk(configAst);
-    if (unsafe || imported !== 1 || !registrations.size || [...registrations].some(project => projects.has(project)))
+    if (unsafe || imported !== 1 || !registrations.size)
       unresolved.add(`Active or ambiguous command registration: ${candidate.name}`);
     else inactive.push({ ...candidate, projects: [...registrations].sort() });
   }
@@ -204,15 +204,15 @@ export function auditCommandActivation(root: string, config: string, selected: r
   return { candidates: inactive, files: [...files].sort(), roots: [...roots].sort(), unresolved: [...unresolved].sort(), executionExcluded: false };
 }
 
-// This is a bounded audit of one actual runner/configuration and its eight
-// callbacks, not a JavaScript partial evaluator. A source edit requires
+// This is a bounded audit of one actual runner/configuration and its seven
+// dormant callbacks, not a JavaScript partial evaluator. A source edit requires
 // an explicit new audit; imports still run through normal runtime closure.
 const auditedSources: Record<string,string> = {
   "packages/ui-react/tests/browser/mermaid-proof-command.ts": "df7cc849b743c55c897236cd021793ad489548d780db2d053248116563832d3c",
   "packages/ui-react/tests/browser/offline/scene-commands.ts": "ad76a69e553d1d0208a5a92c8270876403930788964bd75f3887d06a426c17d2",
-  "packages/ui-kit/vitest.config.ts": "9c92faea6e53921e05672750f7a8b5ef909b223712890078808d4b0dafe1788e",
+  "packages/ui-kit/vitest.config.ts": "a04696e6fb4d0dcf62c3ab2aa8175c30c50d44004884a3bca7406bc04d438c4b",
   "packages/ui-kit/vite.config.ts": "ffdb82cbcf2fd0106799690580ca7af612a0bcceeacf198ef0e8a77313b4cb91",
-  "scripts/visual.mjs": "b962d19b0ca03167aa52cf5e9a5456d1c610f934d5b8dffd360ac06e903e2874",
+  "scripts/visual.mjs": "bcd50892e8631ecb1efe6b9305f9e05726816f0699b2e551abaaefbce81cfe4c",
   "packages/ui-react/tests/browser/hygiene-loop-command.ts": "fd9c5e18f1e374be3657fefd6c7aac76f16794f1ca59f0f038761c75130da35a",
   "packages/ui-react/tests/browser/hygiene-server-command.ts": "13706860dac40cab354554cadbd809143a0f32ee0314d8fcec8f1d6d1d70b1bb",
   "packages/ui-react/tests/browser/policy-server-command.ts": "9cd4bfe73ea42e200f795c42a4ce1d2eb014daf9e117275d171b95314db1f148",
@@ -225,7 +225,6 @@ export function auditedInactiveCommands(root: string, selected: readonly Spec[])
     if (!existsSync(absolute) || realpathSync(absolute) !== absolute || createHash("sha256").update(readFileSync(absolute)).digest("hex") !== expected) return undefined;
   }
   return {config:"packages/ui-kit/vitest.config.ts",selected,candidates:[
-    {name:"mermaidMedia",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
     {name:"mermaidOutput",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
     {name:"mermaidScreenComparison",owner:"packages/ui-react/tests/browser/mermaid-proof-command.ts"},
     {name:"offlineScene",owner:"packages/ui-react/tests/browser/offline/scene-commands.ts"},

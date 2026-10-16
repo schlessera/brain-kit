@@ -8,7 +8,7 @@ export const workerAuditFile="scripts/browser-worker-audit.json";
 export const pdfWorkerInput='Undeclared constructed input packages/ui-react/src/lib/pdf.ts: new Worker(url, { type: "module" })';
 const guards=["packages/ui-kit/tests/visual/worker-boundary-setup.ts","scripts/browser-worker-boundary.ts"];
 const enforcement:Record<string,string>={
-  "packages/ui-kit/vitest.config.ts":"9c92faea6e53921e05672750f7a8b5ef909b223712890078808d4b0dafe1788e",
+  "packages/ui-kit/vitest.config.ts":"a04696e6fb4d0dcf62c3ab2aa8175c30c50d44004884a3bca7406bc04d438c4b",
   "scripts/browser-worker-boundary.ts":"fe7b63742370e3a6f2d8f99a77d23ce538d905744ad34d34e99ce342ff62d31b",
   "packages/ui-kit/tests/visual/worker-boundary-setup.ts":"80ba88b24fc1f0269d0f8a6b58520d715375b8af21ca636112f3294ffd7ad60f"
 };
@@ -36,6 +36,9 @@ export function hasAuditedWorkerBoundary(root:string,closure:InputClosure,select
     // The manifest is ordinary shared proof/tooling fingerprint material. It
     // cannot be included in its own domain hash. Success still requires fresh
     // registered jobs with enforced hooks; this metadata alone proves nothing.
-    return audit.version===1&&audit.category==="browser"&&audit.identity===identity&&audit.diagnostic?.observed===selected.length&&audit.diagnostic?.workerAttempts===0;
+    // Historical observation counts never pretend to cover the current domain.
+    return audit.version===2&&audit.category==="browser"&&audit.identity===identity&&audit.guardedFreshProofRequired===true&&
+      audit.sourceAudit?.version===1&&audit.sourceAudit?.selected===selected.length&&audit.sourceAudit?.files===closure.files.length&&
+      Number.isSafeInteger(audit.historicalDiagnostic?.observed)&&audit.historicalDiagnostic.observed>0&&audit.historicalDiagnostic.workerAttempts===0;
   }catch{return false;}
 }
