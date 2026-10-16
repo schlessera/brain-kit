@@ -837,7 +837,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: observability.logger("share"),
     })
   );
-  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render")));
+  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render"), brain));
   app.route("/api", createProviderRoutes({ registry }));
   app.route(
     "/api",

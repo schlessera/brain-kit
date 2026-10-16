@@ -5559,6 +5559,12 @@ signatures (every public export and the types it is made of)
     }
   ConfiguredModule (packages/ui-sdk/src/module-settings.ts)
     export interface ConfiguredModule {
+        renderers?: Record<string, {
+            fences?: string[];
+            extensions?: string[];
+            client: string;
+            static?: string;
+        }>;
         name: string;
         key: string;
         description: string | null;

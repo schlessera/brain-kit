@@ -175,7 +175,7 @@ kept (`export function readOnlyBrainError`, `packages/core/src/cli/read-only.ts:
 Render source validation precedes the read-only refusal (#2038): outside
 and missing input paths remain usage errors, while a valid input retains the
 same refusal and scratch advice
-(`export function validateRenderInput`, `packages/core/src/cli/commands/render.ts:194-203`).
+(`export function validateRenderInput`, `packages/core/src/cli/commands/render.ts:195-204`).
 The `read_only_brain` code and its
 `tool` field are unchanged.
 
