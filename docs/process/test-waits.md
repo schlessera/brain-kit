@@ -97,6 +97,16 @@ ownership rather than being duplicated here.
 
 ## Continuity settling boundaries
 
+Networked continuity contexts start with native offline state, create their
+page, then explicitly transition online before loading the app. Playwright's
+initial online default can inherit an offline host namespace; a connected
+loopback WebSocket alone does not establish the upload queue's native online
+precondition. The fixture asserts both starting states, and every subsequent
+drop/recovery checks native connectivity and one trusted offline/online event.
+No navigator property is replaced. Namespace and local-origin guards still
+restrict egress. Failed scene preparation closes its owned browser context,
+including its page listeners, before rethrowing the original failure.
+
 The rendering helper (`finishRender`,
 `packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
