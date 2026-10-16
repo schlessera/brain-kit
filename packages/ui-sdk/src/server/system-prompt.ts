@@ -266,7 +266,7 @@ function webSearchLine(brief: WebSearchBrief): string {
 }
 
 /** Fallback line when the client never reported its environment. */
-const UNKNOWN_DEVICE = `The reader's device is unknown — assume a phone held one-handed, and don't
+const UNKNOWN_DEVICE = `When the reader's device is unknown, assume a phone held one-handed, and don't
 promise a capability you can't confirm.`;
 
 /**
@@ -277,7 +277,7 @@ promise a capability you can't confirm.`;
  * answers "can you take a photo", "can I share this to WhatsApp" and "where
  * am I" differently. Everything here is feature detection, not a UA guess.
  */
-function describeClient(env: ClientEnvironment): string {
+export function describeClient(env: ClientEnvironment): string {
   const lines: string[] = [];
 
   const form =
@@ -295,8 +295,8 @@ function describeClient(env: ClientEnvironment): string {
   // location tool works", which is worse than saying nothing at all.
   const has: string[] = [];
   const lacks: string[] = [];
-  (env.camera ? has : lacks).push("a camera");
-  (env.microphone ? has : lacks).push("a microphone");
+  if (env.camera !== undefined) (env.camera ? has : lacks).push("a camera");
+  if (env.microphone !== undefined) (env.microphone ? has : lacks).push("a microphone");
   if (env.geolocation) has.push("geolocation, so the location tool works");
   else lacks.push("geolocation — the location tool will fail here");
   if (env.share) {

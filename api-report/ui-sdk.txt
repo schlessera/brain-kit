@@ -889,6 +889,7 @@ export "./internal" (./src/internal.ts)
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
+  type SessionPromptFacts
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -961,6 +962,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   createWorkerStartupView
   denyWorkerCommand
+  describeClient
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1014,6 +1016,7 @@ export "./internal" (./src/internal.ts)
   retainWorkerStartupView
   runMaintenanceWorker
   runMaintenanceWorkerSync
+  sessionPromptContext
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
@@ -9159,6 +9162,7 @@ signatures (every public export and the types it is made of)
         turnBudgetMs?: number;
         maxBudgetUsd?: number;
         bridge: BackendBridge;
+        applicationAuthority?: "server";
         client?: ClientEnvironment;
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;

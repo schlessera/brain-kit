@@ -238,8 +238,11 @@ by the cross-backend suite:
   actually sit on the execution path of every mutating tool.
 
 `buildSystemPromptAppend` (`packages/ui-sdk/src/server/system-prompt.ts`)
-builds the shared brain-ui system-prompt block; backends that can vary their
-system prompt per turn feed it the advisory `req.client` environment.
+builds the shared brain-ui system-prompt block. The first-party backends retain
+one exact session append and deliver changed advisory `req.client` and host
+facts only in owned new tail context. See the
+[session prompt context decision](../decisions/session-prompt-context.md) and
+[its persistence/replay behavior](../hosting/session-prompt-context.md).
 
 ### Explicit autonomous turns (`@experimental`)
 

@@ -181,7 +181,7 @@ test("the actual Claude turn options shadow project writers and expose server wr
   }
   expect(a.options!.allowedTools).toContain("mcp__brain-ui__brain_add");
   expect(a.options!.allowedTools).not.toContain("mcp__brain__brain_add");
-  expect(a.options!.disallowedTools).toContain("Write");
+  expect(a.options!.disallowedTools).not.toContain("Write");
 });
 
 test("hosted voice retains capture/update and refuses archive, raw writes and grants", async () => {

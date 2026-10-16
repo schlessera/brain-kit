@@ -122,6 +122,12 @@ gaps; workflow status lives on the board. Then **Finish or hand off** and stop.
 
 ## Prepare the issue checkout
 
+For a slice in an existing stack, load `gh-stack`, identify the owning layer,
+and use its clean dedicated checkout. A new upper layer starts from its
+immediate parent under the [stack rules](../../../docs/process/github.md#stacked-pull-requests),
+instead of starting again from `origin/main`. Keep the isolation and ownership
+requirements below when locating or creating that checkout.
+
 Reuse an environment-provided worktree only when it is dedicated to this
 invocation and its branch/base are appropriate for the issue. Otherwise,
 when isolation is required, create a worktree from fetched `origin/main`
@@ -183,7 +189,8 @@ never identifies a private-instance follow-up; sanitize the public handoff.
 ## PR, CI and merge
 
 Before creating a PR or marking a draft ready, run `bun run check:pr --base
-origin/main` in the issue checkout. This supplies focused local preflight;
+origin/main` in the issue checkout (the verified immediate parent ref for an
+upper stack layer). This supplies focused local preflight;
 `--plan` is inspection only. Record behavioral failing-first/restored mutation
 receipts and visual review where relevant. Complete repeatable proof runs in
 hosted CI on ready PRs under #1326: types, packaging, full affected discovery,
@@ -205,7 +212,9 @@ and the relevance assessment, satisfying existing branch rules. Never relabel
 older green evidence as a new combined-tree receipt.
 
 Before every push, confirm the branch's PR is not already merged/closed.
-Open one PR against `main` using the repository template and appropriate
+Open one PR against `main`, or one PR per dependent slice targeting its parent
+under [the stack rules](../../../docs/process/github.md#stacked-pull-requests).
+Load `gh-stack` before working in a stack. Use the repository template and appropriate
 type/area/`contract` labels; do not copy readiness labels onto the PR.
 
 - `Closes #N` means merging meets all acceptance criteria and required
@@ -226,7 +235,8 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   under the GitHub skill. This applies to every merge, including docs/test/CI
   work and `Refs` slices; choose the confirmed upcoming release for unreleased
   work and preserve the initial release of unchanged shipped behavior. Then
-  merge using `--match-head-commit` and squash. Respect a merge queue and
+  squash with `--match-head-commit` for an ordinary PR, or follow the stack
+  merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
 
