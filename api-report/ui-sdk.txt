@@ -889,6 +889,7 @@ export "./internal" (./src/internal.ts)
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
+  type SessionPromptFacts
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -961,6 +962,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   createWorkerStartupView
   denyWorkerCommand
+  describeClient
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1014,6 +1016,7 @@ export "./internal" (./src/internal.ts)
   retainWorkerStartupView
   runMaintenanceWorker
   runMaintenanceWorkerSync
+  sessionPromptContext
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit

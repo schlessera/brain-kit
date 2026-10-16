@@ -1437,15 +1437,22 @@ describe("Agent background rewrite", () => {
   });
 });
 
-describe("turn budget in the system prompt", () => {
-  test("req.turnBudgetMs surfaces in the appended brief", async () => {
+describe("turn budget in the current tail", () => {
+  test("req.turnBudgetMs surfaces in owned tail beside the generic lifecycle brief", async () => {
     let captured: Options | undefined;
-    const queryFn = ((params: { options?: Options }) => {
+    let promptText = "";
+    const queryFn = ((params: { options?: Options; prompt: string | AsyncIterable<import("@anthropic-ai/claude-agent-sdk").SDKUserMessage> }) => {
       captured = params.options!;
-      return (async function* () {
+      return {
+        initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
+        getSettings: async () => ({ effective: {}, sources: [] }),
+        async *[Symbol.asyncIterator]() {
+        if (typeof params.prompt === "string") promptText = params.prompt;
+        else { const first = await params.prompt[Symbol.asyncIterator]().next(); if (!first.done) promptText = JSON.stringify(first.value.message.content); }
         yield initMsg("s1");
         yield resultMsg("s1");
-      })();
+        },
+      };
     }) as unknown as typeof query;
 
     const backend = createClaudeBackend({ brainPath: "/brain", queryFn });
@@ -1455,7 +1462,8 @@ describe("turn budget in the system prompt", () => {
     );
 
     const sp = captured!.systemPrompt as { append?: string };
-    expect(sp.append).toContain("about 25 minutes");
+    expect(sp.append).not.toContain("about 25 minutes");
+    expect(promptText).toContain("about 25 minutes");
     expect(sp.append).toContain("Turn lifecycle");
   });
 });
