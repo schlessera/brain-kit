@@ -183,6 +183,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -238,6 +239,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -283,6 +285,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -328,6 +331,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -368,6 +372,7 @@ jobs:
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
@@ -409,6 +414,7 @@ jobs:
             tmp/proof-resources.json
             tmp/proof-cases.json
             tmp/unit-report.xml
+            tmp/unit-report-summary.json
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
