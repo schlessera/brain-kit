@@ -20,6 +20,7 @@
  * inside the brain, or a host without the worker boundary. There the brain is
  * only ever written through the server's own routes, as before 0.42.
  */
+import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -313,9 +314,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   };
 
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
-  const workerPath = (env: BrainExecution["env"]) => [join(brain, "node_modules", ".bin"), env.PATH ?? "/usr/local/bin:/usr/bin:/bin"].join(":");
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView): MaintenanceCommand => {
-    const path = workerPath(execution.env);
+    const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
     env.PATH = path;
