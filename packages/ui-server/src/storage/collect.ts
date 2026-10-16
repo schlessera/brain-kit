@@ -3,8 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { z } from "zod";
 import type { StorageFileEntry, StorageRoot, StorageSnapshot, StorageOwner, StorageBytes } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { serverMetadata, storageCli, storageProcess } from "./process.js";
+import { serverMetadata, coreMetadata } from "./process.js";
 import type { MetadataEntry, MetadataRoot } from "./metadata.js";
 export const STORAGE_SERVER_LIMITS = Object.freeze({ entries: 100_000, page: 200, roots: 32, milliseconds: 35_000, cacheBytes: 96 * 1024 * 1024 });
 const bytes = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable();
@@ -16,7 +15,7 @@ const coreInventory = z.object({ schema_version: z.literal(1), status: z.enum(["
 export interface StorageStore { path: string; label: string; category: StorageRoot["category"]; owner: StorageOwner; recursive: boolean; optional?: boolean }
 export interface StorageCollection { summary: StorageSnapshot; entries: StorageFileEntry[]; bytes: number }
 export interface StorageCollectOptions {
-  brainPath: string; stores: StorageStore[]; gitRoots?: string[]; exec?: ExecWrapperConfig;
+  brainPath: string; stores: StorageStore[]; gitRoots?: string[];
   /** Unknown private owner stores are explicit rows, never scans of host /tmp or broker state. */
   unavailable?: Array<{ label: string; category: StorageRoot["category"]; owner: StorageOwner; reason: string }>;
   salt: string;
@@ -50,8 +49,7 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
   const rawEntries: MetadataEntry[] = [];
   const coreRootMappings = new Map<string, { path: string; root: StorageRoot }>();
   try {
-    const raw = coreInventory.parse(await storageProcess([...storageCli(options.brainPath), "storage", "inventory", "--json"], { signal, exec: options.exec,
-      env: { BRAIN_ROOT: options.brainPath, BRAIN_STORAGE_GIT_ROOTS: JSON.stringify(options.gitRoots ?? []) } }));
+    const raw = coreInventory.parse(await coreMetadata(options.brainPath, options.gitRoots ?? [], signal));
     if (raw.status !== "complete") fail(brain.id, "core-inventory-partial");
     for (const value of raw.errors) fail(brain.id, value.reason);
     omittedErrors += raw.omittedErrors;
@@ -76,14 +74,14 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
         }
         if (view.id === brain.id) {
           for (const [prefix, label, category, owner] of [
-            [SHARE_STAGING_DIR, "Upload staging", "staging", "app"], [".brain/scratch", "Scratch", "scratch", "brain"], ["workspaces", "Workspaces", "workspace", "brain"],
+            [".git", "Git metadata", "git", "brain"], [SHARE_STAGING_DIR, "Upload staging", "staging", "app"], [".brain/scratch", "Scratch", "scratch", "brain"], ["workspaces", "Workspaces", "workspace", "brain"],
           ] as const) if (path === prefix || path.startsWith(`${prefix}/`)) { view = root(prefix, label, category, owner); sources.set(view.id, { root: view, path: resolve(options.brainPath, prefix), recursive: false, optional: true }); path = path.slice(prefix.length).replace(/^\//, ""); break; }
           if (/^brain\.db(?:-wal|-shm|-journal)?$/.test(path)) { view = root("index", "Content index", "index", "brain"); sources.set(view.id, { root: view, path: options.brainPath, recursive: false }); }
         }
       }
       rawEntries.push({ rootId: view.id, path, kind: item.kind, object: item.objectId, version: item.version, device: item.objectId.split(":")[0], logical: item.logicalBytes, allocated: item.allocatedBytes, links: item.links });
     }
-  } catch { fail(brain.id, signal.aborted ? "cancelled" : "storage-cli-unavailable-or-incompatible"); }
+  } catch { fail(brain.id, signal.aborted ? "cancelled" : "storage-reader-unavailable-or-incompatible"); }
   const appSources: MetadataRoot[] = [];
   for (const store of options.stores) {
     if (roots.length >= STORAGE_SERVER_LIMITS.roots - (options.unavailable?.length ?? 0)) { fail("", "root-budget"); break; }

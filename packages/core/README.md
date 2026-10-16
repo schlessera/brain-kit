@@ -67,3 +67,11 @@ index registry and completion-provider resolution
 `@schlessera/brain/internal` holds first-party native-handle search/context and
 write helpers. It has no compatibility guarantee and requires the same
 lockstep version; integrations should use the supported query results.
+
+### Host storage integration
+
+Host-shell authors can call `readStorageInventory` from
+`@schlessera/brain/storage` to obtain bounded live metadata without executing
+Git, repository configuration or the brain CLI. Enforce owner authorization and
+choose explicit roots at the host boundary. The [host reader contract](../../docs/integration-contract/package-api.md#host-storage-reader-additive-2010)
+defines resource bounds, Git marker support, unknown evidence and cancellation.

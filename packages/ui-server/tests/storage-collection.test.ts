@@ -13,7 +13,7 @@ function fixture() {
   linkSync(join(brain, "Troy.PDF"), join(app, "chart.pdf"));
   return { root, brain, app, close() { rmSync(root, { recursive: true, force: true }); } };
 }
-test("real trusted CLI and exact app stores share one object union and capacity observation", async () => {
+test("real trusted metadata reader and exact app stores share one object union and capacity observation", async () => {
   const f = fixture(), dbPath = join(f.app, "state.sqlite"), db = new Database(dbPath);
   try {
     db.exec("PRAGMA journal_mode=WAL; CREATE TABLE chart (id INTEGER); INSERT INTO chart VALUES (1)");
@@ -22,7 +22,7 @@ test("real trusted CLI and exact app stores share one object union and capacity 
       { path: dbPath, label: "DB", category: "database", owner: "app", recursive: false },
       { path: dbPath + "-wal", label: "WAL", category: "database", owner: "app", recursive: false },
     ] }, "scan-odysseus", new AbortController().signal);
-    expect(result.summary.errors, "STORAGE_REAL_CLI_AVAILABLE").toEqual([]);
+    expect(result.summary.errors, "STORAGE_PUBLIC_READER_AVAILABLE").toEqual([]);
     expect(result.entries.some(entry => entry.name === "Troy.PDF")).toBe(true);
     const troy = result.entries.find(entry => entry.name === "Troy.PDF")!, alias = result.entries.find(entry => entry.name === "chart.pdf")!;
     expect(troy.objectId, "STORAGE_CROSS_OWNER_OBJECT_IDENTITY").toBe(alias.objectId);
@@ -142,18 +142,14 @@ test("a partial refresh preserves complete evidence, signed cursors expire, and 
   } finally { Object.defineProperty(Date, "now", descriptor); await storage.close(); f.close(); }
 });
 
-test("wrapped cancellation waits for bounded killer helper cleanup", async () => {
-  const { storageProcess } = await import("../src/storage/process");
-  const { chmodSync, existsSync, readFileSync } = await import("node:fs");
-  const f = fixture(), wrapper = join(f.app, "wrapper"), killer = join(f.app, "killer"), childPid = join(f.app, "child-pid"), helperPids = join(f.app, "helper-pids");
-  writeFileSync(wrapper, '#!/bin/sh\nexec "$@"\n'); chmodSync(wrapper, 0o700);
-  writeFileSync(killer, `#!${process.execPath}\nimport{appendFileSync}from"node:fs";appendFileSync(${JSON.stringify(helperPids)},String(process.pid)+"\\n");setInterval(()=>{},1000);\n`); chmodSync(killer, 0o700);
-  const controller = new AbortController(), pending = storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", `await Bun.write(${JSON.stringify(childPid)},String(process.pid));setInterval(()=>{},1000);`], { signal: controller.signal, exec: { wrapper, killer } });
+test("in-tree Git metadata has its own ownership row without running repository code", async () => {
+  const f = fixture(); mkdirSync(join(f.brain, ".git")); mkdirSync(join(f.brain, ".git", "objects"));
+  writeFileSync(join(f.brain, ".git", "config"), "[include]\npath = /unapproved-host-config\n");
   try {
-    for (let i = 0; i < 200 && !existsSync(childPid); i++) await new Promise(done => setTimeout(done, 5));
-    expect(existsSync(childPid)).toBe(true); controller.abort(); await expect(pending).rejects.toThrow();
-    await new Promise(done => setTimeout(done, 50));
-    expect(existsSync(helperPids)).toBe(true);
-    for (const pid of readFileSync(helperPids, "utf8").trim().split("\n").map(Number)) expect(() => process.kill(pid, 0), "STORAGE_KILL_HELPERS_REAPED").toThrow();
-  } finally { controller.abort(); await pending.catch(() => {}); await new Promise(done => setTimeout(done, 1200)); f.close(); }
+    const result = await collectStorage({ brainPath: f.brain, salt: "odysseus", stores: [] }, "git-metadata", new AbortController().signal);
+    const git = result.summary.roots.find(root => root.category === "git");
+    expect(git, "STORAGE_GIT_OWNER_CATEGORY").toBeDefined();
+    expect(result.entries.find(entry => entry.name === "config")?.rootId).toBe(git!.id);
+    expect(result.summary.errors).toEqual([]);
+  } finally { f.close(); }
 });

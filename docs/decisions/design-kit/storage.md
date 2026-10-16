@@ -464,7 +464,8 @@ success and one conflict. Every step is available from a row and a button.
 
 Tracked implementation belongs under [#1779](https://github.com/schlessera/brain-kit/issues/1779);
 the issue tracker owns sequencing and completion. Core owns deterministic
-content/Git inventory via supported CLI JSON machinery. ui-server resolves
+content/Git inventory via the supported CLI and metadata-only public reader.
+The host reader never runs Git or repository configuration. ui-server resolves
 its configured owners, merges capacities, authenticates transport and owns
 receipts. Backends keep transcript layout/lifetime ownership. ui-react composes
 the Settings pane; ui-kit supplies presentational map/list pieces if required.

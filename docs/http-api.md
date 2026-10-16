@@ -1218,6 +1218,11 @@ exclusive "mine" or "theirs" ownership.
 
 ## Storage inventory
 
+The server uses the installed `@schlessera/brain/storage` metadata reader. It
+never executes Git, the brain CLI, repository configuration, hooks or filters
+for inspection. Only fixed Git administrative location markers and approved
+host roots participate in discovery.
+
 These five operations require a current `owner` or `ambient` principal. Agent,
 delegated and restricted access is refused (403); unauthenticated/revoked access
 is refused (401 by normal authentication). Authorization is checked again at

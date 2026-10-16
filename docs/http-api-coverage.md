@@ -462,6 +462,6 @@ The real Chrome `turn-journal-runtime.test.ts` exercises whole-turn review,
 reading focus/Escape, waiting and partial receipts, Undo and lost-response readback.
 
 ST: [Storage route authorization and mounted scans](../packages/ui-server/tests/storage-routes.test.ts),
-[real CLI/store union and paging](../packages/ui-server/tests/storage-collection.test.ts),
+[real public-reader/store union and paging](../packages/ui-server/tests/storage-collection.test.ts),
 [exact metadata roots](../packages/ui-server/tests/storage-metadata.test.ts), and
 [bounded index evidence](../packages/core/tests/storage-references.test.ts).

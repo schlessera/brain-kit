@@ -810,7 +810,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     for (const suffix of ["", "-wal", "-shm", "-journal"]) storageStores.push({ path: resolve(path + suffix), label: label + suffix, category: "database", owner: "app", recursive: false, optional: suffix !== "" });
   }
   for (const [index, path] of (config.storage?.backupRoots ?? []).entries()) storageStores.push({ path, label: `Backup store ${index + 1}`, category: "backup", owner: "operator", recursive: true });
-  const storage = createStorageCoordinator({ brainPath: config.brainPath, stores: storageStores, gitRoots: [...config.storage?.gitRoots ?? []], exec: config.exec,
+  const storage = createStorageCoordinator({ brainPath: config.brainPath, stores: storageStores, gitRoots: [...config.storage?.gitRoots ?? []],
     authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     unavailable: [
       { label: "Native checkpoints and output", category: "native", owner: "app", reason: "shared-native-allocation-unavailable" },
