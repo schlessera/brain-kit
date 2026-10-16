@@ -1,6 +1,7 @@
 /** Concurrent serial Bun processes, each owning its source/dependencies/build lease. */
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { runCommands } from "./ci-runner";
 import { balanceTests } from "./test-shards";
 import { validateUnitReports } from "./unit-proof-report";
@@ -15,7 +16,8 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   if (!files.length) throw new Error("Unit workers need discovered files");
   mkdirSync(join(root, "tmp"), { recursive: true });
   mkdirSync(reportDir, { recursive: true });
-  const container = mkdtempSync(join(root, "tmp/unit-workers-"));
+  // Keep cloned test trees outside the parent's Bun path-filter discovery.
+  const container = mkdtempSync(join(tmpdir(), "brain-unit-workers-"));
   const head = git(root, "rev-parse", "HEAD");
   const partitions = balanceTests([...files], Math.min(2, files.length));
   const workers: { root: string; files: string[]; checkout: string }[] = [];
@@ -40,8 +42,12 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       const { dev, ino } = statSync(join(workspace, "node_modules/typescript/package.json"));
       return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino } };
     }), null, 2));
+    await runCommands(workers.map((worker, index) => ({ name: `unit worker ${index + 1} private package build`,
+      argv: [process.execPath, "run", "--cwd", worker.root, "build"] })), root, 2);
+    for (const worker of workers) mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
     await runCommands(workers.map((worker, index) => ({ name: `complete unit worker ${index + 1}/${workers.length}`,
-      argv: [process.execPath, "run", "--cwd", worker.root, "test", ...worker.files.map(file => join(worker.root, file)),
+      argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount", "bash", join(root, "scripts/unit-worker-entry.sh"),
+        join(worker.root, "tmp/maintenance-ledger"), process.execPath, "run", "--cwd", worker.root, "test", ...worker.files.map(file => join(worker.root, file)),
         "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
       env: { BRAIN_REQUIRE_CHROME: "1", ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}) } })), root, 2);
     const reports = workers.map(worker => {
