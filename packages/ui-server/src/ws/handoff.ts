@@ -270,7 +270,9 @@ export async function prepareHandoff(
   connection: ConnectionState
 ): Promise<void> {
   const { coordinator, catalog } = host;
+  let failureReason: string | undefined;
   const answer = (frame: Omit<Extract<ServerMessage, { type: "handoff_draft" }>, "type" | "handoffId">) => {
+    if (frame.state === "failed") failureReason = frame.message;
     if (!connection.closed) host.sendMessage(ws, { type: "handoff_draft", handoffId: msg.handoffId, ...frame });
   };
   if (coordinator.handoffPreparations.has(msg.handoffId)) {
@@ -384,7 +386,7 @@ export async function prepareHandoff(
     answer({ state: "failed", message: err instanceof Error ? err.message : "The summary couldn't be drafted." });
   } finally {
     clearTimeout(timer);
-    recorder?.finish(outcome);
+    recorder?.finish(outcome, failureReason);
     releaseAuthorization();
     const current = coordinator.handoffPreparations.get(msg.handoffId);
     if (current?.abort === abort) coordinator.handoffPreparations.delete(msg.handoffId);
