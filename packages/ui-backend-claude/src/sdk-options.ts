@@ -1,3 +1,4 @@
+import { INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeTitleUsageCollector } from "./title-usage.js";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
@@ -80,6 +81,8 @@ interface ClaudeSdkTurnOptions {
   backend: ClaudeBackendOptions;
   /** One resolved environment selects both host observation storage and native runtime state. */
   turnEnvironment?: Record<string, string | undefined>;
+  /** Concrete host-prepared transport only; ordinary selection/route/lifetime are owned by its caller. */
+  hostInference?: { proxyDir: string };
   fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -91,6 +94,9 @@ interface ClaudeSdkTurnOptions {
 }
 
 export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTurn {
+  if (options.hostInference && (options.req.autonomous || options.profile.billing === "api")) {
+    throw new Error("The prepared Claude host OAuth transport requires an ordinary subscription turn.");
+  }
   // An autonomous turn gets the restricted envelope (#676): only the relay
   // route out, a placeholder credential and no ambient project configuration.
   const envelope = options.req.autonomous?.containment === "restricted"
@@ -206,7 +212,15 @@ function assembleClaudeSdkTurn(
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
 
-  const childEnv = envelope?.env ?? options.turnEnvironment ?? turnEnv(profile);
+  const inheritedEnv = envelope?.env ?? options.turnEnvironment ?? turnEnv(profile);
+  // Only the explicitly selected internal transport changes inference auth.
+  // Other provider/command environment compatibility remains #1666 work.
+  const inferenceEnv = options.hostInference ? {
+    ...CLEARED_API_CREDENTIALS,
+    CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER,
+    ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
+  } : undefined;
+  const childEnv = inferenceEnv ? { ...inheritedEnv, ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
@@ -221,7 +235,7 @@ function assembleClaudeSdkTurn(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
-    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote()].filter(Boolean).join("\n\n");
+    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference))].filter(Boolean).join("\n\n");
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -350,7 +364,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory);
+    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) sdkOptions.hooks = {
     ...sdkOptions.hooks,
@@ -414,7 +428,9 @@ function assembleClaudeSdkTurn(
     // Flag settings outrank every settings file: none can reroute inference.
     sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
   } else if (subscriptionOnly) {
-    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env } };
+    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env,
+      ...(inferenceEnv ?? {}),
+    } };
   }
 
   if (!envelope) {
@@ -442,7 +458,8 @@ function assembleClaudeSdkTurn(
   return {
     options: sdkOptions,
     subscriptionOnly,
-    ...(envelope ? { pinnedSettingsEnv: envelope.pinned } : {}),
+    ...(envelope ? { pinnedSettingsEnv: envelope.pinned } : options.hostInference
+      ? { pinnedSettingsEnv: inferenceEnv } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
