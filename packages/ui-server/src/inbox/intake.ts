@@ -61,6 +61,13 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       authorize(principal);
       if (row.content_hash !== hash) throw new IntakeKeyConflictError("Intake key was already used for different content");
       const result = JSON.parse(row.result_json!) as ShareIntakeResult;
+      // Only the intake owner may recover its durable interactive session.
+      // Re-upload after a lost admission reply is a read, never another turn.
+      if (row.source === "share" && row.principal_id === principal.id) {
+        const binding = db.query("SELECT session_id FROM inbox_interactive_shares WHERE staging_id = ? AND principal_id = ?")
+          .get(row.staging_id, principal.id) as { session_id: string | null } | null;
+        if (binding?.session_id) result.filingSessionId = binding.session_id;
+      }
       const work = store.ingest({ threadId: crypto.randomUUID(), itemId: crypto.randomUUID(), source: row.source,
         dedupKey: row.dedup_key, stagingId: row.staging_id, expiresAt: Date.now() + SHARE_STAGING_TTL_MS, stakes: 1 });
       return { result, created: work.created, threadId: work.thread.id, itemId: work.item.id };

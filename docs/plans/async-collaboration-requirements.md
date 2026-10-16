@@ -95,7 +95,7 @@ Stated before the requirements because five of them derive from it.
   that arrived from outside, including every v1 share). It is never present in any
   model-authored payload schema, and no model output can change it. The share manifest
   has its source selected server-side
-  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:88`); this generalizes that.
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:95`); this generalizes that.
 - **T2. Model output is data, never authority.** `state_md`, T1 classifications, and
   follow-up payloads are authored by a model that has read attacker-controllable text. They
   may describe, request, and summarize. They may not select a tool profile, widen a

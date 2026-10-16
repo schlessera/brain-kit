@@ -370,7 +370,11 @@ every original's disposition before committing `done`. Observing an unrelated
 write, assistant prose or cancellation cannot infer successful filing.
 
 Persist the binding and application replay receipts in the operational store.
-Interrupted replies reuse the same identity and exact result. A write with an
+Interrupted replies reuse the same identity and exact result. The device keeps
+its confirmed review until correlated session admission; a repeated intake
+reports the owner's persisted filing session and opens it without starting
+another turn. The host rechecks this binding when a stale upload reply races
+admission. A write with an
 uncertain application outcome refuses repeat execution, preserving content and
 originals for inspection. The source marker identifies a filing's association;
 it is neither an application receipt nor an approval. Retained files need their

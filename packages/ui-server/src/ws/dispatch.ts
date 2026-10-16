@@ -158,6 +158,13 @@ export async function handleClientMessage(
           if (!host.inboxTools?.shares) throw new Error("This host does not support bound share filing");
           shareSessionId = host.inboxTools.shares.resolveSession(connection.authorization.principalId, msg.shareId, msg.sessionId,
             () => !connection.closed && connection.authorization.valid);
+          // A repeated intake without an explicit continuation only recovers
+          // the binding. Admission may have succeeded before its reply was lost.
+          if (shareSessionId && !msg.sessionId) {
+            host.sendMessage(ws, { type: "session_info", sessionId: shareSessionId, isNew: false,
+              ...(msg.requestId ? { requestId: msg.requestId } : {}) });
+            return;
+          }
         } catch (error) {
           host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", message: error instanceof Error ? error.message : "Share binding refused",
             ...(msg.requestId ? { requestId: msg.requestId } : {}) });

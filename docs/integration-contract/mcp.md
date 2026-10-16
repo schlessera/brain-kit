@@ -783,6 +783,15 @@ session; a caller asking for a different session refuses. Recovery uses that
 same session and item. A share whose start ended before a
 session was named can start again after lease recovery.
 
+The device retains its confirmed review until the matching `requestId` receives
+`session_info`, after the durable binding exists. Refused sends, disconnects
+and unconfirmed admission retain the copy. Repeated authenticated
+`POST /api/share` returns optional `ShareIntakeResult.filingSessionId` only to
+the original intake principal when a bound session exists. The client opens
+that session for recovery without dispatching another filing turn, including
+a lost acknowledgement or reload after partial or completed filing. This is
+read-only recovery, not authority to complete the item or apply content.
+
 For a bound session, successful authoritative applications return an optional
 `BrainApplicationResult.shareReceiptId`. Each receipt belongs to the source
 item and records actual document paths and hashes. An intake admits at most

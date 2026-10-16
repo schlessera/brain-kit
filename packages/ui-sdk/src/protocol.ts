@@ -2384,6 +2384,8 @@ export interface SharedFileMeta {
 
 /** Answer to POST /api/share: where the payload was staged. */
 export interface ShareIntakeResult {
+  /** Authenticated recovery of an already bound filing; open it without resending. */
+  filingSessionId?: string;
   /** Server-minted. The client never supplies a path component. */
   id: string;
   /** Repo-relative staging directory. */

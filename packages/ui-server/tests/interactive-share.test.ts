@@ -89,10 +89,11 @@ test("real app/WS completion verifies filing and retained PDF, then a lost reply
   });
   const before = readFileSync(join(f.brainPath, "notes/ithaca-share.md"), "utf8");
   const repeated = await f.upload(); expect(repeated.id).toBe(share.id);
+  expect(repeated.filingSessionId, "LOST_ADMISSION_RECOVERS_BOUND_SESSION_WITHOUT_DISPATCH").toBe(sid);
   await f.send(repeated, async req => {
     await expect(req.bridge.completeShare!(request), "COMPLETION_REPLAY_IS_IDEMPOTENT").resolves.toEqual({ ...receipt, replay: true });
     expect((await req.bridge.applyBrain!(application(share))).shareReceiptId).toBe(request.receiptIds[0]);
-  });
+  }, sid);
   expect(f.frames.findLast(frame => frame.type === "session_info").sessionId, "REUPLOADED_SHARE_RESUMES_ORIGINAL_SESSION").toBe(sid);
   expect(readFileSync(join(f.brainPath, "notes/ithaca-share.md"), "utf8")).toBe(before);
   expect(f.store.snapshot().items.filter(item => item.type === "triage")).toHaveLength(1);
@@ -113,6 +114,7 @@ test("partial filing and duplicate application delivery recover the same item/se
     await expect(req.bridge.completeShare!({ receiptIds: ["forged"], files: [] })).rejects.toThrow("forged");
   });
   expect(f.item(share).status).toBe("ready");
+  expect((await f.upload(false)).filingSessionId, "PARTIAL_FILING_RECOVERS_THE_SAME_SESSION").toBe(sid);
   expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
   // Reconstruct the concrete service after unwind; authority comes from the
   // persisted binding/receipts, rather than the previous instance's memory.
@@ -292,4 +294,66 @@ test("the existing exact approval surface owns binary discard and completion com
     });
   } finally { f.ws.removeEventListener("message", listener); }
   expect(f.item(share).status).toBe("done");
+});
+
+
+test("a lost admission reply recovers the persisted session without dispatching a second backend turn", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  const sid = await f.send(share, async () => {});
+  const repeated = await f.upload(false);
+  expect(repeated.filingSessionId).toBe(sid);
+  const receipt = deferred<any>();
+  const requestId = crypto.randomUUID();
+  const listener = (event: MessageEvent) => {
+    const frame = JSON.parse(String(event.data));
+    if (frame.requestId === requestId) receipt.resolve(frame);
+  };
+  f.ws.addEventListener("message", listener);
+  let dispatched = false;
+  f.scripts.push(async () => { dispatched = true; });
+  try {
+    // The client may still have the pre-binding intake response: the host
+    // checks the binding again instead of trusting that stale response.
+    f.ws.send(JSON.stringify({ type: "chat_message", shareId: share.id, text: "File the Odysseus share", requestId }));
+    expect(await receipt.promise).toMatchObject({ type: "session_info", sessionId: sid, isNew: false, requestId });
+    await Promise.all([...f.app.wsHost.turnTasks]);
+    expect(dispatched, "LOST_ADMISSION_NEVER_DISPATCHES_TWICE").toBe(false);
+    expect(f.item(share)).toMatchObject({ status: "ready", attempts: 1 });
+    expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
+  } finally { f.ws.removeEventListener("message", listener); }
+});
+
+
+test("an identical authenticated upload cannot expose another principal's filing session", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  await f.send(share, async () => {});
+  const other = createPrincipal(f.app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
+  const cookie = (await generateSignedCookie("brain_ui_session", other.id, SECRET)).split(";")[0]!;
+  const body = new FormData(); body.set("text", "Odysseus returns");
+  const response = await f.app.fetch(new Request("http://localhost/api/share", { method: "POST", body, headers: { cookie } }));
+  expect(response.status).toBe(201);
+  const result = await response.json() as ShareIntakeResult;
+  expect(result.id).toBe(share.id);
+  expect(result.filingSessionId, "RECOVERY_SESSION_IS_PRINCIPAL_SCOPED").toBeUndefined();
+});
+
+
+test("a repeated intake during a live filing only acknowledges its bound session", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  await f.send(share, async () => {
+    const receipt = deferred<any>();
+    const requestId = crypto.randomUUID();
+    const listener = (event: MessageEvent) => {
+      const frame = JSON.parse(String(event.data));
+      if (frame.requestId === requestId) receipt.resolve(frame);
+    };
+    f.ws.addEventListener("message", listener);
+    try {
+      const repeated = await f.upload(false);
+      expect(repeated.filingSessionId).toBe("odysseus-share-1");
+      f.ws.send(JSON.stringify({ type: "chat_message", shareId: share.id, text: "File the Odysseus share", requestId }));
+      expect(await receipt.promise).toMatchObject({ type: "session_info", sessionId: "odysseus-share-1", isNew: false, requestId });
+      expect(f.item(share)).toMatchObject({ status: "claimed", attempts: 1 });
+    } finally { f.ws.removeEventListener("message", listener); }
+  });
 });

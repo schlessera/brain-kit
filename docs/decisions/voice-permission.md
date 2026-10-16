@@ -396,7 +396,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:431-437`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:438-444`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -405,7 +405,7 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:431-437`, and the lookup computing
+(the block computing `remembers`, `dispatch.ts:438-444`, and the lookup computing
 `remembered`, `ws/bridge.ts:294-314`), and 192 of 192 measured
 approvals were kind `command`.
 
@@ -475,7 +475,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:478-501`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:485-508`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -594,7 +594,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   left out (the lookup computing `remembered`,
   `packages/ui-server/src/ws/bridge.ts:294-314`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:431-437`).
+  `packages/ui-server/src/ws/dispatch.ts:438-444`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 
