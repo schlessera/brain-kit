@@ -92,6 +92,7 @@ async function open(proveBackend = false): Promise<Page> {
     const before = turns;
     const composer = page.locator("textarea.bk-composer");
     await composer.fill("Typed fixture control");
+    await composer.locator("..").locator('[aria-label="Send"]').waitFor();
     await composer.press("Enter");
     await page.waitForFunction("window.__speechFixture.turnIdle()");
     expect(turns).toBe(before + 1);
