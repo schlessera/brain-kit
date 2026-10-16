@@ -1,6 +1,6 @@
 /** Real subprocess regressions for the five-second boot deadline (#286). */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeClaudeRuntime } from "../../ui-backend-claude/src/runtime-probe";
@@ -9,8 +9,13 @@ import { createHostBoundary } from "../src/brain/host-boundary";
 import { createRecordingObservability } from "../src/observability";
 
 const dirs: string[] = [];
-afterEach(() => {
+const inheritedDirs = new Set<string>();
+afterEach(async () => {
+  const errors: unknown[] = [];
   for (const dir of dirs.splice(0)) {
+    try {
+      if (inheritedDirs.delete(dir)) await cleanupDescendant(dir);
+    } catch (error) { errors.push(error); }
     for (const name of ["probe.pid", "descendant.pid", "helper.pid"]) {
       const path = join(dir, name);
       if (!existsSync(path)) continue;
@@ -21,19 +26,48 @@ afterEach(() => {
     }
     rmSync(dir, { recursive: true, force: true });
   }
+  if (errors.length) throw new AggregateError(errors, "Inherited-pipe fixture cleanup failed");
 });
+
+function descendantPid(dir: string): number {
+  // Independent cleanup receipt: even a missing/wrong primary marker must not
+  // prevent teardown from finding the child whose publication assertion failed.
+  const pid = Number(readFileSync(join(dir, "descendant.owner.pid"), "utf8"));
+  expect(Number.isSafeInteger(pid) && pid > 1 && pid !== process.pid).toBe(true);
+  return pid;
+}
+function inheritedEndpoints(dir: string, pid: number): void {
+  for (const fd of [1, 2]) {
+    const original = readFileSync(join(dir, `${fd}.endpoint`), "utf8").trim();
+    expect(original).toMatch(/^(pipe|socket):\[\d+\]$/);
+    expect(readlinkSync(`/proc/${pid}/fd/${fd}`)).toBe(original);
+  }
+}
+async function cleanupDescendant(dir: string): Promise<void> {
+  const pid = descendantPid(dir);
+  const entry = `/proc/${pid}`;
+  if (existsSync(entry)) {
+    // Identify the actual inherited endpoints before signalling a non-child PID.
+    inheritedEndpoints(dir, pid);
+    process.kill(pid, "SIGKILL");
+  }
+  const until = Date.now() + 1_000;
+  while (existsSync(entry) && Date.now() < until) await Bun.sleep(10);
+  // This observes non-child disappearance; it is not a direct-child wait/reap.
+  expect(existsSync(entry), "owned inherited-pipe descendant disappears after teardown").toBe(false);
+}
 
 function executable(path: string, body: string): string {
   writeFileSync(path, `#!/bin/sh\n${body}\n`);
   chmodSync(path, 0o755);
   return path;
 }
-function fixture(output: string, body = 'exec sleep 8') {
+function fixture(output: string, body: string | ((dir: string) => string) = 'exec sleep 8') {
   const dir = mkdtempSync(join(tmpdir(), "boot-deadline-"));
   dirs.push(dir);
   const bin = join(dir, "node_modules", ".bin");
   mkdirSync(bin, { recursive: true });
-  const path = executable(join(bin, "brain"), `echo $$ > '${dir}/probe.pid'\nprintf '%s\\n' \"$@\" > '${dir}/argv.log'\ntrap '' TERM\necho '${output}'\n${body}`);
+  const path = executable(join(bin, "brain"), `echo $$ > '${dir}/probe.pid'\nprintf '%s\\n' \"$@\" > '${dir}/argv.log'\ntrap '' TERM\necho '${output}'\n${typeof body === "function" ? body(dir) : body}`);
   const wrapper = executable(join(dir, "wrapper"), 'exec "$@"');
   return { dir, path, wrapper } as { dir: string; path: string; wrapper?: string };
 }
@@ -92,9 +126,17 @@ describe("boot probe deadline", () => {
       });
     }
     test(`${kind} bounds inherited output pipes after the probe process exits`, async () => {
-      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)", `sleep 8 &\necho $! > descendant.pid\nexit 0`);
+      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)", dir =>
+        `stdout_endpoint=$(readlink /proc/$$/fd/1)\nstderr_endpoint=$(readlink /proc/$$/fd/2)\nprintf '%s\\n' \"$stdout_endpoint\" > '${dir}/1.endpoint'\nprintf '%s\\n' \"$stderr_endpoint\" > '${dir}/2.endpoint'\nsleep 8 &\necho $! > '${dir}/descendant.owner.pid'\necho $! > '${dir}/descendant.pid'\nexit 0`);
+      inheritedDirs.add(f.dir);
       delete f.wrapper;
       const result = await probe(kind, f);
+      const pid = descendantPid(f.dir);
+      const parent = Number(readFileSync(join(f.dir, "probe.pid"), "utf8"));
+      expect(existsSync(`/proc/${parent}`), "the original probe parent has exited").toBe(false);
+      inheritedEndpoints(f.dir, pid);
+      expect(existsSync(join(f.dir, "descendant.pid")), "the descendant publishes its fixture-owned PID marker").toBe(true);
+      expect(Number(readFileSync(join(f.dir, "descendant.pid"), "utf8"))).toBe(pid);
       const text = kind === "brain" ? result.logs.map(log => String(log.body)).join("\n") : String(result.error);
       expect(result.elapsed).toBeGreaterThanOrEqual(4_950);
       expect(result.elapsed).toBeLessThan(5_000 + SETTLEMENT_MARGIN_MS);
