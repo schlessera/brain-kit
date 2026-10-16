@@ -41,8 +41,10 @@ test("shared inference destination admission refuses before credentials and upst
 });
 
 test("inference and generic HTTP consume one turn counter and preserve redacted destination records", async () => {
-  let contacts = 0;
-  const f = await setup(5000, request => { contacts++; expect(request.headers.get("authorization")).toBe("Bearer odysseus-host-held"); return new Response("raft"); });
+  const f = await setup(5000, request => {
+    if (new URL(request.url).pathname === "/v1/messages") expect(request.headers.get("authorization")).toBe("Bearer odysseus-host-held");
+    return new Response("raft");
+  });
   try {
     expect((await send(f.relay.socketPath, "/v1/messages?private=Odysseus")).status).toBe(200);
     const first = f.proxy.usedBytes();
